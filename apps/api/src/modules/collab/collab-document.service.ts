@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger, Optional, ServiceUnavailableException, type OnApplicationShutdown } from '@nestjs/common';
 import * as Y from 'yjs';
-import { toReadModel, CANVAS_DOC_SCHEMA_VERSION, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, textDomainOf, type StoredNodeRecord, type DocEdgeRecord } from '@flowweb/shared';
+import { toReadModel, CANVAS_DOC_SCHEMA_VERSION, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, textDomainOf, type StoredNodeRecord, type DocEdgeRecord, type CanvasReadModel, type CanvasReadSnapshot } from '@flowweb/shared';
 import { CollabGateway, isValidDocName } from './collab.gateway';
 import { canvasDocName } from './doc-name.util';
 import { CollabResidencyService, type WithSessionOptions } from './collab-residency.service';
@@ -10,7 +10,7 @@ import { createCanvasDoc } from './canvas-doc.factory';
 import type { FlushOutcome } from './collab-persistence.service';
 import { yjsSnapshotFallbackTotal, yjsWithdocDuration, yjsWithdocOpenDuration, noteDirectLoad, consumeDirectLoad, registerSnapshotCacheEntriesReader, unregisterSnapshotCacheEntriesReader } from './store.metrics';
 import { execProjectionDroppedTotal, execOrphanBlockedTotal, execSeqStaleRejected } from '../execution/exec.metrics';
-import { SnapshotDocCache, type DecodedSnapshot } from './snapshot-doc-cache';
+import { SnapshotDocCache } from './snapshot-doc-cache';
 
 /** Z111：exec 投影 patch 类型——attempts 必填（编译级；请求级投影传 0 代："0 代不得覆盖任何 ≥1 代"）。 */
 export interface ExecStatusPatch {
@@ -131,7 +131,7 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  Y0c T20（Z105 spec :526）：opts.ephemeral=即用即释档（不入会话表）——原消费面=reconcile 5min
    *  周期探针（T13 起 probeArtifacts 删除=doc 探测退款后门根修，R3 判据全量换 PG）；ephemeral 档
    *  保留为 residency 通用能力（冷读防钉常驻池），REST/作业面读缺省入池（T15 常驻语义不变）。 */
-  async readCanvas(projectId: string, opts?: { ephemeral?: boolean }): Promise<{ nodes: any[]; edges: any[] }> {
+  async readCanvas(projectId: string, opts?: { ephemeral?: boolean }): Promise<CanvasReadModel> {
     return this.withSession(projectId, async (doc) => {
       return toReadModel(doc);
     }, { mode: 'read', ephemeral: opts?.ephemeral });
@@ -145,11 +145,13 @@ export class CollabDocumentService implements OnApplicationShutdown {
 
   /** Y0b-2 T3：快照解码单源——readSnapshotOnly 行集→同 doc 重放→版本门→投影；快照缓存 loader
    *  与直接快照读共用此实现（防两处解码漂移）。不经 openDirectConnection/不装载/不触 store/compact；
-   *  陈旧度=进行中编辑未含（去抖窗级，spec §9.9 登记）。 */
-  private async decodeSnapshot(projectId: string): Promise<DecodedSnapshot> {
+   *  陈旧度=进行中编辑未含（去抖窗级，spec §9.9 登记）。
+   *  Y1c T19：出口 DecodedSnapshot{nodes,edges} → CanvasReadSnapshot（读模型+水位三元——
+   *  缓存键轨 (pid,g,snapshotRev) 与 ETag=pgSeq 新鲜度由水位面承载；BigInt wire=string）。 */
+  private async decodeSnapshot(projectId: string): Promise<CanvasReadSnapshot> {
     // T18（Y1b T2）：版本门=CanvasDoc.schemaVersion 行值（readSnapshotOnly 随行——快照出口与装载
     // 出口同一列单源；行值≠current 拒读——旧 doc 档无迁移；行缺失 null=懒建档放行）。
-    const { state, updates, schemaVersion } = await this.repo.readSnapshotOnly(projectId);
+    const { state, updates, schemaVersion, generation, pgSeq, currentSnapshotRev } = await this.repo.readSnapshotOnly(projectId);
     if (schemaVersion != null && schemaVersion !== CANVAS_DOC_SCHEMA_VERSION) {
       throw new Error(`DOC_SCHEMA_STALE: CanvasDoc.schemaVersion=${schemaVersion} ≠ current ${CANVAS_DOC_SCHEMA_VERSION}——快照拒读（版本硬切批无迁移）`);
     }
@@ -157,7 +159,12 @@ export class CollabDocumentService implements OnApplicationShutdown {
     try {
       if (state) Y.applyUpdate(doc, new Uint8Array(state));
       for (const u of updates) Y.applyUpdate(doc, new Uint8Array(u));
-      return toReadModel(doc);
+      return {
+        model: toReadModel(doc),
+        generation: generation ?? 0,
+        snapshotRev: (currentSnapshotRev ?? 0n).toString(),
+        pgSeq: (pgSeq ?? 0n).toString(),
+      };
     } finally {
       doc.destroy();
     }
@@ -169,11 +176,22 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  （快照不可信定义性不使用）——活读经 withSession 会话形态（Y0c T15 读路径改道；门同判据：
    *  isLeaseServing ⇒ drain 进行中 503，可达性边界 T9 登记；会话入池钉住——T20 裁决⑥ 同形态，
    *  doc 常驻期复用零装载）+fallback 计数观测（低频边缘：spool 未落库窗内外部分享请求触发会话装载）。
-   *  计费/语义读（execution/video-project）走 readCanvas 活读——分源规则见其头注。 */
-  async readCanvasSnapshotCached(projectId: string): Promise<DecodedSnapshot> {
+   *  计费/语义读（execution/video-project）走 readCanvas 活读——分源规则见其头注。
+   *  Y1c T19：出口 CanvasReadSnapshot（水位面随行——fallback 档=readWatermark 采样包水位
+   *  （活读内容可能领先 pgSeq——ETag=pgSeq 口径不超前持久水位，§5.1/G1「ETag 不超前 pgSeq」）。 */
+  async readCanvasSnapshotCached(projectId: string): Promise<CanvasReadSnapshot> {
     if (!this.gateway.isPersistedComplete(projectId)) {
       yjsSnapshotFallbackTotal.inc();
-      return this.readCanvas(projectId);
+      const [model, wm] = await Promise.all([
+        this.readCanvas(projectId),
+        this.repo.readWatermark(projectId),
+      ]);
+      return {
+        model,
+        generation: wm?.generation ?? 0,
+        snapshotRev: (wm?.currentSnapshotRev ?? 0n).toString(),
+        pgSeq: (wm?.pgSeq ?? 0n).toString(),
+      };
     }
     return this.snapshotCache.get(projectId, () => this.decodeSnapshot(projectId));
   }

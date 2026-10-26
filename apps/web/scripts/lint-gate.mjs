@@ -35,6 +35,7 @@ export const STATIC_ASSERT_RULE_IDS = new Set([
   'flowweb/no-shadow-literal',    // E. shadow- 前缀字面量零命中（批5 删信箱）：生成/过滤/短路判定三形态零回流
   'flowweb/no-mediaurl-write',    // F. mediaUrl 写入门（R2b-8）：node data.mediaUrl 双 AST 形态读写皆拦（F37 presigned URL 不持久化）
   'flowweb/no-test-geometry-setstate', // G. test/spec 面几何 setState 静态棘轮（C0-2 Spec B）：allow-list 存量冻结+新文件直拦（方向与 A~F 相反——豁免生产拦 test/spec）
+  'flowweb/no-nodes-map-direct-read',  // H. nodes map 直读门（Y1c T19）：除 DocCodec/投影·绑定层/写缝/undo scope 外禁 getMap('nodes')——读者经 readCanvasFromDoc（CanvasReadModel 唯一共享读类型）
 ]);
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASELINE_PATH = path.join(APP_ROOT, 'e2e', 'audit', 'eslint-hex-baseline.json');
@@ -168,7 +169,7 @@ async function main() {
       const rel = toRelPosix(v.filePath);
       console.error(`静态断言违例 ${rel}:${v.line}  [${v.ruleId}]  ${v.lineText.trim()}`);
     }
-    console.error(`collab 静态断言（connStatus 单写点/getMap 门/setState 白名单/零删除扫描/shadow- 字面量/mediaUrl 写入/test 几何 setState 棘轮）: ${staticAssertViolations.length} 违例（白名单外直判）→ FAIL`);
+    console.error(`collab 静态断言（connStatus 单写点/getMap 门/setState 白名单/零删除扫描/shadow- 字面量/mediaUrl 写入/test 几何 setState 棘轮/nodes map 直读门）: ${staticAssertViolations.length} 违例（白名单外直判）→ FAIL`);
     process.exitCode = 1;
     return;
   }
@@ -252,7 +253,7 @@ async function main() {
     process.exitCode = 1;
   } else {
     console.log(`${THEME_RULE_ID}: 0 违例（白名单外直判）→ PASS`);
-    console.log(`collab 静态断言（connStatus 单写点/getMap 门/setState 白名单/零删除扫描/shadow- 字面量/mediaUrl 写入/test 几何 setState 棘轮）: 0 违例（白名单外直判）→ PASS`);
+    console.log(`collab 静态断言（connStatus 单写点/getMap 门/setState 白名单/零删除扫描/shadow- 字面量/mediaUrl 写入/test 几何 setState 棘轮/nodes map 直读门）: 0 违例（白名单外直判）→ PASS`);
     console.log(`flowweb/no-color-hex: ${matched} baselined, 0 new → PASS`);
     if (removed > 0) {
       console.log(`（迁移进度：baseline 已消除 ${removed} 键）`);

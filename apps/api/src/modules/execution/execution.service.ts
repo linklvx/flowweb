@@ -182,8 +182,8 @@ export class ExecutionService {
     //（CollabModule useExisting 直调 doc service）；worker 进程=HttpCollabWritePort（T26 workerProviders
     // 装配，readCanvas 走 /write-batch 端点读段——本任务零动作）。
     const canvas = await this.collabDoc.readCanvas(projectId);
-    const allNodes = canvas.nodes as any[];
-    const allEdges = canvas.edges as any[];
+    const allNodes = canvas.nodes;   // Y1c T19：CanvasReadModel 直面（零 any 桥）
+    const allEdges = canvas.edges;
 
     // 2. Determine scope
     const scopeNodes = nodeIds

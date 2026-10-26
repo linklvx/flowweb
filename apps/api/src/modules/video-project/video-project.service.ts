@@ -96,7 +96,7 @@ export class VideoProjectService {
     if (!this.collab.isLeaseServing())
       throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'collab not serving' });
     const canvas = await this.collab.readCanvas(dto.workflowId);
-    const src = (canvas.nodes as any[]).find(n => n.id === dto.sourceNodeId);
+    const src = canvas.nodes.find(n => n.id === dto.sourceNodeId);   // Y1c T19：CanvasReadModel 直面
     const wantType = dto.kind === 'video' ? 'videoGen' : 'audioGen';
     if (!src || src.type !== wantType) throw new BadRequestException('source node not found or kind mismatch');
     // Y0b-2 T7：execute sv 形参删除——retake 直调零客户端状态（SV 门覆盖面=四受理端点，进程内直调豁免：

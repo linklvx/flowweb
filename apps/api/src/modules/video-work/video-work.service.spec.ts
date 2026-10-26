@@ -387,8 +387,8 @@ describe('toggleLike', () => {
   });
 });
 
-describe('injectThumbnails', () => {
-  it('收集 fileId 批量查 Media.thumbnailKey → presign 注入 data.thumbnailUrl，响应不含 fileId', async () => {
+describe('computeThumbnailUrls（Y1c T19：sanitize 前收集 fileId→presign 表——注入归 toPublicSnapshot.thumbnailUrls）', () => {
+  it('收集 fileId 批量查 Media.thumbnailKey → presign 返回 nodeId→URL 表（fileId 留在读模型侧，公开面白名单剥）', async () => {
     prisma.media.findMany = vi.fn().mockResolvedValue([
       { id: 'f1', thumbnailKey: 'thumbnails/f1.webp' },
       { id: 'f2', thumbnailKey: null },
@@ -401,11 +401,9 @@ describe('injectThumbnails', () => {
       ],
       edges: [],
     };
-    const out = await service.injectThumbnails(raw as any);
+    const out = await service.computeThumbnailUrls(raw as any);
     expect(prisma.media.findMany).toHaveBeenCalledWith({ where: { id: { in: ['f1', 'f2'] } }, select: { id: true, thumbnailKey: true } });
-    expect(out.nodes[0].data.thumbnailUrl).toBe('http://minio/thumbs'); // 有 thumbnail 的注入
-    expect(out.nodes[1].data.thumbnailUrl).toBeUndefined();             // 无 thumbnail 不注入（前端占位）
-    expect(out.nodes[0].data.fileId).toBe('f1');                        // 注入阶段保留 fileId，过滤阶段剥（管线顺序）
+    expect(out).toEqual({ n1: 'http://minio/thumbs' });   // 有 thumbnail 的入表；无 thumbnail 不入（前端占位）
   });
 });
 
@@ -431,7 +429,7 @@ describe('getProcessSnapshot（安全验收）', () => {
     prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ ...work, ...over });
     prisma.canvasProject.findUnique = vi.fn().mockResolvedValue({ id: 'p1' });
     prisma.media.findMany = vi.fn().mockResolvedValue([]);
-    (service as any).collabDoc = { readCanvasSnapshotCached: vi.fn().mockResolvedValue(rawCanvas), invalidateSnapshotCache: vi.fn() };
+    (service as any).collabDoc = { readCanvasSnapshotCached: vi.fn().mockResolvedValue({ model: rawCanvas, generation: 1, snapshotRev: '3', pgSeq: '9' }), invalidateSnapshotCache: vi.fn() };   // Y1c T19：CanvasReadSnapshot 形（水位三元随行）
     // 第十轮：Map 支撑的 get/set——原 get 恒 null + set 空 vi.fn()，"缓存命中第二次不触 readCanvas"必红
     //（第二次 get 仍 null → 重算 → readCanvas 被调 2 次）。对照 Task 3.2 命中用例（mockResolvedValue('[]')）。
     const cache = new Map<string, string>();
@@ -522,18 +520,27 @@ describe('getProcessSnapshot（安全验收）', () => {
     expect((service as any).collabDoc.readCanvasSnapshotCached).toHaveBeenCalledTimes(1); // 守卫在缓存读取之前，未因缓存命中被短路
   });
 
-  it('下线失效双机制②：updateWork → redis.del(videoWork:process:w1:v2)（写路径失效——O0b-0 键拼 schema 常量）', async () => {
+  it('下线失效双机制②：updateWork → redis.del(meta 指针键)（写路径失效——Y1c T19 键含 g/r 维：meta 精确双删，无 meta 时仅 meta 键）', async () => {
     prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'DRAFT', publishedAt: null, allowViewProcess: false, allowClone: false, canvasProjectId: null });
     prisma.videoWork.update = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
     await service.updateWork('w1', { title: 'x' } as any);
-    expect((service as any).redis.del).toHaveBeenCalledWith(`videoWork:process:w1:v${CANVAS_DOC_SCHEMA_VERSION}`);
+    expect((service as any).redis.del).toHaveBeenCalledWith(`videoWork:process:w1:v${CANVAS_DOC_SCHEMA_VERSION}:meta`);
   });
 
-  it('O0b-0：PROCESS_CACHE 键拼 schema 常量（翻转批 300s 窗口隔离——v1 旧空间载荷不命中新键）', async () => {
+  it('O0b-0+Y1c T19：PROCESS_CACHE 键拼 schema 常量+缓存键轨 (pid,g,snapshotRev)（翻转批/换代/发版 300s 窗口隔离）', async () => {
     setup();
     await service.getProcessSnapshot('w1');
-    const setKey = (service as any).redis.set.mock.calls[0][0] as string;
-    expect(setKey).toBe(`videoWork:process:w1:v${CANVAS_DOC_SCHEMA_VERSION}`);
+    const setKeys = (service as any).redis.set.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(setKeys).toContain(`videoWork:process:w1:v${CANVAS_DOC_SCHEMA_VERSION}:g1:r3`);   // 体键（g=generation r=snapshotRev——mock 水位 {g:1,rev:3}）
+    expect(setKeys).toContain(`videoWork:process:w1:v${CANVAS_DOC_SCHEMA_VERSION}:meta`);   // meta 指针键
+  });
+
+  it('Y1c T19：ETag=read model 新鲜度=pgSeq（formatCanvasReadETag——g{generation}:p{pgSeq} 随缓存体原子配对）', async () => {
+    setup();
+    const out = await service.getProcessSnapshot('w1');
+    expect(out.etag).toBe('g1:p9');   // mock 水位 {generation:1, pgSeq:'9'}——ETag 单源 formatCanvasReadETag
+    const out2 = await service.getProcessSnapshot('w1');   // 缓存命中档 etag 随缓存体（同值）
+    expect(out2.etag).toBe('g1:p9');
   });
 
   it('readCanvas 挂起 → 有界超时 503', async () => {
@@ -549,15 +556,13 @@ describe('getProcessSnapshot（安全验收）', () => {
     expect((service as any).collabDoc.invalidateSnapshotCache).not.toHaveBeenCalled();   // T3 的"处理完成后失效"随双层化退役
   });
 
-  it('E71：canvas.doc-saved → 双层失效（invalidateSnapshotCache(projectId)+redis.del 各 work PROCESS_CACHE）', async () => {
+  it('E71+Y1c T19：canvas.doc-saved → 双层失效（invalidateSnapshotCache(projectId)+redis.del 各 work meta 指针键——体键经 meta 精确双删）', async () => {
     setup();
     prisma.videoWork.findMany.mockResolvedValue([{ id: 'w1' }, { id: 'w2' }]);
     await (service as any).onCanvasDocSaved({ projectId: 'p1' });
     expect((service as any).collabDoc.invalidateSnapshotCache).toHaveBeenCalledWith('p1');
-    expect((service as any).redis.del).toHaveBeenCalledWith(
-      `videoWork:process:w1:v${CANVAS_DOC_SCHEMA_VERSION}`,
-      `videoWork:process:w2:v${CANVAS_DOC_SCHEMA_VERSION}`,
-    );
+    expect((service as any).redis.del).toHaveBeenCalledWith(`videoWork:process:w1:v${CANVAS_DOC_SCHEMA_VERSION}:meta`);
+    expect((service as any).redis.del).toHaveBeenCalledWith(`videoWork:process:w2:v${CANVAS_DOC_SCHEMA_VERSION}:meta`);
   });
 
   it('E71：canvas.doc-saved 空 works → 仅进程内失效（redis.del 零参不触）', async () => {

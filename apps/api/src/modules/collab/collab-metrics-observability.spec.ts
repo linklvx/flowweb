@@ -319,7 +319,7 @@ describe('Y0b-5 T10：snapshot-doc-cache 容量上界+entries gauge', () => {
     const load = (pid: string) => {
       calls[pid] ??= { n: 0 };
       const c = calls[pid];
-      return async () => { c.n += 1; return { nodes: [{ id: pid }], edges: [] }; };
+      return async () => { c.n += 1; return { model: { nodes: [{ id: pid, type: 'textInput', data: {} } as never], edges: [] }, generation: 0, snapshotRev: '0', pgSeq: '0' }; };   // Y1c T19：CanvasReadSnapshot 形
     };
     for (let k = 0; k < 32; k++) await cache.get(`p${k}`, load(`p${k}`));
     expect(cache.size).toBe(32);
@@ -338,7 +338,7 @@ describe('Y0b-5 T10：snapshot-doc-cache 容量上界+entries gauge', () => {
     const service = new CollabDocumentService(gateway, { readSnapshotOnly: vi.fn(), readWatermark: vi.fn().mockResolvedValue(null) } as any);   // Y1c T12：readWatermark canonical 名读面（null=gen0 裸名）
     const cache = (service as any).snapshotCache as SnapshotDocCache;
     expect(await gaugeValue('yjs_snapshot_cache_entries')).toBe(cache.size);
-    await cache.get('p1', async () => ({ nodes: [], edges: [] }));
+    await cache.get('p1', async () => ({ model: { nodes: [], edges: [] }, generation: 0, snapshotRev: '0', pgSeq: '0' }));
     expect(await gaugeValue('yjs_snapshot_cache_entries')).toBe(1);
   });
 });

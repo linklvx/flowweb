@@ -106,6 +106,25 @@ export interface CanvasReadModel {
   edges: CanvasReadModelEdge[];
 }
 
+/** 读模型+水位快照（Y1c T19：公开快照读径①载体——readCanvasSnapshotCached 出口族）：
+ *  model=doc 内容（唯一共享读类型）；水位三元按 spec §5.3 缓存键双轨——公开快照轨
+ *  (projectId,generation,snapshotRev) + 新鲜度 pgSeq（§5.1「ETag/read model 新鲜度/公开快照
+ *  水位一律 pgSeq」）。BigInt wire=string 纪律（§5.2——snapshotRev/pgSeq 恒十进制字符串）。 */
+export interface CanvasReadSnapshot {
+  model: CanvasReadModel;
+  generation: number;
+  /** 快照检查点版本（CanvasDoc.currentSnapshotRev——wire=string） */
+  snapshotRev: string;
+  /** 对外唯一「已保存」水位（§5.1——wire=string；ETag/read model 新鲜度单源） */
+  pgSeq: string;
+}
+
+/** ETag=read model 新鲜度=pgSeq（§5.1）+generation 前缀（§8.1 v5.4⑦「ETag 拼 generation:pgSeq」
+ *  ——换代后同 pgSeq 复位不产生 304 旧内容）。公开快照/读模型新鲜度共用单源（禁第二拼法）。 */
+export function formatCanvasReadETag(s: { generation: number; pgSeq: string }): string {
+  return `g${s.generation}:p${s.pgSeq}`;
+}
+
 /** 公开快照策略（小类型化 policy——白名单真源住调用方：api snapshot-filter WHITELIST 表未上移，
  *  shared 不造第二份逐类型表防漂移；调用方传表+URL 域）。 */
 export interface PublicSnapshotPolicy {

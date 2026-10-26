@@ -2,20 +2,27 @@
  *  type 键真值来源 = CanvasView.tsx:42-51 的 nodeTypes 注册表（8 键，含 videoEdit/group——
  *  nodeStore NODE_TYPES 只有 6 键不是全集；API 无法 import web 源码，静态照抄；
  *  全覆盖测试是唯一防线——新增节点类型时必须同步本表）。
- *  isTextNode 用 'text' 判断是既有不一致，勿参照。 */
+ *  isTextNode 用 'text' 判断是既有不一致，勿参照。
+ *
+ *  Y1c T19（plan v1.7 卡）：读者改道——输入面=CanvasReadModel（doc-codec 唯一共享读类型；
+ *  edges source/target 可选〔DocEdgeRecord 同形〕）；**公开快照出口=toPublicSnapshot**（芯=shared
+ *  doc-codec.toPublicReadModel sanitize——RichTextValue 只余 text，红线 1：html/json 永不出公开面）
+ *  +公开 wire 形状收口（content/prompt 恒 string——web ProcessSnapshot.tsx 消费契约）；
+ *  克隆路径 buildFilteredSnapshot 维持域容器全保真（用户画布副本——fillDoc materialize.json 回灌面）。 */
 
-import { GROUP_NODE_DATA_KEYS } from '@flowweb/shared';
+import { GROUP_NODE_DATA_KEYS, toPublicReadModel, type CanvasReadModel } from '@flowweb/shared';
 
 export interface RawNode {
   id: string;
   type: string;
-  position: { x: number; y: number };
+  position?: { x: number; y: number };   // Y1c T19：可选对齐读模型真源（CanvasReadModelNode——normalizeNodeRecord 兜 {0,0}）
   width?: number;
   height?: number;
   parentId?: string | null;
   data: Record<string, unknown>;
 }
-export interface RawEdge { id: string; source: string; target: string }
+/** Y1c T19：边形状对齐读模型真源（CanvasReadModelEdge——source/target 可选；fillDoc 写侧 `?? ''` 兜底）。 */
+export interface RawEdge { id: string; source?: string; target?: string }
 export interface RawCanvasData { nodes: RawNode[]; edges: RawEdge[] }
 
 export interface FilterOptions {
@@ -27,7 +34,7 @@ export interface FilterOptions {
 }
 
 export type FilteredNode = RawNode;
-export interface FilteredEdge { id: string; source: string; target: string }
+export interface FilteredEdge { id: string; source?: string; target?: string }
 
 /** data 白名单表（C2 Task 5.1 第五轮定稿——按 nodeStore.ts:101-127 注释分组的字段实际分布）：
  *  aspectRatio 根级通用（两类都有）；aiTool 仅 imageExtGen 根级；style/model/quality/ratio/resolution/prompt
@@ -117,11 +124,13 @@ function applyWhitelist(node: RawNode, opts: FilterOptions): FilteredNode {
     if (!(field in src)) continue;
     const v = src[field];
     if (field === 'content' && node.type === 'textInput' && typeof v === 'string') {
-      data.content = stripHtmlToText(v);           // textInput.content 是 tiptap HTML（Y1c T15 后矩阵内 content 用户键仅 textInput——audioGen.content 已迁 prompt 退册，误剥面收敛）
+      data.content = stripHtmlToText(v);           // 旧 string 载体（HTML 语义）→ 纯文本；T16 后 content=XmlFragment ⇒ 读模型 RichTextValue 走 else 全保真（json 回灌面）
     } else if (field === 'prompt') {
-      data.prompt = (v && typeof v === 'object')
-        ? String((v as any).text ?? '')            // PromptValue → 只取 .text 原文（红线 1：永不返回 .html；.text 本身是纯文本，勿再 strip——防正常尖括号文本被吃）
-        : v;                                       // audioGen/multiImageGen 的 string prompt（Y.Text 域——读模型=string）
+      data.prompt = (v && typeof v === 'object' && Array.isArray((v as any).json))
+        ? v                                        // RichTextValue 全保真（Y1c T19——克隆域容器回灌面 materialize.json；公开面走 toPublicSnapshot 不经此分支）
+        : (v && typeof v === 'object')
+          ? String((v as any).text ?? '')          // 旧 PromptValue → 只取 .text 原文（红线 1：永不返回 .html；.text 本身是纯文本，勿再 strip——防正常尖括号文本被吃）
+          : v;                                     // audioGen/multiImageGen 的 string prompt（Y.Text 域——读模型=string）
     } else {
       data[field] = v;
     }
@@ -141,7 +150,7 @@ function applyWhitelist(node: RawNode, opts: FilterOptions): FilteredNode {
   return normalizeNodeRecord({ ...node, data });
 }
 
-export function buildFilteredSnapshot(raw: RawCanvasData, opts: FilterOptions): { nodes: FilteredNode[]; edges: FilteredEdge[] } {
+export function buildFilteredSnapshot(raw: RawCanvasData | CanvasReadModel, opts: FilterOptions): { nodes: FilteredNode[]; edges: FilteredEdge[] } {
   const dropped = new Set<string>();
   const kept = raw.nodes.filter(n => {
     if (opts.dropTypes.includes(n.type)) { dropped.add(n.id); return false; }
@@ -149,11 +158,59 @@ export function buildFilteredSnapshot(raw: RawCanvasData, opts: FilterOptions): 
     return true;
   });
   const edges = raw.edges
-    .filter(e => !dropped.has(e.source) && !dropped.has(e.target))
-    .map(e => ({ id: e.id, source: e.source, target: e.target })); // edges 单形状 source/target（R1a 收敛）
+    .filter(e => !(e.source != null && dropped.has(e.source)) && !(e.target != null && dropped.has(e.target)))
+    .map(e => ({ id: e.id, source: e.source, target: e.target })); // edges 单形状 source/target（R1a 收敛——Y1c T19 起可选透传，克隆 remap 时收口必填）
   const nodes = ensureParentFirst(kept).map(n => applyWhitelist(n, opts));
   // T17（Z17'' cells 派生删）：旧 cells 槽位剪枝段死代码删——快照源 doc 无 cells（格位=子 slot，
   // 节点被剥即格位随节点消失；clone 端 CLONE_WHITELIST 的 cs cells 缓存键由 service 层
   // video-work-clone 的 slot 语义维持——本层零槽位清理职责）
   return { nodes, edges };
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Y1c T19：公开快照出口 toPublicSnapshot——芯=shared doc-codec.toPublicReadModel
+// （RichTextValue 只余 text〔红线 1〕+逐类型 data 键白名单+dropTypes 连带边剔除）+公开 wire
+// 形状收口（content/prompt {text}→string——web ProcessSnapshot.tsx:36-43 消费契约）+
+// thumbnailUrl（服务端注入键——sanitize 后注入不进白名单）+克隆同款 resetStatusIdle/
+// ensureParentFirst/normalizeNodeRecord 复用。克隆路径（读径④）不走本出口（域容器全保真）。
+// ══════════════════════════════════════════════════════════════════════════
+
+export interface PublicSnapshotOptions {
+  /** 丢弃节点类型（连带触达边） */
+  dropTypes: string[];
+  /** 克隆同款态字段重置（公开快照传 false——态字段不进白名单天然不出现） */
+  resetStatusIdle: boolean;
+  /** 服务端注入缩略图（nodeId→presigned URL——injectThumbnails 的 sanitize 后注入面） */
+  thumbnailUrls?: Record<string, string>;
+}
+
+/** 富文本 sanitize 残留（{text}）→ 公开 wire string（形状收口——t19 spec 消费契约）；
+ *  旧 string 载体（HTML 语义）→ stripHtmlToText（legacy 兜底——post-T16 读模型恒 RichTextValue）。 */
+const publicTextOf = (v: unknown, legacyStrip: (s: string) => string): unknown =>
+  v !== null && typeof v === 'object' && !Array.isArray(v) && typeof (v as { text?: unknown }).text === 'string'
+    ? (v as { text: string }).text
+    : typeof v === 'string' ? legacyStrip(v) : v;
+
+export function toPublicSnapshot(model: CanvasReadModel, opts: PublicSnapshotOptions): { nodes: FilteredNode[]; edges: FilteredEdge[] } {
+  // ① sanitize：toPublicReadModel（RichTextValue→{text}+逐类型键白名单+dropTypes 连带边剔除）
+  //    ——白名单表与 applyWhitelist 同源单表（dataKeys=WHITELIST，禁第二份逐类型表）。
+  const sanitized = toPublicReadModel(model, { dropTypes: opts.dropTypes, dataKeys: WHITELIST });
+  // ② wire 形状收口：content/prompt 富文本残留 {text}→string（公开面恒纯文本——web
+  //    ProcessSnapshot.tsx:36-43 消费契约）+thumbnailUrl 服务端注入键（sanitize 后注入——
+  //    非用户内容白名单面）+态字段重置（克隆 resetStatusIdle 同款，公开档缺省关）。
+  const shaped: RawNode[] = sanitized.nodes.map((n) => {
+    const data: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(n.data ?? {})) {
+      data[k] = k === 'content' || k === 'prompt' ? publicTextOf(v, k === 'content' ? stripHtmlToText : (x) => x) : v;
+    }
+    if (opts.thumbnailUrls && opts.thumbnailUrls[n.id] != null) data.thumbnailUrl = opts.thumbnailUrls[n.id];
+    if (opts.resetStatusIdle) {
+      if (n.type === 'multiImageGen') data.nodeStatus = 'idle';
+      else if (['imageGen', 'imageExtGen', 'videoGen', 'audioGen'].includes(n.type)) data.status = 'idle';
+    }
+    return { ...n, data } as RawNode;
+  });
+  // ③ 克隆同款后处理：父先序+信封归一（applyWhitelist 不再过——thumbnailUrl 注入键会被白名单剥除）。
+  const nodes = ensureParentFirst(shaped).map((n) => normalizeNodeRecord(n));
+  return { nodes, edges: sanitized.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })) };
 }

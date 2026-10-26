@@ -52,6 +52,14 @@ export function seedCanvas(nodes: Node[], edges?: Edge[]): void {
   });
 }
 
+/** Y1c T19（T18 移交 setState×4 收口）：cs 镜像追加单节点（'fixture' 写者上下文——几何
+ *  setState 棘轮 G 的合法通道；t17-array-domains.spec 的 ns/cs 双镜像 setUp 用）。 */
+export function appendCanvasNode(node: Node): void {
+  withGeometryWriter('fixture', () => {
+    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, node] }));
+  });
+}
+
 /** rw 漏斗窗口（canEdit 真——hydration ready+非 readOnly+无 terminal）。O0b-2 新增测试基建单点：
  *  测试文件直接 useCanvasStore.setState 会撞文件级棘轮 allow-list（lint-gate/geometryTrap 锚③）——
  *  会话窗口开启从本入口进（本文件不在 test/spec 扫描面；hydration 经 setHydration action——

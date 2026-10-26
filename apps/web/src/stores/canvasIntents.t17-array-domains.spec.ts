@@ -17,6 +17,7 @@ import { useNodeStore } from './nodeStore';
 import { dispatchCanvasIntent, _setIntentDocForTest } from './canvasIntents';
 import { Origin, attachUndoManager, detachUndoManager, stopCapturing, undoCanvas } from './canvasUndo';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
+import { appendCanvasNode } from '@/test/fixtures/canvas';   // Y1c T19（T18 移交收口）：cs 镜像 setUp 经夹具（几何 setState 棘轮 G）
 import { toReadModel as sharedToReadModel } from '@flowweb/shared';
 
 /** canEdit 真（hydration ready + 非 readOnly + 无 terminal）——漏斗 dispatch 门放行。 */
@@ -326,9 +327,7 @@ describe('Y1c T17 updateConfig C-1：全量摊开载荷先剔数组域键（现�
 
   it('updateConfig({model})：doc 容器原样（stale ns 不回写）+ns 域键保留+零 write_reject（现状红）', () => {
     seedNode(doc, 'c1', 'imageGen', { allImages: [img('X'), img('R')], model: 'm1' });
-    useCanvasStore.setState((s) => ({
-      nodes: [...s.nodes, { id: 'c1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any],
-    }));
+    appendCanvasNode({ id: 'c1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any);
     // ns 投影 stale（缺 R——reconcile 去抖窗内形态）
     useNodeStore.setState({
       nodes: { c1: { id: 'c1', type: 'imageGen', data: { allImages: [img('X')], model: 'm1' } as any } },
@@ -345,9 +344,7 @@ describe('Y1c T17 updateConfig C-1：全量摊开载荷先剔数组域键（现�
 
   it('config 显式携带 allImages：剔除不落（写路径=updatePromptImages/updateMultiImageImages 专用）+单次留痕', () => {
     seedNode(doc, 'c2', 'imageGen', { allImages: [img('X')], model: 'm1' });
-    useCanvasStore.setState((s) => ({
-      nodes: [...s.nodes, { id: 'c2', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any],
-    }));
+    appendCanvasNode({ id: 'c2', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any);
     useNodeStore.setState({
       nodes: { c2: { id: 'c2', type: 'imageGen', data: { allImages: [img('X')], model: 'm1' } as any } },
     });
@@ -454,9 +451,7 @@ describe('Y1c T17 双评审收口 Q-I-1：域专属写路径消费 outcome（doc
     useNodeStore.setState({
       nodes: { q3: { id: 'q3', type: 'multiImageGen', data: { images: [img('I1')], mainImageIndex: 0, nodeStatus: 'idle' } as any } },
     });
-    useCanvasStore.setState((s) => ({
-      nodes: [...s.nodes, { id: 'q3', type: 'multiImageGen', position: { x: 0, y: 0 }, data: { images: [img('I1')], mainImageIndex: 0, nodeStatus: 'idle' } } as any],
-    }));
+    appendCanvasNode({ id: 'q3', type: 'multiImageGen', position: { x: 0, y: 0 }, data: { images: [img('I1')], mainImageIndex: 0, nodeStatus: 'idle' } } as any);
     // 清空语义：patch={images:[], mainImageIndex:-1, nodeStatus:'idle'}——images 被拒、伴随键非域键照落
     useNodeStore.getState().updateMultiImageImages('q3', [] as any);
     const nsData = useNodeStore.getState().nodes['q3']?.data as unknown as Record<string, unknown>;
@@ -474,9 +469,7 @@ describe('Y1c T17 双评审收口 Q-I-1：域专属写路径消费 outcome（doc
     useNodeStore.setState({
       nodes: { q4: { id: 'q4', type: 'multiImageGen', data: { images: [img('I1'), img('I2')], mainImageIndex: 3, nodeStatus: 'done' } as any } },
     });
-    useCanvasStore.setState((s) => ({
-      nodes: [...s.nodes, { id: 'q4', type: 'multiImageGen', position: { x: 0, y: 0 }, data: {} } as any],
-    }));
+    appendCanvasNode({ id: 'q4', type: 'multiImageGen', position: { x: 0, y: 0 }, data: {} } as any);
     // 越界回正：mainImageIndex(3) >= images.length(1) → 伴随回正 0
     useNodeStore.getState().updateMultiImageImages('q4', [img('I2')] as any);
     const nsData = useNodeStore.getState().nodes['q4']?.data as unknown as Record<string, unknown>;

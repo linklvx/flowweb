@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CollabWritePort } from '../collab/collab-write.port';
 import { ProjectService } from '../project/project.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';
-import { buildFilteredSnapshot, CLONE_WHITELIST, type RawCanvasData, type RawNode, type FilteredNode, type FilteredEdge } from './snapshot-filter.util';
+import { buildFilteredSnapshot, CLONE_WHITELIST, type RawNode, type FilteredNode, type FilteredEdge } from './snapshot-filter.util';
 import { validateParentGraph } from '@flowweb/shared';
 
 const CLONE_TIMEOUT_MS = 10_000; // read + create 同一有界等待（create 内部 withDoc 同样会挂起）
@@ -30,7 +30,7 @@ export class VideoWorkCloneService {
     if (!canvas) throw new NotFoundException();
 
     const run = async () => {
-      const raw = await this.collabDoc.readCanvas(w.canvasProjectId!) as RawCanvasData;
+      const raw = await this.collabDoc.readCanvas(w.canvasProjectId!);   // Y1c T19：CanvasReadModel 直面（doc-codec 唯一共享读类型——零 as 桥）
       // 克隆走 CLONE_WHITELIST 分表（R0a）：group 7 键（storyboard/collapsed 等——F2 根因半边；O0b-5 摘 manuallyResized、O0c-3 摘 savedSize）；
       // 其余同快照（D9）：resetStatusIdle + 不注入缩略图 + 剥 videoEdit
       // （剥 videoEdit 是克隆独有差异——快照保留该节点类型只剥 data，spec:228/D9 第八轮归一；
@@ -72,7 +72,7 @@ export class VideoWorkCloneService {
     // parentId 指向被剥/悬空 → null（降级不兜底——droppedIds 随 cells 段删除无消费面）
     void rawNodes;
     const remappedEdges = edges
-      .filter(e => idMap.has(e.source) && idMap.has(e.target))
+      .filter((e): e is FilteredEdge & { source: string; target: string } => e.source != null && e.target != null && idMap.has(e.source) && idMap.has(e.target))
       .map(e => ({ ...e, source: idMap.get(e.source)!, target: idMap.get(e.target)! }));
     return { nodes: remapped, edges: remappedEdges };
   }

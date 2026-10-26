@@ -9,7 +9,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
 import { CollabDocumentService } from './collab-document.service';
-import { SnapshotDocCache, type DecodedSnapshot } from './snapshot-doc-cache';
+import { SnapshotDocCache, type CanvasReadSnapshot } from './snapshot-doc-cache';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { yjsSnapshotFallbackTotal, unregisterPendingCollector } from './store.metrics';
 import {
@@ -92,8 +92,8 @@ describe('Y0b-2 T3：isPersistedComplete 谓词+SnapshotDocCache', () => {
     try {
       const cache = new SnapshotDocCache(1_000);
       let calls = 0;
-      let release!: (v: DecodedSnapshot) => void;
-      const loader = () => new Promise<DecodedSnapshot>((res) => { calls += 1; release = res; });
+      let release!: (v: CanvasReadSnapshot) => void;
+      const loader = () => new Promise<CanvasReadSnapshot>((res) => { calls += 1; release = res; });
 
       // 并发 3 次（loader 挂起窗内）→ 共享同一 in-flight Promise
       const all = Promise.all([
@@ -101,7 +101,7 @@ describe('Y0b-2 T3：isPersistedComplete 谓词+SnapshotDocCache', () => {
         cache.get('p1', loader),
         cache.get('p1', loader),
       ]);
-      release({ nodes: [], edges: [] });
+      release({ model: { nodes: [], edges: [] }, generation: 0, snapshotRev: '0', pgSeq: '0' });   // Y1c T19：CanvasReadSnapshot 形
       await all;
       expect(calls).toBe(1);                          // 单飞：并发 N 次底层恰 1 次
 
@@ -112,7 +112,7 @@ describe('Y0b-2 T3：isPersistedComplete 谓词+SnapshotDocCache', () => {
       // TTL 过期：重新解码
       vi.advanceTimersByTime(1_001);
       const again = cache.get('p1', loader);
-      release({ nodes: [], edges: [] });
+      release({ model: { nodes: [], edges: [] }, generation: 0, snapshotRev: '0', pgSeq: '0' });
       await again;
       expect(calls).toBe(2);
     } finally {
@@ -122,16 +122,17 @@ describe('Y0b-2 T3：isPersistedComplete 谓词+SnapshotDocCache', () => {
 
   it('谓词不满足 → fallback 活读（非陈旧快照）+snapshotFallbackTotal.inc 计数', async () => {
     const gateway = { isPersistedComplete: vi.fn(() => false) };
-    const repo = { readSnapshotOnly: vi.fn() };
+    const repo = { readSnapshotOnly: vi.fn(), readWatermark: vi.fn().mockResolvedValue({ pgSeq: 5n, walCheckpointSeq: 5n, generation: 1, currentSnapshotRev: 2n }) };   // Y1c T19：fallback 活读包水位（ETag/缓存键轨）
     const service = new CollabDocumentService(gateway as any, repo as any);
-    const liveSpy = vi.spyOn(service, 'readCanvas').mockResolvedValue({ nodes: [{ id: 'live' }], edges: [] });
+    const liveSpy = vi.spyOn(service, 'readCanvas').mockResolvedValue({ nodes: [{ id: 'live', type: 'textInput', data: {} } as never], edges: [] });
 
     const before = await fallbackCount();
     const out = await service.readCanvasSnapshotCached('p1');
 
     expect(liveSpy).toHaveBeenCalledWith('p1');       // 活读承接（快照不可信定义性不使用）
     expect(repo.readSnapshotOnly).not.toHaveBeenCalled();   // 快照读未发生
-    expect(out.nodes).toEqual([{ id: 'live' }]);
+    expect(out.model.nodes.map((n: { id: string }) => n.id)).toEqual(['live']);
+    expect(out).toMatchObject({ generation: 1, snapshotRev: '2', pgSeq: '5' });   // Y1c T19：水位三元随行（wire=string）
     expect((await fallbackCount()) - before).toBe(1); // 计数观测（Z108 接线点）
   });
 
@@ -145,7 +146,7 @@ describe('Y0b-2 T3：isPersistedComplete 谓词+SnapshotDocCache', () => {
     const out2 = await service.readCanvasSnapshotCached('p1');
 
     expect(repo.readSnapshotOnly).toHaveBeenCalledTimes(1);   // decodeSnapshot 单源+TTL 缓存
-    expect(out1.nodes.map((n: any) => n.id)).toEqual(['n1']);
+    expect(out1.model.nodes.map((n: any) => n.id)).toEqual(['n1']);
     expect(out2).toEqual(out1);                        // 缓存命中返回同一投影
   });
 });

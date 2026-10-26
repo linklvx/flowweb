@@ -1,0 +1,25 @@
+src/modules/collab/collab-document.service.spec.ts(126,16): error TS2339: Property 'nodes' does not exist on type 'CanvasReadSnapshot'.
+src/modules/collab/collab-document.service.spec.ts(127,16): error TS2339: Property 'edges' does not exist on type 'CanvasReadSnapshot'.
+src/modules/collab/collab-document.service.spec.ts(143,16): error TS2339: Property 'nodes' does not exist on type 'CanvasReadSnapshot'.
+src/modules/collab/collab-metrics-observability.spec.ts(324,59): error TS2345: Argument of type '() => Promise<{ nodes: { id: string; }[]; edges: never[]; }>' is not assignable to parameter of type '() => Promise<CanvasReadSnapshot>'.
+  Type 'Promise<{ nodes: { id: string; }[]; edges: never[]; }>' is not assignable to type 'Promise<CanvasReadSnapshot>'.
+    Type '{ nodes: { id: string; }[]; edges: never[]; }' is missing the following properties from type 'CanvasReadSnapshot': model, generation, snapshotRev, pgSeq
+src/modules/collab/collab-metrics-observability.spec.ts(326,27): error TS2345: Argument of type '() => Promise<{ nodes: { id: string; }[]; edges: never[]; }>' is not assignable to parameter of type '() => Promise<CanvasReadSnapshot>'.
+  Type 'Promise<{ nodes: { id: string; }[]; edges: never[]; }>' is not assignable to type 'Promise<CanvasReadSnapshot>'.
+    Type '{ nodes: { id: string; }[]; edges: never[]; }' is missing the following properties from type 'CanvasReadSnapshot': model, generation, snapshotRev, pgSeq
+src/modules/collab/collab-metrics-observability.spec.ts(328,28): error TS2345: Argument of type '() => Promise<{ nodes: { id: string; }[]; edges: never[]; }>' is not assignable to parameter of type '() => Promise<CanvasReadSnapshot>'.
+  Type 'Promise<{ nodes: { id: string; }[]; edges: never[]; }>' is not assignable to type 'Promise<CanvasReadSnapshot>'.
+    Type '{ nodes: { id: string; }[]; edges: never[]; }' is missing the following properties from type 'CanvasReadSnapshot': model, generation, snapshotRev, pgSeq
+src/modules/collab/collab-metrics-observability.spec.ts(330,27): error TS2345: Argument of type '() => Promise<{ nodes: { id: string; }[]; edges: never[]; }>' is not assignable to parameter of type '() => Promise<CanvasReadSnapshot>'.
+  Type 'Promise<{ nodes: { id: string; }[]; edges: never[]; }>' is not assignable to type 'Promise<CanvasReadSnapshot>'.
+    Type '{ nodes: { id: string; }[]; edges: never[]; }' is missing the following properties from type 'CanvasReadSnapshot': model, generation, snapshotRev, pgSeq
+src/modules/collab/collab-metrics-observability.spec.ts(332,27): error TS2345: Argument of type '() => Promise<{ nodes: { id: string; }[]; edges: never[]; }>' is not assignable to parameter of type '() => Promise<CanvasReadSnapshot>'.
+  Type 'Promise<{ nodes: { id: string; }[]; edges: never[]; }>' is not assignable to type 'Promise<CanvasReadSnapshot>'.
+    Type '{ nodes: { id: string; }[]; edges: never[]; }' is missing the following properties from type 'CanvasReadSnapshot': model, generation, snapshotRev, pgSeq
+src/modules/collab/collab-metrics-observability.spec.ts(341,39): error TS2322: Type 'Promise<{ nodes: never[]; edges: never[]; }>' is not assignable to type 'Promise<CanvasReadSnapshot>'.
+  Type '{ nodes: never[]; edges: never[]; }' is missing the following properties from type 'CanvasReadSnapshot': model, generation, snapshotRev, pgSeq
+src/modules/collab/read-canvas-routing.spec.ts(12,33): error TS2305: Module '"./snapshot-doc-cache"' has no exported member 'DecodedSnapshot'.
+src/modules/collab/read-canvas-routing.spec.ts(127,81): error TS2739: Type '{ id: string; }' is missing the following properties from type 'CanvasReadModelNode': type, data
+src/modules/collab/read-canvas-routing.spec.ts(134,16): error TS2339: Property 'nodes' does not exist on type 'CanvasReadSnapshot'.
+src/modules/collab/read-canvas-routing.spec.ts(148,17): error TS2339: Property 'nodes' does not exist on type 'CanvasReadSnapshot'.
+src/modules/video-work/video-work.service.spec.ts(404,31): error TS2339: Property 'injectThumbnails' does not exist on type 'VideoWorkService'.

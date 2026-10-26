@@ -102,6 +102,14 @@ export const GEOMETRY_SETSTATE_TEST_ALLOWLIST = [
   // T18 补登：T17 G34 只读门 census 装置（readonly 面直构 store 状态——setState 是用例存在目的；
   // T17 落地漏登记，T18 verify 全量回归暴露补登）。
   'src/stores/canvasG34.readonlyCommands.test.ts',
+  // Y1c T19 补登（2026-10-24）：T15-T18 域迁移四 spec 装置面 setState（各自本地 openRwWindow/
+  // resetStore 装置——**非几何键**〔规则 G 零违例〕，仅棘轮计数面）；T18 移交时静态断言 5 违例
+  // 早退遮蔽棘轮破线（先例同上「报数≤基线不进破线分支」反向形态），T19 处置 T18 移交时暴露
+  // 补登——几何 setState×4 已收口 appendCanvasNode 夹具（本批根修），本四处=非几何装置登记。
+  'src/stores/canvasIntents.t15-text-domains.spec.ts',
+  'src/stores/canvasIntents.t16-xml-domains.spec.ts',
+  'src/stores/canvasIntents.t17-array-domains.spec.ts',
+  'src/stores/canvasCollabRuntime.t18.spec.ts',
 ];
 
 /** 棘轮基线（lint-gate 输出报数；锚测试 apps/web/src/stores/geometryTrap.test.ts 锚③同口径）。 */
@@ -156,8 +164,11 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   //   +2——diverged 档盘上导出分档+ss2 档对照注入，存量 allow-list 文件，store 注入是用例的
   //   存在目的〔同 T9/T4/T11 例外〕；+2 破线首次暴露 T8 时 t8.spec allow-list 漏列——上方位组
   //   同批补登，O0b-4「报数≤基线不进破线分支从未暴露」先例）→ 306 处 / 54 文件。
-  effective: { count: 311, files: 55 },
+  effective: { count: 317, files: 59 },
 };
 // T18 补登（2026-10-22）：canvasG34.readonlyCommands.test.ts +3 处/1 新文件（T17 G34 只读门
 // census 表装置——readonly 面直构 store 状态，setState 是用例的存在目的；T17 落地漏登记
 // 棘轮破线，T18 verify 全量回归暴露补登——sanctioned 例外同模式）→ 306→311 处 / 54→55 文件。
+// Y1c T19 补登（2026-10-24）：T15-T18 域迁移四 spec 装置面 +4 处/+4 文件（上 allow-list 组同批）
+// +存量 allow-list 文件内 +2 处（T15-T18 卡在 SyncBanner/geometryTrap 等既有装置文件的增量——
+// 同 sanctioned 装置例外）→ 311→317 处 / 55→59 文件。棘轮自此恢复单调下降执法。

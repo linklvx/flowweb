@@ -1,0 +1,395 @@
+{
+  "meta": {
+    "card": "Y1c T19（plan v1.7）：读者改道 census 索引——所有 readCanvas/readRecordsFromMaps（含 toReadModel/readCanvasFromDoc/readCanvasSnapshotCached 后继面）调用点登记；未分类新增即红（check-collab-census ㉟）。",
+    "frozenContract": "packages/shared/src/collab/read-model-census.ts（CONTRACT-FREEZE——本 json 为数据面）",
+    "entryCount": 27,
+    "fixtureTotal": 27,
+    "keyFormat": "shapeHash=sha256hex(canonicalReadModelShapePayload({id,file,fields,testAnchor}))——fields 排序归一 JSON 元组",
+    "coverageModel": "词法面（readCanvas|readCanvasFromDoc|readCanvasSnapshotCached|toReadModel|readRecordsFromMaps 的 stripped 出现计数）由门内 READ_MODEL_READER_LEXICAL 冻结表对账；本表=语义条目面（def+body/delegate 合并一 reader 一条目——合并注记见门注释）。执法=两面对账（json 门 + 词法门）只增不减。",
+    "writerDiscipline": "D9：写者零触碰——data.fileId/result/status 写者与 execAligned fallback 保留至 T22/T32；服务端字段组读者（fileId 等）经读模型暂读至 T22 切投影。"
+  },
+  "entries": [
+    {
+      "id": "api-read-canvas-exit",
+      "file": "apps/api/src/modules/collab/collab-document.service.ts",
+      "fields": [
+        "nodes",
+        "edges"
+      ],
+      "testAnchor": "apps/api/src/modules/collab/collab-document.service.spec.ts",
+      "shapeHash": "6b20163964cd37bf885cccf107a3e3783ba025db68e4df3e51af04eacd11d08c",
+      "fixtures": [
+        "fixture-27-01"
+      ]
+    },
+    {
+      "id": "api-decode-snapshot",
+      "file": "apps/api/src/modules/collab/collab-document.service.ts",
+      "fields": [
+        "nodes",
+        "edges"
+      ],
+      "testAnchor": "apps/api/src/modules/collab/read-canvas-routing.spec.ts",
+      "shapeHash": "732a2b1cd48583afa6d76213f42c957499982d7e8f33730cbcd144c5ae231244",
+      "fixtures": [
+        "fixture-27-02"
+      ]
+    },
+    {
+      "id": "api-snapshot-cached-exit",
+      "file": "apps/api/src/modules/collab/collab-document.service.ts",
+      "fields": [
+        "generation",
+        "model",
+        "pgSeq",
+        "snapshotRev"
+      ],
+      "testAnchor": "apps/api/src/modules/collab/read-canvas-routing.spec.ts",
+      "shapeHash": "a06886dc4c5f600b658dcd13642ae0048a65b8162d566a27374019f712b757f3",
+      "fixtures": [
+        "fixture-27-03"
+      ]
+    },
+    {
+      "id": "api-snapshot-fallback-live",
+      "file": "apps/api/src/modules/collab/collab-document.service.ts",
+      "fields": [
+        "nodes",
+        "edges"
+      ],
+      "testAnchor": "apps/api/src/modules/collab/read-canvas-routing.spec.ts",
+      "shapeHash": "0369bb688d268e4d680651461c5ce66ff9121d9da08555dcc6f9cf5badced69b",
+      "fixtures": [
+        "fixture-27-04"
+      ]
+    },
+    {
+      "id": "api-registry-load-pathology",
+      "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts",
+      "fields": [
+        "id",
+        "nodes",
+        "order"
+      ],
+      "testAnchor": "apps/api/src/modules/collab/collab-pathology.spec.ts",
+      "shapeHash": "7e6bf6794bc7004fbcdf89166324880097303184707c4ee020ea981e9910fb8c",
+      "fixtures": [
+        "fixture-27-05"
+      ]
+    },
+    {
+      "id": "api-registry-vacuum-rebuild",
+      "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts",
+      "fields": [
+        "edges",
+        "nodes"
+      ],
+      "testAnchor": "apps/api/src/modules/collab/collab-vacuum-stale-client-resurrection.spec.ts",
+      "shapeHash": "cfd8bf35528f4a59c55e380bd76a77ea2413059003b299ed2d4ef0d59eef27d7",
+      "fixtures": [
+        "fixture-27-06"
+      ]
+    },
+    {
+      "id": "api-registry-vacuum-equiv-old",
+      "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts",
+      "fields": [
+        "edges",
+        "nodes"
+      ],
+      "testAnchor": "apps/api/src/modules/collab/collab.library-anchors.spec.ts",
+      "shapeHash": "3929bf9e73bc06e5654bf53b407fd0b68703ef13598929eaefe019d834ecacc9",
+      "fixtures": [
+        "fixture-27-07"
+      ]
+    },
+    {
+      "id": "api-registry-vacuum-equiv-new",
+      "file": "apps/api/src/modules/collab/collab-doc-registry.service.ts",
+      "fields": [
+        "edges",
+        "nodes"
+      ],
+      "testAnchor": "apps/api/src/modules/collab/collab.library-anchors.spec.ts",
+      "shapeHash": "40d59a7ed7413ce22a2842a299f54340a3197b7194de700f6a5ac80f4c439263",
+      "fixtures": [
+        "fixture-27-08"
+      ]
+    },
+    {
+      "id": "api-shrink-shadow-source",
+      "file": "apps/api/src/modules/collab/collab-shrink.service.ts",
+      "fields": [
+        "edges",
+        "nodes"
+      ],
+      "testAnchor": "apps/api/src/modules/collab/collab-shrink.spec.ts",
+      "shapeHash": "4236577f4479ea8936107749b82864d05386afeb8931894c58c8208519ad4165",
+      "fixtures": [
+        "fixture-27-09"
+      ]
+    },
+    {
+      "id": "api-shrink-rehearsal-read",
+      "file": "apps/api/src/modules/collab/collab-shrink.service.ts",
+      "fields": [
+        "edges",
+        "nodes"
+      ],
+      "testAnchor": "apps/api/src/modules/collab/collab-shrink.spec.ts",
+      "shapeHash": "1362ca4027acffdea3e1ad104e670ad5f2d0186e62f1af17fce17dc5d77a7246",
+      "fixtures": [
+        "fixture-27-10"
+      ]
+    },
+    {
+      "id": "api-rest-read-endpoint",
+      "file": "apps/api/src/modules/collab/collab-read.controller.ts",
+      "fields": [
+        "edges",
+        "nodes"
+      ],
+      "testAnchor": "apps/api/src/modules/collab/collab-read.controller.spec.ts",
+      "shapeHash": "c05a3a183210c3fa2a5960db12ca58a96a430088211d16dd03fe3a075eaf5296",
+      "fixtures": [
+        "fixture-27-11"
+      ]
+    },
+    {
+      "id": "api-port-direct-delegate",
+      "file": "apps/api/src/modules/collab/collab-write.port.ts",
+      "fields": [
+        "edges",
+        "nodes"
+      ],
+      "testAnchor": "apps/api/src/modules/collab/collab-write.port.spec.ts",
+      "shapeHash": "f76b7dcf2d42ec1d951ff56d018812301cd45614a535f45eea20f59ef21d2a0a",
+      "fixtures": [
+        "fixture-27-12"
+      ]
+    },
+    {
+      "id": "api-port-http-read",
+      "file": "apps/api/src/modules/collab/collab-write.port.ts",
+      "fields": [
+        "edges",
+        "nodes"
+      ],
+      "testAnchor": "apps/api/src/modules/collab/collab-write.port.http.spec.ts",
+      "shapeHash": "11c628ebbbef9001e417bdb8de24062f5669901c7e23332dd01339ab4c52b5d5",
+      "fixtures": [
+        "fixture-27-13"
+      ]
+    },
+    {
+      "id": "api-execution-billing-read",
+      "file": "apps/api/src/modules/execution/execution.service.ts",
+      "fields": [
+        "data",
+        "id",
+        "model",
+        "parentId",
+        "prompt",
+        "type",
+        "width",
+        "height"
+      ],
+      "testAnchor": "apps/api/src/modules/execution/execution.service.spec.ts",
+      "shapeHash": "c965f52b7080ba8c78334f9670fe33b89fd6c02a8086a64d5ea2d5472c5e6f7b",
+      "fixtures": [
+        "fixture-27-14"
+      ]
+    },
+    {
+      "id": "api-video-project-regenerate-read",
+      "file": "apps/api/src/modules/video-project/video-project.service.ts",
+      "fields": [
+        "id",
+        "type"
+      ],
+      "testAnchor": "apps/api/src/modules/video-project/video-project.regenerate.spec.ts",
+      "shapeHash": "bc9452f39c75f647d60e7f87312844bda94aa5ea7de548ee3c8ec0116f7c74f3",
+      "fixtures": [
+        "fixture-27-15"
+      ]
+    },
+    {
+      "id": "api-video-work-clone-read",
+      "file": "apps/api/src/modules/video-work/video-work-clone.service.ts",
+      "fields": [
+        "data",
+        "id",
+        "parentId",
+        "position",
+        "type",
+        "width",
+        "height"
+      ],
+      "testAnchor": "apps/api/src/modules/video-work/video-work-clone.service.spec.ts",
+      "shapeHash": "e21bc6f4f27fef055fc89e6918842924e7be9e05b3a6efe7bbc07a959633a207",
+      "fixtures": [
+        "fixture-27-16"
+      ]
+    },
+    {
+      "id": "api-video-work-public-snapshot",
+      "file": "apps/api/src/modules/video-work/video-work.service.ts",
+      "fields": [
+        "generation",
+        "model",
+        "pgSeq",
+        "snapshotRev"
+      ],
+      "testAnchor": "apps/api/src/modules/video-work/video-work.service.spec.ts",
+      "shapeHash": "0d2413393a7e7ac97f33ade3b79a951263f12d887eca738c7807f744821144ab",
+      "fixtures": [
+        "fixture-27-17"
+      ]
+    },
+    {
+      "id": "web-read-single-source",
+      "file": "apps/web/src/collab/ydocBuilder.ts",
+      "fields": [
+        "edges",
+        "nodes"
+      ],
+      "testAnchor": "apps/web/src/collab/ydocBuilder.test.ts",
+      "shapeHash": "e955ba69b08cea85ea16b49223edbb1f106576f7952e324a9c72ebfa2430fb71",
+      "fixtures": [
+        "fixture-27-18"
+      ]
+    },
+    {
+      "id": "web-intents-keyset-oracle",
+      "file": "apps/web/src/stores/canvasIntents.ts",
+      "fields": [
+        "data",
+        "id",
+        "nodes",
+        "type"
+      ],
+      "testAnchor": "apps/web/src/stores/canvasIntents.spec.ts",
+      "shapeHash": "0b942466872ea3a33295164f81a5cd6e980d5909823e8c900b675e664e96b505",
+      "fixtures": [
+        "fixture-27-19"
+      ]
+    },
+    {
+      "id": "web-intents-group-record",
+      "file": "apps/web/src/stores/canvasIntents.ts",
+      "fields": [
+        "height",
+        "position",
+        "width"
+      ],
+      "testAnchor": "apps/web/src/stores/canvasIntents.spec.ts",
+      "shapeHash": "53648de07ae2f4e91845097946d5e496f038b2d12720c0ca4ce5554d4a299ea6",
+      "fixtures": [
+        "fixture-27-20"
+      ]
+    },
+    {
+      "id": "web-intents-tail-asserts",
+      "file": "apps/web/src/stores/canvasIntents.ts",
+      "fields": [
+        "data",
+        "id",
+        "nodes"
+      ],
+      "testAnchor": "apps/web/src/stores/canvasIntents.spec.ts",
+      "shapeHash": "95a076a0c462ef1145be9995749694a3c94e08d4fb0b444fc7a94a5f53842ac8",
+      "fixtures": [
+        "fixture-27-21"
+      ]
+    },
+    {
+      "id": "web-runtime-frame-mode-oracle",
+      "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+      "fields": [
+        "data",
+        "height",
+        "position",
+        "type",
+        "width"
+      ],
+      "testAnchor": "apps/web/src/stores/canvasO0b2.sizing.test.ts",
+      "shapeHash": "43855a9bb7940229a6ace4df14afee9a9536238e3d9b855baf453433d077c545",
+      "fixtures": [
+        "fixture-27-22"
+      ]
+    },
+    {
+      "id": "web-runtime-apply-doc-to-store",
+      "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+      "fields": [
+        "data",
+        "edges",
+        "id",
+        "nodes",
+        "parentId",
+        "position",
+        "type"
+      ],
+      "testAnchor": "apps/web/src/stores/canvasCollabRuntime.projection.test.ts",
+      "shapeHash": "1a4ca74e729dd966d7689e07ea273ef45eaa5195fe51eef5eb0fa4ae9a16a3f4",
+      "fixtures": [
+        "fixture-27-23"
+      ]
+    },
+    {
+      "id": "web-runtime-reconcile-group",
+      "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+      "fields": [
+        "height",
+        "id",
+        "parentId",
+        "position",
+        "width"
+      ],
+      "testAnchor": "apps/web/src/stores/canvasCollabRuntime.geometry.test.ts",
+      "shapeHash": "86c389061d7063ed5b975cf12b36176f7080c41e123f26ea50dae0f4cb520f65",
+      "fixtures": [
+        "fixture-27-24"
+      ]
+    },
+    {
+      "id": "web-runtime-cache-record",
+      "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+      "fields": [
+        "edges",
+        "nodes"
+      ],
+      "testAnchor": "apps/web/src/stores/canvasCollabRuntime.cache.spec.ts",
+      "shapeHash": "92d14750cc0925e6ff7780e4036d7922c03be7ef9b370b4b84a359bff24770e7",
+      "fixtures": [
+        "fixture-27-25"
+      ]
+    },
+    {
+      "id": "web-canvasstore-commit-diff",
+      "file": "apps/web/src/stores/canvasStore.ts",
+      "fields": [
+        "id",
+        "position"
+      ],
+      "testAnchor": "apps/web/src/stores/canvasB51.commit.test.ts",
+      "shapeHash": "980f23ea919d9e1ae3144bd01124cc5459e8947627e5818dd44d98dce33f3303",
+      "fixtures": [
+        "fixture-27-26"
+      ]
+    },
+    {
+      "id": "web-local-backup-json",
+      "file": "apps/web/src/collab/canvas-local-backup.ts",
+      "fields": [
+        "edges",
+        "nodes"
+      ],
+      "testAnchor": "apps/web/src/collab/canvas-local-backup.test.ts",
+      "shapeHash": "aaae377104786b30e72c9f4299ec1bedc47dc23299fe1f95b515bb0b5de8e525",
+      "fixtures": [
+        "fixture-27-27"
+      ]
+    }
+  ]
+}

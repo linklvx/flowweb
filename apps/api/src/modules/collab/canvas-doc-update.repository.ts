@@ -32,6 +32,9 @@ export interface HydrationRow {
   /** C1①（T11 双评审）：CanvasDoc.pgSeq 随行（walSeq 计数器 PG 真值播种消费面——loadDocument 缝
    *  转发 spool.seedWalSeqFromPg；行缺失=null=懒建档无需播种）。 */
   pgSeq?: bigint | null;
+  /** Y1c T19：公开快照缓存键轨 (pid,g,snapshotRev) 的 rev 维（CanvasDoc.currentSnapshotRev 随行——
+   *  行缺失=null=懒建档）。 */
+  currentSnapshotRev?: bigint | null;
 }
 
 @Injectable()
@@ -270,9 +273,11 @@ export class CanvasDocUpdateRepository {
   }
 
   /** T10：CanvasDoc 水位读面（恢复链/测试——pgSeq 权威从 PG 行读，非进程内状态）。 */
-  async readWatermark(projectId: string): Promise<{ pgSeq: bigint; walCheckpointSeq: bigint; generation: number } | null> {
-    const row = await this.prisma.$queryRaw<{ pgSeq: bigint; walCheckpointSeq: bigint; generation: number }[]>`
-      SELECT "pgSeq", "walCheckpointSeq", generation FROM "CanvasDoc" WHERE "projectId" = ${projectId}::text LIMIT 1`;
+  /** Y1c T19：+currentSnapshotRev（公开快照缓存键 rev 维——readCanvasSnapshotCached fallback 活读
+   *  包装水位三元消费；既有三列消费面零变化——纯增量列）。 */
+  async readWatermark(projectId: string): Promise<{ pgSeq: bigint; walCheckpointSeq: bigint; generation: number; currentSnapshotRev: bigint } | null> {
+    const row = await this.prisma.$queryRaw<{ pgSeq: bigint; walCheckpointSeq: bigint; generation: number; currentSnapshotRev: bigint }[]>`
+      SELECT "pgSeq", "walCheckpointSeq", generation, "currentSnapshotRev" FROM "CanvasDoc" WHERE "projectId" = ${projectId}::text LIMIT 1`;
     return row[0] ?? null;
   }
 
@@ -345,7 +350,7 @@ export class CanvasDocUpdateRepository {
           cursor = page[page.length - 1].seq;
           if (page.length < CanvasDocUpdateRepository.PAGE_ROWS) break;
         }
-        return { state, updates, stateSeq, generation: docRow?.generation ?? 0, schemaVersion: docRow?.schemaVersion ?? null, pgSeq: docRow?.pgSeq ?? null };
+        return { state, updates, stateSeq, generation: docRow?.generation ?? 0, schemaVersion: docRow?.schemaVersion ?? null, pgSeq: docRow?.pgSeq ?? null, currentSnapshotRev: docRow?.currentSnapshotRev ?? null };
       },
       { isolationLevel: 'RepeatableRead', timeout: opts?.timeoutMs ?? 8_000, maxWait: opts?.maxWaitMs ?? 2_000 },
     );

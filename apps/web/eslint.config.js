@@ -14,7 +14,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import { noColorHex } from './scripts/eslint-rules/no-color-hex.js';
 import { noThemeUtility } from './scripts/eslint-rules/no-theme-utility.js';
-import { noConnStatusWrite, noYdocGetmap, noStoreSetstate, noDeleteScan, noShadowLiteral, noMediaUrlWrite, noTestGeometrySetstate } from './scripts/eslint-rules/collab-static-asserts.js';
+import { noConnStatusWrite, noYdocGetmap, noStoreSetstate, noDeleteScan, noShadowLiteral, noMediaUrlWrite, noTestGeometrySetstate, noNodesMapDirectRead } from './scripts/eslint-rules/collab-static-asserts.js';
 
 const TS_FILES = ['src/**/*.ts', 'src/**/*.tsx'];
 
@@ -53,6 +53,7 @@ export default tseslint.config(
           'no-shadow-literal': noShadowLiteral,
           'no-mediaurl-write': noMediaUrlWrite,
           'no-test-geometry-setstate': noTestGeometrySetstate,
+          'no-nodes-map-direct-read': noNodesMapDirectRead,
         },
       },
     },

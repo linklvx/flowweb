@@ -3,7 +3,8 @@ import { Injectable, Inject, BadRequestException, NotFoundException, ServiceUnav
 import { ThrottlerException } from '@nestjs/throttler';
 import { OnEvent } from '@nestjs/event-emitter';
 import { createHash } from 'crypto';
-import { buildFilteredSnapshot, type RawCanvasData } from './snapshot-filter.util';
+import { toPublicSnapshot } from './snapshot-filter.util';
+import { formatCanvasReadETag, type CanvasReadModel, type CanvasReadSnapshot } from '@flowweb/shared';
 import { CreateVideoWorkDto } from './dto/create-video-work.dto';
 import { UpdateVideoWorkDto } from './dto/update-video-work.dto';
 import { PresignVideoDto } from './dto/presign-video.dto';
@@ -31,8 +32,14 @@ export class VideoWorkService {
   private static readonly CATEGORY_CACHE_KEY = 'videoWork:categories';
 
   /** O0b-0（自 O0c-1 提前）：键拼 schema 常量——翻转批后 300s 窗口内 /process 不得命中
-   *  v1 旧空间（rel）载荷（公开页鬼影）。 */
-  private static readonly PROCESS_CACHE = (id: string) => `videoWork:process:${id}:v${CANVAS_DOC_SCHEMA_VERSION}`;
+   *  v1 旧空间（rel）载荷（公开页鬼影）。
+   *  Y1c T19（plan v1.7 卡）：+缓存键轨 (pid,g,snapshotRev)（spec §5.3 公开快照三元——generation/
+   *  snapshotRev 入键；换代/compact 发版即天然隔离旧键，TTL 300s 只兜事件失效窗）。 */
+  private static readonly PROCESS_CACHE = (id: string, generation: number, snapshotRev: string) =>
+    `videoWork:process:${id}:v${CANVAS_DOC_SCHEMA_VERSION}:g${generation}:r${snapshotRev}`;
+
+  /** Y1c T19：meta 指针键（id→当前体键 g/r——命中档免 doc 读；失效=模式删族 v*）。 */
+  private static readonly PROCESS_META = (id: string) => `videoWork:process:${id}:v${CANVAS_DOC_SCHEMA_VERSION}:meta`;
 
   // like 键构造收敛为单一来源（批次 3 登记落点）：getDetail 读 liked / toggleLike 写删共用，防两处模板漂移
   private static likeKey(workId: string, userId: string): string {
@@ -186,7 +193,25 @@ export class VideoWorkService {
   // 第七轮：本任务就地定义（Task 2.4 removeWork 也调用——前向引用 Task 5.3 会让批次 2 的 tsc 编译红、
   // 违反"每任务红-绿-提交"）。Task 5.3 仅把 key 收敛进 PROCESS_CACHE 常量，方法体不变。
   private async invalidateWorkCaches(id: string) {
-    await this.redis.del(VideoWorkService.PROCESS_CACHE(id));
+    // Y1c T19：键含 g/r 维——meta 指针读当前体键精确删（meta+体两键；换代/发版旧体键靠 TTL 300s 收尾，
+    // 不用 SCAN/KEYS——阻塞面零）。meta 过期体键残窗：体先写先过期（时钟同源）——结构性不超前。
+    await this.delProcessCacheFamily(id);
+  }
+
+  /** Y1c T19：meta 指针+其指向体键的双删（卫生动作——失败只计数不抛，TTL 兜底）。 */
+  private async delProcessCacheFamily(id: string) {
+    const metaKey = VideoWorkService.PROCESS_META(id);
+    try {
+      const metaRaw = await this.redis.get(metaKey);
+      const keys = [metaKey];
+      if (metaRaw) {
+        const m = JSON.parse(metaRaw) as { generation: number; snapshotRev: string };
+        keys.push(VideoWorkService.PROCESS_CACHE(id, m.generation, m.snapshotRev));
+      }
+      await this.redis.del(...keys);
+    } catch (e) {
+      console.error('[video-work] process 缓存失效失败（卫生动作——TTL 300s 兜底）', { id, error: e });
+    }
   }
 
   private assertProcessFlags(w: { allowViewProcess?: boolean; allowClone?: boolean; canvasProjectId?: string | null }) {
@@ -300,20 +325,22 @@ export class VideoWorkService {
     await this.invalidateWorkCaches(id);
   }
 
-  /** 产物缩略图注入（spec §4.6）：收集 fileId → 批量查 thumbnailKey → presign 注入 → 下游白名单剥 fileId */
-  async injectThumbnails(raw: RawCanvasData): Promise<RawCanvasData> {
-    const fileIds = [...new Set(raw.nodes.map(n => (n.data as any)?.fileId).filter((f): f is string => !!f))];
-    if (fileIds.length === 0) return raw;
+  /** 产物缩略图 URL 表（Y1c T19：sanitize 前从读模型收集 fileId〔服务端字段组——D9 中间态直读至
+   *  T22 切投影〕→ presign；注入归 toPublicSnapshot 的 thumbnailUrls 参——注入键不进公开白名单）。 */
+  async computeThumbnailUrls(model: CanvasReadModel): Promise<Record<string, string>> {
+    const fileIds = [...new Set(model.nodes.map(n => (n.data as Record<string, unknown> | undefined)?.fileId).filter((f): f is string => !!f))];
+    if (fileIds.length === 0) return {};
     const medias = await this.prisma.media.findMany({ where: { id: { in: fileIds } }, select: { id: true, thumbnailKey: true } });
     const urlById = new Map<string, string>();
     await Promise.all(medias.filter(m => m.thumbnailKey).map(async m => {
       urlById.set(m.id, await this.presignWork(m.thumbnailKey!)); // presign 3600s + 短缓存复用
     }));
-    for (const n of raw.nodes) {
-      const fid = (n.data as any)?.fileId;
-      if (typeof fid === 'string' && urlById.has(fid)) (n.data as any).thumbnailUrl = urlById.get(fid)!;
+    const out: Record<string, string> = {};
+    for (const n of model.nodes) {
+      const fid = (n.data as Record<string, unknown> | undefined)?.fileId;
+      if (typeof fid === 'string' && urlById.has(fid)) out[n.id] = urlById.get(fid)!;
     }
-    return raw;
+    return out;
   }
 
   async getProcessSnapshot(id: string) {
@@ -322,22 +349,35 @@ export class VideoWorkService {
     const canvas = await this.prisma.canvasProject.findUnique({ where: { id: w.canvasProjectId }, select: { id: true } });
     if (!canvas) throw new NotFoundException(); // gateway 空 doc 坑前置校验（§4.6）
 
-    const cacheKey = VideoWorkService.PROCESS_CACHE(id);
-    const cached = await this.redis.get(cacheKey);
-    if (cached) return JSON.parse(cached);
+    // Y1c T19（plan v1.7 卡）：公开快照读径①——readCanvasSnapshotCached 出口=CanvasReadSnapshot
+    // （读模型+水位三元）→ toPublicSnapshot sanitize（芯=doc-codec.toPublicReadModel：RichTextValue
+    // 只余 text〔红线 1〕+键白名单）+ETag=read model 新鲜度=pgSeq（formatCanvasReadETag——
+    // g{generation}:p{pgSeq}）+缓存键轨 (pid,g,snapshotRev)。
+    // 快照不剥任何节点（spec:228 保留节点/data 白名单剥；剥除仅克隆差异 D9）——第八轮裁定。
+    // 缓存键轨 (pid,g,snapshotRev)：meta 指针键（id→当前 {g,r}）先行——命中档不触 doc 读
+    // （体键按 g/r 拼——换代/compact 发版天然换键空间，旧键 TTL 收尾）。
+    const metaKey = VideoWorkService.PROCESS_META(id);
+    const metaRaw = await this.redis.get(metaKey);
+    if (metaRaw) {
+      const m = JSON.parse(metaRaw) as { generation: number; snapshotRev: string };
+      const body = await this.redis.get(VideoWorkService.PROCESS_CACHE(id, m.generation, m.snapshotRev));
+      if (body) return JSON.parse(body);
+    }
+    const snap = await this.withTimeout(this.collabDoc.readCanvasSnapshotCached(w.canvasProjectId), 5000);
+    const etag = formatCanvasReadETag(snap);   // ETag=read model 新鲜度=pgSeq（与缓存体同生同灭——命中档整包返回）
+    const cacheKey = VideoWorkService.PROCESS_CACHE(id, snap.generation, snap.snapshotRev);
 
     // Y0b-2 T3（§3.2 只读展示）：快照出口 readCanvasSnapshotCached——谓词门（isPersistedComplete
     // 不满足→活读 fallback）+进程内 TTL 单飞；不经 openDirectConnection/装载（谓词满足档）。
     // 陈旧度=去抖窗级（spec §9.9）。503 语义条件式（T3 后）：谓词满足（drain 冲刷完成）⇒快照照常；
     // drain 进行中（spool 有帧）⇒fallback 活读撞租约门 503——可达性边界 T9 登记。
-    const raw = await this.withTimeout(this.collabDoc.readCanvasSnapshotCached(w.canvasProjectId), 5000) as RawCanvasData;
-    const withThumbs = await this.injectThumbnails(raw);
-    const filtered = buildFilteredSnapshot(withThumbs, {
-      dropTypes: [], dropIdPrefixes: [],   // 快照不剥任何节点（spec:228 保留节点/data 全剥；剥除仅克隆差异 D9）——第八轮裁定；批5-1 删信箱后 shadow- 前缀剥除随行消失
-      resetStatusIdle: false, injectThumbnails: true,
+    const thumbnailUrls = await this.computeThumbnailUrls(snap.model);
+    const filtered = toPublicSnapshot(snap.model, {
+      dropTypes: [], resetStatusIdle: false, thumbnailUrls,
     });
-    const result = { workId: id, title: w.title, ...filtered };
-    await this.redis.set(cacheKey, JSON.stringify(result), 'EX', 300); // TTL 300s（§4.6）——E71：跨进程层
+    const result = { workId: id, title: w.title, ...filtered, etag };
+    await this.redis.set(cacheKey, JSON.stringify(result), 'EX', 300); // TTL 300s（§4.6）——E71：跨进程层（etag 随缓存体——水位与内容原子配对）
+    await this.redis.set(metaKey, JSON.stringify({ generation: snap.generation, snapshotRev: snap.snapshotRev }), 'EX', 300);   // 体键先行——meta 后置（防 meta 指向缺体窗口）
     // E71（Y0b-2 T8）：进程内 SnapshotDocCache 层跨请求存活（TTL 单飞——T3 的"处理完成后即时失效"随
     // 双层化退役）；两层失效统一归 canvas.doc-saved 事件（onCanvasDocSaved 双清）+updateWork/removeWork 写路径。
     return result;
@@ -354,7 +394,8 @@ export class VideoWorkService {
         where: { canvasProjectId: payload.projectId, allowViewProcess: true },
         select: { id: true },
       });
-      if (works.length) await this.redis.del(...works.map((w) => VideoWorkService.PROCESS_CACHE(w.id)));   // Redis 跨进程层
+      // Y1c T19：键含 g/r 维——逐作品 meta 指针精确删（delProcessCacheFamily 同源；旧代体键 TTL 收尾）
+      await Promise.all(works.map((w) => this.delProcessCacheFamily(w.id)));   // Redis 跨进程层
     } catch (e) {
       console.error('[video-work] canvas.doc-saved 快照失效失败（卫生动作——TTL 300s 兜底）', { projectId: payload.projectId, error: e });
     }

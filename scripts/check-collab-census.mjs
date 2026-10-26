@@ -10,7 +10,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // ⑬detail 白名单锚单源：schema 从 shared dist 导入（TS 源不可直接 import .ts——verify 链
 // shared-build 步在前，dist 恒新；standalone 跑依赖 dist 已构建——与 check-shared-dist 同前提）。
 // Y1c T5c ㉘：DOC_SCHEMA_V4 同一前提（data 键矩阵单源——apps 生产键注册面）。
-import { TELEMETRY_DETAIL_SCHEMA, DOC_SCHEMA_V4 } from '../packages/shared/dist/index.js';
+import { createHash } from 'node:crypto';
+import {
+  TELEMETRY_DETAIL_SCHEMA, DOC_SCHEMA_V4,
+  READ_MODEL_CENSUS_FILENAME, READ_MODEL_CENSUS_FIXTURE_COUNT,
+  canonicalReadModelShapePayload, validateReadModelCensusEntry,
+} from '../packages/shared/dist/index.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -1587,6 +1592,86 @@ if (isMain()) {
         ...seqDetails,
         ...(!cliPass ? [`CLI renumber：锁消费点=${cliLock}（期望恰 1）/序列残留=${cliSeq}（期望 0）`] : []),
       ]);
+  }
+
+  // ── ㉟ Y1c T19（plan v1.7 卡）：read-model-census.json 索引门（census③ 制度化执法——所有
+  //    readCanvas/readRecordsFromMaps 调用点〔含 toReadModel/readCanvasFromDoc/
+  //    readCanvasSnapshotCached 后继面〕在表内未分类即红）。两面：
+  //    A. json 结构面（冻结契约 read-model-census.ts 消费——数据面为本 json）：entries 总数=
+  //       READ_MODEL_CENSUS_FIXTURE_COUNT(27)+fixtures 总数=27+id 唯一+validateReadModelCensusEntry
+  //       全过+shapeHash 复算相等（sha256hex(canonicalReadModelShapePayload))+entry.file/testAnchor
+  //       仓内存在（锚新鲜度——锚 spec 消失即红）。
+  //    B. 词法面对账（执法面只增不减——与 ㉙ toReadModel 直读白名单并存）：五 token 族 stripped
+  //       出现计数 vs 冻结表（新增调用点=漂移红——同批补 census 条目+本表计数）；json 条目文件集
+  //       与词法命中文件集双向包含（未分类文件红/stale 条目红）。
+  //    合并模型注记（语义条目≠词法计数——两面各自冻结）：def+body 或 def+立即委托 合并一 reader
+  //    一条目（doc-svc 4 条目/5 词法〔readCanvas def+body 合并〕、controller 1/2〔REST def+透传
+  //    合并〕、port Direct 2/4 含 Http 独立、ydocBuilder 1/2〔web 读单源 def+body 合并〕）；registry
+  //    等价校验同行双读=两条目。写者纪律（D9）：本门零写者触碰——data.fileId/result/status 写者
+  //    与 execAligned fallback 不在读者面（T22/T32 删）。──
+  const READ_MODEL_READER_LEXICAL = {
+    'apps/api/src/modules/collab/collab-doc-registry.service.ts': 4,   // toReadModel×4（病理观测/vacuum 重建/等价校验同行双读）
+    'apps/api/src/modules/collab/collab-document.service.ts': 5,       // readCanvas×2（def+fallback）+snapshotCached def+toReadModel×2
+    'apps/api/src/modules/collab/collab-read.controller.ts': 2,        // readCanvas def+透传
+    'apps/api/src/modules/collab/collab-shrink.service.ts': 2,         // toReadModel×2（影子源/预演）
+    'apps/api/src/modules/collab/collab-write.port.ts': 4,             // readCanvas abstract+Direct def/委托+Http def
+    'apps/api/src/modules/execution/execution.service.ts': 1,          // readCanvas 计费读
+    'apps/api/src/modules/video-project/video-project.service.ts': 1,  // readCanvas regenerate 读
+    'apps/api/src/modules/video-work/video-work-clone.service.ts': 1,  // readCanvas clone 读（读径④）
+    'apps/api/src/modules/video-work/video-work.service.ts': 1,        // snapshotCached 公开快照读（读径①）
+    'apps/web/src/collab/canvas-local-backup.ts': 1,                   // readCanvasFromDoc .json 反投影
+    'apps/web/src/collab/ydocBuilder.ts': 2,                           // readCanvasFromDoc def+toReadModel（web 读单源）
+    'apps/web/src/stores/canvasCollabRuntime.ts': 4,                   // readCanvasFromDoc×4（oracle/装载投影/对账/缓存快照）
+    'apps/web/src/stores/canvasIntents.ts': 3,                         // toReadModel×3（键集 oracle/组 record/差分尾）
+    'apps/web/src/stores/canvasStore.ts': 1,                           // readCanvasFromDoc commitIntents 差分
+  };
+  {
+    const details = [];
+    let census;
+    try {
+      census = JSON.parse(fs.readFileSync(path.join(ROOT, 'docs', 'superpowers', 'census', READ_MODEL_CENSUS_FILENAME), 'utf8'));
+    } catch (e) {
+      console.error(`check-collab-census: 结构性错误（exit 2）——${READ_MODEL_CENSUS_FILENAME} 加载失败：${e.message}`);
+      process.exit(2);
+    }
+    const entries = census.entries ?? [];
+    // A. 结构面
+    if (entries.length !== READ_MODEL_CENSUS_FIXTURE_COUNT) details.push(`条目数 ${entries.length} ≠ 冻结 ${READ_MODEL_CENSUS_FIXTURE_COUNT}（READ_MODEL_CENSUS_FIXTURE_COUNT）`);
+    const fixtureTotal = entries.reduce((a, e) => a + (Array.isArray(e.fixtures) ? e.fixtures.length : 0), 0);
+    if (fixtureTotal !== READ_MODEL_CENSUS_FIXTURE_COUNT) details.push(`fixtures 总数 ${fixtureTotal} ≠ 冻结 ${READ_MODEL_CENSUS_FIXTURE_COUNT}`);
+    const ids = new Set(entries.map((e) => e.id));
+    if (ids.size !== entries.length) details.push('id 重复（census 内 id 必须唯一）');
+    for (const e of entries) {
+      const problems = validateReadModelCensusEntry(e);
+      if (problems.length) details.push(`${e.id ?? '?'} 形态违规：${problems.join('；')}`);
+      if (typeof e.id === 'string' && typeof e.file === 'string' && Array.isArray(e.fields) && typeof e.testAnchor === 'string') {
+        const want = createHash('sha256').update(canonicalReadModelShapePayload(e), 'utf8').digest('hex');
+        if (typeof e.shapeHash === 'string' && e.shapeHash !== want) details.push(`${e.id} shapeHash 复算不等（payload 漂移未重签）`);
+        if (!fs.existsSync(path.join(ROOT, e.file))) details.push(`${e.id} file 不存在 ${e.file}`);
+        if (!fs.existsSync(path.join(ROOT, e.testAnchor))) details.push(`${e.id} testAnchor 不存在 ${e.testAnchor}（锚 spec 消失——需改锚）`);
+      }
+    }
+    // B. 词法面对账
+    const READER_TOKENS = [/readCanvas\(/g, /readCanvasFromDoc\(/g, /readCanvasSnapshotCached\(/g, /toReadModel\(/g, /readRecordsFromMaps\(/g];
+    const occurrences = {};
+    for (const p of files) {
+      const stripped = byFile.get(p).stripped;
+      const n = READER_TOKENS.reduce((a, re) => a + (stripped.match(re) ?? []).length, 0);
+      if (n) occurrences[relOf(p)] = n;
+    }
+    for (const [f, n] of Object.entries(READ_MODEL_READER_LEXICAL)) {
+      const got = occurrences[f];
+      if (got === undefined) details.push(`读者词法点消失 ${f}（冻结 ${n}——清单需同步）`);
+      else if (got !== n) details.push(`读者词法计数漂移 ${f}: 冻结 ${n} 实际 ${got}（新增调用点须同批补 census 条目+本表）`);
+    }
+    for (const f of Object.keys(occurrences)) {
+      if (!(f in READ_MODEL_READER_LEXICAL)) details.push(`未分类读者调用点 ${f} ×${occurrences[f]}（read-model-census.json 未登记即红）`);
+    }
+    // json 条目文件集与词法命中文件集双向包含
+    const entryFiles = new Set(entries.map((e) => e.file));
+    for (const f of entryFiles) if (!(f in READ_MODEL_READER_LEXICAL)) details.push(`census 条目文件 ${f} 不在词法命中面（stale 条目——reader 已消失需核销）`);
+    for (const f of Object.keys(READ_MODEL_READER_LEXICAL)) if (!entryFiles.has(f)) details.push(`词法命中文件 ${f} 无 census 条目（未分类即红）`);
+    report('㉟', `read-model-census.json 索引门（T19——27 条目/27 fixture/shapeHash 复算+五 token 族词法对账 ${Object.values(READ_MODEL_READER_LEXICAL).reduce((a, b) => a + b, 0)} 点/${Object.keys(READ_MODEL_READER_LEXICAL).length} 文件；未分类新增即红）`, details.length === 0, details);
   }
 
   const failed = results.filter((r) => !r.pass);

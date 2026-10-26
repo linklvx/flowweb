@@ -123,8 +123,8 @@ describe('Y0a-3 T8（三分法）', () => {
     expect(repo.readSnapshotOnly).toHaveBeenCalledWith('p1'); // 直查 repo 快照出口
     expect(withDocSpy).not.toHaveBeenCalled();                // 不经 openDirectConnection/装载
     expect(gateway.isLeaseServing).not.toHaveBeenCalled();    // 不窥探租约——投影读恒可用
-    expect(out.nodes.map((n: any) => n.id).sort()).toEqual(['bare', 'full']); // 与 readCanvas 同出口 readRecordsFromMaps
-    expect(out.edges).toHaveLength(1);
+    expect(out.model.nodes.map((n: any) => n.id).sort()).toEqual(['bare', 'full']); // 与 readCanvas 同出口 toReadModel（Y1c T19：CanvasReadSnapshot.model 面）
+    expect(out.model.edges).toHaveLength(1);
   });
 
   it('readCanvasSnapshotCached：state+分页增量同 doc 重放（投影=state∪updates）', async () => {
@@ -140,7 +140,7 @@ describe('Y0a-3 T8（三分法）', () => {
     const service = new CollabDocumentService({ isLeaseServing: () => true, isPersistedComplete: () => true } as any, repo as any);
 
     const out = await service.readCanvasSnapshotCached('p1');
-    expect(out.nodes.map((n: any) => n.id).sort()).toEqual(['n1', 'n2']);
+    expect(out.model.nodes.map((n: any) => n.id).sort()).toEqual(['n1', 'n2']);
   });
 
   it('写意图门租约档（R4）：lease 未持∧spool ok → 503（既有门只含 spool 态不含 draining——T15 后写面=writeExecStatus/writeBatch/deliverArtifact 同门）', async () => {

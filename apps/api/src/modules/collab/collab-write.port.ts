@@ -27,6 +27,7 @@ import { CollabDocumentService, type ExecStatusPatch } from './collab-document.s
 import { CollabDocWriterService, type WriteOpResult } from './collab-doc-writer.service';
 import { mintWorkerScopeToken, WORKER_SCOPE_HEADER, type WorkerWriteScope } from './worker-scope-token';
 import type { DocWriteOp } from '@flowweb/shared';
+import type { CanvasReadModel } from '@flowweb/shared';
 
 /** worker 作用域上下文（铸造侧形态——intentRowId/execSeq 缺省=裸项目档：见 worker-scope-token.ts 头注）。 */
 export type { WorkerWriteScope } from './worker-scope-token';
@@ -64,7 +65,7 @@ export abstract class CollabWritePort {
    *  首行租约门+真空档 503 语义随实现继承（契约见 CollabDocumentService.withDoc 头注）。 */
   abstract withDoc<T>(projectId: string, fn: (doc: Y.Doc) => T | Promise<T>): Promise<T>;
   /** doc → plain nodes/edges（计费/语义读统一活读出口——分源规则见 CollabDocumentService.readCanvas 头注）。 */
-  abstract readCanvas(projectId: string): Promise<{ nodes: any[]; edges: any[] }>;
+  abstract readCanvas(projectId: string): Promise<CanvasReadModel>;
   /** Y0a-3（T8）：租约态透传——计费/语义读调用面的 503 分型查此档。 */
   abstract isLeaseServing(): boolean;
   /** Y0b-2 T5（Z106/Z112）：doc 常驻透传——reaper 投影分治判据。 */
@@ -87,7 +88,7 @@ export class DirectCollabWritePort extends CollabWritePort {
     return this.svc.withDoc(projectId, fn);
   }
 
-  override readCanvas(projectId: string): Promise<{ nodes: any[]; edges: any[] }> {
+  override readCanvas(projectId: string): Promise<CanvasReadModel> {
     return this.svc.readCanvas(projectId);
   }
 
@@ -231,11 +232,11 @@ export class HttpCollabWritePort extends CollabWritePort {
     });
   }
 
-  override async readCanvas(projectId: string): Promise<{ nodes: any[]; edges: any[] }> {
+  override async readCanvas(projectId: string): Promise<CanvasReadModel> {
     const out = await this.request('readCanvas', `${this.baseUrl}/api/collab/doc/${encodeURIComponent(projectId)}/canvas`, {
       method: 'GET', headers: this.headers(undefined, projectId),
     });
-    if (out.kind === 'ok') return out.body as { nodes: any[]; edges: any[] };
+    if (out.kind === 'ok') return out.body as CanvasReadModel;   // Y1c T19：wire 契约=REST 出口 CanvasReadModel（controller 同形——网络边界单 cast）
     if (out.kind === 'transient-exhausted') {
       // 计费读 fail-closed（E49——按陈旧/空画布烧钱比拒服务更糟）：503 语义显式传递（spec :538 Http 端
       // 「显式传递 503 语义」）——throw 进 job 失败（零外呼零扣费），区别于投影写的绝不上抛。

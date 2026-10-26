@@ -10,6 +10,7 @@ import { Controller, Get, Inject, Param, UseGuards } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { NoTransform } from '../../common/decorators/no-transform.decorator';
 import { CollabWritePort } from './collab-write.port';
+import type { CanvasReadModel } from '@flowweb/shared';
 import { WorkerWriteAuthGuard } from './worker-write-auth.guard';
 
 @SkipThrottle()
@@ -20,7 +21,7 @@ export class CollabReadController {
   @Get(':projectId/canvas')
   @NoTransform()
   @UseGuards(WorkerWriteAuthGuard)
-  async readCanvas(@Param('projectId') projectId: string): Promise<{ nodes: any[]; edges: any[] }> {
+  async readCanvas(@Param('projectId') projectId: string): Promise<CanvasReadModel> {   // Y1c T19：读出口=CanvasReadModel（唯一共享读类型）
     return this.collabDoc.readCanvas(projectId);
   }
 }

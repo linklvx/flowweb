@@ -1,0 +1,26 @@
+ [31m❯[39m src/modules/video-work/snapshot-filter.t19-public-read-model.spec.ts [2m([22m[2m4 tests[22m[2m | [22m[31m4 failed[39m[2m)[22m[90m 11[2mms[22m[39m
+[31m   [31m×[31m Y1c T19 红①：公开快照 sanitize（toPublicReadModel 落地）——RichTextValue 只余 text[2m > [22m红轴：textInput.content=RichTextValue（T16 域容器读模型形态）——公开输出=纯文本 string，html/json 全树零命中[90m 8[2mms[22m[31m[39m
+[31m   [31m×[31m Y1c T19 红①：公开快照 sanitize（toPublicReadModel 落地）——RichTextValue 只余 text[2m > [22mimageGen/videoGen prompt=RichTextValue → .text string；fileId/status 等白名单外键照剥（服务端字段组不进公开面）[90m 1[2mms[22m[31m[39m
+[31m   [31m×[31m Y1c T19 红①：公开快照 sanitize（toPublicReadModel 落地）——RichTextValue 只余 text[2m > [22maudioGen/multiImageGen prompt=Y.Text 域 → string 原样（T15 域）；dropTypes 连带边剔除（toPublicReadModel 同则）[90m 1[2mms[22m[31m[39m
+[31m   [31m×[31m Y1c T19 红①：公开快照 sanitize（toPublicReadModel 落地）——RichTextValue 只余 text[2m > [22mthumbnailUrl=服务端注入键（sanitize 后注入——不进白名单不剥）；克隆路径对照：buildFilteredSnapshot 保持 RichTextValue 全保真（用户画布副本=doc 域容器回灌 materialize.json 面）[90m 1[2mms[22m[31m[39m
+[31m[1m[7m FAIL [27m[22m[39m src/modules/video-work/snapshot-filter.t19-public-read-model.spec.ts[2m > [22mY1c T19 红①：公开快照 sanitize（toPublicReadModel 落地）——RichTextValue 只余 text[2m > [22m红轴：textInput.content=RichTextValue（T16 域容器读模型形态）——公开输出=纯文本 string，html/json 全树零命中
+[31m[1mTypeError[22m: toPublicSnapshot is not a function[39m
+[31m[1m[7m FAIL [27m[22m[39m src/modules/video-work/snapshot-filter.t19-public-read-model.spec.ts[2m > [22mY1c T19 红①：公开快照 sanitize（toPublicReadModel 落地）——RichTextValue 只余 text[2m > [22mimageGen/videoGen prompt=RichTextValue → .text string；fileId/status 等白名单外键照剥（服务端字段组不进公开面）
+[31m[1mTypeError[22m: toPublicSnapshot is not a function[39m
+[31m[1m[7m FAIL [27m[22m[39m src/modules/video-work/snapshot-filter.t19-public-read-model.spec.ts[2m > [22mY1c T19 红①：公开快照 sanitize（toPublicReadModel 落地）——RichTextValue 只余 text[2m > [22maudioGen/multiImageGen prompt=Y.Text 域 → string 原样（T15 域）；dropTypes 连带边剔除（toPublicReadModel 同则）
+[31m[1mTypeError[22m: toPublicSnapshot is not a function[39m
+[31m[1m[7m FAIL [27m[22m[39m src/modules/video-work/snapshot-filter.t19-public-read-model.spec.ts[2m > [22mY1c T19 红①：公开快照 sanitize（toPublicReadModel 落地）——RichTextValue 只余 text[2m > [22mthumbnailUrl=服务端注入键（sanitize 后注入——不进白名单不剥）；克隆路径对照：buildFilteredSnapshot 保持 RichTextValue 全保真（用户画布副本=doc 域容器回灌 materialize.json 面）
+ [31m❯[39m src/modules/collab/read-model-exit.t19.spec.ts [2m([22m[2m3 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[90m 6[2mms[22m[39m
+[31m   [31m×[31m Y1c T19 红②③：CanvasReadSnapshot 水位面+ETag=generation:pgSeq 单源[2m > [22mformatCanvasReadETag：`g{generation}:p{pgSeq}`——恢复后无 304 旧内容（generation 前缀防同 pgSeq 复位）[90m 3[2mms[22m[31m[39m
+[31m[1m[7m FAIL [27m[22m[39m src/modules/collab/read-model-exit.t19.spec.ts[2m > [22mY1c T19 红②③：CanvasReadSnapshot 水位面+ETag=generation:pgSeq 单源[2m > [22mformatCanvasReadETag：`g{generation}:p{pgSeq}`——恢复后无 304 旧内容（generation 前缀防同 pgSeq 复位）
+[31m[1mTypeError[22m: formatCanvasReadETag is not a function[39m
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m2 passed[39m[22m[90m (3)[39m
+src/modules/collab/read-model-exit.t19.spec.ts(12,32): error TS2724: '"@flowweb/shared"' has no exported member named 'CanvasReadSnapshot'. Did you mean 'CanvasEdgeSnapshot'?
+src/modules/collab/read-model-exit.t19.spec.ts(13,10): error TS2305: Module '"@flowweb/shared"' has no exported member 'formatCanvasReadETag'.
+src/modules/collab/read-model-exit.t19.spec.ts(29,16): error TS2344: Type 'false' does not satisfy the constraint 'true'.
+src/modules/collab/read-model-exit.t19.spec.ts(30,16): error TS2344: Type 'false' does not satisfy the constraint 'true'.
+src/modules/video-work/snapshot-filter.t19-public-read-model.spec.ts(12,33): error TS2305: Module '"./snapshot-filter.util"' has no exported member 'toPublicSnapshot'.
+src/modules/video-work/snapshot-filter.t19-public-read-model.spec.ts(86,27): error TS7006: Parameter 'n' implicitly has an 'any' type.
+PASS  ㉞ doc 写路径 advisory lock 清零（census⑩ T10——repo lockProject 恰 1 调用点=vacuumReplace〔T12 收口〕+CLI 离线锁保留；canvas_doc_update_seq src+CLI 面清零）
+check-collab-census: 结构性错误（exit 2）——read-model-census.json 加载失败：ENOENT: no such file or directory, open 'D:\flowweb\docs\superpowers\census\read-model-census.json'

@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { Linter } from 'eslint';
 import { noColorHex } from '../eslint-rules/no-color-hex.js';
 import { noThemeUtility } from '../eslint-rules/no-theme-utility.js';
-import { noConnStatusWrite, noYdocGetmap, noStoreSetstate, noDeleteScan, noShadowLiteral, noMediaUrlWrite, noTestGeometrySetstate } from '../eslint-rules/collab-static-asserts.js';
+import { noConnStatusWrite, noYdocGetmap, noStoreSetstate, noDeleteScan, noShadowLiteral, noMediaUrlWrite, noTestGeometrySetstate, noNodesMapDirectRead } from '../eslint-rules/collab-static-asserts.js';
 import { NEW_RULE_ID, THEME_RULE_ID, STATIC_ASSERT_RULE_IDS, violationKey, diffNewViolations } from '../lint-gate.mjs';
 
 const linter = new Linter(); // ESLint 10 默认 flat
@@ -182,6 +182,7 @@ const COLLAB_RULES = {
   'no-shadow-literal': noShadowLiteral,
   'no-mediaurl-write': noMediaUrlWrite,
   'no-test-geometry-setstate': noTestGeometrySetstate,
+  'no-nodes-map-direct-read': noNodesMapDirectRead,
 };
 const lintCollabFixture = (ruleName, code, filename) =>
   linter.verify(
@@ -541,5 +542,34 @@ describe('lint-gate 增量门禁（fixture）', () => {
       { ruleId: NEW_RULE_ID, filePath: 'src/pages/Baz.tsx', line: 9, lineText: LINE_TEXT },
     ];
     expect(diffNewViolations([], violations)).toHaveLength(1);
+  });
+});
+
+
+describe('flowweb/no-nodes-map-direct-read 静态断言（fixture，Y1c T19 H——nodes map 直读门）', () => {
+  it('白名单五类放行：DocCodec 薄委托/投影层/写缝/undo scope/绑定层（yXmlFragmentBinding=T18 移交豁免归类）', () => {
+    for (const f of [
+      'src/collab/ydocBuilder.ts',          // DocCodec 薄委托（readCanvasFromDoc 读单源）
+      'src/stores/canvasCollabRuntime.ts',  // 投影层
+      'src/stores/canvasIntents.ts',        // 写缝
+      'src/stores/canvasUndo.ts',           // undo scope
+      'src/collab/yXmlFragmentBinding.ts',  // 绑定层（live Y 实例解析）
+    ]) {
+      expect(lintCollabFixture('no-nodes-map-direct-read', "const m = doc.getMap('nodes');", f)).toHaveLength(0);
+    }
+  });
+
+  it("门外拦截：getMap('nodes') 字面直读 1 报；非 nodes 字面量（getMap('edges')/动态键）不拦（B 门全域另拦）", () => {
+    const messages = lintCollabFixture(
+      'no-nodes-map-direct-read',
+      "const a = doc.getMap('nodes'); const b = doc.getMap('edges'); const c = doc.getMap(name);",
+      'src/pages/canvas/components/SomeNode.tsx',
+    );
+    expect(messages).toHaveLength(1);
+    expect(messages[0].ruleId).toBe('flowweb/no-nodes-map-direct-read');
+  });
+
+  it('测试文件豁免（isTestFile 同各规则）', () => {
+    expect(lintCollabFixture('no-nodes-map-direct-read', "const m = doc.getMap('nodes');", 'src/stores/anything.test.ts')).toHaveLength(0);
   });
 });

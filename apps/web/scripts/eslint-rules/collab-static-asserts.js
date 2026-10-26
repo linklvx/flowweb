@@ -54,11 +54,15 @@ const CONN_STATUS_WRITE_FILES = [
 
 // B. getMap 三文件门：ydoc Map 读取收口；0.5 exec 读点落地时增补对应文件。
 // 批4b-1：canvasIntents（意图漏斗 applyIntentToDoc doc 直写）入白名单——门 C 裁决的合法 doc 写者。
+// Y1c T19（T18 移交处置）：yXmlFragmentBinding（T16 双端绑定层）入白名单——resolveNodeXmlFragment
+// 读 live Y.XmlFragment 实例挂 editor（ySyncPlugin 直绑——read model 纯 JSON 不适用绑定面），
+// 归 DocCodec/投影/绑定层豁免类（门 H 同批归类）。
 const GETMAP_FILES = [
   'src/stores/canvasCollabRuntime.ts',
   'src/collab/ydocBuilder.ts',
   'src/stores/canvasUndo.ts',
   'src/stores/canvasIntents.ts',
+  'src/collab/yXmlFragmentBinding.ts',
 ];
 
 // C. setState 直调白名单：协作数据写入路径（canvasHistory 为 0.5 接线前瞻项，现状无命中）
@@ -311,6 +315,44 @@ export const noTestGeometrySetstate = {
               break; // 每调用一报——报数=违例 setState 调用数
             }
           }
+        }
+      },
+    };
+  },
+};
+
+
+// H. Y1c T19（plan v1.7 卡「lint 静态门」）：doc.getMap('nodes') 直读门——web 侧除
+//    DocCodec/投影·绑定层/写缝/undo scope 外禁 nodes map 直读（读者一律经 readCanvasFromDoc
+//    芯=doc-codec.toReadModel——CanvasReadModel 唯一共享读类型）。白名单=语义分类面（与门 B 的
+//    全 getMap 门并存——B 拦任意 map 名，H 专拦 'nodes' 内容读面且白名单带归属注记）：
+const NODES_MAP_DIRECT_READ_FILES = [
+  'src/collab/ydocBuilder.ts',            // DocCodec 薄委托（readCanvasFromDoc 读单源+fillDoc 写 seam 适配）
+  'src/stores/canvasCollabRuntime.ts',    // 投影层（applyDocToStore 装载投影/observeDeep 结构观测/缓存快照）
+  'src/stores/canvasIntents.ts',          // 写缝（意图漏斗 doc 写者——读仅写路径前置判定，非内容读者）
+  'src/stores/canvasUndo.ts',             // UndoManager scope（结构面非内容读）
+  'src/collab/yXmlFragmentBinding.ts',    // 绑定层（live Y 实例解析挂 editor——T18 移交豁免归类）
+];
+
+const MSG_NODES_MAP_DIRECT_READ =
+  "nodes map 直读门（Y1c T19）：web 侧除 DocCodec/投影·绑定层/写缝/undo scope 外禁 doc.getMap('nodes') 直读——" +
+  '读者一律经 readCanvasFromDoc（芯=doc-codec.toReadModel——CanvasReadModel 唯一共享读类型）；' +
+  '新 reader 落地先判定归属（投影层豁免类 or 改道读模型）再入白名单（read-model-census.json 同批登记条目）。';
+
+/** H. getMap('nodes') 字面直读门：CallExpression getMap('nodes')（首参='nodes' 字符串字面量）。 */
+export const noNodesMapDirectRead = {
+  meta: { type: 'problem', docs: { description: "getMap('nodes') 直读门（Y1c T19 静态断言 H）" }, schema: [], messages: { forbidden: MSG_NODES_MAP_DIRECT_READ } },
+  create(context) {
+    const active = gateActive(context, NODES_MAP_DIRECT_READ_FILES);
+    return {
+      CallExpression(node) {
+        if (!active) return;
+        const c = node.callee;
+        const name = c.type === 'MemberExpression' && !c.computed && c.property.type === 'Identifier' ? c.property.name : null;
+        if (name !== 'getMap') return;
+        const arg = node.arguments[0];
+        if (arg && arg.type === 'Literal' && arg.value === 'nodes') {
+          context.report({ node, messageId: 'forbidden' });
         }
       },
     };

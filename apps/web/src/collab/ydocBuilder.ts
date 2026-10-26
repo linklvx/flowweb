@@ -12,7 +12,7 @@ import {
   toDocRecord,
   type DocLike, type DocMapLike, type StoredNodeRecord, type DocEdgeRecord, type TextLike,
   type XmlFragmentLike, type XmlElementLike, type XmlTextLike, type YArrayLike,
-  type CanvasNodeRecord,
+  type CanvasNodeRecord, type CanvasReadModel,
 } from '@flowweb/shared';
 
 export { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
@@ -55,8 +55,11 @@ export function fillDoc(
 
 /** doc 直读（O0a-1 出口=作者态 StoredNodeRecord 可选键——doc 无键⇄records 同形无键，三层表；
  *  分镜子 cs {0,0} 构造默认由消费面（applyDocToStore hydrate）补齐。Y1c T4：实现改道
- *  doc-codec.toReadModel（readRecordsFromMaps 收编单源——v3 纯 JSON 值逐位同出口零行为变更）。 */
-export function readCanvasFromDoc(doc: Y.Doc): { nodes: StoredNodeRecord[]; edges: PlainEdge[] } {
+ *  doc-codec.toReadModel（readRecordsFromMaps 收编单源——v3 纯 JSON 值逐位同出口零行为变更）。
+ *  Y1c T19（plan v1.7 卡）：**出口类型=CanvasReadModel（doc-codec 唯一共享读类型）**——全 web
+ *  读者（census③：runtime×4/canvasStore/local-backup/canvasIntents×3）经本薄委托消费读模型，
+ *  渲染层合成 CanvasRenderModel=merge(CanvasReadModel, RuntimeProjection)（T22 切投影）。 */
+export function readCanvasFromDoc(doc: Y.Doc): CanvasReadModel {
   return toReadModel(doc);
 }
 

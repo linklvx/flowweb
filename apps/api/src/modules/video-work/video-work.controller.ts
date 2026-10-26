@@ -1,5 +1,6 @@
 // 空壳，签名一次到位——cloneService 供 Task 6.2（rateLimiter 注入随 Y0c T36 删 getClientIp 退役——recordView 改 req.ip 单源）
-import { Controller, Get, Query, Param, Post, Req, Inject, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Query, Param, Post, Req, Res, Inject, UnauthorizedException, HttpCode } from '@nestjs/common';
+import type { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { VideoWorkService } from './video-work.service';
 import { VideoWorkCloneService } from './video-work-clone.service';
@@ -33,10 +34,21 @@ export class VideoWorkController {
   }
 
   // E71（Y0b-2 T8）：公开免费读面收紧 30/min（双层缓存挡不住的对象删除/404 探测——@Throttle 全局守卫形态）
+  // Y1c T19（plan v1.7 卡）：ETag=read model 新鲜度=pgSeq（g{generation}:p{pgSeq}——formatCanvasReadETag
+  // 单源）——If-None-Match 命中 ⇒ 304 Not Modified（读模型未推进零重传；换代/发版天然换 tag）。
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Get(':id/process')
-  getProcess(@Param('id') id: string) {
-    return this.service.getProcessSnapshot(id);
+  @HttpCode(200)
+  async getProcess(@Param('id') id: string, @Req() req: { headers: Record<string, string | string[] | undefined> }, @Res({ passthrough: true }) res: Response) {
+    const out = await this.service.getProcessSnapshot(id);
+    res.setHeader('ETag', `"${out.etag}"`);
+    const inm = req.headers['if-none-match'];
+    const clientTag = Array.isArray(inm) ? inm[0] : inm;
+    if (clientTag != null && clientTag.replace(/^W\//, '').replace(/"/g, '') === out.etag) {
+      res.status(304);
+      return {} as never;   // 304 空 body（Nest passthrough 模式——status 已置）
+    }
+    return out;
   }
 
   @Post(':id/view')
