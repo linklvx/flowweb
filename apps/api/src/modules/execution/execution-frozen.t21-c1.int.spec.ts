@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
+import * as zlib from 'node:zlib';
 import * as Y from 'yjs';
 import { fillDoc, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { toDocLike } from '../collab/doc-like.util';
@@ -67,7 +68,7 @@ const execService = new ExecutionService(
 let TID = '';
 let freeRuleResId = '';   // 免费态用例建的全局 0 成本规则维度（afterAll 删）
 let ND: Record<string, unknown> = {};
-let serverDoc: Y.Doc = new Y.Doc();
+const serverDoc: Y.Doc = new Y.Doc();   // T22 收口批扫尾：prefer-const（eslint 全量门 [30/30] 卡点——前批遗留）
 
 const fillBaseline = (doc: Y.Doc, extra: StoredNode[] = []) => {
   fillDoc(toDocLike(doc), [
@@ -527,7 +528,7 @@ async function balanceCredits(): Promise<number> {
     expect(a.ok, j(a)).toBe(true);
     if (!a.ok) return;
     const inputRow = await prisma.executionInput.findUnique({ where: { requestId: a.id } });
-    const rawStr = require('node:zlib').brotliDecompressSync(Buffer.from(inputRow!.content)).toString('utf8');
+    const rawStr = zlib.brotliDecompressSync(Buffer.from(inputRow!.content)).toString('utf8');   // T22 收口批扫尾：require() 形态禁用——顶部 import（eslint [30/30] 卡点）
     // 红（收口前）：每节点 upstreamTexts/promptText 全量重复存——正文出现多次
     const occurrences = rawStr.split(big).length - 1;
     expect(occurrences).toBeLessThanOrEqual(1);   // 共享文本单份（sha256 引用形态）
