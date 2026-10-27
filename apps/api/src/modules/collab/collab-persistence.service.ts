@@ -255,7 +255,8 @@ export class CollabPersistenceService {
 
   /** 重放抑制窗（B1 自 loadDocument applyReplayed 闭包提取）：只包裹 apply 同步段——update 事件在
    *  事务清理期同步发放被精确抑制；await 窗口内写入不被抑制、进 pending。 */
-  withReplaySuppressed(document: Y.Doc, u: Uint8Array): void {    this.replaying.add(document);
+  withReplaySuppressed(document: Y.Doc, u: Uint8Array): void {
+    this.replaying.add(document);
     try { Y.applyUpdate(document, u); } finally { this.replaying.delete(document); }
   }
 

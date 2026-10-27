@@ -381,6 +381,9 @@ export function validateAppliedL2(doc: Y.Doc, events: readonly Y.YEvent<never>[]
         if (ch.action === 'delete' && ENVELOPE_NON_DELETABLE.has(k)) return { ok: false, reason: `envelope-key-deleted:${k}` };
         if (k === 'type' && ch.action === 'update') return { ok: false, reason: 'type-immutable' };
         if ((k === 'data' || k === 'position') && ch.action !== 'delete') {
+          // 终验 I-7：信封容器整键 update=同型替换（「删了换新」等效绕过 canDelete=false 禁令——
+          // 孤儿化整棵内容子树）；add=节点创建初始化（creation 路径）放行，形状不符照旧拒
+          if (ch.action === 'update') return { ok: false, reason: `container-replacement:${nodeId}.${k}` };
           const cur = (ev.target as unknown as { get?: (kk: string) => unknown })?.get?.(k);
           if (!(cur instanceof Y.Map)) return { ok: false, reason: `container-replacement:${nodeId}.${k}` };
         }
@@ -406,6 +409,12 @@ export function validateAppliedL2(doc: Y.Doc, events: readonly Y.YEvent<never>[]
         }
         const spec = typeDef.data[k];
         if (spec === undefined) return { ok: false, reason: `unknown-data-key:${type}.${k}` };
+        // 终验 I-7：同型容器整键覆盖（ch.action==='update' 且值为全新容器实例）——canDelete=false
+        // 容器的「删了换新」等效绕过（T17「禁整串 LWW 覆盖」纪律 gate 面执法）；合法面区分：
+        // 容器初始化=add（节点创建/缺失补建）；内容写=child/delta 事件（path≠键本身）——均非本档。
+        if (ch.action === 'update' && (spec.yType === 'map' || spec.yType === 'array' || spec.yType === 'text' || spec.yType === 'xml')) {
+          return { ok: false, reason: `container-replacement:${type}.${k}` };
+        }
         const cur = dataMap.get(k);
         const vErr = dataValueShapeOk(type, k, spec, cur);
         if (vErr !== undefined) return { ok: false, reason: vErr };

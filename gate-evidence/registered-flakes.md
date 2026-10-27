@@ -26,3 +26,6 @@
 - 2026-10-27（Y1c T24 收口批）：collab-rate-gate 两例（「成对用例 maxDocBytes+30B SS2」与「红门⑧
   8MB 回灌」）满载并行下 pollUntil 超时——spec 评审机满载触发（ms 级时序窗）；单独重跑 9/9 绿
   （口径同 Y7/soak 行——环境负载态非回归，禁以环境态调阈值）。
+- 2026-10-27（Y1c T24 终验微批）：collab.gateway.auth-reason「session-expired 真协议透传」在 verify full
+  背靠背满载轮下 10s 用例超时（用例含完整 onModuleInit 启动链——负载放大启动窗）；隔离 3/3 绿+同码
+  冷却后 verify full 30/30 PASS（口径同 Y7 行——环境负载态非回归，禁以环境态调阈值）。

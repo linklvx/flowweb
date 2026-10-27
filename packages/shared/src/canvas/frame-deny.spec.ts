@@ -172,3 +172,70 @@ describe('Y1c T24 收口 I-6：DS 区间预算 cap 重估（SS2 全量载体—�
     expect(FRAME_MAX_STRUCTS).toBe(8 * 2000);
   });
 });
+
+describe('Y1c T24 终验 I-7：同型容器整键替换零执法（canDelete=false 容器「删了换新」等效绕过）', () => {
+  /** 既有 textInput 节点（content=XmlFragment/prompt=Map{text}/model/order）。 */
+  function seededDoc(): Y.Doc {
+    const doc = new Y.Doc();
+    doc.getMap('nodes').set('n1', legalNode('textInput'));
+    return doc;
+  }
+  const capture = (doc: Y.Doc, mutate: (d: Y.Doc) => void): Array<Y.YEvent<never>> => {
+    const events: Array<Y.YEvent<never>> = [];
+    doc.getMap('nodes').observeDeep((evs) => {
+      for (const e of evs) void e.changes.keys;
+      (events as unknown[]).push(...evs);
+    });
+    doc.transact(() => mutate(doc));
+    return events;
+  };
+  const dataOf = (d: Y.Doc): Y.Map<unknown> => (d.getMap('nodes').get('n1') as Y.Map<unknown>).get('data') as Y.Map<unknown>;
+
+  it('既有节点 data.set("content", 全新 XmlFragment)——同型容器整键覆盖 → 违规 container-replacement（修前 {ok:true}）', () => {
+    const doc = seededDoc();
+    const events = capture(doc, (d) => {
+      const frag = new Y.XmlFragment();
+      const p = new Y.XmlElement('paragraph'); p.insert(0, [new Y.XmlText()]);
+      frag.insert(0, [p]);
+      dataOf(d).set('content', frag);
+    });
+    expect(validateAppliedL2(doc, events)).toMatchObject({ ok: false, reason: expect.stringContaining('container-replacement:textInput.content') });
+  });
+
+  it('既有节点 data.set("prompt", 全新 Y.Map)——同型容器整键覆盖 → 违规（修前 {ok:true}）', () => {
+    const doc = seededDoc();
+    const events = capture(doc, (d) => {
+      const m = new Y.Map(); m.set('text', new Y.Text());
+      dataOf(d).set('prompt', m);
+    });
+    expect(validateAppliedL2(doc, events)).toMatchObject({ ok: false, reason: expect.stringContaining('container-replacement:textInput.prompt') });
+  });
+
+  it('信封 node.set("data", 全新 Y.Map)——信封容器整键覆盖 → 违规（修前 {ok:true}）', () => {
+    const doc = seededDoc();
+    const events = capture(doc, (d) => {
+      (d.getMap('nodes').get('n1') as Y.Map<unknown>).set('data', new Y.Map());
+    });
+    expect(validateAppliedL2(doc, events)).toMatchObject({ ok: false, reason: expect.stringContaining('container-replacement:n1.data') });
+  });
+
+  it('负控①：帧内新建节点容器初始化（add 形态）放行——creation 路径非 update', () => {
+    const doc = new Y.Doc();
+    const events: Array<Y.YEvent<never>> = [];
+    doc.getMap('nodes').observeDeep((evs) => {
+      for (const e of evs) void e.changes.keys;
+      (events as unknown[]).push(...evs);
+    });
+    doc.transact(() => { doc.getMap('nodes').set('fresh', legalNode('textInput')); });
+    expect(validateAppliedL2(doc, events)).toEqual({ ok: true });   // 新建节点全容器初始化=add 事件
+  });
+
+  it('负控②：既有容器内容写（XmlFragment insert 子元素/prompt.text splice——child 事件）放行', () => {
+    const doc = seededDoc();
+    const events = capture(doc, (d) => {
+      (dataOf(d).get('content') as Y.XmlFragment).insert(0, [new Y.XmlElement('paragraph')]);
+      ((dataOf(d).get('prompt') as Y.Map<unknown>).get('text') as Y.Text).insert(0, 'hello');
+    });
+    expect(validateAppliedL2(doc, events)).toEqual({ ok: true });   // 内容写=child/delta 事件（path≠键本身）
+  });
+});
