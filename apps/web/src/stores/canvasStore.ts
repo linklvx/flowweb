@@ -582,6 +582,17 @@ function rebindCopiedMedia(idMap: Map<string, string>): void {
           message.info('副本媒体槽位已有更新，未重复绑定（可刷新后手动替换）');   // F2：禁静默复读换 rev 重提
           return;
         }
+        // 收口 M-5：服务端拒绝域分档文案（404=源媒体软删/缺席；SOURCE_MEDIA_MISMATCH=源节点与
+        // 该媒体无绑定关系——粘贴源快照过期形态；其余=跨团队/服务不可达）
+        const err = e as { status?: number; errorCode?: string };
+        if (err?.status === 404) {
+          message.warning('副本媒体未绑定：源媒体不存在或已删除——副本图示保留，重新生成可恢复');
+          return;
+        }
+        if (err?.errorCode === 'SOURCE_MEDIA_MISMATCH') {
+          message.warning('副本媒体未绑定：源节点已不持有该媒体（可能已被替换）——可刷新后重试粘贴');
+          return;
+        }
         message.warning('副本媒体未完成服务端绑定（跨团队引用或服务不可达）——副本图示保留，重新生成可恢复');
       });
   }

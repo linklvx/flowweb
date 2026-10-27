@@ -53,6 +53,8 @@ export interface RecoveryImportResult {
   edgeDispositions: Array<{ edgeId: string; disposition: 'import' | 'skip' }>;
   /** draftId 幂等回放标记（重试同结果）。 */
   resultReplayed: boolean;
+  /** T25b 收口 I-3：B 场景删除确认执行报告（typed REST 承载——禁 doc 写承载裁定）。 */
+  deletions: { requested: number; applied: number };
   /** 跨代/跨纪元随行报告（不阻断——typed 内容导入非 CRDT 回灌；C 场景本就跨代）。 */
   epoch: { envelopeGeneration: number; envelopeHistoryId: string; crossGeneration: boolean };
 }
@@ -129,7 +131,14 @@ export class CollabRecoveryImportService {
     envelope: DraftEnvelope,
     conflictChoices?: Partial<Record<string, NodeIdConflictPolicy>>,
     rawByteLength?: number,
+    /** T25b 收口 I-3：B 场景删除确认经 typed REST 承载（禁 doc 写承载裁定）——用户显式确认删除
+     *  的服务端现存节点 id 集（信封缺席面）；幂等：候选缺该 id=跳过（重复导入安全）。 */
+    deletionNodeIds?: string[],
   ): Promise<RecoveryImportResult> {
+    if (deletionNodeIds !== undefined
+      && (!Array.isArray(deletionNodeIds) || deletionNodeIds.some((id) => typeof id !== 'string' || id === ''))) {
+      throw new BadRequestException({ code: 'RECOVERY_IMPORT_BAD_BODY', message: 'deletionNodeIds 须为 string[]（B 场景删除确认面）' });
+    }
     assertEnvelopeShape(envelope, projectId);
     // 收口 C-2（M-4 并入）：字节计量=Buffer.byteLength（utf8）——JSON.stringify().length 按 UTF-16
     // 码元计 CJK 低估 ~3×（红锚：3M 漢字 charCount<8MiB 放行/字节 9MiB 超限）。
@@ -147,7 +156,7 @@ export class CollabRecoveryImportService {
       throw new ConflictException({ code: 'RECOVERY_IMPORT_IN_FLIGHT', message: '该项目已有导入在飞（单飞——稍后重试）' });
     }
 
-    const promise = this.runImport(projectId, userId, envelope, conflictChoices ?? {})
+    const promise = this.runImport(projectId, userId, envelope, conflictChoices ?? {}, deletionNodeIds ?? [])
       .then((result) => {
         this.results.set(resultKey, { result, at: Date.now() });
         this.evictResults();
@@ -167,6 +176,7 @@ export class CollabRecoveryImportService {
     userId: string,
     envelope: DraftEnvelope,
     choices: Partial<Record<string, NodeIdConflictPolicy>>,
+    deletionNodeIds: string[],
   ): Promise<RecoveryImportResult> {
     // 维护窗口拒（4413 同源语义——REST 面 503+Retry-After 由全局 throttler/filter 层承载）。
     // 读面=canvas-doc-head 三态读（契约 1 豁免面——禁服务内直查 CanvasDoc 拼装载形态）。
@@ -198,6 +208,20 @@ export class CollabRecoveryImportService {
           if (d.disposition === 'replace') candidate.getMap('nodes').delete(d.nodeId);
         }
       });
+
+      // 收口 I-3：删除确认先于信封并入（信封天然不含删除确认面节点——先删后并零复活；幂等：
+      // 候选缺该 id=跳过。删除节点的触达边由下方悬挂边扫除段收敛报告）。
+      let deletionsApplied = 0;
+      if (deletionNodeIds.length > 0) {
+        candidate.transact(() => {
+          for (const id of deletionNodeIds) {
+            if (candidate.getMap('nodes').has(id)) {
+              candidate.getMap('nodes').delete(id);
+              deletionsApplied += 1;
+            }
+          }
+        });
+      }
 
       // 信封 typed 内容 → temp doc（rebuildCanvasDoc=canonical→Y 单源）→ diff 并入候选。
       // T25 收口根修（I-3 真因——「replace flake」）：Y.Map 同 key 冲突 clientID 大者胜——随机
@@ -259,6 +283,8 @@ export class CollabRecoveryImportService {
 
       return {
         edgeDispositions,
+        /** T25b 收口 I-3：删除确认执行报告（requested=用户确认集；applied=候选现存实删——缺档幂等跳过） */
+        deletions: { requested: deletionNodeIds.length, applied: deletionsApplied },
         confirmation: {
           contentCounts: { nodeCount: envelope.nodes.length, edgeCount: envelope.edges.length },
           droppedRefs: { danglingEdges, missingParentNodes },

@@ -225,6 +225,24 @@ maybe('Y1c T25 recovery import REST 服务面（真 gateway+真 PG——唯一�
     expect((after.getMap('nodes').get('n-idem') as Y.Map<any>).get('data').get('prompt').toJSON()).toEqual({ text: 'recover' });   // 首导入原值（skip 未替换）
   }, 60_000);
 
+  it('★t25b-I3 删除确认经 typed REST 承载（deletionNodeIds：服务端现存节点删除+幂等缺档跳过+edits 报告）——修前参数被忽略节点残留（红）', async () => {
+    // 服务端现存 n-del（信封缺席面=用户本地已删的删除确认候选）
+    await residency.withSession(PID, (doc) => {
+      const m = new Y.Map();
+      m.set('type', 'textInput');
+      m.set('data', new Y.Map([['prompt', 'to-delete']]));
+      doc.getMap('nodes').set('n-del', m);
+    }, { mode: 'write' });
+    await flush(PID);
+    const env = envelopeOf([{ id: 'n-i3-new' }], [], { draftId: 'draft-t25b-i3' });
+    const out = await svc.importEnvelope(PID, UID, env, undefined, undefined, ['n-del', 'n-ghost']);
+    expect(out.deletions).toEqual({ requested: 2, applied: 1 });   // n-ghost 缺档幂等跳过（修前：无 deletions 报告——红）
+    await flush(PID);
+    const revived = await reviveFromPg(PID);
+    expect(revived.getMap('nodes').has('n-del')).toBe(false);   // 修前：节点残留（红锚）
+    expect(revived.getMap('nodes').has('n-i3-new')).toBe(true);   // 新增导入照常
+  }, 60_000);
+
   it('replace 用户选（冲突节点替换——nodeId 稳定不重映射）', async () => {
     const env = envelopeOf([{ id: 'n-exist' }], [], { draftId: 'draft-t25-replace' });
     const out = await svc.importEnvelope(PID, UID, env, { 'n-exist': 'replace' });

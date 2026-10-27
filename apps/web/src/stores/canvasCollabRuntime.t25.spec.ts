@@ -44,6 +44,7 @@ import { purgeForeignCaches, purgePidCaches } from '@/collab/local-cache-key';
 const exportGate = vi.hoisted(() => ({
   gate: null as null | { promise: Promise<void>; release: () => void },
   calls: [] as unknown[][],
+  downloads: [] as unknown[][],
   failWith: null as null | Error,
 }));
 vi.mock('@/collab/rejected-recovery', async (importOriginal) => {
@@ -55,6 +56,11 @@ vi.mock('@/collab/rejected-recovery', async (importOriginal) => {
       if (exportGate.failWith) { const e = exportGate.failWith; exportGate.failWith = null; throw e; }
       if (exportGate.gate) await exportGate.gate.promise;
       return orig.buildDraftEnvelope(...args);
+    },
+    // 收口 M-3：镜像腿 no-download 断言面（downloadDraftEnvelope 调用记录）
+    downloadDraftEnvelope: (...args: Parameters<typeof orig.downloadDraftEnvelope>) => {
+      exportGate.downloads.push(args);
+      return orig.downloadDraftEnvelope(...args);
     },
   };
 });
@@ -137,6 +143,7 @@ beforeEach(() => {
   exportGate.gate = null;
   exportGate.failWith = null;
   exportGate.calls.length = 0;
+  exportGate.downloads.length = 0;
   FakeHocuspocusProvider.resetSockets();
   kit = createFakeIndexedDb();
   vi.stubGlobal('indexedDB', kit.fake);
@@ -477,6 +484,7 @@ describe('T25b M-R2：history-bump 接收端（镜像腿）', () => {
     expect(loadPersistedHistoryId()).toBeNull();                                        // 自清 h（I-1+I-2 既有）
     expect(vi.mocked(purgePidCaches)).toHaveBeenCalledWith('u1', 'p1');                  // IDB 族自清（既有）
     expect(exportGate.calls.length).toBeGreaterThan(callsBefore);   // ★修前：接收端零导出（红）——M-R2 sibling salvage
+    expect(exportGate.downloads.length).toBe(0);   // ★收口 M-3：镜像腿 no-download（内存副本 salvage 禁落盘——修前 downloadDraftEnvelope 随导出走）
   });
 });
 
@@ -507,6 +515,26 @@ describe('T25 收口批 M-2：恢复三入口互斥（reload timer 清+initColla
   });
 });
 
+// ══════════ T25b 收口 M-4：recovery-accepted 镜像腿（管理员接受→他 tab 同步退出只读恢复）══════════
+describe('T25b 收口 M-4：recovery-accepted 镜像腿', () => {
+  it('★m4-1 他 tab recovery-accepted 通告→本 tab 清 h+purge+recoveryPending 清零（reload/escape 分归 safeReload 判定）——修前零覆盖', async () => {
+    const p = await driveToSynced();
+    const recv = bcHarness.instances[0];
+    expect(recv?.onmessage).toEqual(expect.any(Function));
+    p.emit('stateless', { payload: JSON.stringify({ type: 'auth-receipt', historyId: 'h-acc', protocolVersion: 1, schemaVersion: 3 }) });
+    expect(loadPersistedHistoryId()).toBe('h-acc');
+    useCanvasStore.setState({ recoveryPending: { kind: 'server-restored', envelopeNodeCount: 1 }, collabReadOnly: true });
+    (recv.onmessage as (ev: { data: unknown }) => void)({ data: { type: 'collab-recovery', pid: 'p1', kind: 'recovery-accepted' } });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(loadPersistedHistoryId()).toBeNull();                                    // 清持久化 h
+    expect(vi.mocked(purgePidCaches)).toHaveBeenCalledWith('u1', 'p1');             // 缓存族自清（reload 以 DB g 重建）
+    const st = useCanvasStore.getState();
+    expect(st.recoveryPending).toBeNull();                                          // 只读恢复态同步退出
+    const exited = st.collabEscapePending === true || reloadSpy.mock.calls.length > 0;   // safeReload 双出口（dirty 分叉→escape；净态→reload）
+    expect(exited).toBe(true);
+  }, 20_000);
+});
+
 // ══════════ T25b 面 B：deny-escape 信封载体+resumeFromRecovery 出口（B1/B4 接线闭环） ══════════
 describe('T25b B1/B4：恢复裁定面数据源+出口', () => {
   it('★b1-1 deny-escape 进入→recoveryPending.envelope 在位（内存副本=裁定面数据源）+envelopeNodeCount 一致——修前电平无 envelope 载体（红）', async () => {
@@ -524,21 +552,33 @@ describe('T25b B1/B4：恢复裁定面数据源+出口', () => {
     expect(st.recoveryPending?.envelope?.projectId).toBe('p1');
   });
 
-  it('★b4-1 resumeFromRecovery→recoveryPending 清零+denyTracker 回 normal+supervisor 出 terminal 重连（B4 接线闭环出口）', async () => {
+  it('★b4-1（收口 I-3②）resumeFromRecovery→重建 fresh provider（非旧 provider 重连——被拒 doc 整帧重放面根除）+电平双清+deny 出口', async () => {
     let p2 = await driveToSynced();
+    const dOld = p2.cfg.document as Y.Doc;
+    dOld.getMap('nodes').set('n-rejected', seedNode('rejected'));   // 被拒内容在旧 doc（重连重放=再拒形态源）
     for (let i = 0; i < 3; i++) {
+      (p2.cfg.document as Y.Doc).getMap('nodes').set(`n-dr-${i}`, seedNode(`dr-${i}`));
       p2.emit('close', { event: { code: 4411, reason: 'frame-malformed' } });
       await vi.advanceTimersByTimeAsync(50);
       p2 = lastInstance();
     }
     expect(useCanvasStore.getState().recoveryPending?.kind).toBe('deny-escape');
-    const before = FakeHocuspocusProvider.socketsConstructed();
-    runtime.resumeFromRecovery();
-    await vi.advanceTimersByTimeAsync(50);
-    expect(useCanvasStore.getState().recoveryPending).toBeNull();   // 修前：无出口函数（红——import 即红，此处行为锚）
-    expect(FakeHocuspocusProvider.socketsConstructed()).toBeGreaterThan(before);   // supervisor.resume+connectOnce（重连预算恢复）
+    useCanvasStore.setState({ draftMergeAnomalies: { 'duplicate-order': 2 } });   // spec M-5：B2 电平预置（随恢复出口复位断言面）
+    // fire-and-forget+泵进（resumeFromRecovery→resyncFull→initCollab 的 hydration gate 在
+    // 测试装置下需事件泵——await 直挂=假死；createProvider 先于 gate=重建可达后即断言）
+    void runtime.resumeFromRecovery();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(300);
+    // 修前形态：supervisor.resume+connectOnce 连旧 provider（lastInstance 不变+旧 doc 存活=被拒帧重放面）
+    const p3 = lastInstance();
+    expect(p3).not.toBe(p2);   // ★fresh provider 重建（resyncFull 同款导出→清记录→initCollab）
+    expect(p3.cfg.document).not.toBe(dOld);   // 旧 doc（含被拒内容）拆除
+    expect((p3.cfg.document as Y.Doc).getMap('nodes').size).toBe(0);   // fresh doc 零本地增量（重连上行=SS2 差分恒空——帧拒计数不增的形态学锚）
+    const st = useCanvasStore.getState();
+    expect(st.recoveryPending).toBeNull();   // 恢复模式出口
+    expect(st.draftMergeAnomalies).toBeNull();   // spec M-5：B2 电平随出口复位
     expect(diagReasons()).toContain('recovery-resumed');
-  });
+  }, 20_000);
 });
 
 // ══════════ T25b B2：boot 合并异常提示接线（不阻断——DRAFT_MERGE_ANOMALY_KINDS 生产接通） ══════════

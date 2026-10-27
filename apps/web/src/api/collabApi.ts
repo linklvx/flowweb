@@ -196,21 +196,32 @@ export interface RecoveryImportOutcome {
     notRestored: { artifacts: true; executionHistory: true; billingRecords: true };
   };
   dispositions: Array<{ nodeId: string; disposition: 'import' | 'skip' | 'replace' }>;
+  /** T25b 收口 I-3：删除确认执行报告（requested=用户确认集；applied=服务端现存实删）。 */
+  deletions?: { requested: number; applied: number };
   resultReplayed: boolean;
   epoch: { envelopeGeneration: number; envelopeHistoryId: string; crossGeneration: boolean };
 }
 
 /** 恢复导入（POST recovery-import——OWNER/EDITOR+幂等键 draftId+单飞+8MiB fail-closed；
- *  conflictChoices=逐节点冲突用户选〔#9 默认 skip〕）。 */
+ *  conflictChoices=逐节点冲突用户选〔#9 默认 skip〕；deletionNodeIds=T25b 收口 I-3 B 场景删除
+ *  确认 typed 承载〔禁 doc 写承载裁定〕）。 */
 export function importDraftEnvelope(
   projectId: string,
   envelope: import('@flowweb/shared').DraftEnvelope,
   conflictChoices?: Record<string, 'skip' | 'replace'>,
+  deletionNodeIds?: string[],
 ): Promise<RecoveryImportOutcome> {
   return apiFetch<RecoveryImportOutcome>(`/collab/doc/${projectId}/recovery-import`, {
     method: 'POST',
-    body: JSON.stringify({ envelope, conflictChoices }),
+    body: JSON.stringify({ envelope, conflictChoices, deletionNodeIds }),
   });
+}
+
+/** T25b 收口 I-2：B 场景裁定「当前」侧服务端真值读径（GET /collab/doc/:pid/canvas——
+ *  collab-read.controller readCanvas 既有端点复用；信封与 store nodes 同出一 doc 的同源空转根修：
+ *  current 侧必须是服务端态非本地投影）。 */
+export function fetchServerCanvas(projectId: string): Promise<import('@flowweb/shared').CanvasReadModel> {
+  return apiFetch<import('@flowweb/shared').CanvasReadModel>(`/collab/doc/${projectId}/canvas`);
 }
 
 // ════ Y1c T25b 四读径③：复制/粘贴 typed BindMedia/CloneBinding 命令（shared 契约 typed body）════

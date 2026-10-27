@@ -59,7 +59,7 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     // Y1c T25：recoveryPending 字段两处插入（interface +4/初始值 +1）——13 行整体 +5 漂移（集合不变）
     // T25b 面 B：recoveryPending 扩 envelope 载体+draftMergeAnomalies/recoveryPanelOpen 字段两处插入
     //（interface +9/初始值 +3）+rebindCopiedMedia helper +31——13 行整体 +40 漂移（集合不变）
-    'stores/canvasStore.ts': [1096, 1097, 1103, 1104, 1167, 1168, 1246, 1247, 1253, 1254, 1413, 1956, 1957],
+    'stores/canvasStore.ts': [1107, 1108, 1114, 1115, 1178, 1179, 1257, 1258, 1264, 1265, 1424, 1967, 1968],   // T25b 收口：rebindCopiedMedia M-5 toast 分档 +11 行——13 行整体再漂移（集合不变）
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [53, 54],  // Y1c T1：注释+import 插入 +4 漂移
     'pages/canvas/video-editor/export/product-node.ts': [16],  // Y1c T1：import 插入 +1 漂移

@@ -82,8 +82,9 @@ export class CollabBindingController {
     if (!media) throw new NotFoundException('媒体不存在');
     if (media.teamId !== p.teamId) throw new ForbiddenException('跨团队媒体引用被拒');
     // 归属校验：源配对（MediaBinding 或 NodeArtifact 任一面持有——命令参数必须反映真实绑定关系，
-    // 禁任意 mediaId 冒配源 nodeId）
-    const pairBinding = await tx.mediaBinding.findFirst({ where: { mediaId: p.mediaId, nodeId: p.sourceNodeId }, select: { id: true } });
+    // 禁任意 mediaId 冒配源 nodeId）。M-4(spec)：pairBinding 补 projectId 维（cloneBinding/pairArtifact
+    // 两面均带——跨项目同 nodeId 不同步误配对面，三维对齐）
+    const pairBinding = await tx.mediaBinding.findFirst({ where: { mediaId: p.mediaId, nodeId: p.sourceNodeId, projectId: p.projectId }, select: { id: true } });
     const pairArtifact = pairBinding == null
       ? await tx.nodeArtifact.findFirst({ where: { projectId: p.projectId, nodeId: p.sourceNodeId, mediaId: p.mediaId }, select: { id: true } })
       : null;

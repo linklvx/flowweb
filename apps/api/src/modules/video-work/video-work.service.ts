@@ -408,14 +408,19 @@ export class VideoWorkService {
     }
     const snap = await this.withTimeout(this.collabDoc.readCanvasSnapshotCached(w.canvasProjectId), 5000);
     const etag = formatCanvasReadETag(snap);   // ETag=read model 新鲜度=pgSeq（与缓存体同生同灭——命中档整包返回）
-    // 四读径① join：投影缺席/读失败档=空投影 compose（等值 doc-only——降级不 500）
+    // 四读径① join：投影缺席/读失败档=空投影 compose（等值 doc-only——降级不 500）。
+    // 收口 I-1：**降级档零写缓存（照出即弃）**——latestFeedSeq 成功(L)+折叠失败的组合若以 :p{L}
+    // 落体/meta，与健康重建共键：feed 恢复而项目水位不变时 meta 命中投毒体=墓碑照出+陈旧缩略图
+    // 回流（违 :440 自注 E71「水位与内容原子配对」）；禁 sentinel 键污染键空间——降级体不进缓存。
     let renderModel: CanvasRenderModel;
+    let degraded = false;
     try {
       const envelope = await this.runtimeFeed.snapshotEnvelope(w.canvasProjectId);
       projectionSeq = envelope.snapshot.feedSeq;   // 折叠体自身水位（≥前置读——键/体原子同源）
       renderModel = composeRenderModel(snap.model, envelope.snapshot);
     } catch (e) {
       this.logger.warn(`[video-work] 公开快照 projection join 降级（doc-only 照出——feed 读失败）workId=${id}: ${(e as Error).message}`);
+      degraded = true;
       projectionSeq = projectionSeq ?? '0';
       renderModel = composeRenderModel(snap.model, { projectId: w.canvasProjectId, generation: snap.generation, feedSeq: '0', pgSeq: snap.pgSeq, nodes: {} });
     }
@@ -437,8 +442,11 @@ export class VideoWorkService {
     });
     const filtered = sanitized;
     const result = { workId: id, title: w.title, ...filtered, etag };
-    await this.redis.set(cacheKey, JSON.stringify(result), 'EX', 300); // TTL 300s（§4.6）——E71：跨进程层（etag 随缓存体——水位与内容原子配对）
-    await this.redis.set(metaKey, JSON.stringify({ generation: snap.generation, snapshotRev: snap.snapshotRev, projectionSeq }), 'EX', 300);   // 体键先行——meta 后置（防 meta 指向缺体窗口）
+    if (!degraded) {
+      // 收口 I-1：降级档零写（体键+meta 双跳过——照出即弃；可用性优先但禁投毒键空间）
+      await this.redis.set(cacheKey, JSON.stringify(result), 'EX', 300); // TTL 300s（§4.6）——E71：跨进程层（etag 随缓存体——水位与内容原子配对）
+      await this.redis.set(metaKey, JSON.stringify({ generation: snap.generation, snapshotRev: snap.snapshotRev, projectionSeq }), 'EX', 300);   // 体键先行——meta 后置（防 meta 指向缺体窗口）
+    }
     // E71（Y0b-2 T8）：进程内 SnapshotDocCache 层跨请求存活（TTL 单飞——T3 的"处理完成后即时失效"随
     // 双层化退役）；两层失效统一归 canvas.doc-saved 事件（onCanvasDocSaved 双清）+updateWork/removeWork 写路径。
     return result;

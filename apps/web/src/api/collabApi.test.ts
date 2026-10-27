@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   shrink, exportFresh, vacuum, getMediaSlot, postMediaCommand,
   replaceNodeMedia, clearNodeMedia, MediaRevConflictError,
-  bindMedia, cloneBinding,
+  bindMedia, cloneBinding, fetchServerCanvas, importDraftEnvelope,
 } from './collabApi';
 
 const okEnvelope = (data: unknown) => ({ ok: true, json: async () => ({ code: 0, data, message: 'ok' }) });
@@ -175,6 +175,19 @@ describe('collabApi（T25b 四读径③：BindMedia/CloneBinding）', () => {
     (global.fetch as any).mockResolvedValueOnce(err409());
     await expect(bindMedia('p1', { type: 'BindMedia', sourceNodeId: 'n-src', mediaId: 'm1', targetNodeId: 'n-tgt', expectedRev: 3 }))
       .rejects.toBeInstanceOf(MediaRevConflictError);   // CAS 冲突类型化（粘贴档同 F2 纪律——用户裁定后重提）
+  });
+
+  it('★T25b 收口 I-2/I-3：fetchServerCanvas GET /collab/doc/:pid/canvas+importDraftEnvelope deletionNodeIds 随 body', async () => {
+    (global.fetch as any).mockResolvedValue(okEnvelope({ nodes: [{ id: 's1' }], edges: [] }));
+    const model = await fetchServerCanvas('p1');
+    expect((global.fetch as any).mock.calls[0][0]).toBe('/api/collab/doc/p1/canvas');
+    expect(model).toEqual({ nodes: [{ id: 's1' }], edges: [] });
+    (global.fetch as any).mockReset();
+    (global.fetch as any).mockResolvedValue(okEnvelope({ confirmation: { contentCounts: { nodeCount: 0, edgeCount: 0 }, droppedRefs: { danglingEdges: 0, missingParentNodes: 0 }, notRestored: { artifacts: true, executionHistory: true, billingRecords: true } }, dispositions: [], resultReplayed: false, deletions: { requested: 1, applied: 1 }, epoch: { envelopeGeneration: 3, envelopeHistoryId: 'h', crossGeneration: false } }));
+    await importDraftEnvelope('p1', { draftId: 'd', projectId: 'p1', generation: 3, schemaVersion: 3, historyId: 'h', capturedAtMs: 1, tabId: 't', nodes: [], edges: [], meta: {}, hashes: { nodes: 'n', edges: 'e' } }, { 'n1': 'replace' }, ['n3']);
+    const body = JSON.parse((global.fetch as any).mock.calls[0][1].body);
+    expect(body.deletionNodeIds).toEqual(['n3']);   // T25b I-3：删除确认 typed 随 body
+    expect(body.conflictChoices).toEqual({ n1: 'replace' });
   });
 
   it('cloneBinding：POST 同端点 typed body（CloneBindingCommand）', async () => {

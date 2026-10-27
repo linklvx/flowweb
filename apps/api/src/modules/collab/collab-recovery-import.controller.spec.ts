@@ -20,10 +20,10 @@ beforeEach(() => {
 });
 
 describe('Y1c T25 recovery-import 端点接线', () => {
-  it('assertEditor 门（OWNER/EDITOR——uid 透传）+服务透传（envelope/conflictChoices/content-length）', async () => {
-    await ctl.recoveryImport('p1', req('u1', 100), { envelope: ENV, conflictChoices: { n1: 'replace' } });
+  it('assertEditor 门（OWNER/EDITOR——uid 透传）+服务透传（envelope/conflictChoices/content-length/deletionNodeIds〔T25b 收口 I-3〕）', async () => {
+    await ctl.recoveryImport('p1', req('u1', 100), { envelope: ENV, conflictChoices: { n1: 'replace' }, deletionNodeIds: ['n3'] });
     expect(perm.assertEditor).toHaveBeenCalledWith('p1', 'u1');
-    expect(recovery.importEnvelope).toHaveBeenCalledWith('p1', 'u1', ENV, { n1: 'replace' }, 100);
+    expect(recovery.importEnvelope).toHaveBeenCalledWith('p1', 'u1', ENV, { n1: 'replace' }, 100, ['n3']);
   });
 
   it('body 形状违规 400（envelope 缺席/数组 body）——不触服务', async () => {

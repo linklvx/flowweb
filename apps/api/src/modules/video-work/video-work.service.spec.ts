@@ -51,7 +51,15 @@ beforeEach(async () => {
         // 不预置则后续任务一加注入本 spec 整文件编译红。两个 mock 一次配齐，后续任务直接用。
         { provide: RateLimiterService, useValue: { checkIpRateLimit: vi.fn().mockResolvedValue(true), checkUserRateLimit: vi.fn().mockResolvedValue(true) } },   // T36：getClientIp mock 随方法删除退役
         { provide: CollabDocumentService, useValue: { readCanvasSnapshotCached: vi.fn(), invalidateSnapshotCache: vi.fn() } }, // Y0b-2 T3：process 快照出口换 cached+失效面
-        { provide: RuntimeFeedService, useValue: { snapshotEnvelope: vi.fn() } },   // T25b 四读径①：projection join 读面（用例 setupFeed 覆写实例属性）
+        // T25b 四读径①：projection join 读面（用例 setupFeed 覆写实例属性；收口 I-1 后 mock 须含
+        // latestFeedSeq——水位前置读缺失=TypeError 落降级档零写缓存，legacy 命中用例假红）
+        { provide: RuntimeFeedService, useValue: {
+          latestFeedSeq: vi.fn().mockResolvedValue(0n),
+          snapshotEnvelope: vi.fn().mockResolvedValue({
+            snapshot: { projectId: 'p1', generation: 1, feedSeq: '0', pgSeq: '9', nodes: {} },
+            cursor: { historyId: 'h1', generation: 1, feedSeq: '0' }, minRetainedSeq: '0', historyId: 'h1',
+          }),
+        } },
         { provide: StorageQuotaService, useValue: { assertCanUpload: vi.fn().mockResolvedValue(undefined), assertMember: vi.fn(), getUsage: vi.fn().mockResolvedValue(0), assertOnConfirm: vi.fn().mockResolvedValue(undefined) } },
         { provide: 'REDIS_CLIENT', useValue: { get: vi.fn(), set: vi.fn(), del: vi.fn().mockResolvedValue(undefined) } }, // del 补默认 resolved（Task 5：removeWork URL 缓存失效——裸 vi.fn() 返回 undefined，实现里 await 链会 TypeError）
       ],
@@ -732,7 +740,8 @@ describe('updateWork 换封面删旧（spec §4.6：DB 更新成功后才删旧�
     prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'DRAFT', publishedAt: null, allowViewProcess: false, allowClone: false, canvasProjectId: null, coverKey: 'uploads/system/shared.jpg' });
     prisma.videoWork.update = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
     prisma.videoWork.count = vi.fn().mockResolvedValue(1); // 被另一作品引用
-    await service.updateWork('w1', { coverKey: 'uploads/system/shared.jpg' } as any);
+    // I-4 回退：update 键=new.jpg（distinct——shared.jpg 同键形态使 updateWork 同值短路，引用计数保护分支不可达=用例静默稀释）
+    await service.updateWork('w1', { coverKey: 'uploads/system/new.jpg' } as any);
     expect(minio.delete).not.toHaveBeenCalled();
   });
 });
@@ -831,6 +840,25 @@ describe('getProcessSnapshot（T25b 四读径①：服务端 projection join+pro
     const out = await service.getProcessSnapshot('w1');
     expect(out.nodes.map((n: any) => n.id)).toContain('n2');   // 降级=doc-only 照出（不 500）
     expect(out.nodes.map((n: any) => n.id)).toContain('n3');
+  });
+
+  it('★收口 I-1 降级档缓存投毒：latestFeedSeq 成功(L)+snapshotEnvelope 拒→降级体不写缓存——feed 恢复后同水位健康请求重建非命中投毒体（修前：降级体以 :p{L} 落缓存与健康重建共键=墓碑照出回流）', async () => {
+    // 组合态：latestFeedSeq=9 成功；snapshotEnvelope 拒绝（折叠面故障——水位读与折叠读非同一查询）
+    setupFeed({}, '9');
+    (service as any).runtimeFeed = {
+      latestFeedSeq: vi.fn().mockResolvedValue(9n),
+      snapshotEnvelope: vi.fn().mockRejectedValue(new Error('fold down')),
+    };
+    const degraded = await service.getProcessSnapshot('w1');
+    expect(degraded.nodes.map((n: any) => n.id)).toContain('n2');   // 降级档 doc-only 照出（含 doc 侧节点）
+    // 修前：降级体+meta 已落缓存（:p9 键）——红锚①
+    const cacheAfterDegrade = ((service as any).redis.set.mock.calls as unknown[][]).length;
+    // feed 恢复、项目水位不变（9）——健康请求必须重建（禁命中投毒体：n2 已被 feed 墓碑剔除）
+    setupFeed({ n2: { deletedAt: { lifecycleSeq: '5', nodeVersion: '9' } } }, '9');
+    const healthy = await service.getProcessSnapshot('w1');
+    expect(healthy.nodes.map((n: any) => n.id)).not.toContain('n2');   // 修前：meta 命中投毒体=墓碑照出回流（红锚②）
+    expect((service as any).collabDoc.readCanvasSnapshotCached).toHaveBeenCalledTimes(1);   // 二代 mock 计数：降级未写缓存⇒健康请求 miss 重建恰一次（修前：命中零重建——红锚③）
+    expect(cacheAfterDegrade).toBe(0);   // 降级档零 set（体键+meta 双零写——红锚①补充形态）
   });
 });
 

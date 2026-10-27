@@ -10,8 +10,8 @@ import { HocuspocusProvider } from '@hocuspocus/provider';
 import * as Y from 'yjs';
 import { resolveBackoffPlan } from '@flowweb/shared';
 import {
-  createSupervisor, setSupervisorJitterForTest, AUTH_WAIT_TIMEOUT_MS,
-  type CollabConnectionSupervisor,
+  createSupervisor, setSupervisorJitterForTest, AUTH_WAIT_TIMEOUT_MS, CollabConnectionSupervisor,
+  type SupervisorDeps,
 } from './connection-supervisor';
 
 // ── fake WebSocket 基类（实现库用到的注入面 + 测试驱动面；api 侧 A6 装置同构） ──
@@ -479,5 +479,42 @@ describe('connection-supervisor：单连接所有权（真实库装置）', () =
     d.supervisor.zeroNow();
     expect(d.ws.shouldConnect).toBe(false);                    // ★自愈
     d.provider.destroy();
+  });
+});
+
+
+// ═══ T25b M-R1/M-2：resyncing 相位守卫（supervisor 级确定性面——runtime 集成测 mr1-1/mr1-2 的语义稳定锚）═══
+describe('T25b M-R1/M-2：resyncing 相位（kickNow/assertHealthy 让位+teardown 保相+resume 出口+endResync）', () => {
+  function makeSupervisor(opts: Partial<SupervisorDeps> = {}) {
+    return new CollabConnectionSupervisor({
+      getProvider: () => null,
+      isConnOffline: () => true,   // offline 电平（assertHealthy 出手前置）
+      ...opts,
+    });
+  }
+
+  it('★beginResync 后 kickNow/assertHealthy 让位（零排程）+endResync 恢复常规监管', () => {
+    const sup = makeSupervisor();
+    expect(sup.beginResync()).toBe(true);
+    expect(sup.phase).toBe('resyncing');
+    expect(sup.kickNow()).toBe(false);                    // 修前：kick 排程连旧 provider（mr1-1 红的同源）
+    expect(sup.assertHealthy(true)).toBe(false);          // 修前：stalled 排程（mr1-2 红的同源）
+    expect(sup.snapshot().timer).toBe(false);
+    sup.endResync();
+    expect(sup.phase).toBe('idle');
+    expect(sup.assertHealthy(true)).toBe(true);           // 恢复常规监管（watchdog 出手——防让位死区）
+  });
+
+  it('★M-2 teardown 保持 resyncing 相位（destroy await 缝守卫）+resume 出口（recovery 模式唯一出口）', () => {
+    const sup = makeSupervisor();
+    sup.beginResync();
+    sup.teardown();
+    expect(sup.phase).toBe('resyncing');                  // 修前：teardown 归零 idle=await 缝失守
+    sup.endResync();
+    sup.terminalDisconnect('recovery-mode');
+    expect(sup.phase).toBe('terminal');
+    expect(sup.resume()).toBe(true);                      // B4 出口
+    expect(sup.phase).toBe('idle');
+    expect(sup.resume()).toBe(false);                     // 非 terminal no-op
   });
 });

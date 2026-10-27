@@ -1,24 +1,24 @@
 // apps/web/src/pages/canvas/components/RecoveryPanel.tsx
 // Y1c T25b B1/B4（plan :338——spec §4.5 表 B 行 v5.4 用户裁定式）：B 场景（同代拒帧恢复）逐字段
 // 裁定 UI。数据层=shared DRAFT_FIELD_CHOICE_DEFAULT/resolveAdjudicatedFieldValues（冻结）+
-// collab/recovery-adjudication（视图/采纳信封——T25b 新建）。交互面：
-//   - 修改字段逐字段「当前 vs 草稿」二选一**默认保留当前**（无 journal/base 不自动判优——
-//     DRAFT_FIELD_CHOICE_DEFAULT 单源；未列字段=默认保留当前=零写）；
-//   - 删除显式确认（nodeId 勾选——不自动删）；新增逐 id 确认导入（非批量勾选）；
-//   - 完成动作=①草稿值字段 doc 写（updateNodeData intent）②删除确认 deleteNode ③采纳节点经
-//     importDraftEnvelope REST 导入（唯一接受路径——B4 接线闭环生产调用面）④resumeFromRecovery
-//     （denyTracker.recoveryComplete+supervisor.resume——恢复模式唯一出口）。
+// collab/recovery-adjudication（视图/typed 载荷构造——T25b 新建）。
+//   收口 I-2：裁定「当前」侧=REST 服务端真值（fetchServerCanvas——GET /collab/doc/:pid/canvas
+//   既有端点复用）。信封与 store nodes 同出一 doc 的同源空转根修：store 投影不可作 current 源
+//   （spec §4.5 B 行「客户端重置到服务端状态」后裁定）；服务端读失败=重试面（禁静默 store 兜底）。
+//   收口 I-3 双约束：①裁定动作（草稿值采纳/删除确认/新增导入）**全走 typed REST**
+//   （importDraftEnvelope——conflictChoices=replace 承载草稿值、deletionNodeIds 承载删除确认；
+//   禁 dispatchCanvasIntent/deleteNode doc 写承载——被拒 doc 本地写整帧再拒=裁定静默丢失，
+//   DRAFT_ADJUDICATION_NO_AUTO_REPLAY 冻结注记）；②完成→resumeFromRecovery（resume 前走
+//   resyncFull 同款重建 fresh provider——connectOnce 仅连 fresh doc，被拒帧重放面结构性根除）。
 // 信封缺席档（镜像 tab/空画布）=只读告知（裁定数据源=本 tab 导出的内存副本）。
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { message } from 'antd';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { dispatchCanvasIntent } from '@/stores/canvasIntents';
-import { Origin } from '@/stores/canvasUndo';
 import { resumeFromRecovery } from '@/stores/canvasCollabRuntime';
-import { importDraftEnvelope } from '@/api/collabApi';
+import { importDraftEnvelope, fetchServerCanvas } from '@/api/collabApi';
 import {
-  buildRecoveryAdjudicationView, buildAdoptedEnvelope, resolveAdjudicatedFieldValues,
-  DRAFT_FIELD_CHOICE_DEFAULT, type DraftFieldChoice,
+  buildRecoveryAdjudicationView, buildAdjudicatedImport,
+  DRAFT_FIELD_CHOICE_DEFAULT, type DraftFieldChoice, type RecoveryAdjudicationNodeRef,
 } from '@/collab/recovery-adjudication';
 
 const fmt = (v: unknown): string => {
@@ -30,17 +30,39 @@ const fmt = (v: unknown): string => {
 export function RecoveryPanel() {
   const open = useCanvasStore((s) => s.recoveryPanelOpen);
   const recovery = useCanvasStore((s) => s.recoveryPending);
-  const nodes = useCanvasStore((s) => s.nodes);
   const projectId = useCanvasStore((s) => s.projectId);
   const [fieldChoices, setFieldChoices] = useState<Record<string, Record<string, DraftFieldChoice>>>({});
   const [adopted, setAdopted] = useState<Set<string>>(new Set());
   const [deletions, setDeletions] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  // 收口 I-2：服务端真值 current 侧（REST 读径——与本地 store 投影解耦）
+  const [serverNodes, setServerNodes] = useState<readonly RecoveryAdjudicationNodeRef[] | null>(null);
+  const [serverError, setServerError] = useState(false);
 
   const envelope = recovery?.kind === 'deny-escape' ? (recovery.envelope ?? null) : null;
+
+  const loadServer = async (): Promise<void> => {
+    if (!projectId) return;
+    setServerError(false);
+    try {
+      const model = await fetchServerCanvas(projectId);
+      setServerNodes(model.nodes as unknown as readonly RecoveryAdjudicationNodeRef[]);
+    } catch {
+      setServerError(true);   // 禁静默 store 兜底（同源空转复发面）——重试面承载
+    }
+  };
+
+  useEffect(() => {
+    if (open && envelope != null && projectId) {
+      setServerNodes(null);
+      void loadServer();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, envelope, projectId]);
+
   const view = useMemo(
-    () => (envelope != null ? buildRecoveryAdjudicationView(envelope, nodes as never) : null),
-    [envelope, nodes],
+    () => (envelope != null && serverNodes != null ? buildRecoveryAdjudicationView(envelope, serverNodes) : null),
+    [envelope, serverNodes],
   );
 
   if (!open || recovery?.kind !== 'deny-escape') return null;
@@ -52,35 +74,28 @@ export function RecoveryPanel() {
   };
 
   const confirm = async (): Promise<void> => {
-    if (!view || busy) return;
+    if (!view || !envelope || !serverNodes || busy) return;
     setBusy(true);
     try {
-      // ① 草稿值字段写（默认 current 零写——仅显式选 draft 的字段；resolveAdjudicatedFieldValues
-      //    单源出口，默认保留当前语义由冻结函数承载）
-      const adjudication = { adoptedNodeIds: [...adopted], fieldChoices, deletionConfirmations: [...deletions] };
-      const resolutions = resolveAdjudicatedFieldValues(view.conflicts, adjudication);   // shared 冻结单源（默认保留当前）
-      const store = useCanvasStore.getState();
-      for (const r of resolutions) {
-        if (r.chosen === 'draft') {
-          dispatchCanvasIntent({ type: 'updateNodeData', id: r.nodeId, patch: { [r.key]: r.value } }, Origin.LocalUser);
-        }
+      // 收口 I-3①：裁定三面全走 typed REST 载荷（conflictChoices=replace 承载草稿值选域+
+      // deletionNodeIds 承载删除确认+采纳新增随信封）——零 doc 写承载
+      const built = await buildAdjudicatedImport(envelope, serverNodes, {
+        adoptedIds: [...adopted],
+        fieldChoices,
+        deletionIds: [...deletions],
+      });
+      if (built) {
+        const outcome = await importDraftEnvelope(projectId!, built.envelope, built.conflictChoices, built.deletionNodeIds);
+        const imported = outcome.dispositions.filter((d) => d.disposition !== 'skip').length;
+        const skipped = outcome.dispositions.length - imported;
+        const del = outcome.deletions ? `/${outcome.deletions.applied} 项删除` : '';
+        message.success(`裁定已导入服务端（${imported} 采纳/${skipped} 跳过${del}）`);
       }
-      // ② 删除显式确认
-      for (const id of deletions) store.deleteNode(id);
-      // ③ 采纳节点经 recovery import REST（唯一接受路径）——失败不阻断已裁定字段/删除（裁定面
-      //    可重开重试：fieldChoices 本地态保留至面板关）
-      if (adopted.size > 0 && envelope != null && projectId) {
-        const adoptedEnvelope = await buildAdoptedEnvelope(envelope, [...adopted], nodes.map((n) => (n as { id: string }).id));
-        if (adoptedEnvelope) {
-          const outcome = await importDraftEnvelope(projectId, adoptedEnvelope);
-          message.success(`新增节点已导入（${outcome.dispositions.filter((d) => d.disposition !== 'skip').length} 采纳/${outcome.dispositions.filter((d) => d.disposition === 'skip').length} 跳过）`);
-        }
-      }
-      // ④ 恢复模式出口（denyTracker.recoveryComplete+supervisor resume——B4 接线闭环）
+      // 收口 I-3②：恢复模式出口=重建 fresh（resyncFull 同款导出→清缓存→initCollab——resumeFromRecovery 承载）
       useCanvasStore.getState().setRecoveryPanelOpen(false);
-      resumeFromRecovery();
+      await resumeFromRecovery();
     } catch (e) {
-      message.error(`裁定应用未完成：${(e as Error).message}——已应用项保留，可重开面板重试`);
+      message.error(`裁定导入未完成：${(e as Error).message}——可重开面板重试（未完成项不在服务端）`);
     } finally {
       setBusy(false);
     }
@@ -99,15 +114,29 @@ export function RecoveryPanel() {
           <button type="button" data-testid="recovery-close-btn" onClick={close} className="px-2 text-text-dim-1 hover:text-text">✕</button>
         </div>
 
-        {view == null ? (
+        {envelope == null ? (
           <p className="text-sm text-text-dim-1" data-testid="recovery-no-envelope">
-            本标签无草稿副本（草稿已导出至下载文件——镜像通告档/空画布）。可关闭面板后重试恢复，或以导出文件经恢复导入通道裁定。
+            本标签无草稿副本（镜像通告档/空画布）。可关闭面板后重试恢复，或以导出文件经恢复导入通道裁定。
           </p>
+        ) : serverError ? (
+          <div className="flex flex-col items-start gap-2 text-sm">
+            <p className="text-text-dim-1" data-testid="recovery-server-error">服务端状态获取失败——裁定需以服务端现态为「当前」侧（禁以本地副本裁定）。</p>
+            <button
+              type="button"
+              data-testid="recovery-server-retry"
+              onClick={() => void loadServer()}
+              className="rounded-lg bg-accent px-3 py-1.5 text-xs text-on-accent"
+            >
+              重试获取服务端状态
+            </button>
+          </div>
+        ) : view == null ? (
+          <p className="text-sm text-text-dim-1" data-testid="recovery-loading">正在获取服务端状态…</p>
         ) : (
           <>
             {view.conflicts.length > 0 && (
               <section>
-                <h4 className="mb-1 text-sm">修改字段（当前 vs 草稿——默认保留当前）</h4>
+                <h4 className="mb-1 text-sm">修改字段（当前 vs 草稿——默认保留当前·当前侧=服务端真值）</h4>
                 {view.conflicts.map((c) => {
                   const choice = fieldChoices[c.nodeId]?.[c.key] ?? DRAFT_FIELD_CHOICE_DEFAULT;
                   return (
@@ -162,7 +191,7 @@ export function RecoveryPanel() {
 
             {view.deletions.length > 0 && (
               <section>
-                <h4 className="mb-1 text-sm">删除确认（草稿中已删——勾选后在服务端删除）</h4>
+                <h4 className="mb-1 text-sm">删除确认（草稿中已删——勾选后经服务端导入删除）</h4>
                 {view.deletions.map((d) => (
                   <label key={d.id} className="flex items-center gap-2 text-xs">
                     <input

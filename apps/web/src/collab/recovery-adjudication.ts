@@ -11,7 +11,7 @@
 import {
   deriveStoryboardCells, resolveStoryboardConfig, validateParentGraph,
   DRAFT_MERGE_ANOMALY_KINDS, DRAFT_MERGE_ANOMALY_NON_BLOCKING, type DraftMergeAnomalyKind,
-  type DraftEnvelope, type DraftFieldConflict,
+  type DraftEnvelope, type DraftFieldConflict, type DraftFieldChoice,
 } from '@flowweb/shared';
 
 export { DRAFT_MERGE_ANOMALY_NON_BLOCKING, DRAFT_MERGE_ANOMALY_KINDS };
@@ -132,6 +132,72 @@ export function buildRecoveryAdjudicationView(
     if (!draftIds.has(c.id)) deletions.push(c);
   }
   return { conflicts, additions, deletions };
+}
+
+/** T25b 收口 I-3：裁定结果 → typed REST 导入载荷（**禁 doc 写承载裁定**——DRAFT_ADJUDICATION_
+ *  NO_AUTO_REPLAY 冻结注记：被拒 doc 的本地写整帧再拒=裁定服务端侧静默丢失；裁定三面全经
+ *  importDraftEnvelope 承载）。规则：
+ *  - 新增节点（draft-only）：采纳集内才入载荷（conflict 面不适用——非冲突节点恒 import）；
+ *  - 冲突节点（两端共有）：**任一字段选 draft** 才入载荷并标 conflictChoices='replace'（#9 默认
+ *    skip 不覆盖——replace 显式用户裁定）；载荷字段取值=current 选域回写**服务端值**、draft 选域
+ *    保草稿值（信封自洽——禁未裁定字段混入草稿值覆盖服务端）；
+ *  - 删除确认（current-only）：deletionNodeIds typed 承载（服务端现存节点显式删除）；
+ *  - 边：两端 ∈ 载荷节点∪服务端现存集才保留（悬挂端丢弃——服务端候选 doc 全量校验同链）；
+ *  - 全 current+零采纳+零删除=null（零动作面零 REST 短路）。 */
+export interface AdjudicatedImport {
+  envelope: DraftEnvelope;
+  conflictChoices: Record<string, 'skip' | 'replace'>;
+  deletionNodeIds: string[];
+}
+
+export async function buildAdjudicatedImport(
+  envelope: DraftEnvelope,
+  serverNodes: readonly RecoveryAdjudicationNodeRef[],
+  adjudication: { adoptedIds: readonly string[]; fieldChoices: Record<string, Record<string, DraftFieldChoice>>; deletionIds: readonly string[] },
+): Promise<AdjudicatedImport | null> {
+  const serverById = new Map(serverNodes.map((n) => [n.id, n]));
+  const adopted = new Set(adjudication.adoptedIds);
+  const nodes: DraftEnvelope['nodes'] = [];
+  const conflictChoices: Record<string, 'skip' | 'replace'> = {};
+  for (const d of envelope.nodes) {
+    const server = serverById.get(d.id);
+    if (server === undefined) {
+      if (adopted.has(d.id)) nodes.push(d);   // 采纳新增（非冲突面恒 import）
+      continue;
+    }
+    // 冲突节点：任一 draft 选域才承载（全 current=服务端现态已正确零写）
+    const choices = adjudication.fieldChoices[d.id] ?? {};
+    const draftData = (d.data ?? {}) as Record<string, unknown>;
+    const serverData = server.data ?? {};
+    const hasDraftPick = Object.entries(choices).some(([, c]) => c === 'draft');
+    if (!hasDraftPick) continue;
+    const mergedData: Record<string, unknown> = { ...draftData };
+    for (const [key, choice] of Object.entries(choices)) {
+      if (choice === 'current') mergedData[key] = key in serverData ? serverData[key] : undefined;   // current 选域=服务端值（缺键=删域）
+    }
+    nodes.push({ ...d, data: mergedData } as DraftEnvelope['nodes'][number]);
+    conflictChoices[d.id] = 'replace';
+  }
+  const deletionNodeIds = [...adjudication.deletionIds];
+  if (nodes.length === 0 && deletionNodeIds.length === 0) return null;
+  const known = new Set<string>([...nodes.map((n) => n.id), ...serverById.keys()]);
+  const edges = envelope.edges.filter((e) => typeof e.source === 'string' && typeof e.target === 'string' && known.has(e.source) && known.has(e.target));
+  const { sha256Hex } = await import('./rejected-recovery');
+  const [nodesHash, edgesHash] = await Promise.all([
+    sha256Hex(JSON.stringify(nodes)),
+    sha256Hex(JSON.stringify(edges)),
+  ]);
+  return {
+    envelope: {
+      ...envelope,
+      draftId: `${envelope.draftId}-adj-${Date.now()}`,
+      nodes,
+      edges,
+      hashes: { nodes: nodesHash, edges: edgesHash },
+    },
+    conflictChoices,
+    deletionNodeIds,
+  };
 }
 
 /** 采纳信封（新增节点导入载荷）：仅采纳节点+两端均在采纳集（或既有集）的边，新 draftId+重算

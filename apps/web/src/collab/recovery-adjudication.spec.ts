@@ -96,9 +96,63 @@ describe('T25b B1：B 场景逐字段裁定数据面（默认保留当前+删除
 });
 
 // 检测面/视图面生产单源 import（红锚=模块不存在→import 失败）
-import { buildRecoveryAdjudicationView, buildAdoptedEnvelope } from './recovery-adjudication';
+import { buildRecoveryAdjudicationView, buildAdoptedEnvelope, buildAdjudicatedImport } from './recovery-adjudication';
 const buildRecoveryAdjudicationViewForTest = buildRecoveryAdjudicationView;
 const buildAdoptedEnvelopeForTest = buildAdoptedEnvelope;
+
+// ═══ T25b 收口 I-3：裁定结果 typed REST 载荷（禁 doc 写承载裁定）═══
+describe('T25b 收口 I-3：buildAdjudicatedImport（裁定→typed 导入载荷）', () => {
+  const ENV = (): DraftEnvelope => ({
+    draftId: 'd-i3', projectId: 'p1', generation: 3, schemaVersion: 3, historyId: 'h1',
+    capturedAtMs: 1, tabId: 't1',
+    nodes: [
+      { id: 'n1', type: 'imageGen', data: { prompt: '草稿文案', style: '同值' } } as never,
+      { id: 'n2', type: 'imageGen', data: { prompt: '新增节点' } } as never,
+      { id: 'n9', type: 'imageGen', data: { prompt: '全保留节点' } } as never,   // 冲突面但全选 current=不导入
+    ],
+    edges: [{ id: 'e1', source: 'n1', target: 'n2' } as never, { id: 'e2', source: 'n1', target: 'ghost' } as never],
+    meta: {},
+    hashes: { nodes: 'x', edges: 'y' },
+  });
+  const SERVER = [
+    { id: 'n1', type: 'imageGen', data: { prompt: '当前文案', style: '同值' } },
+    { id: 'n9', type: 'imageGen', data: { prompt: '当前全保留', other: 'v' } },
+    { id: 'n3', type: 'imageGen', data: { prompt: '被删节点' } },
+  ];
+
+  it('★裁定载荷三面：draft 选域节点 replace 导入（current 字段回写服务端值）+采纳新增+删除确认集——全 current 零动作面=null', async () => {
+    const out = await buildAdjudicatedImport(ENV(), SERVER, {
+      adoptedIds: ['n2'],
+      fieldChoices: { n1: { prompt: 'draft', style: 'current' }, n9: {} },
+      deletionIds: ['n3'],
+    });
+    expect(out).not.toBeNull();
+    // 载荷节点=n1（replace——prompt 取草稿值）+n2（采纳新增）；n9 全 current 不入（服务端现态已正确）
+    expect(out!.envelope.nodes.map((n) => n.id).sort()).toEqual(['n1', 'n2']);
+    const n1 = out!.envelope.nodes.find((n) => n.id === 'n1')!;
+    expect((n1.data as Record<string, unknown>).prompt).toBe('草稿文案');   // draft 选域=草稿值承载
+    expect(out!.conflictChoices).toEqual({ n1: 'replace' });               // 冲突节点导入=显式 replace（#9 默认 skip 不覆盖）
+    expect(out!.deletionNodeIds).toEqual(['n3']);                          // 删除确认 typed 承载
+    // 边：e1 两端在载荷∪服务端集保留；e2 ghost 端缺席丢弃
+    expect(out!.envelope.edges.map((e) => e.id)).toEqual(['e1']);
+    // 新 draftId+重算 hashes（服务端完整性门）
+    expect(out!.envelope.draftId).not.toBe('d-i3');
+    expect(out!.envelope.hashes.nodes).toBe(await sha256HexSource(JSON.stringify(out!.envelope.nodes)));
+    // 全 current+零采纳+零删除=null（零 REST 短路）
+    const none = await buildAdjudicatedImport(ENV(), SERVER, { adoptedIds: [], fieldChoices: { n1: { prompt: 'current' } }, deletionIds: [] });
+    expect(none).toBeNull();
+  });
+
+  it('★current 选域字段回写服务端值进载荷（信封自洽——非草稿值混入）', async () => {
+    const out = await buildAdjudicatedImport(ENV(), SERVER, {
+      adoptedIds: [],
+      fieldChoices: { n1: { prompt: 'current', style: 'draft' } },   // style 等值非冲突面——draft 选=同值 no-op
+      deletionIds: [],
+    });
+    const n1 = out!.envelope.nodes.find((n) => n.id === 'n1')!;
+    expect((n1.data as Record<string, unknown>).prompt).toBe('当前文案');   // current 选域=服务端值（修前形态：草稿值混入=覆盖用户裁定）
+  });
+});
 
 // Y.Doc 型 not-used 守卫（装置保留位）
 void Y;

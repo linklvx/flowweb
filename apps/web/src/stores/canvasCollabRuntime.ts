@@ -773,8 +773,10 @@ let lastRecoveryEnvelope: DraftEnvelope | null = null;
 
 /** DraftEnvelope 类型化导出（恢复链统一保全步——B 场景裁定面/换代离线保全双用途）：
  *  空 doc=0 节点跳过（无可保全内容）。返回内容节点数（store recoveryPending 电平载体）。
- *  T25b 面 B：非空信封同时留存内存副本（B1 裁定 UI 数据源——下载文件不可回读）。 */
-async function exportRecoveryEnvelope(): Promise<number> {
+ *  T25b 面 B：非空信封同时留存内存副本（B1 裁定 UI 数据源——下载文件不可回读）。
+ *  T25b 收口 M-3：opts.download=false=镜像腿档（history-bump 接收端 salvage——只留内存副本
+ *  禁落盘下载：N tab 通告=N 文件下载不可接受；发起方档缺省下载=用户面保全 UX 不变）。 */
+async function exportRecoveryEnvelope(opts: { download?: boolean } = {}): Promise<number> {
   if (!session || !doc) return 0;
   const envelope: DraftEnvelope | null = await buildDraftEnvelope({
     doc,
@@ -786,7 +788,9 @@ async function exportRecoveryEnvelope(): Promise<number> {
   });
   if (!envelope) { lastRecoveryEnvelope = null; return 0; }
   lastRecoveryEnvelope = envelope;   // T25b：裁定面内存副本（envelopeNodeCount 随 return 落 store）
-  try { downloadDraftEnvelope(envelope); } catch { /* 下载失败不阻断恢复主链（信封重建可再试） */ }
+  if (opts.download !== false) {
+    try { downloadDraftEnvelope(envelope); } catch { /* 下载失败不阻断恢复主链（信封重建可再试） */ }
+  }
   return envelope.nodes.length;
 }
 
@@ -795,7 +799,8 @@ async function exportRecoveryEnvelope(): Promise<number> {
  *  ③initCollab 全会话重建（fresh doc——服务端 SS2 种子；他 tab 记录并集照常=场景 A 语义）。
  *  单飞+fire-and-forget（close handler 事件面不 await）。 */
 async function resyncFull(): Promise<void> {
-  if (resyncInFlight || !session) return;
+  if (resyncInFlight) return;   // 在飞者持有相位（其 finally endResync 释放——M-2：禁早退者误释在飞守卫）
+  if (!session) { supervisor.endResync(); return; }   // T25b 收口 M-2：无会话早退档同步释放（防御直调面——dispatch 守卫前置后本分支常规不可达）
   resyncInFlight = true;
   try {
     recordCollabDiag('ws_status', { reason: 'recovery-resync' });
@@ -920,7 +925,9 @@ function dispatchY1cClose(code: number | undefined, reason: string | undefined):
       // 收口 C-1(quality)：**任何 await 前**同步取消 routeClose 排程的重连 timer（short 档 1s+0-60s
       // jitter 在异步导出窗内触发=旧 provider 同 doc 重连 SS2 上行毒增量——resync 重建未达前不可连）
       supervisor.cancelScheduledReconnect();
-      supervisor.beginResync();   // T25b M-R1：resyncing 相位（kickNow/assertHealthy/teardown await 缝全让位）
+      // T25b 收口 M-2：早退注定档不置相位（resyncFull 在飞/无会话两档 resyncing 滞留窗封口——
+      // beginResync 与 resyncFull 早退分支间无 interleaving〔单线程同步段〕，守卫前置=零滞留面）
+      if (!resyncInFlight && session) supervisor.beginResync();   // T25b M-R1：resyncing 相位（kickNow/assertHealthy/teardown await 缝全让位）
       void resyncFull();
       return;
     }
@@ -951,14 +958,15 @@ function dispatchY1cClose(code: number | undefined, reason: string | undefined):
 
 /** T25b B4（plan :338——接线闭环）：用户完成 B 场景裁定（RecoveryPanel 完成动作）——
  *  denyTracker.recoveryComplete（recovery 模式唯一出口——「导出→重置→导入」三步闭环收尾）+
- *  supervisor.resume（terminal 恢复模式粘住的连接出口）+reconnectOnce。电平清零随本点。 */
-export function resumeFromRecovery(): void {
+ *  **resume 前重建 fresh**（收口 I-3②：resyncFull 同款导出→deleteOwnRecord→initCollab——
+ *  connectOnce 仅连 fresh provider；被拒 doc 重连=裁定写+被拒帧+合法未上行内容整帧再拒
+ *  =裁定服务端侧静默丢失〔DRAFT_ADJUDICATION_NO_AUTO_REPLAY 冻结注记〕结构性根除）。
+ *  spec M-5：B2 合并提示电平随恢复出口复位（会话重建重跑检测重锚）。 */
+export async function resumeFromRecovery(): Promise<void> {
   denyTracker.recoveryComplete();
-  useCanvasStore.setState({ recoveryPending: null });
-  if (supervisor.resume()) {
-    recordCollabDiag('ws_status', { reason: 'recovery-resumed' });
-    supervisor.connectOnce();
-  }
+  useCanvasStore.setState({ recoveryPending: null, draftMergeAnomalies: null });
+  recordCollabDiag('ws_status', { reason: 'recovery-resumed' });
+  await resyncFull();   // 导出→清本 tab 记录→initCollab fresh doc+fresh provider（deny 计数已 recoveryComplete 归零——preserve 豁免无害）
 }
 
 /** T25b B5（plan :338）：管理员（OWNER/平台 ADMIN）裁定接受 server-restored 只读恢复态——
@@ -2177,7 +2185,8 @@ function bindReevaluateOnce(): void {
         // 兜底导出只保全发起方 doc；本 tab 若有未上行内容，随 purge 一并消失⇒导出先于 purge 尽力保全。
         // 尽力=失败不阻断自清主链〔purge 是 boot 防御正确性依赖，导出是保全 best-effort〕）。
         if (m.kind === 'history-bump') {
-          void exportRecoveryEnvelope().catch(() => { /* 尽力导出失败不阻断自清（信封可再建） */ });
+          // 收口 M-3：镜像腿 no-download 变体（内存副本 salvage 禁落盘——N tab 通告≠N 文件）
+          void exportRecoveryEnvelope({ download: false }).catch(() => { /* 尽力导出失败不阻断自清（信封可再建） */ });
           knownHistoryId = null;
           try { localStorage.removeItem('collab:history-id'); } catch { /* 尽力 */ }
           const uid = session.viewerUid ?? '';

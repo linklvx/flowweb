@@ -28,10 +28,10 @@ export class CollabRecoveryImportController {
   ): Promise<ReturnType<CollabRecoveryImportService['importEnvelope']>> {
     const userId = (req as { user?: { id?: string } }).user?.id ?? '';
     await this.perm.assertEditor(projectId, userId);   // OWNER/EDITOR 门（VIEWER 403）
-    const b = body as { envelope?: unknown; conflictChoices?: unknown };
+    const b = body as { envelope?: unknown; conflictChoices?: unknown; deletionNodeIds?: unknown };
     if (body === null || typeof body !== 'object' || Array.isArray(body)
       || typeof b.envelope !== 'object' || b.envelope === null || Array.isArray(b.envelope)) {
-      throw new BadRequestException({ code: 'RECOVERY_IMPORT_BAD_BODY', message: 'body 须为 { envelope: DraftEnvelope, conflictChoices?: Record<nodeId, \'skip\'|\'replace\'> }' });
+      throw new BadRequestException({ code: 'RECOVERY_IMPORT_BAD_BODY', message: 'body 须为 { envelope: DraftEnvelope, conflictChoices?: Record<nodeId, \'skip\'|\'replace\'>, deletionNodeIds?: string[] }' });
     }
     // 原始载荷字节上限（8MiB——超限 fail-closed：导出文件路径，禁截断禁导入）
     const rawBytes = Number(req.headers['content-length'] ?? 0);
@@ -44,6 +44,7 @@ export class CollabRecoveryImportController {
       b.envelope as DraftEnvelope,
       b.conflictChoices as Record<string, NodeIdConflictPolicy> | undefined,
       rawBytes || undefined,
+      b.deletionNodeIds as string[] | undefined,   // T25b 收口 I-3：B 场景删除确认 typed REST 承载
     );
   }
 }
