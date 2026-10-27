@@ -59,6 +59,7 @@ import {
   type FlushThroughResult,
 } from '@flowweb/shared';
 import {
+  maskGraphAnomalies,
   MEDIA_REF_TARGET_FIELDS,
   isFrameNodeTypeName,
   validateActorRanges,
@@ -261,6 +262,7 @@ class FrameEffectsCollector {
     edges.observeDeep((events) => {
       noteEvents(events);
       for (const ev of events) {
+        void ev.changes.keys;   // Y1c T24 收口 C-1①：全部事件 handler 内物化（yjs after-handler 访问限制——子 map 事件〔边端点改写〕未物化则 L2 读 changes 抛未捕获异常=unhandled+submit 永不 settle）
         if (ev.path.length !== 0) continue;   // 边端点改写归 T24 矩阵（键级足够）
         for (const [edgeId, ch] of ev.changes.keys) {
           const val = ch.action === 'delete' ? ch.oldValue : (ev.target as unknown as { get?: (k: string) => unknown })?.get?.(edgeId);
@@ -491,20 +493,33 @@ export class CollabProjectActorService {
   private readonly inboundBytesByConn = new WeakMap<object, number>();
   // ═══ Y1c T24：clientID 绑定四元+单活跃（偏离 38⑰）+per-connection 毒帧速率限制 ═══
   /** 绑定表：键 `${pid}|${gen}|${userId}|${client}`（四元=projectId+generation+userId+yjs clientID
-   *  ——spec §3.2 v5.4⑰）；值=当前活跃连接（socketId/conn 引用/lastSeenAt/毒帧计数/封禁窗）。
+   *  ——spec §3.2 v5.4⑰）；值=当前活跃连接（socketId/conn 引用/lastSeenAt）。
    *  执法点=准入链 ② 后（pending 预检后——**帧新增 structs（clock>SV）才绑定**：SS2 全量回灌含
    *  他端 client 历史 structs（clock≤SV 非新增）不抢绑定——只有本连接**原创**的新 struct 才声称
    *  clientID 归属。同四元禁两活跃连接（同键并发=CRDT 结构性损坏）；旧连接活跃=先 close 旧再纳新；
-   *  僵尸超时替换；异活跃用户（同 pid|gen|client 异 userId）=碰撞拒（可重试 close）。 */
+   *  僵尸超时替换；异活跃用户（同 pid|gen|client 异 userId）=碰撞拒（可重试 close）。
+   *  毒帧计数/封禁**不在本表**（收口 I-2：绑定表面两绕过——DS-only 帧零 structs 零计数+每毒帧轮换
+   *  clientID=新绑定新计数；计数键改 conn 身份〔poisonByConn〕与绑定解耦）。 */
   private readonly clientBindings = new Map<string, {
     socketId: string; conn: CollabConnection | null; userId: string; lastSeenAt: number;
-    poisonCount: number; poisonWindowStart: number; bannedUntil: number;
   }>();
+  /** per-connection 毒帧计数（收口 I-2——键=conn socketId：同连接轮换 clientID 仍累计/DS-only 违规
+   *  同计；跨连接轮换由重连成本+连接生命周期界〔裁定在案〕；有界 FIFO 8192）。 */
+  private readonly poisonByConn = new Map<string, { count: number; windowStart: number; bannedUntil: number }>();
+  private static readonly POISON_CONN_TABLE_MAX = 8192;
   /** 绑定表上界（FIFO 驱逐——离线 client 残留绑定不挤内存；8k=单实例连接面×clientID 余量）。 */
   private static readonly CLIENT_BINDING_MAX = 8192;
   /** 僵尸绑定超时（lastSeenAt 静默超此值=可替换——不计连接存活探测的保守值）。 */
   private static readonly CLIENT_BINDING_ZOMBIE_MS = 60_000;
-  /** per-connection 毒帧速率限制（L2 违规重复重建 DoS 防护——绑定表承载：跨重连按四元累计）。 */
+  /** 1008 wire reason 字面量单源（收口 M3——clientid-collision/clientid-superseded/
+   *  poison-rate-limited 三串 wire 面+测试断言共源；禁散落字面量）。 */
+  static readonly CLIENT_BINDING_WIRE_REASONS = {
+    collision: 'clientid-collision',
+    superseded: 'clientid-superseded',
+    poisonRateLimited: 'poison-rate-limited',
+  } as const;
+
+  /** per-connection 毒帧速率限制（L2 违规重复重建 DoS 防护——收口 I-2 后 conn 身份承载）。 */
   private static readonly POISON_RATE_LIMIT = 3;
   private static readonly POISON_RATE_WINDOW_MS = 10 * 60_000;
   private static readonly POISON_BAN_MS = 10 * 60_000;
@@ -719,31 +734,37 @@ export class CollabProjectActorService {
   private enforceClientBinding(
     pid: string, generation: number | undefined, item: QueueItem, newClients: readonly number[],
   ): string | undefined {
-    if (newClients.length === 0 || !item.conn) return undefined;
+    if (!item.conn) return undefined;
+    const now = Date.now();
+    // 毒帧封禁检查先行（conn 身份——收口 I-2：与绑定/clientID 轮换解耦，DS-only 违规同计面；
+    // newClients 空的 DS-only 帧同样执法〔计数在 notePoisonViolation 按连接累计〕）
+    const banEntry = this.poisonByConn.get(item.conn.socketId ?? '');
+    if (banEntry !== undefined && banEntry.bannedUntil > now) {
+      return CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.poisonRateLimited;
+    }
+    if (newClients.length === 0) return undefined;
     const userId = item.actor.userId;
     const gen = generation ?? 0;
-    const now = Date.now();
     for (const client of newClients) {
       const key = `${pid}|${gen}|${userId}|${client}`;
       const entry = this.clientBindings.get(key);
       // 异活跃用户碰撞先行（同 (pid,gen,client) 已绑他 userId——降维复核与四元键存否无关：
       // client 归属另一用户=CRDT 身份冒用面，「异活跃用户拒/碰撞=可重试 close」）
-      if (this.findCrossUserBinding(pid, gen, client, userId) !== undefined) return 'clientid-collision';
+      if (this.findCrossUserBinding(pid, gen, client, userId) !== undefined) return CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.collision;
       if (entry === undefined) {
-        this.clientBindings.set(key, { socketId: item.conn.socketId ?? '', conn: item.conn, userId, lastSeenAt: now, poisonCount: 0, poisonWindowStart: now, bannedUntil: 0 });
+        this.clientBindings.set(key, { socketId: item.conn.socketId ?? '', conn: item.conn, userId, lastSeenAt: now });
         this.evictClientBindings();
         continue;
       }
-      if (entry.bannedUntil > now) { entry.lastSeenAt = now; return 'poison-rate-limited'; }
       if (entry.socketId !== item.conn.socketId) {
         const stillConnected = entry.conn != null && entry.conn.socketId === entry.socketId;
         const fresh = now - entry.lastSeenAt < CollabProjectActorService.CLIENT_BINDING_ZOMBIE_MS;
         if (stillConnected && fresh) {
           // 旧连接活跃：先 close 旧再纳新（同四元接管——禁两活跃连接共享 clientID=结构性损坏）
-          this.host.hardClose(entry.conn, CollabCloseCode.RATE_LIMITED_CLOSE, 'clientid-superseded');
+          this.host.hardClose(entry.conn, CollabCloseCode.RATE_LIMITED_CLOSE, CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.superseded);
         }
-        // 僵尸（socket 已断/静默超时）=直接替换（毒帧计数/封禁窗随绑定继承——跨重连累计）
-        this.clientBindings.set(key, { socketId: item.conn.socketId ?? '', conn: item.conn, userId, lastSeenAt: now, poisonCount: entry.poisonCount, poisonWindowStart: entry.poisonWindowStart, bannedUntil: entry.bannedUntil });
+        // 僵尸（socket 已断/静默超时）=直接替换（毒帧计数在 conn 面 poisonByConn——不随绑定走）
+        this.clientBindings.set(key, { socketId: item.conn.socketId ?? '', conn: item.conn, userId, lastSeenAt: now });
       } else {
         entry.lastSeenAt = now;
       }
@@ -761,36 +782,70 @@ export class CollabProjectActorService {
     return undefined;
   }
 
-  /** L2 违规毒帧计数（绑定表面——跨重连按四元累计；超限封禁窗）。 */
-  private notePoisonViolation(pid: string, item: QueueItem, newClients: readonly number[]): void {
+  /** L2 违规毒帧计数（conn 身份——收口 I-2：同连接轮换 clientID 仍累计+DS-only 违规同计〔与
+   *  newClients 解耦〕；超限封禁窗；跨连接轮换由重连成本+连接生命周期界）。 */
+  private notePoisonViolation(pid: string, item: QueueItem): void {
+    const sid = item.conn?.socketId;
+    if (sid == null) return;
     const now = Date.now();
-    for (const client of newClients) {
-      const key = `${pid}|${this.host.generationOf(pid) ?? 0}|${item.actor.userId}|${client}`;
-      const entry = this.clientBindings.get(key);
-      if (entry === undefined) continue;
-      if (now - entry.poisonWindowStart > CollabProjectActorService.POISON_RATE_WINDOW_MS) {
-        entry.poisonWindowStart = now;
-        entry.poisonCount = 0;
+    let entry = this.poisonByConn.get(sid);
+    if (entry === undefined) {
+      entry = { count: 0, windowStart: now, bannedUntil: 0 };
+      this.poisonByConn.set(sid, entry);
+      while (this.poisonByConn.size > CollabProjectActorService.POISON_CONN_TABLE_MAX) {
+        const oldest = this.poisonByConn.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        this.poisonByConn.delete(oldest);
       }
-      entry.poisonCount += 1;
-      if (entry.poisonCount >= CollabProjectActorService.POISON_RATE_LIMIT) {
-        entry.bannedUntil = now + CollabProjectActorService.POISON_BAN_MS;
-        this.host.logger.warn(`clientID 绑定毒帧速率限制触发 ${key}——封禁 ${CollabProjectActorService.POISON_BAN_MS / 1000}s（L2 违规重复重建 DoS 防护）`);
-      }
+    }
+    if (now - entry.windowStart > CollabProjectActorService.POISON_RATE_WINDOW_MS) {
+      entry.windowStart = now;
+      entry.count = 0;
+    }
+    entry.count += 1;
+    if (entry.count >= CollabProjectActorService.POISON_RATE_LIMIT) {
+      entry.bannedUntil = now + CollabProjectActorService.POISON_BAN_MS;
+      this.host.logger.warn(`毒帧速率限制触发 conn=${sid} pid=${pid}——封禁 ${CollabProjectActorService.POISON_BAN_MS / 1000}s（L2 违规重复重建 DoS 防护——conn 身份计数）`);
     }
   }
 
-  /** NORMALIZE 异常增量计数（graph_anomaly_total{kind}——同一 ProjectDocIndex 实例评估；只计增量）。 */
-  private noteGraphAnomalies(pid: string, st: ProjectActorState): void {
-    const anomalies = (st.docIndex as ProjectDocIndexImpl).graphAnomalies();
-    const kinds = Object.keys(anomalies) as GraphAnomalyKind[];
+  /** NORMALIZE 异常增量计数（graph_anomaly_total{kind}）。收口 I-5 裁定=**读模型屏蔽面**：
+   *  评估=maskGraphAnomalies（toReadModel 屏蔽同一纯函数——六 kind 全覆盖+语义恰=读者实际所见；
+   *  索引补 parentId 方案否决：扩冻结契约成员面+索引无 parentId 仍需 doc 全量扫=第二索引变体）。
+   *  触发面=结构性 effects（NODE_/EDGE_ 两前缀族——纯字段帧跳过，O(N+E) 评估不进每击键帧；首帧建基线）。 */
+  private noteGraphAnomalies(pid: string, st: ProjectActorState, document: Y.Doc, effects: readonly FrameEffect[]): void {
+    void st;
+    const structural = effects.some((e) =>
+      e.kind === 'NODE_CREATED' || e.kind === 'NODE_DELETED' || e.kind === 'NODE_RESTORED'
+      || e.kind === 'EDGE_ADDED' || e.kind === 'EDGE_REMOVED');
+    if (!structural && this.prevAnomalyPids.has(pid)) return;
+    let masked: Partial<Record<GraphAnomalyKind, number>>;
+    try {
+      const nodes: Array<{ id: string; type: string; parentId?: string | null }> = [];
+      for (const [id, raw] of document.getMap('nodes').entries()) {
+        if (!(raw instanceof Y.Map)) continue;
+        const parent = raw.get('parentId');
+        nodes.push({ id, type: String(raw.get('type') ?? ''), parentId: typeof parent === 'string' ? parent : null });
+      }
+      const edges: Array<{ id: string; source: string; target: string }> = [];
+      for (const [eid, raw] of document.getMap('edges').entries()) {
+        if (!(raw instanceof Y.Map)) continue;
+        edges.push({ id: eid, source: String(raw.get('source') ?? ''), target: String(raw.get('target') ?? '') });
+      }
+      masked = maskGraphAnomalies({ nodes, edges }).masked;
+    } catch (err) {
+      // C-1② containment 同族：异常评估失败不掩写管线（计数面 best-effort+留痕）
+      this.host.logger.warn(`graph anomaly 评估失败 for ${pid}: ${(err as Error).message}`);
+      return;
+    }
+    const kinds = Object.keys(masked) as GraphAnomalyKind[];
     if (kinds.length === 0 && !this.prevAnomalyPids.has(pid)) return;
     const prev = this.prevAnomalies.get(pid) ?? {};
     for (const k of kinds) {
-      const delta = (anomalies[k] ?? 0) - (prev[k] ?? 0);
+      const delta = (masked[k] ?? 0) - (prev[k] ?? 0);
       if (delta > 0) graphAnomalyTotal.inc({ kind: k }, delta);
     }
-    this.prevAnomalies.set(pid, anomalies);
+    this.prevAnomalies.set(pid, masked);
     this.prevAnomalyPids.add(pid);
   }
 
@@ -1130,9 +1185,18 @@ export class CollabProjectActorService {
         //    未知键/type 不可变〕）。违规=毒帧（同协议：close 4411+截断至**前帧** appliedSeq〔本帧
         //    appliedSeq 未推进〕）+绑定表毒帧计数（速率限制防重复重建 DoS）。 ──
         const l2Events = collector.takeEvents();
-        const l2 = validateAppliedL2(document, l2Events, { allowedUrlHosts: XML_ATTR_URL_ALLOWED_HOSTS });
+        let l2: ReturnType<typeof validateAppliedL2>;
+        try {
+          l2 = validateAppliedL2(document, l2Events, { allowedUrlHosts: XML_ATTR_URL_ALLOWED_HOSTS });
+        } catch (l2Err) {
+          // Y1c T24 收口 C-1②（M-3 并入）：L2 内部异常的毒帧级 containment——validateAppliedL2 在
+          // applyGate try/catch 外，未捕获异常=unhandled rejection+批帧 submit promise 永不 settle；
+          // 统一折毒帧 4411（POISON_FRAME_PROTOCOL 对齐：截断至前帧 appliedSeq+全连接 close）。
+          l2 = { ok: false, reason: `l2-internal:${(l2Err as Error).message}` };
+          this.host.logger.error(`L2 内部异常折毒帧 for ${pid} walSeq=${walSeq}: ${(l2Err as Error).message}`);
+        }
         if (!l2.ok) {
-          this.notePoisonViolation(pid, item, item.newClients ?? []);
+          this.notePoisonViolation(pid, item);
           const err = Object.assign(new Error(`l2 violation: ${l2.reason}`), { l2Reason: l2.reason });
           actorPoisonFrameTotal.inc();
           actorDrainBatchTotal.inc({ result: 'poison' });
@@ -1164,9 +1228,9 @@ export class CollabProjectActorService {
         const effects = collector.take();
         for (const e of effects) frameEffectsTotal.inc({ kind: e.kind });
         st.docIndex.apply(effects);
-        // Y1c T24：NORMALIZE 异常增量计数（graph_anomaly_total{kind}——同一索引实例评估；读侧屏蔽
-        // =doc-codec toReadModel maskGraphAnomalies 同语义）
-        this.noteGraphAnomalies(pid, st);
+        // Y1c T24（收口 I-5）：NORMALIZE 异常增量计数（graph_anomaly_total{kind}——读模型屏蔽面
+        // maskGraphAnomalies 同一纯函数，六 kind 全覆盖；读侧屏蔽=doc-codec toReadModel 同语义）
+        this.noteGraphAnomalies(pid, st, document, effects);
         entries[k] = this.mkAppliedEntry(pid, item, appended[k].frameId, walSeq, effects);
         actorFrameOutcomeTotal.inc({ outcome: 'applied' });
         this.resolveItem(item, { walSeq });   // 逐帧 resolve（beforeSync await——ACK 时帧必已 fsync+apply）

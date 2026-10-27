@@ -137,6 +137,9 @@ export interface CollabDocRegistryHost {
   /** Y1c T26 三轮 F-1：doc 装载前缀报告缝（装载时已应用的 PG 前缀=hydration 行 pgSeq——actor
    *  presence 可信门槛 loadPgSeq 腿的真值源；onWalSeqFloorSeeded 先例形〔:453 同点〕）。 */
   noteDocLoadedPrefix?(projectId: string, document: Document, pgSeq: bigint): void;
+  /** Y1c T24 收口 I-1：装载重放完成后缝（state/updates/spool 全量入 doc 后——ProjectDocIndex
+   *  rebuild 的正确挂点：重放经 withReplaySuppressed 零 effects，挂 prefix 缝=对空 doc rebuild）。 */
+  onDocLoadedAndReplayed?(projectId: string, document: Document): void;
   /** WS connectionId 读面（loadDocument :1117 装载失败 Sentry 样本 consumption——台账 SG 域
    *  （connectionIds socketId 键），W3b 改接 sg 读面）。 */
   connectionIdOf(socketId: string): string | undefined;
@@ -464,6 +467,10 @@ export class CollabDocRegistryService {
       // Y0b-4 T3：帧数组显式持有——spool 字节计入 cheap 上界（帧在装载窗内，测量点必须在其后）。
       const spoolFrames = await this.persistence.peekSpoolFrames(projectId);
       for (const f of spoolFrames) Y.applyUpdate(document, f.payload);
+      // Y1c T24 收口 I-1：装载内容全量入 doc 后的索引重建缝（gateway 转发 actor.noteDocIndexRebuild
+      // ——原挂 noteDocLoadedPrefix 缝在 applyReplayed 之前=对空 doc 执行，且重放走 replay 抑制窗
+      // 零 effects 增量，装载后索引恒缺装载前节点）
+      this.host.onDocLoadedAndReplayed?.(projectId, document);
       // T18（Z4''-v14）：order 病理装载档扫描（挂点选型见 collab-pathology.ts 头注——replay 完成
       // 后判；容忍不 500，计数+告警）。
       observeOrderPathologyOnLoad(this.host.logger, documentName, toReadModel(document).nodes);

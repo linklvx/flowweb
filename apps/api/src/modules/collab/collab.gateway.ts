@@ -337,7 +337,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       onWalSeqFloorSeeded: (pid, pgSeq) => this.spool.seedWalSeqFromPg(pid, pgSeq),   // C1①（T11 双评审）：装载缝 PG 播种——段全回收项目计数器自 PG 真值重建（红链见 canvas-doc-walseq-seeding.int.spec）
       noteDocLoadedPrefix: (pid, document, pgSeq) => {
         this.projectActor.noteDocLoadedPrefix(document as unknown as import('yjs').Doc, pgSeq);   // Y1c T26 三轮 F-1：装载前缀报告——actor presence 可信门槛 loadPgSeq 腿真值源（懒求值：load 后于 actor 构造）
-        this.projectActor.noteDocIndexRebuild(pid, document as unknown as import('yjs').Doc);   // Y1c T24（登记项「docIndex 装载即 rebuild」根修）：装载 doc=PG 前缀真值——索引重建后随 effects 增量（DENY/NORMALIZE 索引消费面）
+      },
+      onDocLoadedAndReplayed: (pid, document) => {
+        this.projectActor.noteDocIndexRebuild(pid, document as unknown as import('yjs').Doc);   // Y1c T24 收口 I-1：索引重建挂**装载重放完成后**（原挂 prefix 缝=重放前对空 doc 执行+重放零 effects=装载后索引恒缺——DENY/NORMALIZE 索引消费面失真根修）
       },
     });
     this.persistence.bindHost({

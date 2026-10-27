@@ -444,28 +444,34 @@ function sanitizePublicData(type: string, data: Record<string, unknown>, policy:
     const v = data[field];
     if (isRichTextValue(v)) { out[field] = { text: v.text }; continue; }   // 红线 1：html/json 永不出公开面
     if (typeof v === 'string' && isDisallowedUrl(v, policy.allowedUrlHosts)) continue;   // URL host 域外剥键
-    out[field] = deepSanitizeUrl(v, policy.allowedUrlHosts, 0);   // Y1c T24（T19 浅扫缺口收口）：嵌套载体深度剥除
+    out[field] = deepSanitizeUrl(v, policy.allowedUrlHosts, new WeakSet());   // Y1c T24（T19 浅扫缺口收口+I-4 无界）：嵌套载体深度剥除
   }
   return out;
 }
 
-/** 深度 URL 剥除（Y1c T24——数组项/对象值/双层嵌套载体；bounded depth 4：data 值域 JSON 嵌套
- *  实测 ≤3〔array item/map children/extConfig〕，越深原样透出〔纵深上界：data 值本受矩阵键域
- *  约束——未知键 gate 已拒〕）。RichTextValue 已在浅层出口只余 text——不再入本面。 */
-function deepSanitizeUrl(v: unknown, hosts: readonly string[] | undefined, depth: number): unknown {
-  if (typeof v === 'string') return v;   // 顶层字符串已在调用方判过；深层字符串值在此判
+/** 深度 URL 剥除（Y1c T24——数组项/对象值/任意深度嵌套载体）。收口 I-4：**无界递归+WeakSet
+ *  环防护**（原 bounded depth 4 越界原样透出=深层域外 URL 泄漏——嵌套深度攻击者可控、矩阵键域
+ *  不冻结 array item 内容；到界 fail-closed 剥值不可取：合法深层配置值误伤面大且无契约上界可引）。
+ *  无界论证：读模型值为 plain JSON 深拷贝（decodeYValue 产新树——JSON 反序列化产物无环，环防护
+ *  为防御纵深）；递归成本 O(值树) 与 sanitize 本身同阶。RichTextValue 浅层出口只余 text——不入本面。 */
+function deepSanitizeUrl(v: unknown, hosts: readonly string[] | undefined, seen: WeakSet<object>): unknown {
+  if (typeof v === 'string') return v;   // 顶层字符串已在调用方判过；深层字符串值经容器分支预判
   if (Array.isArray(v)) {
-    if (depth >= 4) return v;
+    if (seen.has(v)) return undefined;   // 环回边丢弃（防无限递归+防嵌原始未消毒子树回灌——合法 plain JSON 无环）
+    seen.add(v);
     return v
-      .map((it) => typeof it === 'string' && isDisallowedUrl(it, hosts) ? undefined : deepSanitizeUrl(it, hosts, depth + 1))
+      .map((it) => typeof it === 'string' && isDisallowedUrl(it, hosts) ? undefined : deepSanitizeUrl(it, hosts, seen))
       .filter((it) => it !== undefined);
   }
   if (typeof v === 'object' && v !== null) {
-    if (depth >= 4 || isRichTextValue(v)) return v;
+    if (isRichTextValue(v)) return v;
+    if (seen.has(v)) return undefined;   // 同上——环回边丢弃
+    seen.add(v);
     const out: Record<string, unknown> = {};
     for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
       if (typeof val === 'string' && isDisallowedUrl(val, hosts)) continue;
-      out[k] = deepSanitizeUrl(val, hosts, depth + 1);
+      const sanitized = deepSanitizeUrl(val, hosts, seen);
+      if (sanitized !== undefined) out[k] = sanitized;
     }
     return out;
   }

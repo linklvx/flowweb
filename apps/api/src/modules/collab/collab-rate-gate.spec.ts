@@ -19,7 +19,7 @@ import { pollUntil } from '../../test-utils/poll-until';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { makeFrame as frame, makeAwarenessUpdateBody } from '../../test-utils/frame-encoder';   // T6 外审 M1：varint 手编单源
 import { AWARENESS_FRAME_LIMIT_BYTES } from './collab.gateway';   // T6 外审 M4：帧闸阈值常量绑定（改值本测试红）
-import { CLIENT_PROTOCOL_VERSION, FRAME_ALLOWANCE_BYTES } from '@flowweb/shared';
+import { CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, FRAME_ALLOWANCE_BYTES } from '@flowweb/shared';
 
 /** Y1c T24 矩阵对齐夹具：节点=合法 Y.Map 信封（标量节点值=L2 node-not-map 毒帧——速率闸主语=桶语义）。 */
 const setNode = (ydoc: Y.Doc, key: string, val: unknown) => {
@@ -79,7 +79,7 @@ function awarenessUpdate(clientId: number, clock: number, state: object): Buffer
 /** 裸 ws：开连+Auth+等回执（authenticated 连接——后续帧走全链路钩子） */
 async function openAuthedWs(kit: DualClientKit, docName: string) {
   const client = new (makeHeaderWs({ origin: 'http://localhost:5173', cookie: 'flowweb.session_token=tok' }))(
-    `${kit.url}?csv=${CLIENT_PROTOCOL_VERSION}`,
+    `${kit.url}?csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}`,
   );
   await new Promise<void>((resolve, reject) => { client.once('open', resolve); client.once('error', reject); });
   client.on('error', () => { /* 关闭握手期 error 无人消费会抛——吞 */ });

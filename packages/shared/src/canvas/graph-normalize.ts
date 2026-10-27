@@ -43,7 +43,7 @@ export interface GraphNormalizeResult<T extends GraphNormalizeInput> {
 export function maskGraphAnomalies<T extends GraphNormalizeInput>(input: T): GraphNormalizeResult<T> {
   const masked: Partial<Record<GraphAnomalyKind, number>> = {};
   const inc = (k: GraphAnomalyKind): void => { masked[k] = (masked[k] ?? 0) + 1; };
-  // ① 重复边（同 source→target：保 id 序最小者——确定性）——validateParentGraph 域外补面
+  // ① 重复边（同 source→target：保**输入序首个**——确定性锚=遍历序即 doc map 序；validateParentGraph 域外补面）
   const seenPair = new Set<string>();
   const dedupEdges = input.edges.filter((e) => {
     const pk = `${e.source}\u0000${e.target}`;

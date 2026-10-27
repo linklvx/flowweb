@@ -485,14 +485,6 @@ const isXmlElementLike = (v: unknown): v is { toArray: () => unknown[]; getAttri
   typeof v === 'object' && v !== null && typeof (v as { toArray?: unknown }).toArray === 'function' && typeof (v as { getAttributes?: unknown }).getAttributes === 'function';
 
 /** XmlText/字符串承载（Y.XmlText 或子串——toArray 展开后的混合列表）。 */
-const textBytesOf = (v: unknown): number => {
-  if (typeof v === 'string') return textEncoder.encode(v).byteLength;
-  if (typeof v === 'object' && v !== null && typeof (v as { toString?: unknown }).toString === 'function' && 'toDelta' in (v as object)) {
-    return textEncoder.encode(String((v as { toString(): string }).toString())).byteLength;
-  }
-  return 0;
-};
-
 /**
  * L2 apply 后 changed-subtree walk（spec §3.2 v5.4⑫——T24 激活）：live XmlFragment 整树校验——
  * 元素名/mark/属性键白名单（XML_ELEMENTS/XML_MARKS/XML_ATTRS **同表单源**——L1 帧内扫描的帧外父
@@ -508,9 +500,9 @@ export function validateXmlSubtree(container: unknown, opts: XmlL1Options = {}):
     if (typeof node === 'string' || node === null || node === undefined) return { ok: true };
     if (typeof node !== 'object') return { ok: true };
     if ('toDelta' in (node as object)) {
-      // Y.XmlText：mark 键域+文本字节域+mark 值 URL 扫描（toDelta attributes 面）
-      const bytes = textBytesOf(node);
-      if (bytes > XML_TEXT_MAX_BYTES) return { ok: false, reason: 'xml-text-bytes-exceeded' };
+      // Y.XmlText：mark 键域+mark 值 URL 扫描（toDelta attributes 面）。Y1c T24 收口 C-2：**文本
+      // 字节域不在本 walk 面**——整树累计语义废止（两段各 100KB 合法续写毒帧循环）；单串上限由
+      // L1（帧内可解析父）+L2 事件增量面（YTextEvent.delta insert 串逐段）各自判定
       try {
         const delta = (node as unknown as { toDelta: () => Array<{ attributes?: Record<string, unknown> }> }).toDelta();
         for (const d of delta) {

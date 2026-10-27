@@ -93,8 +93,8 @@ describe('Y1c T24：clientID 绑定四元+单活跃（偏离 38⑰）', () => {
     await expect(actor.submit('p1', c1.frame(setModel('a1')), makeConn('u1', 'sock-a'), 'update')).resolves.toBeDefined();
     // u2 冒用 u1 的 clientID（同 pid|gen|client 异 userId）
     await expect(actor.submit('p1', c1.frame(setModel('a2')), makeConn('u2', 'sock-b'), 'update'))
-      .rejects.toMatchObject({ code: 1008, frameReason: 'clientid-collision' });
-    expect(hardCloseCalls.some((c) => c.reason === 'clientid-collision' && c.code === 1008)).toBe(true);
+      .rejects.toMatchObject({ code: 1008, frameReason: CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.collision });
+    expect(hardCloseCalls.some((c) => c.reason === CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.collision && c.code === 1008)).toBe(true);
   });
 
   it('同用户多 clientID 并发放行（不同 clientID=不同四元键——多标签/多设备合法形态）', async () => {
@@ -115,7 +115,22 @@ describe('Y1c T24：clientID 绑定四元+单活跃（偏离 38⑰）', () => {
     (connA as unknown as { socketId: string }).socketId = 'sock-a-gone';   // 旧连接 socket 已断（socketId 失配）
     const connB = makeConn('u1', 'sock-b');
     await expect(actor.submit('p1', c1.frame(setModel('a3')), connB, 'update')).resolves.toBeDefined();
-    expect(hardCloseCalls.filter((c) => c.reason === 'clientid-superseded').length).toBe(0);   // 僵尸=直接替换不 close
+    expect(hardCloseCalls.filter((c) => c.reason === CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.superseded).length).toBe(0);   // 僵尸=直接替换不 close
+  });
+
+  it('M-6①：僵尸替换 60s 静默腿（旧连接 socket 仍在但 lastSeenAt 静默超时→新连接直接纳新零 close——fake timers 直测）', async () => {
+    vi.useFakeTimers();
+    try {
+      const { actor, hardCloseCalls } = buildActor(new Y.Doc());
+      const c1 = new Client();
+      const connA = makeConn('u1', 'sock-live');
+      await expect(actor.submit('p1', c1.frame(setModel('a1')), connA, 'update')).resolves.toBeDefined();
+      // 静默 61s（连接对象仍「在」——socketId 未失配；仅 lastSeenAt 过期）：同 client 新连接=僵尸直接替换
+      vi.setSystemTime(Date.now() + 61_000);
+      const connB = makeConn('u1', 'sock-new');
+      await expect(actor.submit('p1', c1.frame(setModel('a2')), connB, 'update')).resolves.toBeDefined();
+      expect(hardCloseCalls.filter((c) => c.reason === CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.superseded).length).toBe(0);   // 静默腿不 close（对比活跃腿 close-旧）
+    } finally { vi.useRealTimers(); }
   });
 
   it('SS2 全量回灌不抢绑定（他端 client 历史 structs clock≤SV 非新增——fresh 连接携带全量状态）', async () => {

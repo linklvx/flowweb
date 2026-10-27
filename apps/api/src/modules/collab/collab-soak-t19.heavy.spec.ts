@@ -89,7 +89,11 @@ describe('T19 soak 阻断门（10 客户端×~70s 压缩版：收敛+资源域�
           c.ydoc.transact(() => {
             const entry = c.ydoc.getMap('nodes').get(myNode) as Y.Map<any>;
             const data = entry.get('data') as Y.Map<any>;
-            data.set('model', `${r + 1}:${Date.now()}:${'x'.repeat(32)}${r % 20}`);   // 值轮换增长（T24 键域单键——doc 尺寸增长面等价：每轮新值字符串）
+            data.set('model', `${r + 1}:${Date.now()}:${'x'.repeat(32)}`);   // 值轮换（T24 矩阵键域内增长面）
+            // M-7 收口：键增删+DS churn 压力面恢复（原 k0..k19 任意键=矩阵外键 L2 毒帧——改矩阵内
+            // 'order' 键〔lww canDelete=true〕隔轮增删：每 20 轮删+次轮重建=键集轮换+删集区间累积）
+            if (r % 2 === 0) data.set('order', `o-${r}`);
+            else data.delete('order');
             if (r > 0 && r % 50 === 0) {
               const m = new Y.Map();   // Y1c T24 矩阵对齐：type 必备+model 承载
               m.set('type', 'textInput');

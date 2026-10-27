@@ -32,7 +32,7 @@ import { CollabDocRegistryService } from './collab-doc-registry.service';
 import { parseDocName, isValidDocName, admitDocNameForGeneration, projectDocName } from './doc-name.util';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
-import { CollabAuthReason, CollabCloseCode, negotiateClientVersion, userColorOfUserId, DOC_VACUUMING_TERMINAL_REASON, resolveVersionGate, CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, CLIENT_OUTDATED_REASON, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
+import { CollabAuthReason, CollabCloseCode, negotiateClientVersion, userColorOfUserId, DOC_VACUUMING_TERMINAL_REASON, resolveVersionGate, CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, CLIENT_OUTDATED_REASON, VERSION_GATE_CLIENT_PARAMS, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
 import { RSS_RELEASE_BYTES, RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
 import { COLLAB_ROLE_DEFAULT, type CollabRole } from '../../config/env';
 import type { CollabConnection, FreezeReason } from './collab.gateway';   // W3b：type-only 零运行时边（无 design:paramtypes 环——偏离 67 循环前提对纯类型不成立；W3a DR 同款先例，collab-conn.util 候选否因 census ⑤/backpressure 锚词面冲突）
@@ -646,16 +646,26 @@ export class CollabSessionGuardService {
       // 有值不匹配，后者 4406 client-outdated）；auth 回执下发 historyId（onConnected stateless——
       // web 客户端消费归后续卡，登记 deferred）。
       if (this.serverHistory) {
-        const hidRaw = requestParameters?.get('hid');
+        // Y1c T24 收口 M-1：三元真承载——schemaVersion 经 `sv` query 上行（客户端编译期常量；
+        // 修前 client 直填服务端常量=恒真自环〔三元实为两元〕）。缺失（旧 bundle 无 sv）=不匹配
+        // 4406——与旧 bundle DENY 意图一致；hid 首连放行（修正 #8）语义维持。
+        const hidRaw = requestParameters?.get(VERSION_GATE_CLIENT_PARAMS.historyId);
+        const svRaw = requestParameters?.get(VERSION_GATE_CLIENT_PARAMS.schemaVersion);
         const verdict = resolveVersionGate(
-          { protocolVersion: Number(csv ?? NaN), schemaVersion: CANVAS_DOC_SCHEMA_VERSION, historyId: hidRaw === null || hidRaw === '' ? undefined : hidRaw },
+          {
+            protocolVersion: Number(csv ?? NaN),
+            schemaVersion: svRaw === null || svRaw === '' ? NaN : Number(svRaw),
+            historyId: hidRaw === null || hidRaw === '' ? undefined : hidRaw,
+          },
           { protocolVersion: CLIENT_PROTOCOL_VERSION, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, historyId: this.serverHistory.historyId },
         );
         if (verdict === 'client-outdated') {
-          // Y1c T24：三元硬门 deny=terminal 4406 close 先行（同四档门——hid 不匹配/缺失撞门循环阻断）
+          // Y1c T24：三元硬门 deny=terminal 4406 close 先行（同四档门——sv 缺失/不匹配/hid 不匹配撞门循环阻断）
           this.closeUpgradeTerminal(request, CollabCloseCode.CLIENT_OUTDATED, CLIENT_OUTDATED_REASON);
           collabVersionNegotiationRejectTotal.inc({ reason: CollabAuthReason.SCHEMA_OUTDATED });
-          throw this.denyAuth(CollabAuthReason.SCHEMA_OUTDATED, `client history/protocol outdated（hid ${hidRaw === null || hidRaw === '' ? '首连' : '不匹配'}）`, 'version');
+          const which = svRaw === null || svRaw === '' || Number(svRaw) !== CANVAS_DOC_SCHEMA_VERSION
+            ? `sv ${svRaw === null || svRaw === '' ? '缺失（旧 bundle）' : '不匹配'}` : 'hid 不匹配';
+          throw this.denyAuth(CollabAuthReason.SCHEMA_OUTDATED, `client history/protocol outdated（${which}）`, 'version');
         }
       }
       const token = parseSessionToken(requestHeaders?.get('cookie'));   // T2 cookie-only——query token 通道删除

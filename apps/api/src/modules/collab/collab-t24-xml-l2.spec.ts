@@ -207,7 +207,7 @@ describe('Y1c T24 红②：XML 对抗语料 L2（既有子树挂接——L1 帧�
     const clean = attacker.frame((d) => {
       ((d.getMap('nodes').get('n1') as Y.Map<unknown>).get('data') as Y.Map<unknown>).set('model', 'm2');
     });
-    await expect(actor.submit('p1', clean, conn, 'update')).rejects.toMatchObject({ code: 1008, frameReason: 'poison-rate-limited' });
-    expect(hardCloseCalls.some((c) => c.reason === 'poison-rate-limited')).toBe(true);
+    await expect(actor.submit('p1', clean, conn, 'update')).rejects.toMatchObject({ code: 1008, frameReason: CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.poisonRateLimited });
+    expect(hardCloseCalls.some((c) => c.reason === CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.poisonRateLimited)).toBe(true);
   });
 });

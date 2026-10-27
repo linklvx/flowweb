@@ -24,7 +24,7 @@ import { CollabResidencyService } from '../modules/collab/collab-residency.servi
 import { CollabSpoolService } from '../modules/collab/collab-spool.service';
 import { createMockRepo, type MockRepo } from './mock-repo';
 import { createLeaseStub } from '../modules/collab/test-utils/lease-stub';
-import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
+import { CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 
 export interface DualClientKit {
   gateway: CollabGateway;
@@ -112,7 +112,7 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
       // T1.5 评审小修：`|| undefined` 后置——COLLAB_ALLOWED_ORIGINS='' 时 split(',')[0]='' 穿透为 Origin 空头
       const origin = opts.origin ?? (process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0] || undefined) ?? 'http://localhost:5173';
       const provider = new HocuspocusProvider({
-        url: `${url}?csv=${CLIENT_PROTOCOL_VERSION}`,   // Y0b-3 T5 版本门：装置带当前协议版（缺 csv=client-version-missing 恒拒；csv 单源防 bump 漂移）
+        url: `${url}?csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}`,   // Y0b-3 T5 版本门：装置带当前协议版（缺 csv=client-version-missing 恒拒；csv 单源防 bump 漂移）+T24 收口 M-1 sv（三元真承载——缺 sv=4406）
         name,
         document: ydoc,
         WebSocketPolyfill: makeHeaderWs({ origin, cookie: `flowweb.session_token=${token}`, ...opts.extraHeaders }, opts.onSocket),

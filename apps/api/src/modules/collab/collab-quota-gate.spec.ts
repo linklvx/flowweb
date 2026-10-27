@@ -14,7 +14,7 @@ import { makeFrame as frame } from '../../test-utils/frame-encoder';   // T6 外
 import type { CollabGateway } from './collab.gateway';   // W3a（承接账④）：freezeDoc 参数改型——I-3④ 参数别名逃逸面闭合
 import { CollabShrinkService } from './collab-shrink.service';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
-import { CLIENT_PROTOCOL_VERSION, isCollabDocStatusPayload, isCollabConnStatusPayload } from '@flowweb/shared';
+import { CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, isCollabDocStatusPayload, isCollabConnStatusPayload } from '@flowweb/shared';
 
 /** Y1c T24 矩阵对齐夹具：节点=合法 Y.Map 信封（type+data{model:val}——标量节点值在 DENY/L2 矩阵下
  * =node-not-map 毒帧；配额测试主语=帧字节/计数非节点形状，val 差异保持帧字节量级）。 */
@@ -147,7 +147,7 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, { ...QUOTA_SMALL, maxDocBytes: 2048 });
     try {
       const client = new (makeHeaderWs({ origin: 'http://localhost:5173', cookie: 'flowweb.session_token=tok' }))(
-        `${kit.url}?csv=${CLIENT_PROTOCOL_VERSION}`,
+        `${kit.url}?csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}`,
       );
       await new Promise<void>((resolve, reject) => { client.once('open', resolve); client.once('error', reject); });
       client.on('error', () => { /* 关闭握手期 error 无人消费会抛——吞 */ });
@@ -525,7 +525,7 @@ describe('Y0b-4 T9a vacuum——SV 代际门三向/terminal close/serving 门（
       // 不装载/不 SS1/不上行旧 structs——S2 复活链关闭）；客户端观测=authenticationFailed{reason}
       let authFail: { reason: string } | null = null;
       const staleProvider = new HocuspocusProvider({
-        url: `${kit.url}?csv=${CLIENT_PROTOCOL_VERSION}`,
+        url: `${kit.url}?csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}`,
         name: 'project:gen1',
         document: A.ydoc,                                        // 带 vacuum 前历史的 doc
         WebSocketPolyfill: makeHeaderWs({ origin: 'http://localhost:5173', cookie: 'flowweb.session_token=tok' }, () => {}),

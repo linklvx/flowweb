@@ -461,6 +461,15 @@ export const VERSION_GATE_SERVER_BASE = {
 
 export type VersionGateVerdict = 'allow' | 'client-outdated';
 
+/** 版本门客户端上行参数名（T24 收口 M-1 授权面——冻结区单字段上行承载：schemaVersion 此前由
+ *  服务端调用方自填常量=三元实为两元〔自环〕；上行承载后客户端编译期常量经 `sv` query 传入，
+ *  缺失（旧 bundle 无该参数）=不匹配 4406——与旧 bundle DENY 意图一致。spec §8.1 客户端半链行同步。 */
+export const VERSION_GATE_CLIENT_PARAMS = {
+  protocolVersion: 'csv',
+  schemaVersion: 'sv',
+  historyId: 'hid',
+} as const;
+
 /** 版本门判定（纯函数——运行时=字面量精确比较，无区间协商）：三元任一不匹配（含高于服务端——
  *  reload 无效档）→ client-outdated。**修正 #8 allowFirstConnect**：客户端首连未携带 historyId
  *  （无本地缓存键五元历史——「无值」≠「有值不匹配」，后者仍 4406）→ **放行**（非 4406），由服务端

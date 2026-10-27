@@ -8,7 +8,9 @@
 //    整串覆盖/裸值塞容器键）、结构预算（structs/DS 区间数——**区间数修正：Σ per-client range 数
 //    非 clients.size**〔T24 登记项「ds 预算=client 数非区间数」根修〕）。XML 域结构归 L1
 //    （xml-schema validateXmlL1 单源——本文件不重复执法）；帧外父深链（既有节点/既有子树挂接）
-//    frame-local 不可判定 → 归 L2（spec：「无法判定归后验」）。
+//    frame-local 不可判定 → 归 L2（plan T24 卡文：「无法判定归后验」——spec M1 勘误：出处为卡文
+//    非 spec 行本体；对既有节点的矩阵校验经 L2 事件路径 O(1) 查〔path[0]=nodeId 直达〕——经索引
+//    反查构造性不可实现：解码态 item 无 nodeId 反查面、yjs 公开 API 无 ID→实例解析）。
 //  - L2 面（本文件 validateAppliedL2，actor apply 后临界区接线）：afterTransaction 事件 changed-
 //    subtree 语义 walk——对既有节点经事件路径（path[0]=nodeId）取节点类型执法矩阵；XML 触达子树
 //    整树 walk（validateXmlSubtree——xml-schema 单表单源，禁双表）；违规=毒帧 4411（actor 毒帧
@@ -25,14 +27,19 @@ import { NODE_ENVELOPE_KEYS } from './nodeEnvelope';
 import { DOC_EDGE_RECORD_KEYS } from './canvas-doc-manifest';
 import { CollabCloseCode } from '../constants/collab-close-code';
 import { QUOTA_DEFAULTS } from '../constants/collab-quota';
-import { validateXmlSubtree } from './xml-schema';
+import { validateXmlSubtree, XML_TEXT_MAX_BYTES } from './xml-schema';
 
 /** root 白名单（exec 根删除——spec §3.1 顶层三根 meta/nodes/edges；写 exec 根=DENY）。 */
 export const FRAME_DENY_ROOTS = new Set(['nodes', 'edges', 'meta']);
 
-/** 结构预算工程值（T9 P1 承接——structs ≤8×maxNodesPerTx；DS 区间 ≤4096）。 */
+/** 结构预算工程值（T9 P1 承接——structs ≤8×maxNodesPerTx）。
+ *  Y1c T24 收口 I-6：DS 区间 cap 与 structs 同值单源派生（原独立 4096 误拒合法交错删史——
+ *  依据：①SS2 全量载体 ranges ≤ 被删 structs ≤ FRAME_MAX_STRUCTS ⇒ 同值使 ds 面在 SS2 形态
+ *  结构性不先于 structs 触发（合法 SS2 由 structs/字节闸单一约束）；②增量纯删帧（0 structs）的
+ *  合法面=批量删（maxNodesPerTx=2000/tx 配额既有界），16,000=8×2000 与 structs 预算同源留 8 批
+ *  余量；③评审实证交错删 ~8000 ranges 极值下 2× headroom。spec 偏离 40 同批登记。 */
 export const FRAME_MAX_STRUCTS = 8 * QUOTA_DEFAULTS.maxNodesPerTx;
-export const FRAME_MAX_DS_RANGES = 4096;
+export const FRAME_MAX_DS_RANGES = FRAME_MAX_STRUCTS;
 
 /** position 容器逐键域（spec §3.1 通用键：Y.Map{x,y} 逐键——信封面 children 无矩阵条目，此单源）。 */
 const POSITION_KEYS = new Set(['x', 'y']);
@@ -321,6 +328,9 @@ export function validateAppliedL2(doc: Y.Doc, events: readonly Y.YEvent<never>[]
       // 公开面，三根按**身份比对**分类（path [] 的 target 恒为三根之一）
       const mapName = ev.target === metaRoot ? 'meta' : ev.target === edgesRoot ? 'edges' : ev.target === nodesRoot ? 'nodes' : undefined;
       if (mapName === 'meta') {
+        // spec M4（收口择一=死码注记保留）：meta 写在 L1 帧内已全拒（META_WHITELIST 空）——本分支
+        // 生产不可达（meta 根事件唯一来源=帧内 meta 写）；防御性保留（L2 面兜底+未来 META_WHITELIST
+        // 扩键时即刻生效——删则扩键卡需重建本面）。
         for (const [k, ch] of ev.changes.keys) {
           if (ch.action !== 'delete' && !(META_WHITELIST as readonly string[]).includes(k)) {
             return { ok: false, reason: `meta-key:${k}` };
@@ -362,9 +372,13 @@ export function validateAppliedL2(doc: Y.Doc, events: readonly Y.YEvent<never>[]
       continue;   // 同事务已删节点/未知归属——挂起面归根级事件
     }
     if (path.length === 1) {
-      // 节点信封 map 事件：键域+type 不可变+data/position 容器形状
+      // 节点信封 map 事件：键域+type 不可变+data/position 容器形状+核心四键整删违规（I-3：删
+      // type/id/data/position=节点成无类型/无数据残骸且 L2 liveNodeType 恒 undefined 跳过执法；
+      // parentId/width/height=可选键〔null→真删键归一语义〕删除合法）
+      const ENVELOPE_NON_DELETABLE = new Set(['type', 'id', 'data', 'position']);
       for (const [k, ch] of ev.changes.keys) {
         if (!(NODE_ENVELOPE_KEYS as readonly string[]).includes(k)) return { ok: false, reason: `node-key:${k}` };
+        if (ch.action === 'delete' && ENVELOPE_NON_DELETABLE.has(k)) return { ok: false, reason: `envelope-key-deleted:${k}` };
         if (k === 'type' && ch.action === 'update') return { ok: false, reason: 'type-immutable' };
         if ((k === 'data' || k === 'position') && ch.action !== 'delete') {
           const cur = (ev.target as unknown as { get?: (kk: string) => unknown })?.get?.(k);
@@ -396,7 +410,7 @@ export function validateAppliedL2(doc: Y.Doc, events: readonly Y.YEvent<never>[]
         const vErr = dataValueShapeOk(type, k, spec, cur);
         if (vErr !== undefined) return { ok: false, reason: vErr };
         if (spec.yType === 'xml') {
-          const r = validateXmlSubtree(cur, opts);
+          const r = xmlL2Touched(cur, ev, opts);
           if (!r.ok) return { ok: false, reason: `xml-l2:${r.reason}` };
         }
       }
@@ -406,7 +420,7 @@ export function validateAppliedL2(doc: Y.Doc, events: readonly Y.YEvent<never>[]
     const spec: DataKeySpec | undefined = typeDef.data[path[2] ?? ''];
     if (spec === undefined) return { ok: false, reason: `unknown-data-key:${type}.${path[2]}` };
     if (spec.yType === 'xml') {
-      const r = validateXmlSubtree(dataMap.get(path[2] ?? ''), opts);
+      const r = xmlL2Touched(dataMap.get(path[2] ?? ''), ev, opts);
       if (!r.ok) return { ok: false, reason: `xml-l2:${r.reason}` };
       continue;
     }
@@ -425,6 +439,23 @@ export function validateAppliedL2(doc: Y.Doc, events: readonly Y.YEvent<never>[]
     // text/array 内容面：键级无操作（text splice=array 结构操作——L1/预算管辖）
   }
   return { ok: true };
+}
+
+/** XML 触达子树 L2 检查（C-2 语义对齐）：整树 walk（名/属性/mark/URL/深度/嵌套）+**事件增量
+ *  字节面**（YTextEvent.delta 的 insert 串逐段 ≤XML_TEXT_MAX_BYTES——spec 词面「单 ContentString」；
+ *  整树累计语义废止：两段各 100KB 合法续写不得毒帧循环——节点累计增长由帧 struct 预算+doc 常驻
+ *  字节闸既有面界承担，禁自造更严的无契约上限）。 */
+function xmlL2Touched(container: unknown, ev: Y.YEvent<never>, opts: L2Options): L2Verdict {
+  // 事件增量面先行：本事务新增 insert 串逐段判定（delta=事务局部变更——非与既有内容合并）
+  const delta = (ev as unknown as { delta?: ReadonlyArray<{ insert?: unknown }> }).delta;
+  if (Array.isArray(delta)) {
+    for (const d of delta) {
+      if (typeof d.insert === 'string' && new TextEncoder().encode(d.insert).byteLength > XML_TEXT_MAX_BYTES) {
+        return { ok: false, reason: 'xml-text-bytes-exceeded' };
+      }
+    }
+  }
+  return validateXmlSubtree(container, opts);
 }
 
 /** data 键值形状（L2 键级——lww 标量/lww-array 标量数组/容器 instanceof 匹配〔G17b〕）。 */

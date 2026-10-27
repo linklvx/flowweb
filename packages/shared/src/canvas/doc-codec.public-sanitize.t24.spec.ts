@@ -43,3 +43,25 @@ describe('Y1c T24：toPublicReadModel 深度 sanitize（T19 浅扫缺口收口�
     expect(unfiltered.nodes[0]!.data.urls).toHaveLength(2);   // 无 allowlist=不过滤（公开面宽松缺省——与 L1 拒帧面语义有意相反）
   });
 });
+
+describe('Y1c T24 收口 I-4：deepSanitizeUrl 深层嵌套（≥5 层域外 URL 剥除——修前 depth>=4 原样透出）', () => {
+  it('5 层嵌套容器内 evil URL → 剥除（红=原样透出公开面）', () => {
+    const deep = { l1: { l2: [{ l3: { l4: { l5: 'http://evil.example/deep-5' } } }] } };
+    const out = toPublicReadModel({
+      nodes: [{ id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: { cfg: deep } }],
+      edges: [],
+    }, { dataKeys: { imageGen: ['cfg'] }, allowedUrlHosts: ['cdn.ok.example'] });
+    expect(JSON.stringify(out.nodes[0]!.data)).not.toContain('evil.example');
+  });
+
+  it('环防护：自引用对象不无限递归（WeakSet 环守卫——防御纵深）', () => {
+    const cyclic: Record<string, unknown> = { u: 'http://evil.example/cyc' };
+    cyclic.self = cyclic;
+    const out = toPublicReadModel({
+      nodes: [{ id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: { cfg: cyclic } }],
+      edges: [],
+    }, { dataKeys: { imageGen: ['cfg'] }, allowedUrlHosts: ['cdn.ok.example'] });   // 注：allowlist 空=不过滤（宽松缺省语义）——环测试用真 allowlist
+    const cfg = out.nodes[0]!.data.cfg as Record<string, unknown>;
+    expect(cfg.u).toBeUndefined();   // 环根域外 URL 剥除（环结构本身保留——seen 守卫防无限递归即可断言达此行）
+  });
+});

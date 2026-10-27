@@ -50,7 +50,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import WebSocket from 'ws';
-import { CLIENT_PROTOCOL_VERSION, scanOrderPathology, compareWithinLayer, deriveStoryboardCells, isStoryboardChildRecord, resolveStoryboardConfig } from '@flowweb/shared';
+import { CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, scanOrderPathology, compareWithinLayer, deriveStoryboardCells, isStoryboardChildRecord, resolveStoryboardConfig } from '@flowweb/shared';
 import { CollabGateway } from '../collab.gateway';
 import { CollabResidencyService } from '../collab-residency.service';
 import { CollabDocumentService } from '../collab-document.service';
@@ -175,7 +175,7 @@ function connectProvider(url: string, name: string, token: string): { ydoc: Y.Do
     constructor(u: string | URL) { super(u as string, { headers: { origin, cookie: `flowweb.session_token=${token}` } }); }
   }
   const provider = new HocuspocusProvider({
-    url: `${url}?csv=${CLIENT_PROTOCOL_VERSION}`,
+    url: `${url}?csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}`,   // T24 收口 M-1：sv 上行承载
     name,
     document: ydoc,
     WebSocketPolyfill: HeaderWs,

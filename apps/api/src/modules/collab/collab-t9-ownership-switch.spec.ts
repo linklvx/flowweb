@@ -13,6 +13,7 @@ import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';
 import { messageYjsUpdate } from 'y-protocols/sync';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // T24 收口 M-1：sv 上行承载（auth 三元真承载）
 
 let spoolDir: { dir: string; cleanup: () => Promise<void> };
 beforeEach(async () => { const d = await makeSpoolDir('t9-own-'); spoolDir = d; });
@@ -100,12 +101,12 @@ describe('Y1c T9 所有权切换（偏离 38①——P1 入口条件）', () => 
     gateway.sessionGuard.setServerHistory({ historyId: 'server-history-1' });
     const base = { documentName: 'project:p3', requestHeaders: new Headers({ cookie: 'flowweb.session_token=t' }), socketId: 's3' };
     // 首连（无 hid）→ 放行（allowFirstConnect——无值≠有值不匹配）
-    await expect(gateway.hooks.onAuthenticate({ ...base, requestParameters: new URLSearchParams('csv=3') } as never)).resolves.toBeTruthy();
+    await expect(gateway.hooks.onAuthenticate({ ...base, requestParameters: new URLSearchParams(`csv=3&sv=${CANVAS_DOC_SCHEMA_VERSION}`) } as never)).resolves.toBeTruthy();   // T24 收口 M-1：sv（缺 sv=4406）
     // hid 不匹配 → client-outdated（4406 族——auth 面 SCHEMA_OUTDATED 拒）
     await expect(gateway.hooks.onAuthenticate({ ...base, requestParameters: new URLSearchParams('csv=3&hid=stale') } as never))
       .rejects.toMatchObject({ reason: 'schema-outdated' });
     // hid 匹配 → 放行
-    await expect(gateway.hooks.onAuthenticate({ ...base, requestParameters: new URLSearchParams('csv=3&hid=server-history-1') } as never)).resolves.toBeTruthy();
+    await expect(gateway.hooks.onAuthenticate({ ...base, requestParameters: new URLSearchParams(`csv=3&sv=${CANVAS_DOC_SCHEMA_VERSION}&hid=server-history-1`) } as never)).resolves.toBeTruthy();
     void prisma;
     // auth 回执下发（connected 面 stateless auth-receipt 携 historyId——web 消费归后续卡 deferred）
     const conn = { socketId: 's3', readOnly: false, sendStateless: vi.fn(), context: {}, webSocket: { send: vi.fn(), close: vi.fn(), bufferedAmount: 0 } };

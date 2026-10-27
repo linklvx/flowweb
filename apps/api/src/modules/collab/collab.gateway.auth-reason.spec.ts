@@ -15,7 +15,7 @@ import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { makeHeaderWs } from '../../test-utils/dual-client-server';
-import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
+import { CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Y0a-2：gateway 构造签名扩必填 spool——本 spec 临时目录域（beforeEach 建/afterEach 清）
@@ -61,7 +61,7 @@ function authPayload(documentName = 'project:p1') {
   return {
     // Y0b-3 T2 cookie-only：token 只来自 cookie header（query token 通道删除）——直调 payload 单点改
     requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),
-    requestParameters: new URLSearchParams(`token=tok&csv=${CLIENT_PROTOCOL_VERSION}`),   // Y0b-3 T5 版本门：装置带当前协议版
+    requestParameters: new URLSearchParams(`token=tok&csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}`),   // Y0b-3 T5 版本门：装置带当前协议版
     documentName,
     connectionConfig: { readOnly: false, isAuthenticated: false },
   };
@@ -176,7 +176,7 @@ describe('批3-1 DENY reason 真协议透传（组④）', () => {
       // T1.5：注入式 ws（Origin+Cookie header）——token 语义=cookie 值，URL 无 query token；
       // Y0b-3 T5 版本门：csv 必带（本用例测 session-expired 透传——须过版本门）
       const provider = new HocuspocusProvider({
-        url: `${url}?csv=${CLIENT_PROTOCOL_VERSION}`,
+        url: `${url}?csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}`,
         name: 'project:p1',
         document: new Y.Doc(),
         WebSocketPolyfill: makeHeaderWs({ origin: 'http://localhost:5173', cookie: 'flowweb.session_token=tok' }),

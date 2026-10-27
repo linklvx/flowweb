@@ -4,7 +4,7 @@ import { Document } from '@hocuspocus/server';
 import * as Y from 'yjs';
 import { CollabGateway, UnloadDrainRefusedError } from './collab.gateway';
 import { CollabDocumentService } from './collab-document.service';
-import {
+import { CANVAS_DOC_SCHEMA_VERSION,
   CollabAuthReason, CLIENT_PROTOCOL_VERSION, type DocLike, type DocMapLike, type TextLike } from '@flowweb/shared';
 
 /** 测试内 Y.Doc→DocLike 适配（历史版本门夹具形态——T18 起版本=PG 列，适配保留供读面） */
@@ -101,7 +101,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
   function connect(name: string, token = 'tok'): { ydoc: Y.Doc; provider: HocuspocusProvider; synced: Promise<void> } {
     const ydoc = new Y.Doc();
     const provider = new HocuspocusProvider({
-      url: `${url}?csv=${CLIENT_PROTOCOL_VERSION}`,   // Y0b-3 T5 版本门：装置带当前协议版
+      url: `${url}?csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}`,   // Y0b-3 T5 版本门：装置带当前协议版
       name,
       document: ydoc,
       WebSocketPolyfill: makeHeaderWs({ origin: 'http://localhost:5173', cookie: `flowweb.session_token=${token}` }),
@@ -166,7 +166,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     prisma.session.findUnique.mockResolvedValue(null);
     // T1.5：token 语义改 cookie 值（'bad' 经 Cookie 头承载——session 查 null 仍拒）
     const provider = new HocuspocusProvider({
-      url: `${url}?csv=${CLIENT_PROTOCOL_VERSION}`,   // Y0b-3 T5 版本门：装置带当前协议版（测的是无 session 拒——须过版本门）
+      url: `${url}?csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}`,   // Y0b-3 T5 版本门：装置带当前协议版（测的是无 session 拒——须过版本门）
       name: 'project:p2',
       document: new Y.Doc(),
       WebSocketPolyfill: makeHeaderWs({ origin: 'http://localhost:5173', cookie: 'flowweb.session_token=bad' }),
@@ -179,7 +179,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
   it('① 非团队成员拒绝：连接永不完成 sync', async () => {
     permSvc.resolveWithTeam.mockResolvedValue({ role: null, teamId: 't1' });   // Y0b-3 T3 F-3 换轨：权限判据走 resolveWithTeam（原打 teamMember.findUnique 已不在判据链）
     const provider = new HocuspocusProvider({
-      url: `${url}?csv=${CLIENT_PROTOCOL_VERSION}`,   // Y0b-3 T5 版本门：装置带当前协议版（测的是非成员拒——须过版本门）
+      url: `${url}?csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}`,   // Y0b-3 T5 版本门：装置带当前协议版（测的是非成员拒——须过版本门）
       name: 'project:p3',
       document: new Y.Doc(),
       WebSocketPolyfill: makeHeaderWs({ origin: 'http://localhost:5173', cookie: 'flowweb.session_token=tok' }),
@@ -193,7 +193,7 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     function authPayload(connectionConfig: { readOnly: boolean; isAuthenticated: boolean }) {
       return {
         requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),
-        requestParameters: new URLSearchParams(`csv=${CLIENT_PROTOCOL_VERSION}`),   // Y0b-3 T5 版本门：装置带当前协议版
+        requestParameters: new URLSearchParams(`csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}`),   // Y0b-3 T5 版本门：装置带当前协议版
         documentName: 'project:p1',
         connectionConfig,
       };
@@ -994,7 +994,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
       expect(kit.gateway.isShuttingDown()).toBe(true);   // X9 受理门读点翻转
       await expect(kit.gateway.hooks.onAuthenticate({
         requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),   // Y0b-3 T2 cookie-only：token 只来自 cookie
-        requestParameters: new URLSearchParams(`token=tok&csv=${CLIENT_PROTOCOL_VERSION}`),   // Y0b-3 T5 版本门：装置带当前协议版
+        requestParameters: new URLSearchParams(`token=tok&csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}`),   // Y0b-3 T5 版本门：装置带当前协议版
         documentName: 'project:p-m1',
         connectionConfig: { readOnly: false, isAuthenticated: false },
       } as any)).rejects.toMatchObject({ reason: CollabAuthReason.DRAINING });   // draining 档先于租约门（瞬态：客户端继续重连）
@@ -1500,7 +1500,7 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
       const conn = { socket: { close: vi.fn() } };
       await expect((kit.gateway as any).hooks.onAuthenticate({
         requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),   // Y0b-3 T2 cookie-only：token 只来自 cookie
-        requestParameters: new URLSearchParams(`token=tok&csv=${CLIENT_PROTOCOL_VERSION}`),   // Y0b-3 T5 版本门：装置带当前协议版
+        requestParameters: new URLSearchParams(`token=tok&csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}`),   // Y0b-3 T5 版本门：装置带当前协议版
         documentName: 'project:p1',
         connectionConfig: {},
         connection: conn as any,
@@ -1715,7 +1715,7 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
       expect(kit.gateway.getCollabState()).toBe('isolated');
       await expect(kit.gateway.hooks.onAuthenticate({
         requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),   // Y0b-3 T2 cookie-only：token 只来自 cookie
-        requestParameters: new URLSearchParams(`token=tok&csv=${CLIENT_PROTOCOL_VERSION}`),   // Y0b-3 T5 版本门：装置带当前协议版
+        requestParameters: new URLSearchParams(`token=tok&csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}`),   // Y0b-3 T5 版本门：装置带当前协议版
         documentName: 'project:p1',
         connectionConfig: {},
       } as any)).rejects.toMatchObject({ reason: CollabAuthReason.LEASE_NOT_READY });   // 若门读 lease.isServing（true）=放行=判据分裂（本用例红）
