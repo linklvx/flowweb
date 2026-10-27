@@ -33,3 +33,7 @@
 - 2026-10-28（Y1c T25b 双评审收口 spec M-2 登记）：collab-soak-t19.heavy.spec.ts 负载敏感 flake——本机高载态
   （多全池并行/宿主后台高 CPU）时间歇红，隔离/净载跑绿；baseline 高载同爆实证已录（T25b 批全池并行验证期）。
   处置=负载敏感族隔离重跑绿即过（禁以环境态调阈值——与 soak echo p95/Y7 同款口径；plan 收口批注同步）。
+
+- 2026-10-28（Y1c T25b 终验 quality 残留注记登记）：collab-delivery int「两项目同 nodeId 不互串」用例
+  间歇红——T25b 终验轮单文件隔离态亦间歇（2 红 3 绿）；1caaaf6f 池轮同爆、与 T25b 三 commit 零代码
+  交叠=先置时序/负载 flake 非回归。处置=隔离重跑绿即过（禁以环境态调阈值——与 soak 族同款口径）。
