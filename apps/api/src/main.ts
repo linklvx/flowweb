@@ -15,6 +15,7 @@ import { PrismaClient } from '@prisma/client';
 import { register } from 'prom-client';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './filters/http-exception.filter';
+import { applyRecoveryImportBodyLimit } from './common/recovery-import-body-limit';
 import { CollabNotServingFilter } from './modules/collab/collab-not-serving.filter';
 import { TransformInterceptor } from './interceptors/transform.interceptor';
 import { installProcessErrorGuards } from './bootstrap/guard';
@@ -135,6 +136,11 @@ async function bootstrap() {
     .split(',')
     .map((s) => s.trim());
   app.enableCors({ origin: corsOrigins, credentials: true });
+
+  // Y1c T25 收口 C-2：recovery-import 路由级 JSON 解析上限（8MiB+壳容差——Nest 默认 body-parser
+  // json 100kb 使 8MiB 契约档 100KB-8MiB 区间被解析层 413=controller 门死码；先于默认 parser
+  // 注册=body-parser req._body 幂等跳过——其余路由维持 100kb 攻击面不放大）。
+  applyRecoveryImportBodyLimit(app);
 
   // Y0c T36（Z14①）：绑定面收窄——使用点默认 127.0.0.1（原全网监听退役；nginx 同机反代唯一
   // 合法路径，COLLAB_BIND_ADDR/P25 同族）。API_BIND_ADDR=分叉键（Z89 ㉑：生产经 ecosystem api

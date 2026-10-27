@@ -300,10 +300,11 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
         if (!r.data.written) {
           const unwrittenReason = r.data.reason ?? 'unwritten';
           // Y1c T15 收口 B②（Q-M-3）：written:false 按 reason 分档——只有真删族（node-deleted/
-          // no-node-map=节点不存在/非 map 壳）走 orphaned 权威观察点；活节点结构缺（no-data-map）
+          // no-node-map=节点不存在/非 map 壳+Y1c T25 收口 I-5 fence-unregistered=fence 无行 fail-closed
+          // 拒档〔import 直写窗/播种竞态——非节点存活判据面〕）走 orphaned 权威观察点；活节点结构缺（no-data-map）
           // /域键拒（text-domain-protected）≠node-deleted——误判 orphaned 会错终态+误退款+MediaBinding
           // 误删（reconcile 触发），改走真失败档（耗 attempts 退避重试；dead 耗尽时 Sentry——RM-2）。
-          if (unwrittenReason === 'node-deleted' || unwrittenReason === 'no-node-map') {
+          if (unwrittenReason === 'node-deleted' || unwrittenReason === 'no-node-map' || unwrittenReason === 'fence-unregistered') {
             await this.mark(s.row, { state: 'orphaned', lastError: `node-deleted:${unwrittenReason}` });
             inc('orphaned');
             await this.refundOrphaned(s.artifact);

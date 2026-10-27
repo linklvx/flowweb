@@ -440,9 +440,14 @@ export class CollabDocRegistryService {
       const dbGeneration = generation ?? 0;
       const admission = admitDocNameForGeneration(documentName, dbGeneration);
       if (!admission.ok) {
+        // T25 收口 C-1(spec)：方向标记（g_client>g_server=PITR 回退 server-restored 形态——auth 面
+        // 为 4410 码投递主径〔closeUpgradeTerminal〕；本装载面=防御第二道，无连接句柄——标记供
+        // 诊断/日志分档，拒载语义维持）
+        const parsedGen = parseDocName(documentName)?.generationFromName;
+        const serverRestoredForm = parsedGen !== undefined && parsedGen > dbGeneration;
         throw Object.assign(
-          new Error(`DOC_GENERATION_STALE: docName=${documentName} 世代段≠DB generation=${admission.generation}（真空换代后旧世代名——拒载；恢复=携 #g${admission.generation} 重连）`),
-          { generationRefusal: true, reason: CollabAuthReason.GENERATION_STALE },
+          new Error(`DOC_GENERATION_STALE: docName=${documentName} 世代段≠DB generation=${admission.generation}（${serverRestoredForm ? 'server-restored 形态：g_client>g_server PITR 回退' : '真空换代后旧世代名'}——拒载；恢复=携 #g${admission.generation} 重连）`),
+          { generationRefusal: true, reason: CollabAuthReason.GENERATION_STALE, serverRestoredForm },
         );
       }
       // T12 真值链（DR:403 缝修复）：docGeneration 恒播种当代真值——含 0（旧 `if (generation)` truthy

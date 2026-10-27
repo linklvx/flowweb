@@ -15,7 +15,7 @@
 //    ——本服务的受理门=入口 lease/vacuum 门（withSession 自带）+本管线全量校验（受控生命周期
 //    操作语义〔v5-2〕——与 writeBatch 的 SERVER_TRANSACT_ORIGIN 维护档同族、分类档不同）。
 import { BadRequestException, ConflictException, Inject, PayloadTooLargeException, ServiceUnavailableException } from '@nestjs/common';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import * as Y from 'yjs';
 import {
@@ -33,6 +33,7 @@ import {
 import { CollabDocumentService } from './collab-document.service';
 import { readCanvasDocHead } from './canvas-doc-head';
 import { createCanvasDoc } from './canvas-doc.factory';
+import { CollabLifecycleObserverService } from './collab-lifecycle-observer.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /** Y1c T16/T24：L1 扫描 URL allowlist 单表（同 actor XML_ATTR_URL_ALLOWED_HOSTS——env 注入受控域；
@@ -48,10 +49,23 @@ export interface RecoveryImportResult {
   confirmation: DraftImportConfirmation;
   /** 逐节点三分派（#9：冲突默认 skip、显式 replace、非冲突 import）。 */
   dispositions: ImportNodeDisposition[];
+  /** 逐边三分派（收口 I-6：同 id 边冲突默认 skip——协作者改过的边禁静默覆盖；非冲突 import）。 */
+  edgeDispositions: Array<{ edgeId: string; disposition: 'import' | 'skip' }>;
   /** draftId 幂等回放标记（重试同结果）。 */
   resultReplayed: boolean;
   /** 跨代/跨纪元随行报告（不阻断——typed 内容导入非 CRDT 回灌；C 场景本就跨代）。 */
   epoch: { envelopeGeneration: number; envelopeHistoryId: string; crossGeneration: boolean };
+}
+
+/** T25 收口：钉高位空闲写入 client（Y.Map 同 key 冲突大者胜——从 uint32 顶向下找 live SV
+ *  未占用的最高位；SV 客户端数有界〔单写者+import 序〕循环步数=在册 client 数）。 */
+function pickWriterClientAbove(live: Y.Doc): number {
+  // yjs 13.6：decodeStateVector 返回 Map<client, clock> 本体（无 .clients 壳——防御分支恒空=恒钉
+  // 0xFFFFFFFF 的回归锚：二次 import 同 client 同 clock 被 SV 滤空=commitDiff 空）
+  const taken = Y.decodeStateVector(Y.encodeStateVector(live)) as unknown as Map<number, number>;
+  let c = 0xFFFFFFFF;
+  while (taken.has(c) && c > 0) c -= 1;
+  return c;
 }
 
 /** 信封静态校验出口（400 三族：形状/锚定/完整性——校验失败零 clone 零读库）。 */
@@ -74,8 +88,8 @@ function assertEnvelopeShape(envelope: DraftEnvelope, projectId: string): void {
   }
 }
 
-function assertEnvelopeIntegrity(envelope: DraftEnvelope, rawBytes: number): void {
-  if (rawBytes > DRAFT_ENVELOPE_MAX_BYTES) {
+function assertEnvelopeIntegrity(envelope: DraftEnvelope, rawBytes: number | undefined): void {
+  if ((rawBytes ?? 0) > DRAFT_ENVELOPE_MAX_BYTES) {
     throw new PayloadTooLargeException({ code: 'RECOVERY_IMPORT_TOO_LARGE', message: `信封 ${rawBytes}B 超 ${DRAFT_ENVELOPE_MAX_BYTES}B 上限——导出文件+fail-closed 不开导入` });
   }
   const h = envelope.hashes;
@@ -105,6 +119,8 @@ export class CollabRecoveryImportService {
   constructor(
     @Inject(CollabDocumentService) private readonly docs: CollabDocumentService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    /** 收口 I-5：生命周期观察器（staleFence 标记→下一帧批 presence 重播种）；@Optional=直构测试。 */
+    @Optional() @Inject(CollabLifecycleObserverService) private readonly lifecycle?: CollabLifecycleObserverService | null,
   ) {}
 
   async importEnvelope(
@@ -115,7 +131,9 @@ export class CollabRecoveryImportService {
     rawByteLength?: number,
   ): Promise<RecoveryImportResult> {
     assertEnvelopeShape(envelope, projectId);
-    assertEnvelopeIntegrity(envelope, rawByteLength ?? JSON.stringify(envelope).length);
+    // 收口 C-2（M-4 并入）：字节计量=Buffer.byteLength（utf8）——JSON.stringify().length 按 UTF-16
+    // 码元计 CJK 低估 ~3×（红锚：3M 漢字 charCount<8MiB 放行/字节 9MiB 超限）。
+    assertEnvelopeIntegrity(envelope, rawByteLength ?? Buffer.byteLength(JSON.stringify(envelope), 'utf8'));
 
     // 幂等回放（draftId 键——重试同结果）
     const resultKey = `${projectId}\u0000${envelope.draftId}`;
@@ -164,9 +182,15 @@ export class CollabRecoveryImportService {
       Y.applyUpdate(candidate, Y.encodeStateAsUpdate(live));
 
       const existingIds = new Set<string>(live.getMap('nodes').keys());
+      const existingEdgeIds = new Set<string>(live.getMap('edges').keys());
       const envelopeNodeIds = envelope.nodes.map((n) => n.id);
       const dispositions = resolveImportNodeConflicts(existingIds, envelopeNodeIds, choices);   // #9：冲突默认 skip
       const keep = new Set(dispositions.filter((d) => d.disposition !== 'skip').map((d) => d.nodeId));
+      // 收口 I-6：同 id 边冲突默认 skip（#9 默认保守侧同律——既有边=协作者态，信封分叉端点禁静默
+      // 覆盖；非冲突边照常导入）
+      const edgeDispositions = envelope.edges.map((e) =>
+        existingEdgeIds.has(e.id) ? { edgeId: e.id, disposition: 'skip' as const } : { edgeId: e.id, disposition: 'import' as const });
+      const keepEdgeIds = new Set(edgeDispositions.filter((d) => d.disposition === 'import').map((d) => d.edgeId));
 
       // replace：先删候选既有节点（后 apply 覆盖——同 nodeId 替换非重映射）
       candidate.transact(() => {
@@ -175,12 +199,16 @@ export class CollabRecoveryImportService {
         }
       });
 
-      // 信封 typed 内容 → temp doc（rebuildCanvasDoc=canonical→Y 单源）→ diff 并入候选
+      // 信封 typed 内容 → temp doc（rebuildCanvasDoc=canonical→Y 单源）→ diff 并入候选。
+      // T25 收口根修（I-3 真因——「replace flake」）：Y.Map 同 key 冲突 clientID 大者胜——随机
+      // client 的替换项对既有项五五开败北（tombstone 后键空=替换静默丢失，60 次微基准 100% 相关）。
+      // 修=钉「高于 live 全部在册 client 的空闲位」写入（replace 项恒胜；逐 import 重算——多次
+      // import 各占高位互不冲突）。
       const temp = rebuildCanvasDoc({
         nodes: envelope.nodes.filter((n) => keep.has(n.id)),
-        edges: envelope.edges,
+        edges: envelope.edges.filter((e) => keepEdgeIds.has(e.id)),
         meta: {},
-      });
+      }, { clientID: pickWriterClientAbove(live) });
       Y.applyUpdate(candidate, Y.encodeStateAsUpdate(temp));
 
       // ── 图结构收口：悬挂边丢弃（「边指向缺失节点丢弃并报告」）+悬挂 parent 引用剥除 ──
@@ -222,7 +250,15 @@ export class CollabRecoveryImportService {
       //    persistence 维护队列承接 WAL/PG——与 writeBatch 维护档同链） ──
       if (commitDiff.byteLength > 0) Y.applyUpdate(live, commitDiff, 'import');
 
+      // 收口 I-5：import 绕过 actor 帧管线（零 FrameEffects/零 NodeLifecycle 行）——同 doc 实例窗内
+      // 导入节点起生成=deliveryFence unregistered fail-closed 拒。修=T26 R-1② form a 机制复用：
+      // 事务后标记 staleFenceProjects——actor 任意下一帧批见标记重捕获 presence（同事务重对齐+清标记），
+      // 播种自愈链闭合（形态论证：直接 seedPresence=第二写者与 actor flush 的 lifecycleSeq MAX+1
+      // 分配无序〔T26 M-3 选型已否决〕；标记面=机制现成同语义——重对齐按 doc presence 真值）。
+      if (commitDiff.byteLength > 0 && this.lifecycle) this.lifecycle.markStaleFence(projectId);
+
       return {
+        edgeDispositions,
         confirmation: {
           contentCounts: { nodeCount: envelope.nodes.length, edgeCount: envelope.edges.length },
           droppedRefs: { danglingEdges, missingParentNodes },

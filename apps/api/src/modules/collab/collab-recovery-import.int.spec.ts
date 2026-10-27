@@ -12,10 +12,18 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import type { INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
 import { CollabGateway } from './collab.gateway';
 import { CollabResidencyService } from './collab-residency.service';
 import { CollabDocumentService } from './collab-document.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { CollabProjectActorService } from './collab-project-actor.service';
+import { CollabLifecycleObserverService } from './collab-lifecycle-observer.service';
+import { RuntimeFeedService } from './runtime-feed.service';
+import { CollabRecoveryImportController } from './collab-recovery-import.controller';
+import { applyRecoveryImportBodyLimit } from '../../common/recovery-import-body-limit';
+import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabRecoveryImportService } from './collab-recovery-import.service';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -38,6 +46,11 @@ let gateway: CollabGateway;
 let residency: CollabResidencyService;
 let spoolDir: string;
 let svc: CollabRecoveryImportService;
+let docs: CollabDocumentService;
+let observer: CollabLifecycleObserverService;
+let feed: RuntimeFeedService;
+let app: INestApplication;
+let baseUrl = '';
 
 async function reviveFromPg(pid: string): Promise<Y.Doc> {
   const { state, updates } = await repo.loadForHydration(pid);
@@ -90,6 +103,12 @@ maybe('Y1c T25 recovery import REST 服务面（真 gateway+真 PG——唯一�
     prisma = new PrismaClient();
     repo = new CanvasDocUpdateRepository(prisma as unknown as PrismaService);
     await ensureProjectFixture(prisma, PID);
+    // T26 卫生先例：跨 run 残留行 wipe（RuntimeEvent/feedSeq cursor/生命周期三表——PID 常量共享
+    // dev 库，残留 cursor/events 碰 (projectId,feedSeq) 唯一约束）
+    await prisma.runtimeEvent.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
+    await prisma.runtimeFeedCursor.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
+    await prisma.nodeLifecycle.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
+    await prisma.deliveryFence.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
     await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
     await ensureLeaseFixture(prisma, repo, 'stub-owner-1');   // lease-stub 契约：owner 必须与 createLeaseStub 硬编码 'stub-owner-1' 一致（异值=fenced-by-write 自隔离——write-endpoint 先例同款）
@@ -100,15 +119,36 @@ maybe('Y1c T25 recovery import REST 服务面（真 gateway+真 PG——唯一�
       resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }),
     };
     const port = 20000 + Math.floor(Math.random() * 20000);
+    observer = new CollabLifecycleObserverService(prisma as unknown as PrismaService);
+    feed = new RuntimeFeedService(prisma as unknown as PrismaService);
+    // closeout I-5：actor 经 11 参注入带 observer（module DI 面等价——播种/重对齐链在位）
+    const actor = new CollabProjectActorService(spool, repo as never, undefined, observer);
+    // 位置参数序：…(10)spool (11)quota (12)pgBreaker (13)persistence (14)docRegistry (15)sessionGuard (16)projectActor
     gateway = new CollabGateway(
       prisma as any, new EventEmitter2() as any, repo,
       createLeaseStub({}, { repo: repo as any, spool: spool as any }) as any,
       perm as any, port, 10_000, undefined, undefined, spool,
+      undefined, undefined, undefined, undefined, undefined, actor,
     );
     await gateway.onModuleInit();
     residency = new CollabResidencyService(gateway);
-    const docSvc = new CollabDocumentService(gateway, repo, residency);
-    svc = new CollabRecoveryImportService(docSvc, prisma as unknown as PrismaService);
+    docs = new CollabDocumentService(gateway, repo, residency, feed, observer);
+    svc = new CollabRecoveryImportService(docs, prisma as unknown as PrismaService, observer);   // 收口 I-5：观察器接线（staleFence 标记面）
+    // closeout C-2：真实 HTTP 解析层（Nest 测试应用真监听——controller 挂真 svc；body limit 装置
+    // 与 main.ts 同源 applyRecoveryImportBodyLimit——红测先不加，绿形由实现批补齐后启用）
+    const moduleRef = await Test.createTestingModule({
+      controllers: [CollabRecoveryImportController],
+      providers: [
+        { provide: CollabRecoveryImportService, useValue: svc },
+        { provide: PrismaService, useValue: prisma },
+        { provide: ProjectPermissionService, useValue: { assertEditor: vi.fn(async () => undefined) } },
+      ],
+    }).compile();
+    app = moduleRef.createNestApplication();
+    applyRecoveryImportBodyLimit(app);   // 收口 C-2 绿形：与 main.ts 同源 wiring（红=注释本行重跑 3a 得 413）
+    await app.listen(0);
+    const addr = app.getHttpServer().address() as { port: number };
+    baseUrl = `http://127.0.0.1:${addr.port}`;
     // 种子既有节点 n-exist（真会话写——装载+observeDocument 接线面）
     await residency.withSession(PID, (doc) => {
       const m = new Y.Map();
@@ -120,6 +160,11 @@ maybe('Y1c T25 recovery import REST 服务面（真 gateway+真 PG——唯一�
   }, 60_000);
 
   afterAll(async () => {
+    await app?.close().catch(() => undefined);
+    await prisma?.runtimeEvent.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
+    await prisma?.runtimeFeedCursor.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
+    await prisma?.nodeLifecycle.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
+    await prisma?.deliveryFence.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
     await prisma?.canvasDocUpdate.deleteMany({ where: { projectId: PID } }).catch(() => undefined);
     for (const pid of residency?.residentProjectIds() ?? []) await residency.releaseSessionFor(pid);
     await (gateway as any)?.server.destroy();
@@ -184,17 +229,9 @@ maybe('Y1c T25 recovery import REST 服务面（真 gateway+真 PG——唯一�
     const env = envelopeOf([{ id: 'n-exist' }], [], { draftId: 'draft-t25-replace' });
     const out = await svc.importEnvelope(PID, UID, env, { 'n-exist': 'replace' });
     expect(out.dispositions[0]).toEqual({ nodeId: 'n-exist', disposition: 'replace' });
-    await flush(PID);
-    // replace 帧含删+增双 op：维护通道 debounce/落库为最终一致——断言本体轮询（≤5s；写已入 live
-    // session doc〔上断言 dispositions 证〕，此处只等 PG 投影追平——非掩盖性重试）
-    const promptOf = async (): Promise<unknown> => {
-      const r = await reviveFromPg(PID);
-      const data = (r.getMap('nodes').get('n-exist') as Y.Map<any> | undefined)?.get('data');
-      const prompt = data instanceof Y.Map ? data.get('prompt') : undefined;
-      return prompt && typeof (prompt as Y.Map<any>).toJSON === 'function' ? (prompt as Y.Map<any>).toJSON() : undefined;
-    };
-    await pollUntil(async () => JSON.stringify(await promptOf()) === JSON.stringify({ text: 'recover' }), 5_000, 150);
-    expect(await promptOf()).toEqual({ text: 'recover' });
+    await flush(PID);   // I-3 收口：同族 flush() 助手（350ms 维护窗等待+强制+isPersistedComplete 轮询——裸 pollUntil 竞态根除）
+    const revived = await reviveFromPg(PID);
+    expect((revived.getMap('nodes').get('n-exist') as Y.Map<any>).get('data').get('prompt').toJSON()).toEqual({ text: 'recover' });
   }, 60_000);
 
   it('负控：projectId 错配 400/完整性 hash 不匹配 400/超 8MiB 413 fail-closed', async () => {
@@ -216,5 +253,93 @@ maybe('Y1c T25 recovery import REST 服务面（真 gateway+真 PG——唯一�
     const served = await reviveFromPg(PID);
     expect(served.getMap('nodes').has('n-bad')).toBe(false);
   }, 30_000);
+
+  // ══════════ closeout 批（Controller T25 双评审裁定——同 describe 共享 beforeAll 装置）═══
+  describe('T25 收口批（真 gateway+真 PG——HTTP 解析层/边冲突/生命周期洞）', () => {
+  /** 真实 HTTP POST（真实解析层——undici fetch 面非直调）。 */
+  const httpPost = async (body: string, headers: Record<string, string> = {}) =>
+    fetch(`${baseUrl}/api/collab/doc/${PID}/recovery-import`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body,
+    });
+
+  it('★closeout-3a >100KB 信封经真实 HTTP 解析层→200（修前=Nest 默认 json 100kb 解析层 413——8MiB 契约档 100KB-8MiB 区间结构性不可用）', async () => {
+    const env = envelopeOf([{ id: 'n-http' }], [], { draftId: 'draft-t25-http' });
+    env.meta = { padding: 'x'.repeat(200_000) };   // ~200KB（>100kb 默认解析闸——ASCII 计量无歧义）
+    const res = await httpPost(JSON.stringify({ envelope: env }));
+    expect([200, 201]).toContain(res.status);   // Nest POST 默认 201；修前：body-parser 413 PayloadTooLarge（红）
+    const out = await res.json();
+    expect(out.confirmation.contentCounts.nodeCount).toBe(1);
+    await flush(PID);
+    expect((await reviveFromPg(PID)).getMap('nodes').has('n-http')).toBe(true);
+  }, 60_000);
+
+  it('★closeout-3b 字节计量：CJK 载荷 charCount<8MiB 但 utf8 字节>8MiB→413（修前 JSON.stringify().length 按 UTF-16 码元低估 ~3×=放行）', async () => {
+    const env = envelopeOf([], [], { draftId: 'draft-t25-cjk' });
+    env.meta = { padding: '漢'.repeat(3_000_000) };   // charCount≈3M<8_388_608；utf8≈9MB>上限
+    await expect(svc.importEnvelope(PID, UID, env)).rejects.toMatchObject({ status: 413 });
+  }, 30_000);
+
+  it('★closeout-8 同 id 边冲突默认 skip（#9 默认保守侧——协作者改过的边禁静默覆盖）+edgeDispositions 报告', async () => {
+    // 种子既有边 e-conf（n-exist→n-a）
+    await residency.withSession(PID, (doc) => {
+      const a = new Y.Map(); a.set('type', 'textInput'); a.set('data', new Y.Map([['prompt', 'seed']]));
+      doc.getMap('nodes').set('n-a', a);
+      const e = new Y.Map(); e.set('source', 'n-exist'); e.set('target', 'n-a');
+      doc.getMap('edges').set('e-conf', e);
+    }, { mode: 'write' });
+    await flush(PID);
+    // 信封：新节点 n-edge + 同 id 边 e-conf（分叉端点→指向 n-edge）+ 新边 e-new
+    const env = envelopeOf(
+      [{ id: 'n-edge' }],
+      [{ id: 'e-conf', source: 'n-exist', target: 'n-edge' }, { id: 'e-new', source: 'n-a', target: 'n-edge' }],
+      { draftId: 'draft-t25-edgeconf' },
+    );
+    const out = await svc.importEnvelope(PID, UID, env);
+    // 修前：e-conf 被信封端点静默覆盖（红）+无 edgeDispositions
+    const edgeById = Object.fromEntries((out.edgeDispositions ?? []).map((d: { edgeId: string; disposition: string }) => [d.edgeId, d.disposition]));
+    expect(edgeById).toEqual({ 'e-conf': 'skip', 'e-new': 'import' });
+    await flush(PID);
+    const revived = await reviveFromPg(PID);
+    expect((revived.getMap('edges').get('e-conf') as Y.Map<any>).get('target')).toBe('n-a');   // 既有端点不动
+    expect(revived.getMap('edges').has('e-new')).toBe(true);
+  }, 60_000);
+
+  it('★closeout-7 import 直写生命周期洞：同 doc 实例窗内导入节点→deliver unregistered 拒（拒因独立 surfaced）→下一 actor 帧批 staleFence 重播种→deliver 放行', async () => {
+    // 前置：驱动一帧过 actor（首批播种 presence——lifecycleSeededDocs 在位，后续帧不再默认播种）
+    const seedFrame = Y.encodeStateAsUpdate(rebuildCanvasDoc({
+      nodes: [{ id: 'n-seeda', type: 'textInput', position: { x: 0, y: 0 }, data: { prompt: { $yjs: 'map', entries: { text: { $yjs: 'text', delta: [{ insert: 's' }] } } } } }],
+      edges: [], meta: {},
+    }));
+    const r0 = await gateway.projectActor.submit(PID, seedFrame, { socketId: 'sock-t25-f0', readOnly: false } as never, 'update');
+    await gateway.projectActor.flushThrough(PID, r0.walSeq, { maxWaitMs: 5_000 });
+
+    // 导入 n-gen（withSession 直写——绕过 actor 帧管线=零 FrameEffects/零 NodeLifecycle 行）
+    const env = envelopeOf([{ id: 'n-gen' }], [], { draftId: 'draft-t25-lifecycle' });
+    await svc.importEnvelope(PID, UID, env);
+
+    // 修前红锚 A：unregistered 拒因归并 'node-deleted'（不可观测分档）
+    const first = await docs!.deliverArtifact(PID, {
+      nodeId: 'n-gen', targetField: 'fileId', value: 'm-gen-1',
+      exec: { status: 'done', attempts: 1, artifactRev: 1 },
+    });
+    expect(first.data).toMatchObject({ written: false, reason: 'fence-unregistered' });   // 修前 reason='node-deleted'（红）
+
+    // 修前红锚 B：无 staleFence 标记——下一帧批不重对齐（presence 缺 n-gen）→重试交付仍拒
+    const healFrame = Y.encodeStateAsUpdate(rebuildCanvasDoc({
+      nodes: [{ id: 'n-seedb', type: 'textInput', position: { x: 1, y: 1 }, data: { prompt: { $yjs: 'map', entries: { text: { $yjs: 'text', delta: [{ insert: 't' }] } } } } }],
+      edges: [], meta: {},
+    }));
+    const r1 = await gateway.projectActor.submit(PID, healFrame, { socketId: 'sock-t25-f1', readOnly: false } as never, 'update');
+    await gateway.projectActor.flushThrough(PID, r1.walSeq, { maxWaitMs: 5_000 });
+
+    const second = await docs!.deliverArtifact(PID, {
+      nodeId: 'n-gen', targetField: 'fileId', value: 'm-gen-1',
+      exec: { status: 'done', attempts: 1, artifactRev: 2 },
+    });
+    expect(second.data).toMatchObject({ written: true });   // 修前：unregistered 恒拒（红）——播种自愈链实证
+  }, 60_000);
 });
 
+});

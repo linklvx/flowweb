@@ -149,6 +149,10 @@ export class CollabLifecycleObserverService {
   hasStaleFences(projectId: string): boolean { return this.staleFenceProjects.has(projectId); }
   /** R-1②：stale 标记清除（seed-bearing flush 落定后由 actor 调——重对齐已完成）。 */
   clearStaleFenceMark(projectId: string): void { this.staleFenceProjects.delete(projectId); }
+  /** Y1c T25 收口 I-5：外部受控写（recovery import 经 withSession 直写——绕过 actor 帧管线=零
+   *  FrameEffects/零 presence）事务后标记——actor 任意下一帧批见标记重捕获 presence（R-1② form a
+   *  同机制同语义：重对齐按 doc presence 真值+落定清标记）。 */
+  markStaleFence(projectId: string): void { this.staleFenceProjects.add(projectId); }
 
   /** lifecycleSeq 分配读基线：per-project MAX+1（单写者=actor flush 临界区——分配序≡提交序，
    *  迁移二未建 DB sequence（T21 表形无序列对象），MAX+1 事务内读满足「per-project 单调数值序」）。 */

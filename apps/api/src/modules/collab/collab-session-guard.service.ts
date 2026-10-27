@@ -32,7 +32,7 @@ import { CollabDocRegistryService } from './collab-doc-registry.service';
 import { parseDocName, isValidDocName, admitDocNameForGeneration, projectDocName } from './doc-name.util';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
-import { CollabAuthReason, CollabCloseCode, negotiateClientVersion, userColorOfUserId, DOC_VACUUMING_TERMINAL_REASON, resolveVersionGate, CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, CLIENT_OUTDATED_REASON, VERSION_GATE_CLIENT_PARAMS, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
+import { CollabAuthReason, CollabCloseCode, negotiateClientVersion, userColorOfUserId, DOC_VACUUMING_TERMINAL_REASON, resolveVersionGate, CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, CLIENT_OUTDATED_REASON, VERSION_GATE_CLIENT_PARAMS, SERVER_RESTORED_TERMINAL_REASON, resolveAuthHistoryVerdict, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
 import { RSS_RELEASE_BYTES, RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
 import { COLLAB_ROLE_DEFAULT, type CollabRole } from '../../config/env';
 import type { CollabConnection, FreezeReason } from './collab.gateway';   // W3b：type-only 零运行时边（无 design:paramtypes 环——偏离 67 循环前提对纯类型不成立；W3a DR 同款先例，collab-conn.util 候选否因 census ⑤/backpressure 锚词面冲突）
@@ -695,6 +695,19 @@ export class CollabSessionGuardService {
         const dbGeneration = await this.withAuthDeadline(this.docRegistry.generationInDb(projectId));
         const admission = admitDocNameForGeneration(documentName, dbGeneration ?? 0);
         if (!admission.ok) {
+          // Y1c T25 收口 C-1(spec) 服务端腿：方向分档消费 resolveAuthHistoryVerdict（§8.1 三分——
+          // g_client>g_server（PITR 回退形态：长存活 tab 携 #gN 重连、DB 真值更低）→ **4410
+          // server-restored 档**（码权威投递=webSocket.close 先行——T24 closeUpgradeTerminal 形态；
+          // 客户端 dispatchY1cClose→readonly-recovery 只读 recovery 不清缓存不 reload）。修前：
+          // 零生产者=GENERIC_STALE 死端拒（客户端 reload 以 #g_db 重连=回退态直接开放写）。
+          const parsedGen = parseDocName(documentName)?.generationFromName;
+          const verdict = resolveAuthHistoryVerdict(
+            { generation: parsedGen ?? 0 },
+            { historyId: this.serverHistory?.historyId ?? '', generation: admission.generation },
+          );
+          if (verdict === 'server-restored') {
+            this.closeUpgradeTerminal(request, CollabCloseCode.GENERATION_SUPERSEDED, SERVER_RESTORED_TERMINAL_REASON);
+          }
           throw deny(
             CollabAuthReason.GENERATION_STALE,
             `doc generation stale（docName=${documentName} 世代段≠DB generation=${admission.generation}——携 #g${admission.generation} 重连）`,

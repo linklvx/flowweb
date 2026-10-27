@@ -48,6 +48,8 @@ export interface SupervisorSnapshot {
   attempt: number;
   /** 重连 timer 待触发 */
   timer: boolean;
+  /** 当前排程的 timer 值 ms（T25 收口 I-4——4413 Retry-After 重排的可红化断言面；无 timer=0） */
+  scheduledMs: number;
   /** AUTH_WAIT timer 待触发 */
   authTimer: boolean;
   /** 在飞 attempt（socket CONNECTING/OPEN 或 connectionAttempt 非空） */
@@ -272,9 +274,20 @@ export class CollabConnectionSupervisor {
       phase: this._phase,
       attempt: this.attempt,
       timer: this.timer !== null,
+      scheduledMs: this.timer !== null ? this.lastScheduledMs : 0,
       authTimer: this.authTimer !== null,
       inFlight: this.inFlight(),
     };
+  }
+
+  /** Y1c T25 收口 C-1(quality)：同步取消已排程重连（resync-full 分派在**任何 await 前**调用——
+   *  routeClose 的 short 档 1s+jitter timer 若存活，异步导出窗内触发=旧 provider 同 doc 重连
+   *  SS2 上行被拒毒增量「修复」复活〔红①自己实锤的形态被概率性击穿〕）。返回是否有 timer 被取消。 */
+  cancelScheduledReconnect(): boolean {
+    if (this.timer === null) return false;
+    clearTimeout(this.timer);
+    this.timer = null;
+    return true;
   }
 
   // ── 内部 ──

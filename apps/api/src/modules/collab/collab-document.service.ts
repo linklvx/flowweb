@@ -26,7 +26,7 @@ export interface ExecStatusPatch {
 export interface WriteNodeDataResult {
   written: boolean;
   // Y1c T15 增容器规则两值（text-domain-protected/no-data-map——见 applyWriteNodeDataToDoc 头注）
-  reason?: 'node-deleted' | 'no-node-map' | 'text-domain-protected' | 'no-data-map';
+  reason?: 'node-deleted' | 'fence-unregistered' | 'no-node-map' | 'text-domain-protected' | 'no-data-map';
 }
 
 @Injectable()
@@ -329,9 +329,12 @@ export class CollabDocumentService implements OnApplicationShutdown {
       return { data: { written: true }, execWritten: true };   // 幂等 no-op（poller 重投/ambiguous commit 安全）
     }
     if (outcome.rejected) {
-      // T26 裁定三场景（unregistered/stale/node-deleted）一律拒档——reason 归并 'node-deleted'
-      //（poller 既有 orphaned+退款流语义不变——交付判据类型化面维持）
-      return { data: { written: false, reason: 'node-deleted' }, execWritten: false };
+      // T26 裁定三场景（unregistered/stale/node-deleted）一律拒档。Y1c T25 收口 I-5 顺带：unregistered
+      // 档独立 surfaced（reason='fence-unregistered'——「词表内节点恒有行」不成立的可观测分档：import
+      // 直写窗/播种竞态；poller orphaned 族不变——lastError 携分档）；stale/node-deleted 维持归并
+      //'node-deleted'（poller 既有 orphaned+退款流语义不变）。
+      const reason = outcome.reason === 'unregistered' ? 'fence-unregistered' as const : 'node-deleted' as const;
+      return { data: { written: false, reason }, execWritten: false };
     }
     feed.notifyProject(projectId);   // 事务提交后通知（feed-hint 不带事件体——客户端拉取追平）
     return { data: { written: true }, execWritten: true };

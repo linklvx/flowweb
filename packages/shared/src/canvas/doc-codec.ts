@@ -376,9 +376,15 @@ function buildYValue(v: CanvasDocValue): unknown {
 
 /** canonical 快照 → 全新 Y.Doc（备份回灌）：fillDoc 单源写（信封/position/data.set——data 值=
  * 全新 Y 实例合法首集成；F-S2-1 别名路径结构性禁入：无任何源 doc 实例引用）+meta 透传。
- *  单事务原子；$yjs 标签不落 doc（还原为真 Y 类型）。 */
-export function rebuildCanvasDoc(cd: CanvasDocument): Y.Doc {
+ *  单事务原子；$yjs 标签不落 doc（还原为真 Y 类型）。
+ *  T25 收口（C-1 根修链）：opts.clientID=写入前钉 clientID（recovery import replace 语义——
+ *  Y.Map 同 key 冲突 clientID 大者胜：随机 client 的替换项对既有项五五开败北=tombstone 后键空；
+ *  钉高位 client 使替换项恒胜。缺省不钉=既有行为零变化）。 */
+export function rebuildCanvasDoc(cd: CanvasDocument, opts?: { clientID?: number }): Y.Doc {
   const doc = new Y.Doc();
+  if (typeof opts?.clientID === 'number' && Number.isInteger(opts.clientID) && opts.clientID >= 0 && opts.clientID <= 0xFFFFFFFF) {
+    doc.clientID = opts.clientID;
+  }
   doc.transact(() => {
     const records: StoredNodeRecord[] = cd.nodes.map((n) => {
       const data: Record<string, unknown> = {};

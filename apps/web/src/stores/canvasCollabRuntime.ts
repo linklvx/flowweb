@@ -544,6 +544,9 @@ const denyTracker = new RecoveryDenyTracker();
 let pendingY1cClosePayload: Y1cClosePayload | null = null;
 /** resync-full 单飞（close handler 事件面可重入——并发触发只执行一次重建）。 */
 let resyncInFlight = false;
+/** 换代 reload 延时 timer 句柄（收口 M-2：consumeGenerationJump/4410 close 两路共用单句柄——
+ *  server-restored 下跳到达时清之，禁 reload 覆盖只读 recovery）。 */
+let generationReloadTimer: ReturnType<typeof setTimeout> | null = null;
 /** resync 恢复环内 initCollab 豁免 deny 计数复位（连续 deny 跨 resync 存活——达阈值才切 recovery）。 */
 let denyPreserveAcrossInit = false;
 denyTracker.onRecoveryMode = () => { void enterDenyEscape(); };
@@ -824,6 +827,8 @@ async function enterDenyEscape(): Promise<void> {
  *  导出+多标签通告；裁定接受=admin 侧 REST recovery import（管理员裁定接受）。 */
 async function enterServerRestoredRecovery(): Promise<void> {
   if (!session || useCanvasStore.getState().recoveryPending?.kind === 'server-restored') return;
+  // 收口 M-2：清换代通道 pending reload timer（上跳已排的 1.5s reload 不得覆盖只读 recovery）
+  if (generationReloadTimer !== null) { clearTimeout(generationReloadTimer); generationReloadTimer = null; }
   recordCollabDiag('ws_status', { reason: 'recovery-server-restored' });
   supervisor.terminalDisconnect('server-restored');   // 重连=再撞同门（世代回退态 auth/close 循环）
   const nodeCount = await exportRecoveryEnvelope();
@@ -836,22 +841,48 @@ async function enterServerRestoredRecovery(): Promise<void> {
 }
 
 /** auth 拒因 generation-stale（T12 世代载体客户端链）：REST 取当前 g（DB 真值——R3 注记禁信
- *  载荷串/本地推断）→换代通道（信封导出→purge→reload=全会话重建，reload 后 fetchProjectMeta
- *  取新 g→provider 以新 #g 名重连）。 */
+ *  载荷串/本地推断）→**方向分档**（收口 C-1(spec)）：
+ *  - g_db < g_client（PITR 回退形态）→ server-restored 只读 recovery（不清缓存不 reload——回退态
+ *    未裁定禁开放写；§8.1 冻结条款——修前无条件 purge+reload=在回退态直接以 #g_db 重连开放写）；
+ *  - g_db > g_client（主动换代）→ 换代通道（信封导出→purge→reload=全会话重建，reload 后
+ *    fetchProjectMeta 取新 g→provider 以新 #g 名重连）。
+ *  g_db == g_client（竞态窗）→ 维持换代通道（服务端 auth 拒因为权威——REST 读为次新快照）。 */
 async function handleGenerationStale(): Promise<void> {
   if (!session) return;
   const pid = session.pid;
   recordCollabDiag('ws_status', { reason: 'recovery-generation-stale' });
+  let dbGeneration: number | null = null;
   try {
     const project = await apiFetch<{ collabGeneration?: number | null }>(`/projects/${encodeURIComponent(pid)}`);
-    if (typeof project?.collabGeneration === 'number' && project.collabGeneration !== session.collabGeneration) {
-      useCanvasStore.setState({ pendingGenerationReload: project.collabGeneration });
-    }
-  } catch { /* REST 不可达→pendingGenerationReload 维持 0——reload 后 meta 链再取（不阻断重建） */ }
+    if (typeof project?.collabGeneration === 'number') dbGeneration = project.collabGeneration;
+  } catch { /* REST 不可达→dbGeneration=null 走换代通道（保守侧：reload 后 meta 链再取） */ }
+  if (dbGeneration !== null && session.collabGeneration !== undefined && dbGeneration < session.collabGeneration) {
+    await enterServerRestoredRecovery();   // 下跳=server-restored（不清缓存不 reload）
+    return;
+  }
+  if (dbGeneration !== null && dbGeneration !== session.collabGeneration) {
+    useCanvasStore.setState({ pendingGenerationReload: dbGeneration });
+  }
   await exportRecoveryEnvelope();
   const generationCacheKey = session.cacheKey;
   const generationTag = useCanvasStore.getState().pendingGenerationReload;
   safeReload('generation', { generationCacheKey, generationTag });
+}
+
+/** 4406 client-outdated 恢复序列（收口 I-1+I-2 同批根修——historyId bump 失效路径）：
+ *  ①信封尽力导出（兜底保全）②清持久化 h（bump 后旧 h 恒撞门=全项目锁死根修）③purge-on-bump
+ *  （本 uid:pid IDB 缓存族清除——boot 防御：旧纪元记录同四元键，仅清 h 时 mergeUpdates 并集回灌
+ *  fresh doc 上行=同代 PITR SS2 复活从 boot 面复活）④BroadcastChannel 通告他 tab 自清
+ *  （kind=history-bump）⑤handleVersionTerminal 强刷（reload 后=首连放行档收新回执）。 */
+async function handleClientOutdatedRecovery(): Promise<void> {
+  if (!session) { void handleVersionTerminal(); return; }
+  const pid = session.pid;
+  await exportRecoveryEnvelope();   // ①兜底保全（与 resyncFull 同款安全序——先导出后清除）
+  knownHistoryId = null;            // ②清内存态
+  try { localStorage.removeItem('collab:history-id'); } catch { /* storage 不可达——reload 后首连放行档 */ }
+  try { await purgePidCaches(session.viewerUid ?? '', pid); } catch { /* fail-soft：boot 记录残留→再拒再清（有界） */ }
+  broadcastRecoveryState({ type: 'collab-recovery', pid, kind: 'history-bump' });   // ④他 tab 自清
+  void handleVersionTerminal();     // ⑤强刷通道（探测 reload 自愈/逃生）
 }
 
 /** Y1c 四码+4410 三分客户端分派（修正 #7——先经 resolveRecoveryAction，禁落通用 backoff）。
@@ -867,6 +898,9 @@ function dispatchY1cClose(code: number | undefined, reason: string | undefined):
         denyTracker.deny4411();
         if (denyTracker.snapshot.mode === 'recovery') return;   // 边沿回调 enterDenyEscape 已接管
       }
+      // 收口 C-1(quality)：**任何 await 前**同步取消 routeClose 排程的重连 timer（short 档 1s+0-60s
+      // jitter 在异步导出窗内触发=旧 provider 同 doc 重连 SS2 上行毒增量——resync 重建未达前不可连）
+      supervisor.cancelScheduledReconnect();
       void resyncFull();
       return;
     }
@@ -880,8 +914,8 @@ function dispatchY1cClose(code: number | undefined, reason: string | undefined):
       }
       return;
     }
-    case 'force-refresh-protocol':   // 4406——强刷通道（version 探测 reload 自愈/逃生）
-      void handleVersionTerminal();
+    case 'force-refresh-protocol':   // 4406——historyId bump 失效路径+强刷通道
+      void handleClientOutdatedRecovery();
       return;
     case 'readonly-recovery-user-adjudication':   // 4410 server-restored——只读 recovery（不清缓存）
       void enterServerRestoredRecovery();
@@ -965,7 +999,11 @@ function consumeGenerationJump(): void {
   // T5 Minor①/T6 M2：key+tag 调度时刻快照（同点）——执行窗口内 session/store 可能已换
   const generationCacheKey = session?.cacheKey;
   const generationTag = useCanvasStore.getState().pendingGenerationReload;
-  setTimeout(() => safeReload('generation', { generationCacheKey, generationTag }), GENERATION_RELOAD_DELAY_MS);
+  if (generationReloadTimer !== null) clearTimeout(generationReloadTimer);   // M-2：单句柄重排（旧窗作废）
+  generationReloadTimer = setTimeout(() => {
+    generationReloadTimer = null;
+    safeReload('generation', { generationCacheKey, generationTag });
+  }, GENERATION_RELOAD_DELAY_MS);
 }
 
 /** Y0b-5 T6：safeReload——9 处 reload 点唯一收敛出口（census ⑫：裸 location.reload 全仓仅此一处）。
@@ -1966,9 +2004,14 @@ function bindProviderListeners(p: HocuspocusProvider): void {
         message.warning('正在重建画布历史，即将自动刷新');
         // Y0b-5 T5/T6：与 consumeGenerationJump 同款顺序锚+调度时刻捕获 key/tag——safeReload('generation')
         // 固定次序=导出（标注旧代）→purge→reload；延时让用户看到提示再刷
+        // T25 收口 M-2：单句柄（consumeGenerationJump 共用——server-restored 下跳清之）
         const generationCacheKey = session?.cacheKey;
         const generationTag = useCanvasStore.getState().pendingGenerationReload;
-        setTimeout(() => safeReload('generation', { generationCacheKey, generationTag }), GENERATION_RELOAD_DELAY_MS);
+        if (generationReloadTimer !== null) clearTimeout(generationReloadTimer);
+        generationReloadTimer = setTimeout(() => {
+          generationReloadTimer = null;
+          safeReload('generation', { generationCacheKey, generationTag });
+        }, GENERATION_RELOAD_DELAY_MS);
       } else {
         useCanvasStore.setState({ wsAuthNotice: { reason, terminal: true } });
       }
@@ -2072,8 +2115,17 @@ function bindReevaluateOnce(): void {
     if (typeof BroadcastChannel !== 'undefined') {
       const ch = new BroadcastChannel('collab-recovery');
       ch.onmessage = (ev: MessageEvent) => {
-        const m = ev.data as { type?: string; pid?: string; kind?: 'deny-escape' | 'server-restored' };
+        const m = ev.data as { type?: string; pid?: string; kind?: 'deny-escape' | 'server-restored' | 'history-bump' };
         if (m?.type !== 'collab-recovery' || !session || m.pid !== session.pid) return;
+        // 收口 I-1+I-2：history-bump 通告=他 tab 自清（清本 tab 持久化 h+本 uid:pid IDB 族——bump 后
+        // 旧纪元记录禁随本 tab boot 回灌；不发恢复态——4406 强刷链由发起 tab 承载）
+        if (m.kind === 'history-bump') {
+          knownHistoryId = null;
+          try { localStorage.removeItem('collab:history-id'); } catch { /* 尽力 */ }
+          const uid = session.viewerUid ?? '';
+          if (uid) void purgePidCaches(uid, session.pid);
+          return;
+        }
         if (useCanvasStore.getState().recoveryPending) return;   // 已在恢复态（幂等）
         supervisor.terminalDisconnect(`recovery-${m.kind}`);
         useCanvasStore.setState({
@@ -2092,6 +2144,11 @@ function bindReevaluateOnce(): void {
  */
 export async function initCollab(projectId: string, meta?: CollabSessionMeta): Promise<void> {
   resyncInFlight = false;   // T25：会话边界释放 resync 单飞（initCollab 水合可长 pending——上一轮 resync 的 initCollab 未 settle 不阻断新会话/再 resync）
+  // 收口 M-2 kind 守卫：server-restored 态跨 resync 重建保持（resyncFull 在飞时下跳到达的态不被
+  // 会话复位擦除——只读 recovery 电平粘住至用户/管理员裁定出口）；异项目会话照常复位。
+  const prevPid = session?.pid;
+  const prevRecovery = useCanvasStore.getState().recoveryPending;
+  const preserveServerRestored = prevRecovery?.kind === 'server-restored' && prevPid === projectId;
   // T25：deny 逃生口计数会话边界复位（新会话=新额度）——resync 恢复环内豁免（denyPreserveAcrossInit
   // 置位时保序：连续 deny 必须跨 resync 存活否则恢复环永不达阈值=逃生口结构性失效）。
   if (denyPreserveAcrossInit) { denyPreserveAcrossInit = false; }
@@ -2148,8 +2205,8 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
     quotaResidueBytes: undefined, lastDocStatusRev: 0, localDocBytes: 0, localDelta: 0, pendingGenerationReload: 0,
     wsQuotaTerminal: null, localCacheReady: false, readyProbeHint: null,
     // Y1c T25：恢复模式电平会话起点复位（新会话=新额度；deny 计数归零——瞬态重起算；页面 reload
-    // 后 recovery 态自然消散，裁定面在信封文件里不依赖会话态）
-    recoveryPending: null,
+    // 后 recovery 态自然消散，裁定面在信封文件里不依赖会话态）——收口 M-2：server-restored 同 pid 例外
+    recoveryPending: preserveServerRestored ? prevRecovery : null,
     // Y0b-5 T6：横幅单链字段族会话起点复位（diverged 闩锁/邻档/persist 电平/syncLag——会话态不跨会话）
     canvasDiverged: false, canvasOversized: false, canvasDegraded: false, persistUnhealthy: false, syncLagOver60s: false, pendingBacklog: false,   // T8：Σpending 流控档会话起点复位
   });

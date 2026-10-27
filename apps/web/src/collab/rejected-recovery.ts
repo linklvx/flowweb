@@ -190,7 +190,7 @@ export const RECOVERY_BROADCAST_CHANNEL = 'collab-recovery';
 export interface RecoveryBroadcastMessage {
   type: 'collab-recovery';
   pid: string;
-  kind: 'deny-escape' | 'server-restored';
+  kind: 'deny-escape' | 'server-restored' | 'history-bump';   // history-bump=收口 I-1+I-2：4406 面 bump 通告（他 tab 自清 h+缓存族）
 }
 
 export function broadcastRecoveryState(msg: RecoveryBroadcastMessage): void {

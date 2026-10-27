@@ -119,10 +119,10 @@ const execDonePatch = { status: 'done', attempts: 1 } as const;
     after.destroy();
   });
 
-  it('T26 裁定面：fence unregistered（无行——legacy/词表外）⇒ 拒档 written:false node-deleted（fail-closed——开发期无存量兼容）', async () => {
+  it('T26 裁定面：fence unregistered（无行——legacy/词表外）⇒ 拒档 written:false（T25 收口 I-5：unregistered 档独立 surfaced——fail-closed 开发期无存量兼容）', async () => {
     const r = await docs.deliverArtifact(PID, { nodeId: 'ghost-node', targetField: 'fileId', value: 'm-x', exec: { ...execDonePatch, artifactRev: 1 } });
     expect(r.data.written).toBe(false);
-    expect((r.data as WriteNodeDataResult).reason).toBe('node-deleted');
+    expect((r.data as WriteNodeDataResult).reason).toBe('fence-unregistered');   // T25 收口：unregistered 独立 surfaced（poller orphaned 族不变）
     const ghost = await prisma.runtimeEvent.findMany({ where: { projectId: PID } });
     expect(ghost.every((e) => (e.payload as { nodeId?: string }).nodeId !== 'ghost-node')).toBe(true);   // 零事件（拒档）
   });

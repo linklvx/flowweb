@@ -262,6 +262,8 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     const row = await projectionRow(projectionId);
     expect(row?.state).toBe('orphaned');
     expect(refundCalls).toEqual([{ intentRowId: 'ir-t15-orphan', reason: expect.stringContaining('node-deleted') }]);
+    // T25 收口 I-5：unregistered 档独立 surfaced——投影行 lastError 携分档（'node-deleted:fence-unregistered'）
+    expect(row?.lastError).toContain('node-deleted:fence-unregistered');
     // 终态不重试：复 tick 零 claim 该行
     const again = await poller.tick();
     expect(again.claimed).toBe(0);
