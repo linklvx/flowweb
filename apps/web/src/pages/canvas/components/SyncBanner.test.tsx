@@ -286,3 +286,60 @@ describe('Y0b-5 T6 单链仲裁：terminal 鉴权>配额终态>diverged>oversize
     expect(screen.queryByText(/服务维护中/)).not.toBeInTheDocument();
   });
 });
+
+// ══ T25b 面 B3/B2：recoveryPending 横幅+boot 合并提示（plan :338）══
+describe('T25b B3：recoveryPending 恢复横幅（单链仲裁）', () => {
+  const resetAll = () => useCanvasStore.setState({
+    connUi: 'ok', wsAuthNotice: null, writeFrozen: false, collabEscapePending: false, readyProbeHint: null,
+    wsQuotaTerminal: null, canvasDiverged: false, canvasOversized: false, canvasDegraded: false,
+    persistUnhealthy: false, syncLagOver60s: false, pendingBacklog: false, localCacheReady: false,
+    recoveryPending: null, draftMergeAnomalies: null,
+  });
+  beforeEach(resetAll);
+
+  it('★deny-escape→恢复模式横幅+打开裁定面按钮（修前 recoveryPending 零渲染面=横幅结构性缺失〔红〕）', () => {
+    useCanvasStore.setState({ recoveryPending: { kind: 'deny-escape', envelopeNodeCount: 3 } });
+    render(<SyncBanner />);
+    expect(screen.getByText(/多次同步被拒，已切换恢复模式/)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('recovery-open-btn'));
+    expect(useCanvasStore.getState().recoveryPanelOpen).toBe(true);
+  });
+
+  it('★server-restored→只读恢复横幅+管理员接受按钮（含只读档告知）', () => {
+    useCanvasStore.setState({ recoveryPending: { kind: 'server-restored', envelopeNodeCount: 2 }, collabReadOnly: true });
+    render(<SyncBanner />);
+    expect(screen.getByText(/服务端数据回退，已进入只读恢复模式/)).toBeInTheDocument();
+    expect(screen.getByTestId('recovery-accept-btn')).toBeInTheDocument();
+  });
+
+  it('★位次=escape-pending 之后、配额终态之前（恢复模式粘住态=连接已停的高运营位）', () => {
+    useCanvasStore.setState({ recoveryPending: { kind: 'deny-escape', envelopeNodeCount: 0 }, connUi: 'banner', syncLagOver60s: true, persistUnhealthy: true });
+    render(<SyncBanner />);
+    expect(screen.getByText(/多次同步被拒/)).toBeInTheDocument();
+    expect(screen.queryByText(/同步延迟较高/)).not.toBeInTheDocument();
+  });
+});
+
+describe('T25b B2：boot 合并提示（不阻断——DRAFT_MERGE_ANOMALY_NON_BLOCKING）', () => {
+  const resetAll = () => useCanvasStore.setState({
+    connUi: 'ok', wsAuthNotice: null, writeFrozen: false, collabEscapePending: false, readyProbeHint: null,
+    wsQuotaTerminal: null, canvasDiverged: false, canvasOversized: false, canvasDegraded: false,
+    persistUnhealthy: false, syncLagOver60s: false, pendingBacklog: false, localCacheReady: false,
+    recoveryPending: null, draftMergeAnomalies: null,
+  });
+  beforeEach(resetAll);
+
+  it('★异常 kind 计数→提示横幅（kind 文案可见——不阻断零动作承诺）', () => {
+    useCanvasStore.setState({ draftMergeAnomalies: { 'duplicate-order': 2, 'dangling-edge': 1 } });
+    render(<SyncBanner />);
+    expect(screen.getByText(/多标签合并完成，检测到结构异常/)).toBeInTheDocument();
+    expect(screen.getByText(/duplicate-order×2/)).toBeInTheDocument();
+  });
+
+  it('位次=conn-ui 之前（提示不压连接态——connUi=banner 同真时连接横幅胜出）', () => {
+    useCanvasStore.setState({ draftMergeAnomalies: { 'duplicate-slot': 1 }, connUi: 'banner' });
+    render(<SyncBanner />);
+    expect(screen.getByText(/连接已断开，正在自动重连/)).toBeInTheDocument();
+    expect(screen.queryByText(/多标签合并完成/)).not.toBeInTheDocument();
+  });
+});

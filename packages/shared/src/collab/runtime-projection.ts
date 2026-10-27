@@ -220,12 +220,20 @@ export function formatPublicSnapshotCacheKey(k: PublicSnapshotCacheKeyInput): st
 
 /** ③复制/粘贴 typed 命令：BindMedia=源节点媒体绑到目标节点（源 nodeId/mediaId 作**命令参数**——
  *  非 doc 字段）；CloneBinding=源节点绑定关系克隆到目标节点。服务端校验权限/归属后写 PG binding
- *  +发 feed（T22/T25 实装）。 */
+ *  +发 feed（T22/T25 实装——**T25b 承接实装**）。
+ *  T25b 字段扩展登记（plan :337「若字段不足按需扩并论证」）：BindMediaCommand+expectedRev——
+ *  论证=NodeArtifact 槽位 CAS 纪律（replaceMedia/clearMedia 同门 F2：静默复读槽位换 rev 重试已
+ *  退役——盲写覆盖并发生成违反「冲突后保留先提交者」协作语义；粘贴目标槽位与手工替换共享同一
+ *  rev 权威面，禁第二套宽松写径）。CloneBindingCommand 零扩——绑定格位克隆不触 NodeArtifact
+ *  （产物引用清空=COPY_PASTE_COMMAND_CONTRACT.lifecycle：lifecycleSeq 新生成、不挂旧产物），
+ *  MediaBinding current-state upsert 无 rev 面。 */
 export interface BindMediaCommand {
   type: 'BindMedia';
   sourceNodeId: string;
   mediaId: string;
   targetNodeId: string;
+  /** 目标槽位期望 rev（CAS——0=新槽 INSERT；并发换代 409 ARTIFACT_REV_CONFLICT 由调用方用户裁定） */
+  expectedRev: number;
 }
 
 export interface CloneBindingCommand {

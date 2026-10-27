@@ -14,6 +14,7 @@ import { KeyboardShortcutsPanel } from './components/KeyboardShortcutsPanel';
 import { CanvasView } from './components/CanvasView';
 import { SyncBanner } from './components/SyncBanner';
 import { QuotaBanner } from './components/QuotaBanner';
+import { RecoveryPanel } from './components/RecoveryPanel';   // T25b B1：B 场景草稿裁定面
 import MaterialLibraryModal from '@/components/MaterialLibrary/MaterialLibraryModal';
 import { HistoryModal } from '@/components/HistoryPage/HistoryModal';
 import { LightingModal } from './components/Lighting/LightingModal';
@@ -395,6 +396,8 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
         <SyncBanner />
         {/* Y0b-4 T11：配额横幅（三级：软阈通告/硬阈双主按钮/4404·4410 终态档——与 SyncBanner 独立同挂载点） */}
         <QuotaBanner projectId={projectId} />
+        {/* T25b B1：B 场景逐字段草稿裁定面（recoveryPanelOpen 门——SyncBanner recovery 档按钮开） */}
+        <RecoveryPanel />
         <KeyboardShortcutsPanel isOpen={isShortcutsOpen} onClose={() => setShortcutsOpen(false)} />
         <MaterialLibraryModal />
         <HistoryModal />

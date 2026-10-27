@@ -190,7 +190,7 @@ export const RECOVERY_BROADCAST_CHANNEL = 'collab-recovery';
 export interface RecoveryBroadcastMessage {
   type: 'collab-recovery';
   pid: string;
-  kind: 'deny-escape' | 'server-restored' | 'history-bump';   // history-bump=收口 I-1+I-2：4406 面 bump 通告（他 tab 自清 h+缓存族）
+  kind: 'deny-escape' | 'server-restored' | 'history-bump' | 'recovery-accepted';   // history-bump=收口 I-1+I-2：4406 面 bump 通告（他 tab 自清 h+缓存族）；recovery-accepted=T25b B5：管理员接受 server-restored（他 tab 同步退出只读恢复——清缓存+reload 重建）
 }
 
 export function broadcastRecoveryState(msg: RecoveryBroadcastMessage): void {

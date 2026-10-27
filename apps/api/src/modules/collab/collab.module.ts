@@ -25,6 +25,8 @@ import { CollabDocController } from './collab-doc.controller';
 import { CollabReadController } from './collab-read.controller';
 import { CollabWriteController } from './collab-write.controller';
 import { CollabMediaController } from './collab-media.controller';   // Y1a T11：replaceMedia/clearMedia 命令（用户写 fileId 必经命令——PG NodeArtifact CAS）
+import { CollabBindingController } from './collab-binding.controller';   // T25b 四读径③：BindMedia/CloneBinding typed 命令（复制/粘贴——同 NodeArtifactService/MediaRegistrationService 消费面）
+import { CollabRecoveryAcceptController } from './collab-recovery-accept.controller';   // T25b B5：server-restored 管理员裁定接受（OWNER/ADMIN 门）
 import { CollabShrinkService } from './collab-shrink.service';
 import { CollabCompactPoller } from './collab-compact.poller';   // Y1c T12：dev role=all compact 轮询面装配（硬输入 #4）
 import { TelemetryController } from './telemetry.controller';
@@ -39,7 +41,7 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
 
 @Module({
   imports: [TeamModule, CanvasModule, WorkerPresenceModule, ArtifactCoreModule],
-  controllers: [CollabReadyController, CollabDocController, CollabReadController, CollabWriteController, TelemetryController, CollabMediaController, RuntimeFeedController, CollabRecoveryImportController],   // Y1c T25：recovery import 端点   // Y1c T22：runtime-feed 游标端点（GET snapshot/events——HTTP 唯一交付）   // Y0a-3 T7（Z14）：providers 不注册路由——HTTP 面必须 controllers；Y0b-4 T8：shrink 端点；Y0b-5 T1：遥测端点；Y0c T26：worker 读端点（偏离 29）/T27：worker 写端点；Y1a T11：媒体命令端点
+  controllers: [CollabReadyController, CollabDocController, CollabReadController, CollabWriteController, TelemetryController, CollabMediaController, RuntimeFeedController, CollabRecoveryImportController, CollabBindingController, CollabRecoveryAcceptController],   // T25b B5：server-restored 管理员接受面   // T25b 四读径③：复制/粘贴 typed BindMedia/CloneBinding 命令端点   // Y1c T25：recovery import 端点   // Y1c T22：runtime-feed 游标端点（GET snapshot/events——HTTP 唯一交付）   // Y0a-3 T7（Z14）：providers 不注册路由——HTTP 面必须 controllers；Y0b-4 T8：shrink 端点；Y0b-5 T1：遥测端点；Y0c T26：worker 读端点（偏离 29）/T27：worker 写端点；Y1a T11：媒体命令端点
   providers: [
     // T34（Z45③）：三 token useValue→useFactory——useValue 实参在模块加载期求值（dotenv→validateEnv
     // 写回之前=Z79 违规面），useFactory 在 DI 解析期（NestFactory.create，恒在 main.ts validateEnv 后）
@@ -89,6 +91,8 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
   // 后移除本行），shrink 模块内直注不受 exports 影响。
   // T15：exports += CollabLeaseService（投影 poller claim 时捕获 epoch 的单源读——CollabLeaseService
   // .currentEpoch；模块外消费面唯一=ProjectionOutboxPoller）。
-  exports: [CollabDocumentService, CollabDocWriterService, CollabWritePort, CollabResidencyService, CollabLeaseService, CanvasDocUpdateRepository],   // Y0c T8：消费面逐步扩（T12 收编 shrink/intent-reconcile）；Y0c T15：residency 面导出（T16/T17 reaper/释放入口消费）；Y1c T21：+CanvasDocUpdateRepository（ExecutionRequestService PG 前缀重建档——受理冻结读面）
+  // T25b 四读径①：exports += RuntimeFeedService（video-work 公开快照 projection join 读面——
+  // snapshotEnvelope 已提交态折叠；偏离 21 直注登记族追加同款）。
+  exports: [CollabDocumentService, CollabDocWriterService, CollabWritePort, CollabResidencyService, CollabLeaseService, CanvasDocUpdateRepository, RuntimeFeedService],   // Y0c T8：消费面逐步扩（T12 收编 shrink/intent-reconcile）；Y0c T15：residency 面导出（T16/T17 reaper/释放入口消费）；Y1c T21：+CanvasDocUpdateRepository（ExecutionRequestService PG 前缀重建档——受理冻结读面）
 })
 export class CollabModule {}

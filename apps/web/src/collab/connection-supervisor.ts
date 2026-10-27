@@ -26,7 +26,7 @@ export const SILENT_RENEW_JITTER_MAX_MS = 500;
 /** 1012 short 档抖动上界（裁定 23⑶：full jitter 0-60s——NAT 部署窗算术）。 */
 export const SHORT_JITTER_MAX_MS = 60_000;
 
-export type SupervisorPhase = 'idle' | 'waiting' | 'connected' | 'terminal';
+export type SupervisorPhase = 'idle' | 'waiting' | 'connected' | 'terminal' | 'resyncing';
 
 export interface SupervisorDeps {
   /** 当前会话 provider 句柄（终态重建/换会话后由 getProvider 取到新实例——attach 重挂监听） */
@@ -213,10 +213,11 @@ export class CollabConnectionSupervisor {
     return decision;
   }
 
-  /** 瞬态立即恢复（recoverConnection 收编后瞬态分支）：断 OPEN/CONNECTING 残留→清既有排程→立即 connectOnce。 */
+  /** 瞬态立即恢复（recoverConnection 收编后瞬态分支）：断 OPEN/CONNECTING 残留→清既有排程→立即 connectOnce。
+   *  T25b M-R1：resyncing 相位让位（重建窗内恢复权归 resync 链）。 */
   recoverNow(): void {
     const ws = this.wsOf();
-    if (!ws || this._phase === 'terminal') return;
+    if (!ws || this._phase === 'terminal' || this._phase === 'resyncing') return;
     this.disconnectSocket();
     if (this.timer !== null) { clearTimeout(this.timer); this.timer = null; }
     this.connectOnce();
@@ -234,9 +235,10 @@ export class CollabConnectionSupervisor {
   }
 
   /** 公开 kick 入口（bindReevaluateOnce 的 online/visibilitychange(可见) 接线）：0-3s jitter 排程；
-   *  已排程/terminal/在飞 attempt → 忽略（false）。 */
+   *  已排程/terminal/在飞 attempt → 忽略（false）。T25b M-R1：resyncing 相位让位（不重排旧
+   *  provider——重建窗内 kick=同 doc SS2 毒重放面）。 */
   kickNow(): boolean {
-    if (this._phase === 'terminal' || this.timer !== null || this.inFlight()) return false;
+    if (this._phase === 'terminal' || this._phase === 'resyncing' || this.timer !== null || this.inFlight()) return false;
     return this.scheduleReconnect(this.jitter(KICK_JITTER_MAX_MS));
   }
 
@@ -247,6 +249,7 @@ export class CollabConnectionSupervisor {
   assertHealthy(execute: boolean): boolean {
     if (typeof navigator !== 'undefined' && !navigator.onLine) return false;   // 飞行模式不烧阶梯——恢复归 online→kickNow
     if (this._phase === 'terminal') return false;
+    if (this._phase === 'resyncing') return false;   // T25b M-R1：resync 重建窗让位（不重排旧 provider）
     if (!this.deps.isConnOffline()) return false;
     if (this.timer !== null || this.authTimer !== null) return false;
     if (this.inFlight()) return false;
@@ -255,11 +258,14 @@ export class CollabConnectionSupervisor {
     return true;
   }
 
-  /** 会话清理（teardownSession 消费）：清全部 timer+epoch++（旧 timer 判活作废）+状态归零。 */
+  /** 会话清理（teardownSession 消费）：清全部 timer+epoch++（旧 timer 判活作废）+状态归零。
+   *  T25b M-R1：**保持 resyncing 相位**——teardown 后仍有 provider.destroy await 缝（module
+   *  provider 依旧是旧实例），kickNow/assertHealthy 在该缝内让位；相位退出归 createProvider
+   *  connectOnce（'waiting'）或 resync 失败 endResync。 */
   teardown(): void {
     this.clearTimers();
     this.epoch++;
-    this._phase = 'idle';
+    this._phase = this._phase === 'resyncing' ? 'resyncing' : 'idle';
     this.attempt = 0;
     this.terminalReason = undefined;
     this.closeHandled = false;
@@ -287,6 +293,35 @@ export class CollabConnectionSupervisor {
     if (this.timer === null) return false;
     clearTimeout(this.timer);
     this.timer = null;
+    return true;
+  }
+
+  /** T25b M-R1：进入 resyncing 相位（resync 分派在 cancelScheduledReconnect 同点同步调用——任何
+   *  await 前）。相位语义=重建窗内旧 provider 禁任何事件触发恢复（kickNow visibilitychange/
+   *  online、assertHealthy 3s watchdog、routeClose/armAuthTimer 重排全让位）——窗内任何 connect
+   *  都是旧 doc 同 doc 重连 SS2 毒重放面。退出=initCollab→createProvider→connectOnce（'waiting'）
+   *  或 resync 失败 endResync（回 idle 恢复常规监管）；teardown **保持** resyncing（await 缝覆盖：
+   *  supervisor.teardown→provider.destroy await 间 module provider 仍旧实例）。 */
+  beginResync(): boolean {
+    if (this._phase === 'terminal') return false;
+    this.clearTimers();
+    this._phase = 'resyncing';
+    return true;
+  }
+
+  /** T25b M-R1：resync 收尾释放（resyncFull finally——initCollab 已重建时相位已前进而 no-op；
+   *  重建失败/早退档恢复常规监管，防 kickNow/assertHealthy 永久让位死区）。 */
+  endResync(): void {
+    if (this._phase === 'resyncing') this._phase = 'idle';
+  }
+
+  /** T25b B4（面 B——recovery 模式出口）：terminal 相位恢复（deny-escape 恢复模式粘住的唯一出口
+   *  ——用户完成裁定导入后 denyTracker.recoveryComplete+本方法+connectOnce）。非 terminal=no-op。 */
+  resume(): boolean {
+    if (this._phase !== 'terminal') return false;
+    this.clearTimers();
+    this._phase = 'idle';
+    this.terminalReason = undefined;
     return true;
   }
 
@@ -323,9 +358,11 @@ export class CollabConnectionSupervisor {
   }
 
   /** 统一排程入口（瞬态/普通掉线/1012/AUTH_WAIT/kick/stalled 全走）——恰一待触发 timer 不变量：
-   *  已有 timer → 忽略（false）。 */
+   *  已有 timer → 忽略（false）。T25b M-R1：resyncing 相位禁排程（routeClose/armAuthTimer 等
+   *  一切旧 provider 事件面重排在重建窗内结构性让位）。 */
   private scheduleReconnect(ms: number): boolean {
     if (this.timer !== null) return false;
+    if (this._phase === 'resyncing') return false;
     this._phase = 'waiting';
     this.epochAtSchedule = this.epoch;
     this.lastScheduledMs = ms;

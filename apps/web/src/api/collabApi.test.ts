@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   shrink, exportFresh, vacuum, getMediaSlot, postMediaCommand,
   replaceNodeMedia, clearNodeMedia, MediaRevConflictError,
+  bindMedia, cloneBinding,
 } from './collabApi';
 
 const okEnvelope = (data: unknown) => ({ ok: true, json: async () => ({ code: 0, data, message: 'ok' }) });
@@ -150,5 +151,37 @@ describe('collabApi（T11 媒体命令）', () => {
       .mockResolvedValueOnce(err409());
     await expect(clearNodeMedia('p1', 'n1', { expectedRev: 7 })).rejects.toBeInstanceOf(MediaRevConflictError);
     expect(JSON.parse((global.fetch as any).mock.calls[0][1].body)).toEqual({ action: 'clear', expectedRev: 7 });
+  });
+});
+
+// ══ T25b 四读径③：BindMedia/CloneBinding typed 命令（复制/粘贴——shared 契约 typed body）══
+describe('collabApi（T25b 四读径③：BindMedia/CloneBinding）', () => {
+  const err409 = () => ({
+    ok: false, status: 409, statusText: 'Conflict',
+    clone: () => ({ json: async () => ({ code: -1, message: '槽位已换代', errorCode: 'ARTIFACT_REV_CONFLICT' }) }),
+    json: async () => ({ code: -1, message: '槽位已换代', errorCode: 'ARTIFACT_REV_CONFLICT' }),
+    headers: new Headers(),
+  });
+  it('bindMedia：POST /api/projects/:pid/collab/bindings typed body（shared BindMediaCommand 原样）+409 类型化', async () => {
+    (global.fetch as any).mockResolvedValue(okEnvelope({ type: 'BindMedia', rev: 1, mediaId: 'm1' }));
+    const r = await bindMedia('p1', { type: 'BindMedia', sourceNodeId: 'n-src', mediaId: 'm1', targetNodeId: 'n-tgt', expectedRev: 0 });
+    expect((global.fetch as any).mock.calls[0][0]).toBe('/api/projects/p1/collab/bindings');
+    const init = (global.fetch as any).mock.calls[0][1];
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ type: 'BindMedia', sourceNodeId: 'n-src', mediaId: 'm1', targetNodeId: 'n-tgt', expectedRev: 0 });
+    expect(r).toEqual({ type: 'BindMedia', rev: 1, mediaId: 'm1' });
+
+    (global.fetch as any).mockReset();
+    (global.fetch as any).mockResolvedValueOnce(err409());
+    await expect(bindMedia('p1', { type: 'BindMedia', sourceNodeId: 'n-src', mediaId: 'm1', targetNodeId: 'n-tgt', expectedRev: 3 }))
+      .rejects.toBeInstanceOf(MediaRevConflictError);   // CAS 冲突类型化（粘贴档同 F2 纪律——用户裁定后重提）
+  });
+
+  it('cloneBinding：POST 同端点 typed body（CloneBindingCommand）', async () => {
+    (global.fetch as any).mockResolvedValue(okEnvelope({ type: 'CloneBinding', cloned: 2, skippedDeleted: 1 }));
+    const r = await cloneBinding('p1', { type: 'CloneBinding', sourceNodeId: 'n-src', targetNodeId: 'n-tgt' });
+    expect((global.fetch as any).mock.calls[0][0]).toBe('/api/projects/p1/collab/bindings');
+    expect(JSON.parse((global.fetch as any).mock.calls[0][1].body)).toEqual({ type: 'CloneBinding', sourceNodeId: 'n-src', targetNodeId: 'n-tgt' });
+    expect(r).toEqual({ type: 'CloneBinding', cloned: 2, skippedDeleted: 1 });
   });
 });

@@ -44,6 +44,7 @@ import { calcGroupBounds, CELL_WIDTH, ASPECT_RATIO_MAP, calcDefaultGrid, calcSto
 // T17（plan v11.2 S5 片·G54）：placement/order 分配唯一入口——建点/副本/入组出组/整理全经
 // allocator（副本同层同 order 重复键+粘贴位置重叠红线）。
 import { allocateOrderAfter, createCopyOrderAllocator, nudgeCopiesUntilFree, fitOrderBlock } from '@/utils/canvas-allocator';
+import { bindMedia, MediaRevConflictError } from '@/api/collabApi';   // T25b 四读径③：副本媒体 typed 命令接线
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
 import { placeGrid } from '@/utils/groupGeometry';
@@ -298,8 +299,16 @@ export interface CanvasState {
   pendingBacklog: boolean;
   /** Y1c T25（§8.1）：恢复模式电平——deny-escape（N=3 次 4411 逃生口：导出→重置→用户裁定导入，
    *  重连预算停发）| server-restored（g_client>g_server 只读 recovery：不清缓存+草稿导出+管理员
-   *  裁定）。envelopeNodeCount=已导出信封内容节点数（0=空画布无信封）。会话态不进快照。 */
-  recoveryPending: { kind: 'deny-escape' | 'server-restored'; envelopeNodeCount: number } | null;
+   *  裁定）。envelopeNodeCount=已导出信封内容节点数（0=空画布无信封）。会话态不进快照。
+   *  T25b 面 B：+envelope 载体（B 场景裁定面数据源——本 tab 导出的信封内存副本；镜像档/空画布
+   *  null=不可交互裁定只读告知）+draftMergeAnomalies（A 场景 boot 合并提示——不阻断电平）。 */
+  recoveryPending: { kind: 'deny-escape' | 'server-restored'; envelopeNodeCount: number; envelope?: import('@flowweb/shared').DraftEnvelope | null } | null;
+  /** T25b B2（§4.5 表 A 行）：boot 合并后异常检测报告（null=未跑/干净——kind 计数非零即提示
+   *  展示；DRAFT_MERGE_ANOMALY_NON_BLOCKING 冻结语义=不阻断不回滚不写回）。会话态不进快照。 */
+  draftMergeAnomalies: Partial<Record<import('@/collab/recovery-adjudication').DraftMergeAnomalyKind, number>> | null;
+  /** T25b B1：恢复裁定面开合电平（SyncBanner 横幅按钮开——RecoveryPanel 渲染门）。UI 瞬态不进快照。 */
+  recoveryPanelOpen: boolean;
+  setRecoveryPanelOpen: (open: boolean) => void;
   hasActiveProcessInGroup: (groupId: string) => boolean;
   /** Y0b-4 T11/T13：瘦身/校准 watermark 重置单写者（服务端真值覆盖 localDocBytes+localDelta 清零
    *  ——Q-I 校准点的组件侧入口）。写点收口 store 本体：组件面（ShrinkDialog）直调 setState 在
@@ -549,6 +558,34 @@ export const chunkCopyPlan = (plan: CopyPlan): CopyPlan[] => {
   }
   return chunks;
 };
+
+/** T25b 四读径③（plan :337）：复制/粘贴→副本媒体服务端 typed 绑定（BindMedia 命令——源
+ *  nodeId/mediaId 作命令参数非 doc 字段）。doc 副本保留 fileId=既有裁决（Z11''-v14 消灭空图
+ *  窗口——乐观 UI）；服务端 NodeArtifact/MediaBinding 权威面经 REST 建立（expectedRev=0 新槽
+ *  INSERT）。fail-soft：跨团队拒/409/网络失败=toast 告知不阻断粘贴主链（副本 doc 引用保留）。
+ *  只对「已落位副本」发命令（分块粘贴拒块不入集）。 */
+function rebindCopiedMedia(idMap: Map<string, string>): void {
+  const pid = useCanvasStore.getState().projectId;
+  if (!pid || idMap.size === 0) return;
+  const nodes = useCanvasStore.getState().nodes;
+  const fileIdOf = new Map<string, string>();
+  for (const n of nodes) {
+    const fid = (n.data as Record<string, unknown> | undefined)?.fileId;
+    if (typeof fid === 'string' && fid !== '') fileIdOf.set(n.id, fid);
+  }
+  for (const [srcId, dstId] of idMap) {
+    const mediaId = fileIdOf.get(srcId);
+    if (mediaId === undefined) continue;   // 源不携媒体（文本/组等用户域节点零命令）
+    void bindMedia(pid, { type: 'BindMedia', sourceNodeId: srcId, mediaId, targetNodeId: dstId, expectedRev: 0 })
+      .catch((e: unknown) => {
+        if (e instanceof MediaRevConflictError) {
+          message.info('副本媒体槽位已有更新，未重复绑定（可刷新后手动替换）');   // F2：禁静默复读换 rev 重提
+          return;
+        }
+        message.warning('副本媒体未完成服务端绑定（跨团队引用或服务不可达）——副本图示保留，重新生成可恢复');
+      });
+  }
+}
 
 /** 块预算近似 intents（precheck 消费）：copy→addNode（分镜子剥 position——同漏斗差分翻译键集形态）+
  *  边→upsertEdge。实写走 dispatchProjectionDiff 差分翻译（全上下文键集剥离单源），此处同构近似。 */
@@ -878,6 +915,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   syncLagOver60s: false,
   pendingBacklog: false,
   recoveryPending: null,
+  draftMergeAnomalies: null,
+  recoveryPanelOpen: false,
+  setRecoveryPanelOpen: (open) => set({ recoveryPanelOpen: open }),
 
   /** Inner 化（Spec B）：建点命令体纯构造核——见接口 JSDoc。零 store 写（get() 只读缝——
    *  T17 order 键分配读层尾；addNode 薄壳与 addNodeAndBatchConnect（B6-3 收敛）共用，
@@ -3181,6 +3221,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         createCopyOrderAllocator(s.nodes),
       );
       firstTopId = appendCopyPlan(plan);
+      rebindCopiedMedia(plan.idMap);   // T25b 四读径③：携媒体副本服务端绑定（typed BindMedia——见函数头注）
     });
     return firstTopId;
   },
@@ -3240,6 +3281,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     ) as typeof plan.copies;
     let firstTopId: string | null = null;
     stopCapturing();
+    // T25b 四读径③：已落位副本的 src→dst 集（拒块/失败块不入集——只对真实落位的副本发服务端绑定）
+    const srcOf = new Map([...plan.idMap].map(([s, d]) => [d, s] as const));
+    const appendedPairs = new Map<string, string>();
     for (const chunk of chunkCopyPlan(plan)) {
       const v = canApplyIntent(chunkIntentsOf(chunk));
       if (!v.ok) {
@@ -3251,6 +3295,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       try {
         const top = appendCopyPlan(chunk);   // 恒调用（??= 短路会吞掉块落位——只保留首块结果）
         firstTopId ??= top;
+        for (const c of chunk.copies) {
+          const src = srcOf.get(c.id);
+          if (src !== undefined) appendedPairs.set(src, c.id);
+        }
         dispatchProjectionDiff(before, Origin.LocalUser);
       } catch (err) {
         message.error(`操作失败：${(err as Error).message}`);
@@ -3258,6 +3306,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         break;
       }
     }
+    rebindCopiedMedia(appendedPairs);   // T25b 四读径③：携媒体副本服务端绑定（fail-soft——见函数头注）
     return firstTopId;
   },
 

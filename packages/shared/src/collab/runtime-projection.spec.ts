@@ -225,10 +225,11 @@ describe('Y1c T5c 契约冻结：四读径契约（doc 无服务端字段后的�
     expect(FOUR_READ_PATHS.userExport).toContain('不作用户导出');
   });
   it('③复制/粘贴=typed BindMedia/CloneBinding 命令：源 nodeId/mediaId 作命令参数（非 doc 字段）', () => {
-    const bind: BindMediaCommand = { type: 'BindMedia', sourceNodeId: 'n1', mediaId: 'm1', targetNodeId: 'n9' };
+    // T25b：BindMedia+expectedRev（CAS 纪律——replaceMedia/clearMedia 同门 F2 论证登记）
+    const bind: BindMediaCommand = { type: 'BindMedia', sourceNodeId: 'n1', mediaId: 'm1', targetNodeId: 'n9', expectedRev: 0 };
     const clone: CloneBindingCommand = { type: 'CloneBinding', sourceNodeId: 'n1', targetNodeId: 'n9' };
     expect(bind.type).toBe('BindMedia');
-    expect(Object.keys(bind).sort()).toEqual(['mediaId', 'sourceNodeId', 'targetNodeId', 'type']);
+    expect(Object.keys(bind).sort()).toEqual(['expectedRev', 'mediaId', 'sourceNodeId', 'targetNodeId', 'type']);
     expect(Object.keys(clone).sort()).toEqual(['sourceNodeId', 'targetNodeId', 'type']);
     expect(COPY_PASTE_COMMAND_CONTRACT.paramsNotDocFields).toContain('命令参数');
     expect(COPY_PASTE_COMMAND_CONTRACT.clearedIds).toContain('mediaId');

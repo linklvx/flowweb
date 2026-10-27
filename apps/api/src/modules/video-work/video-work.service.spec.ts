@@ -10,6 +10,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';   // service 构造注入（Task 4.2 起）
 import { CollabDocumentService } from '../collab/collab-document.service';        // service 构造注入（Task 5.3 起）
 import { StorageQuotaService } from '../team/storage-quota.service'; // 文件头 import 区追加
+import { RuntimeFeedService } from '../collab/runtime-feed.service'; // T25b 四读径①：projection join 注入
 import { MinioService } from '../minio/minio.service';
 import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import Redis from 'ioredis';
@@ -50,6 +51,7 @@ beforeEach(async () => {
         // 不预置则后续任务一加注入本 spec 整文件编译红。两个 mock 一次配齐，后续任务直接用。
         { provide: RateLimiterService, useValue: { checkIpRateLimit: vi.fn().mockResolvedValue(true), checkUserRateLimit: vi.fn().mockResolvedValue(true) } },   // T36：getClientIp mock 随方法删除退役
         { provide: CollabDocumentService, useValue: { readCanvasSnapshotCached: vi.fn(), invalidateSnapshotCache: vi.fn() } }, // Y0b-2 T3：process 快照出口换 cached+失效面
+        { provide: RuntimeFeedService, useValue: { snapshotEnvelope: vi.fn() } },   // T25b 四读径①：projection join 读面（用例 setupFeed 覆写实例属性）
         { provide: StorageQuotaService, useValue: { assertCanUpload: vi.fn().mockResolvedValue(undefined), assertMember: vi.fn(), getUsage: vi.fn().mockResolvedValue(0), assertOnConfirm: vi.fn().mockResolvedValue(undefined) } },
         { provide: 'REDIS_CLIENT', useValue: { get: vi.fn(), set: vi.fn(), del: vi.fn().mockResolvedValue(undefined) } }, // del 补默认 resolved（Task 5：removeWork URL 缓存失效——裸 vi.fn() 返回 undefined，实现里 await 链会 TypeError）
       ],
@@ -531,7 +533,8 @@ describe('getProcessSnapshot（安全验收）', () => {
     setup();
     await service.getProcessSnapshot('w1');
     const setKeys = (service as any).redis.set.mock.calls.map((c: unknown[]) => c[0] as string);
-    expect(setKeys).toContain(`videoWork:process:w1:v${CANVAS_DOC_SCHEMA_VERSION}:g1:r3`);   // 体键（g=generation r=snapshotRev——mock 水位 {g:1,rev:3}）
+    // T25b 四读径①：键轨扩第四维 :p<projectionSeq>（本用例 feed mock 无实现=降级档 p0）
+    expect(setKeys).toContain(`videoWork:process:w1:v${CANVAS_DOC_SCHEMA_VERSION}:g1:r3:p0`);   // 体键（g/r=doc 水位 {g:1,rev:3}；p=projectionSeq）
     expect(setKeys).toContain(`videoWork:process:w1:v${CANVAS_DOC_SCHEMA_VERSION}:meta`);   // meta 指针键
   });
 
@@ -729,7 +732,105 @@ describe('updateWork 换封面删旧（spec §4.6：DB 更新成功后才删旧�
     prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ id: 'w1', status: 'DRAFT', publishedAt: null, allowViewProcess: false, allowClone: false, canvasProjectId: null, coverKey: 'uploads/system/shared.jpg' });
     prisma.videoWork.update = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'w1', ...data }));
     prisma.videoWork.count = vi.fn().mockResolvedValue(1); // 被另一作品引用
-    await service.updateWork('w1', { coverKey: 'uploads/system/new.jpg' } as any);
+    await service.updateWork('w1', { coverKey: 'uploads/system/shared.jpg' } as any);
     expect(minio.delete).not.toHaveBeenCalled();
   });
 });
+
+// ═══ T25b 四读径①（plan :337 登记——T22 残留面承接）：公开快照 projection join+projectionSeq
+// 第四维缓存键 ═══
+// 现状（红形态）：getProcessSnapshot 零投影消费——(pid,g,snapshotRev) 三元会拼「旧文档+新图片」
+// （FOUR_READ_PATHS.publicSnapshot 冻结注记）；修前=feed 墓碑节点照出公开快照/缩略图走 doc 陈旧
+// fileId/缓存键无 :p 维（投影更新不触发键漂移）。
+describe('getProcessSnapshot（T25b 四读径①：服务端 projection join+projectionSeq 第四维缓存键）', () => {
+  const work = { id: 'w1', title: 't', canvasProjectId: 'p1', allowViewProcess: true, status: 'PUBLISHED' };
+  const canvas = {
+    nodes: [
+      { id: 'n2', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: { text: 'cat', html: '<p>evil</p>' }, fileId: 'f1' } },
+      { id: 'n3', type: 'videoGen', position: { x: 0, y: 0 }, data: { label: 'l', model: 'video-01' } },
+    ],
+    edges: [],
+  };
+
+  /** feed 信封装置（projection=RuntimeProjection 形；latestFeedSeq=漂移校准单行读——feedSeq 水位真源）。 */
+  function setupFeed(projectionNodes: Record<string, unknown>, feedSeq: string) {
+    prisma.videoWork.findUnique = vi.fn().mockResolvedValue({ ...work });
+    prisma.canvasProject.findUnique = vi.fn().mockResolvedValue({ id: 'p1' });
+    (service as any).collabDoc = { readCanvasSnapshotCached: vi.fn().mockResolvedValue({ model: canvas, generation: 1, snapshotRev: '3', pgSeq: '9' }), invalidateSnapshotCache: vi.fn() };
+    (service as any).runtimeFeed = {
+      latestFeedSeq: vi.fn().mockResolvedValue(BigInt(feedSeq)),
+      snapshotEnvelope: vi.fn().mockResolvedValue({
+        snapshot: { projectId: 'p1', generation: 1, feedSeq, pgSeq: '9', nodes: projectionNodes },
+        cursor: { historyId: 'h1', generation: 1, feedSeq },
+        minRetainedSeq: '0', historyId: 'h1',
+      }),
+    };
+    const cache = new Map<string, string>();
+    (service as any).redis.get = vi.fn(async (k: string) => cache.get(k) ?? null);
+    (service as any).redis.set = vi.fn(async (k: string, v: string) => { cache.set(k, v); return 'OK'; });
+    return cache;
+  }
+
+  it('★四读径①-红 feed 墓碑（node.deleted 活跃槽）节点从公开快照剔除——修前零 join 照出（红）', async () => {
+    setupFeed({
+      n2: { deletedAt: { lifecycleSeq: '5', nodeVersion: '9' } },   // 活跃墓碑（>全部字段版本）
+    }, '9');
+    const out = await service.getProcessSnapshot('w1');
+    expect(out.nodes.map((n: any) => n.id)).not.toContain('n2');   // 修前：n2 照出（红）
+    expect(out.nodes.map((n: any) => n.id)).toContain('n3');       // 非墓碑节点保留
+  });
+
+  it('★四读径①-红 缩略图走投影 artifact.mediaId（doc data.fileId 陈旧面让位）——修前走 f1（红）', async () => {
+    setupFeed({
+      n2: { artifact: { mediaId: 'f2', artifactRev: 7, nodeVersion: '12' } },   // 新产物（T22 后 doc 不再写 fileId——投影为权威）
+    }, '12');
+    prisma.media.findMany = vi.fn().mockResolvedValue([
+      { id: 'f1', thumbnailKey: 'thumbnails/f1.webp' },
+      { id: 'f2', thumbnailKey: 'thumbnails/f2.webp' },
+    ]);
+    const out = await service.getProcessSnapshot('w1');
+    const n2 = out.nodes.find((n: any) => n.id === 'n2')!;
+    expect(n2.data.thumbnailUrl).toBe('http://minio/presigned');   // presign mock 恒定值——改断言 media 查询集
+    expect(prisma.media.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: ['f2'] } } }));   // 修前：in:['f1']（红）
+  });
+
+  it('★四读径①-红 缓存键第四维 :p<projectionSeq>（feedSeq 水位——键漂移=投影更新触发失效）+meta 指针随行', async () => {
+    const cache = setupFeed({}, '9');
+    await service.getProcessSnapshot('w1');
+    const setCalls = (service as any).redis.set.mock.calls as unknown[][];
+    const bodyKey = `videoWork:process:w1:v${CANVAS_DOC_SCHEMA_VERSION}:g1:r3:p9`;
+    expect(setCalls.some((c) => c[0] === bodyKey)).toBe(true);   // 修前：键无 :p9 段（红）
+    const metaCall = setCalls.find((c) => (c[0] as string).endsWith(':meta'))!;
+    expect(JSON.parse(metaCall[1] as string)).toMatchObject({ generation: 1, snapshotRev: '3', projectionSeq: '9' });   // 修前：meta 无 projectionSeq（红）
+    // 同水位二次读=命中零折叠（latestFeedSeq 校准读后 meta→体键直出）
+    await service.getProcessSnapshot('w1');
+    expect((service as any).collabDoc.readCanvasSnapshotCached).toHaveBeenCalledTimes(1);
+    // 键漂移：投影前进（feedSeq 9→12）→以当前水位拼键=新键 miss→重建（旧键 TTL 收尾）
+    setupFeed({}, '12');
+    (service as any).redis.get = vi.fn(async (k: string) => cache.get(k) ?? null);
+    (service as any).redis.set = vi.fn(async (k: string, v: string) => { cache.set(k, v); return 'OK'; });
+    await service.getProcessSnapshot('w1');
+    const setCalls2 = (service as any).redis.set.mock.calls as unknown[][];
+    expect(setCalls2.some((c) => c[0] === `videoWork:process:w1:v${CANVAS_DOC_SCHEMA_VERSION}:g1:r3:p12`)).toBe(true);
+    expect((service as any).collabDoc.readCanvasSnapshotCached).toHaveBeenCalledTimes(1);   // 二代 mock 计数（重建恰一次）
+  });
+
+  it('四读径① 键轨道单源：体键 g/r/p 段与 shared formatPublicSnapshotCacheKey 段逐段等值（workId 首段形态=键轨等价注记）', async () => {
+    setupFeed({}, '9');
+    await service.getProcessSnapshot('w1');
+    const { formatPublicSnapshotCacheKey } = await import('@flowweb/shared');
+    const shared = formatPublicSnapshotCacheKey({ projectId: 'p1', generation: 1, snapshotRev: '3', projectionSeq: '9' });
+    const sharedTail = shared.split(':').slice(2).join(':');   // g1:r3:p9（public-snapshot:<pid>: 之后段）
+    const setCalls = (service as any).redis.set.mock.calls as unknown[][];
+    expect(setCalls.some((c) => (c[0] as string).endsWith(`:${sharedTail}`))).toBe(true);
+  });
+
+  it('四读径① feed 读失败=降级零 join 照出（快照可用性优先——投影缺席不 500）', async () => {
+    setupFeed({}, '9');
+    (service as any).runtimeFeed = { snapshotEnvelope: vi.fn().mockRejectedValue(new Error('feed down')) };
+    const out = await service.getProcessSnapshot('w1');
+    expect(out.nodes.map((n: any) => n.id)).toContain('n2');   // 降级=doc-only 照出（不 500）
+    expect(out.nodes.map((n: any) => n.id)).toContain('n3');
+  });
+});
+

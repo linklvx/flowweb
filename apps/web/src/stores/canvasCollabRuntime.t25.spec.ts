@@ -39,20 +39,35 @@ vi.mock('@/collab/local-cache-key', async (importOriginal) => ({
 import { purgeForeignCaches, purgePidCaches } from '@/collab/local-cache-key';
 
 /** closeout C-1：信封导出窗测试闸（挂起 buildDraftEnvelope——模拟导出/IDB 删的异步窗；
- *  默认不挂=直通〔其余用例零扰动〕）。vi.hoisted：vi.mock 工厂提升后闭包可达。 */
+ *  默认不挂=直通〔其余用例零扰动〕）。T25b 扩展：calls=M-R2 镜像腿导出观测；failWith=
+ *  M-R4 export 抛错注入（doc 并发销毁竞态形态）。vi.hoisted：vi.mock 工厂提升后闭包可达。 */
 const exportGate = vi.hoisted(() => ({
   gate: null as null | { promise: Promise<void>; release: () => void },
+  calls: [] as unknown[][],
+  failWith: null as null | Error,
 }));
 vi.mock('@/collab/rejected-recovery', async (importOriginal) => {
   const orig = await importOriginal<typeof import('@/collab/rejected-recovery')>();
   return {
     ...orig,
     buildDraftEnvelope: async (...args: Parameters<typeof orig.buildDraftEnvelope>) => {
+      exportGate.calls.push(args);
+      if (exportGate.failWith) { const e = exportGate.failWith; exportGate.failWith = null; throw e; }
       if (exportGate.gate) await exportGate.gate.promise;
       return orig.buildDraftEnvelope(...args);
     },
   };
 });
+
+/** T25b M-R2：接收侧 BroadcastChannel harness——bindReevaluateOnce 模块级一次挂（首个 initCollab
+ *  构造唯一接收实例），文件级注册表跨用例可达（per-test 局部类捕获不到首挂实例）。 */
+const bcHarness = vi.hoisted(() => ({ instances: [] as Array<{ onmessage: unknown }> }));
+class HarnessBroadcastChannel {
+  onmessage: unknown = null;
+  constructor() { bcHarness.instances.push(this); }
+  postMessage() {}
+  close() {}
+}
 
 const META = { collabGeneration: 3, collabSchemaVersion: 2, viewerUid: 'u1' };
 const lastInstance = () => (HocuspocusProvider as any).instances.at(-1) as any;
@@ -120,6 +135,8 @@ beforeEach(() => {
   vi.mocked(purgeForeignCaches).mockClear();
   vi.mocked(purgePidCaches).mockClear();
   exportGate.gate = null;
+  exportGate.failWith = null;
+  exportGate.calls.length = 0;
   FakeHocuspocusProvider.resetSockets();
   kit = createFakeIndexedDb();
   vi.stubGlobal('indexedDB', kit.fake);
@@ -129,6 +146,7 @@ beforeEach(() => {
     storage: { persist: vi.fn(async () => true), estimate: vi.fn(async () => ({ usage: 1, quota: 1_000_000 })) },
   });
   vi.stubGlobal('location', { reload: reloadSpy });
+  vi.stubGlobal('BroadcastChannel', HarnessBroadcastChannel);   // M-R2：首挂接收实例可观测（send 侧各用例局部类覆盖不扰）
   stubBlobUrls();
 });
 afterEach(async () => {
@@ -367,6 +385,101 @@ describe('T25 收口批 I-1+I-2：4406 面 purge-on-bump（h 失效路径+boot �
   });
 });
 
+// ══════════ T25b M-R1（Controller 硬化追加）：resync 相位守卫 ══════════
+// kickNow（visibilitychange/online）与 assertHealthy（3s watchdog）在 resyncing 相位让位
+// （不重排旧 provider——导出/重建窗内任何 kick 都是同 doc SS2 毒重放面）；teardownSession
+// 的 await 缝（supervisor.teardown→provider.destroy await 间 module provider 仍旧实例）同覆盖。
+describe('T25b M-R1：resync 相位守卫（kickNow/assertHealthy 让位+teardown await 缝）', () => {
+  it('★mr1-1 4411 resync 导出窗内回前台 kick（visibilitychange→kickNow）零 connectOnce——修前 kick 排程连旧 provider（红）', async () => {
+    setSupervisorJitterForTest(() => 0);
+    const p = await driveToSynced();
+    (p.cfg.document as Y.Doc).getMap('nodes').set('n-poison', seedNode('poison'));
+    let release!: () => void;
+    exportGate.gate = { promise: new Promise<void>((r) => { release = r; }), release: () => release() };
+    const before = FakeHocuspocusProvider.socketsConstructed();
+    p.emit('close', { event: { code: 4411, reason: 'frame-malformed' } });
+    await vi.advanceTimersByTimeAsync(50);
+    // 导出窗内（旧 provider 未拆）：回前台 kick——修前 phase 无 resyncing 档=kickNow 排程
+    // 0-3s jitter timer（jitter=0 即刻）→connectOnce 连旧 provider=同 doc 毒重放面
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('online'));
+    await vi.advanceTimersByTimeAsync(3_500);
+    expect(FakeHocuspocusProvider.socketsConstructed()).toBe(before);   // 修前：+1（红）
+    expect(lastInstance()).toBe(p);
+    release();
+    exportGate.gate = null;
+    // 释放后 resync 重建照常（守卫不吞新 provider 首连——重建完成形态归 closeout-1/红① 既有断言；
+    // 此处不追加尾断言：sha256 真实异步在满池载下微任务冲刷窗不稳定=脆弱断言面）
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+  }, 20_000);
+
+  it('★mr1-2 watchdog assertHealthy 在 resyncing 相位让位（offline 电平下零排程）', async () => {
+    setSupervisorJitterForTest(() => 0);
+    const p = await driveToSynced();
+    (p.cfg.document as Y.Doc).getMap('nodes').set('n-poison', seedNode('poison'));
+    let release!: () => void;
+    exportGate.gate = { promise: new Promise<void>((r) => { release = r; }), release: () => release() };
+    const before = FakeHocuspocusProvider.socketsConstructed();
+    p.emit('close', { event: { code: 4411, reason: 'frame-malformed' } });
+    await vi.advanceTimersByTimeAsync(50);
+    useCanvasStore.setState({ connStatus: 'offline' });   // watchdog 出手前置（assertHealthy 谓词）
+    await vi.advanceTimersByTimeAsync(3_500);             // 3s watchdog tick 窗
+    expect(FakeHocuspocusProvider.socketsConstructed()).toBe(before);   // 修前：stalled 排程 connectOnce（红）
+    useCanvasStore.setState({ connStatus: 'connecting' });
+    release();
+    exportGate.gate = null;
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+  }, 20_000);   // 满池并行载下 fake-timer 冲刷窗真实耗时超 vitest 默认 5s（隔离绿为凭）
+});
+
+// ══════════ T25b M-R4：4406 恢复序列逐档降级（export 抛错不得跳过清 h/purge/通告） ══════════
+describe('T25b M-R4：handleClientOutdatedRecovery 逐档降级', () => {
+  it('★mr4-1 export 抛错（doc 并发销毁竞态形态）→清 h+purge+history-bump 通告+reload 序列照常——修前 export throw 短路后续全步（红）', async () => {
+    const posted: Array<Record<string, unknown>> = [];
+    class CapBroadcastChannel {
+      onmessage: unknown = null;
+      postMessage(m: Record<string, unknown>) { posted.push(m); }
+      close() {}
+    }
+    vi.stubGlobal('BroadcastChannel', CapBroadcastChannel);
+    // 协议版本取唯一值：sessionStorage reload 键跨用例残留（前序 4406 用例已写 :1 键——同键会走
+    // collabEscapePending 分支不 reload）
+    vi.stubGlobal('fetch', vi.fn(async () => ({ json: async () => ({ collabProtocolVersion: 'mr4-unique', reason: '' }) })));
+    exportGate.failWith = new Error('doc destroyed');   // 首次 buildDraftEnvelope reject（竞态形态注入）
+    const p = await driveToSynced();
+    p.emit('stateless', { payload: JSON.stringify({ type: 'auth-receipt', historyId: 'h-mr4', protocolVersion: 1, schemaVersion: 3 }) });
+    expect(loadPersistedHistoryId()).toBe('h-mr4');
+    p.emit('close', { event: { code: 4406, reason: 'client-outdated' } });
+    await vi.advanceTimersByTimeAsync(6_500);
+    // 修前：exportRecoveryEnvelope throw →knownHistoryId/localStorage/purge/broadcast 全部短路（红）
+    expect(loadPersistedHistoryId()).toBeNull();
+    expect(vi.mocked(purgePidCaches)).toHaveBeenCalledWith('u1', 'p1');
+    expect(posted.some((m) => m?.type === 'collab-recovery' && m?.kind === 'history-bump')).toBe(true);
+    expect(reloadSpy).toHaveBeenCalledTimes(1);   // handleVersionTerminal 强刷照常达
+  }, 20_000);   // AbortSignal.timeout 真实钟+满池并行载——vitest 默认 5s 池载超限（隔离绿为凭）
+});
+
+// ══════════ T25b M-R2：history-bump 镜像腿（接收端 sibling 尽力导出）——修前零测试 ══════════
+describe('T25b M-R2：history-bump 接收端（镜像腿）', () => {
+  it('★mr2-1 他 tab history-bump 通告→本 tab 清 h+purge+尽力导出信封（窄双故障窗 sibling 编辑 salvage）——修前接收端零导出（红）', async () => {
+    const callsBefore = exportGate.calls.length;
+    const p = await driveToSynced();
+    const recv = bcHarness.instances[0];   // bindReevaluateOnce 首挂接收实例（模块级一次）
+    expect(recv?.onmessage).toEqual(expect.any(Function));   // 修前覆盖基线：接收面在位（zero-test 面即此处）
+    p.emit('stateless', { payload: JSON.stringify({ type: 'auth-receipt', historyId: 'h-mirror', protocolVersion: 1, schemaVersion: 3 }) });
+    expect(loadPersistedHistoryId()).toBe('h-mirror');
+    // sibling 编辑在 doc（窄双故障窗：bump 通告到达时本 tab 尚有未上行内容）
+    (p.cfg.document as Y.Doc).getMap('nodes').set('n-sib', seedNode('sib'));
+    (recv.onmessage as (ev: { data: unknown }) => void)({ data: { type: 'collab-recovery', pid: 'p1', kind: 'history-bump' } });
+    await vi.advanceTimersByTimeAsync(50);
+    expect(loadPersistedHistoryId()).toBeNull();                                        // 自清 h（I-1+I-2 既有）
+    expect(vi.mocked(purgePidCaches)).toHaveBeenCalledWith('u1', 'p1');                  // IDB 族自清（既有）
+    expect(exportGate.calls.length).toBeGreaterThan(callsBefore);   // ★修前：接收端零导出（红）——M-R2 sibling salvage
+  });
+});
+
 describe('T25 收口批 M-2：恢复三入口互斥（reload timer 清+initCollab kind 守卫）', () => {
   it('★closeout-9a g3→g4→g1 单会话序列：上跳排 reload 后下跳 server-restored 清 pending reload timer（禁 reload 覆盖只读 recovery）', async () => {
     const p = await driveToSynced();   // g_client=3
@@ -391,5 +504,71 @@ describe('T25 收口批 M-2：恢复三入口互斥（reload timer 清+initColla
     latest.emit('close', { event: { code: 4411, reason: 'frame-malformed' } });
     await vi.advanceTimersByTimeAsync(150);
     expect(useCanvasStore.getState().recoveryPending?.kind).toBe('server-restored');   // 修前：reset null（红）
+  });
+});
+
+// ══════════ T25b 面 B：deny-escape 信封载体+resumeFromRecovery 出口（B1/B4 接线闭环） ══════════
+describe('T25b B1/B4：恢复裁定面数据源+出口', () => {
+  it('★b1-1 deny-escape 进入→recoveryPending.envelope 在位（内存副本=裁定面数据源）+envelopeNodeCount 一致——修前电平无 envelope 载体（红）', async () => {
+    let p = await driveToSynced();
+    for (let i = 0; i < 3; i++) {
+      (p.cfg.document as Y.Doc).getMap('nodes').set(`n-draft-${i}`, seedNode(`draft-${i}`));   // 每轮在当期 doc 写内容（resync 重建后 fresh doc——保证第 3 次进入时信封非空）
+      p.emit('close', { event: { code: 4411, reason: 'frame-malformed' } });
+      await vi.advanceTimersByTimeAsync(50);
+      p = lastInstance();   // resync 重建后迭代新实例（④ 用例同款）
+    }
+    const st = useCanvasStore.getState();
+    expect(st.recoveryPending?.kind).toBe('deny-escape');
+    expect(st.recoveryPending?.envelopeNodeCount).toBeGreaterThan(0);
+    expect(st.recoveryPending?.envelope?.nodes.length).toBe(st.recoveryPending!.envelopeNodeCount);   // 修前：envelope 键缺失（红）
+    expect(st.recoveryPending?.envelope?.projectId).toBe('p1');
+  });
+
+  it('★b4-1 resumeFromRecovery→recoveryPending 清零+denyTracker 回 normal+supervisor 出 terminal 重连（B4 接线闭环出口）', async () => {
+    let p2 = await driveToSynced();
+    for (let i = 0; i < 3; i++) {
+      p2.emit('close', { event: { code: 4411, reason: 'frame-malformed' } });
+      await vi.advanceTimersByTimeAsync(50);
+      p2 = lastInstance();
+    }
+    expect(useCanvasStore.getState().recoveryPending?.kind).toBe('deny-escape');
+    const before = FakeHocuspocusProvider.socketsConstructed();
+    runtime.resumeFromRecovery();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(useCanvasStore.getState().recoveryPending).toBeNull();   // 修前：无出口函数（红——import 即红，此处行为锚）
+    expect(FakeHocuspocusProvider.socketsConstructed()).toBeGreaterThan(before);   // supervisor.resume+connectOnce（重连预算恢复）
+    expect(diagReasons()).toContain('recovery-resumed');
+  });
+});
+
+// ══════════ T25b B2：boot 合并异常提示接线（不阻断——DRAFT_MERGE_ANOMALY_KINDS 生产接通） ══════════
+describe('T25b B2：boot 合并后异常检测', () => {
+  const snapshotOf = (build: (d: Y.Doc) => void): Uint8Array => {
+    const d = new Y.Doc();
+    d.getMap('meta').set('schemaVersion', 2);
+    build(d);
+    return Y.encodeStateAsUpdate(d);
+  };
+  const orderNode = (id: string, order: string): Y.Map<any> => new Y.Map<any>([
+    ['type', 'textInput'],
+    ['position', new Y.Map([['x', 0], ['y', 0]])],
+    ['data', new Y.Map([['v', id], ['order', order]])],
+  ]);
+  const REC = (over: Partial<import('@/collab/local-collab-cache').LocalCacheRecord>): import('@/collab/local-collab-cache').LocalCacheRecord => ({
+    tabId: 'seed', snapshot: new Uint8Array([1]), stateVector: new Uint8Array([1]), savedSeq: 0,
+    unsyncedDirty: false, diverged: false, at: 1_000, ...over,
+  });
+
+  it('★b2-1 双 tab 同层同 order 键合并→draftMergeAnomalies 置位（duplicate-order×2）+boot 照常不阻断（两节点都在）——修前电平恒 null（红）', async () => {
+    const KEY = buildLocalCacheKey({ uid: 'u1', pid: 'p1', generation: 3, schemaVersion: 2 });
+    kit.data.set(KEY, new Map<string, import('@/collab/local-collab-cache').LocalCacheRecord>([
+      ['tab-a', REC({ tabId: 'tab-a', snapshot: snapshotOf((d) => { d.getMap('nodes').set('node-a', orderNode('a', 'o1')); }), unsyncedDirty: true })],
+      ['tab-b', REC({ tabId: 'tab-b', snapshot: snapshotOf((d) => { d.getMap('nodes').set('node-b', orderNode('b', 'o1')); }), unsyncedDirty: true })],
+    ]));
+    await driveToSynced();
+    const st = useCanvasStore.getState();
+    expect(st.nodes.map((n: any) => n.id)).toContain('node-a');   // 不阻断（并集照常回放——两 tab 节点都在）
+    expect(st.nodes.map((n: any) => n.id)).toContain('node-b');
+    expect(st.draftMergeAnomalies).toMatchObject({ 'duplicate-order': 2 });   // 修前：恒 null（红）
   });
 });

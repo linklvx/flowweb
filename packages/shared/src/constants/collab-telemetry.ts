@@ -60,7 +60,13 @@ export const TELEMETRY_DETAIL_SCHEMA: Readonly<Record<CollabTelemetryEventType, 
     from: { sink: 'metric:collab_telemetry_ws_transition_total{from,to}', values: ['connecting', 'connected', 'disconnected'] },
     to: { sink: 'metric:collab_telemetry_ws_transition_total{from,to}', values: ['connecting', 'connected', 'disconnected'] },
     // Y1c T25（§8.1 恢复流）：+五恢复档 reason（census ⑬ 受控值域登记——resync/deny-escape/server-restored/retry-after/generation-stale）
-    reason: { sink: 'metric:collab_telemetry_ws_reason_total{reason}', values: ['unsynced-lag', 'local-cache-degraded', 'local-cache-preserved-foreign-dirty', 'recovery-resync', 'recovery-deny-escape', 'recovery-server-restored', 'recovery-retry-after', 'recovery-generation-stale'] },
+    // T25b 面 B/C 追加四值：recovery-outdated-degraded（M-R4 4406 逐档降级——step 键随行）/
+    // recovery-resumed（B4 denyTracker.recoveryComplete+supervisor.resume 出口）/recovery-accepted
+    //（B5 管理员接受）/boot-merge-anomaly（B2 boot 合并异常检测命中——kinds 键随行）
+    reason: { sink: 'metric:collab_telemetry_ws_reason_total{reason}', values: ['unsynced-lag', 'local-cache-degraded', 'local-cache-preserved-foreign-dirty', 'recovery-resync', 'recovery-deny-escape', 'recovery-server-restored', 'recovery-retry-after', 'recovery-generation-stale', 'recovery-outdated-degraded', 'recovery-resumed', 'recovery-accepted', 'boot-merge-anomaly'] },
+    // T25b：M-R4 降级档 step（export/clear-h/purge/broadcast）/B2 异常 kind 清单——log-only 观测面
+    step: { sink: 'log-only' },
+    kinds: { sink: 'log-only' },
     // Y0b-5 T2（控制器裁决——裁定 24 SLO 通道）：hydration/reconnect 时长经 ws_status detail 扩键上送
     // （仅随迁移事件携带：hydration={from:'connecting',to:'connected'}=initCollab→ready /
     //  reconnect={from:'disconnected',to:'connected'}=掉线→authenticated——12 值封闭不新增 type）。

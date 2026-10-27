@@ -1,10 +1,13 @@
 // 空壳，构造签名一次到位——后续任务只加方法、不动构造/providers，spec 文件从创建起就 provide 全部依赖、永不需要二次编辑
-import { Injectable, Inject, BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, NotFoundException, ServiceUnavailableException, Logger } from '@nestjs/common';
 import { ThrottlerException } from '@nestjs/throttler';
 import { OnEvent } from '@nestjs/event-emitter';
 import { createHash } from 'crypto';
 import { toPublicSnapshot } from './snapshot-filter.util';
-import { formatCanvasReadETag, type CanvasReadModel, type CanvasReadSnapshot } from '@flowweb/shared';
+import {
+  composeRenderModel, formatCanvasReadETag, formatPublicSnapshotCacheKey,
+  type CanvasReadModel, type CanvasReadSnapshot, type CanvasRenderModel,
+} from '@flowweb/shared';
 import { CreateVideoWorkDto } from './dto/create-video-work.dto';
 import { UpdateVideoWorkDto } from './dto/update-video-work.dto';
 import { PresignVideoDto } from './dto/presign-video.dto';
@@ -14,11 +17,14 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
+import { RuntimeFeedService } from '../collab/runtime-feed.service';
 import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import Redis from 'ioredis';
 
 @Injectable()
 export class VideoWorkService {
+  private readonly logger = new Logger(VideoWorkService.name);   // T25b 四读径①：join 降级告警面
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,             // @Global
     @Inject(MinioService) private readonly minio: MinioService,                 // @Global（presign + removeWork/updateWork 域分治对象清理——Task 5 红线改写）
@@ -26,6 +32,7 @@ export class VideoWorkService {
     @Inject(RateLimiterService) private readonly rateLimiter: RateLimiterService, // Task 4.2 view 限流
     @Inject(CollabDocumentService) private readonly collabDoc: CollabDocumentService, // Task 5.3 快照 readCanvas（详情端点禁用）
     @Inject(StorageQuotaService) private readonly quota: StorageQuotaService, // presignVideo 平台配额闸（Task 2）
+    @Inject(RuntimeFeedService) private readonly runtimeFeed: RuntimeFeedService, // T25b 四读径①：公开快照 projection join 读面
   ) {}
 
   // —— 类型（改类型后删缓存（tags 公开端无缓存，无需失效），spec §4.2 categories 缓存失效） ——
@@ -39,9 +46,11 @@ export class VideoWorkService {
    *  spec §5.3——键首段=作品 id（workId；Redis 键空间按作品隔离+delProcessCacheFamily 精确删族的
    *  既有语义），pid 维经 w.canvasProjectId 映射进 g/r 段（doc 水位同源）；T22 四读径①公开快照
    *  projection join 落地时第四维 projectionSeq（feedSeq 水位——shared formatPublicSnapshotCacheKey
-   *  单源）沿本键轨追加，workId 首段形态维持（作品级隔离语义优先于 spec 字面键序——键轨等价注记）。 */
-  private static readonly PROCESS_CACHE = (id: string, generation: number, snapshotRev: string) =>
-    `videoWork:process:${id}:v${CANVAS_DOC_SCHEMA_VERSION}:g${generation}:r${snapshotRev}`;
+   *  单源）沿本键轨追加，workId 首段形态维持（作品级隔离语义优先于 spec 字面键序——键轨等价注记）。
+   *  T25b 四读径①承接落地：g/r/p 三段=shared formatPublicSnapshotCacheKey 尾段单源拼接（键轨道
+   *  漂移由 shared 单点锁——键序等价注记见上）。 */
+  private static readonly PROCESS_CACHE = (id: string, generation: number, snapshotRev: string, projectionSeq: string) =>
+    `videoWork:process:${id}:v${CANVAS_DOC_SCHEMA_VERSION}:${formatPublicSnapshotCacheKey({ projectId: id, generation, snapshotRev, projectionSeq }).split(':').slice(2).join(':')}`;
 
   /** Y1c T19：meta 指针键（id→当前体键 g/r——命中档免 doc 读；失效=模式删族 v*）。 */
   private static readonly PROCESS_META = (id: string) => `videoWork:process:${id}:v${CANVAS_DOC_SCHEMA_VERSION}:meta`;
@@ -210,8 +219,8 @@ export class VideoWorkService {
       const metaRaw = await this.redis.get(metaKey);
       const keys = [metaKey];
       if (metaRaw) {
-        const m = JSON.parse(metaRaw) as { generation: number; snapshotRev: string };
-        keys.push(VideoWorkService.PROCESS_CACHE(id, m.generation, m.snapshotRev));
+        const m = JSON.parse(metaRaw) as { generation: number; snapshotRev: string; projectionSeq?: string };
+        keys.push(VideoWorkService.PROCESS_CACHE(id, m.generation, m.snapshotRev, m.projectionSeq ?? '0'));   // T25b：第四维随 meta（同键轨删）
       }
       await this.redis.del(...keys);
     } catch (e) {
@@ -331,9 +340,16 @@ export class VideoWorkService {
   }
 
   /** 产物缩略图 URL 表（Y1c T19：sanitize 前从读模型收集 fileId〔服务端字段组——D9 中间态直读至
-   *  T22 切投影〕→ presign；注入归 toPublicSnapshot 的 thumbnailUrls 参——注入键不进公开白名单）。 */
-  async computeThumbnailUrls(model: CanvasReadModel): Promise<Record<string, string>> {
-    const fileIds = [...new Set(model.nodes.map(n => (n.data as Record<string, unknown> | undefined)?.fileId).filter((f): f is string => !!f))];
+   *  T22 切投影〕→ presign；注入归 toPublicSnapshot 的 thumbnailUrls 参——注入键不进公开白名单）。
+   *  T25b 四读径①：消费面=join 后的 render model——媒体身份取**投影 artifact.mediaId 优先**
+   *  （T22 后 doc 不再写 fileId：data.fileId 是陈旧面，投影槽 nodeVersion 大者胜后的 artifact 为
+   *  权威；无投影槽节点回落 doc fileId=D9 中间态兼容）。 */
+  async computeThumbnailUrls(model: CanvasRenderModel | CanvasReadModel): Promise<Record<string, string>> {
+    const fileIds = [...new Set(model.nodes.map(n => {
+      const artifact = (n as { runtime?: { artifact?: { mediaId?: string } } }).runtime?.artifact?.mediaId;
+      if (typeof artifact === 'string' && artifact !== '') return artifact;   // 投影槽权威
+      return (n.data as Record<string, unknown> | undefined)?.fileId;        // 回落 doc（中间态/无槽节点）
+    }).filter((f): f is string => !!f))];
     if (fileIds.length === 0) return {};
     const medias = await this.prisma.media.findMany({ where: { id: { in: fileIds } }, select: { id: true, thumbnailKey: true } });
     const urlById = new Map<string, string>();
@@ -342,7 +358,8 @@ export class VideoWorkService {
     }));
     const out: Record<string, string> = {};
     for (const n of model.nodes) {
-      const fid = (n.data as Record<string, unknown> | undefined)?.fileId;
+      const artifact = (n as { runtime?: { artifact?: { mediaId?: string } } }).runtime?.artifact?.mediaId;
+      const fid = typeof artifact === 'string' && artifact !== '' ? artifact : (n.data as Record<string, unknown> | undefined)?.fileId;
       if (typeof fid === 'string' && urlById.has(fid)) out[n.id] = urlById.get(fid)!;
     }
     return out;
@@ -361,14 +378,29 @@ export class VideoWorkService {
     // 快照不剥任何节点（spec:228 保留节点/data 白名单剥；剥除仅克隆差异 D9）——第八轮裁定。
     // 缓存键轨 (pid,g,snapshotRev)：meta 指针键（id→当前 {g,r}）先行——命中档不触 doc 读
     // （体键按 g/r 拼——换代/compact 发版天然换键空间，旧键 TTL 收尾）。
+    // T25b 四读径①承接（plan :337——FOUR_READ_PATHS.publicSnapshot 冻结注记落地）：①发布时服务端
+    // join RuntimeProjection（composeRenderModel——feed 墓碑节点剔除+artifact 媒体身份权威；
+    // 一致性口径=投影滞后面按 merge 规则 nodeVersion 大者胜，不可用未提交投影——snapshotEnvelope
+    // RepeatableRead 已提交态）；②缓存键第四维 projectionSeq=feedSeq 水位（(pid,g,rev) 三元会拼
+    // 「旧文档+新图片」——投影前进即键漂移触发失效）。**漂移校准=latestFeedSeq 单行读前置**
+    //（RuntimeFeedCursor 一行——meta 命中档若以 meta 内旧 projectionSeq 拼键会屏蔽漂移=陈旧体
+    // 恒命中；以当前水位拼键：水位前进⇒键变⇒miss⇒重建，水位不变⇒命中零折叠成本）。feed 读失败=
+    // 降级 doc-only 照出（快照可用性优先，投影缺席不 500——告警可观测；TTL 300s 兜陈旧上界）。
     const metaKey = VideoWorkService.PROCESS_META(id);
+    let projectionSeq: string | null = null;
+    try {
+      const latest = await this.runtimeFeed.latestFeedSeq(w.canvasProjectId);
+      if (typeof latest === 'bigint') projectionSeq = latest.toString();
+    } catch { /* feed 不可达——水位不可知，走降级档（meta 体照出=TTL 兜陈旧） */ }
     const metaRaw = await this.redis.get(metaKey);
     if (metaRaw) {
       // T19 双评审 Q-M-5：meta 损坏值守卫（读路径无 try/catch ⇒ 损坏即 /process 500 直至 TTL——
       // 视为 miss 即愈走重建；delProcessCacheFamily 同款容错语义）。
       try {
-        const m = JSON.parse(metaRaw) as { generation: number; snapshotRev: string };
-        const body = await this.redis.get(VideoWorkService.PROCESS_CACHE(id, m.generation, m.snapshotRev));
+        const m = JSON.parse(metaRaw) as { generation: number; snapshotRev: string; projectionSeq?: string };
+        // 水位已知=以当前水位拼键（漂移=miss 重建）；水位不可知（feed 降级档）=meta 内水位兜（可用性优先）
+        const seq = projectionSeq ?? m.projectionSeq ?? '0';
+        const body = await this.redis.get(VideoWorkService.PROCESS_CACHE(id, m.generation, m.snapshotRev, seq));
         if (body) return JSON.parse(body);
       } catch (e) {
         console.error('[video-work] process 缓存 meta 损坏（视 miss 重建——TTL/失效事件兜底）', { id, error: e });
@@ -376,19 +408,37 @@ export class VideoWorkService {
     }
     const snap = await this.withTimeout(this.collabDoc.readCanvasSnapshotCached(w.canvasProjectId), 5000);
     const etag = formatCanvasReadETag(snap);   // ETag=read model 新鲜度=pgSeq（与缓存体同生同灭——命中档整包返回）
-    const cacheKey = VideoWorkService.PROCESS_CACHE(id, snap.generation, snap.snapshotRev);
+    // 四读径① join：投影缺席/读失败档=空投影 compose（等值 doc-only——降级不 500）
+    let renderModel: CanvasRenderModel;
+    try {
+      const envelope = await this.runtimeFeed.snapshotEnvelope(w.canvasProjectId);
+      projectionSeq = envelope.snapshot.feedSeq;   // 折叠体自身水位（≥前置读——键/体原子同源）
+      renderModel = composeRenderModel(snap.model, envelope.snapshot);
+    } catch (e) {
+      this.logger.warn(`[video-work] 公开快照 projection join 降级（doc-only 照出——feed 读失败）workId=${id}: ${(e as Error).message}`);
+      projectionSeq = projectionSeq ?? '0';
+      renderModel = composeRenderModel(snap.model, { projectId: w.canvasProjectId, generation: snap.generation, feedSeq: '0', pgSeq: snap.pgSeq, nodes: {} });
+    }
+    const cacheKey = VideoWorkService.PROCESS_CACHE(id, snap.generation, snap.snapshotRev, projectionSeq);
 
     // Y0b-2 T3（§3.2 只读展示）：快照出口 readCanvasSnapshotCached——谓词门（isPersistedComplete
     // 不满足→活读 fallback）+进程内 TTL 单飞；不经 openDirectConnection/装载（谓词满足档）。
     // 陈旧度=去抖窗级（spec §9.9）。503 语义条件式（T3 后）：谓词满足（drain 冲刷完成）⇒快照照常；
     // drain 进行中（spool 有帧）⇒fallback 活读撞租约门 503——可达性边界 T9 登记。
-    const thumbnailUrls = await this.computeThumbnailUrls(snap.model);
-    const filtered = toPublicSnapshot(snap.model, {
+    const thumbnailUrls = await this.computeThumbnailUrls(renderModel);
+    // runtime overlay（execStatus/artifact——exec 尝试计数/存储 resultRef 等非公开面）剥除后进
+    // toPublicSnapshot：join 的公开消费面=墓碑剔除+缩略图媒体身份；服务端派生域不随公开 wire 出
+    //（红线同 data 键白名单纪律——resultRef=存储引用族与 storageKey 同级禁公开）。
+    const sanitized = toPublicSnapshot({
+      nodes: renderModel.nodes.map(({ runtime: _runtime, ...rest }) => rest),
+      edges: renderModel.edges,
+    }, {
       dropTypes: [], resetStatusIdle: false, thumbnailUrls,
     });
+    const filtered = sanitized;
     const result = { workId: id, title: w.title, ...filtered, etag };
     await this.redis.set(cacheKey, JSON.stringify(result), 'EX', 300); // TTL 300s（§4.6）——E71：跨进程层（etag 随缓存体——水位与内容原子配对）
-    await this.redis.set(metaKey, JSON.stringify({ generation: snap.generation, snapshotRev: snap.snapshotRev }), 'EX', 300);   // 体键先行——meta 后置（防 meta 指向缺体窗口）
+    await this.redis.set(metaKey, JSON.stringify({ generation: snap.generation, snapshotRev: snap.snapshotRev, projectionSeq }), 'EX', 300);   // 体键先行——meta 后置（防 meta 指向缺体窗口）
     // E71（Y0b-2 T8）：进程内 SnapshotDocCache 层跨请求存活（TTL 单飞——T3 的"处理完成后即时失效"随
     // 双层化退役）；两层失效统一归 canvas.doc-saved 事件（onCanvasDocSaved 双清）+updateWork/removeWork 写路径。
     return result;

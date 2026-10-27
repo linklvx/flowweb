@@ -25,7 +25,7 @@ import {
   SS2_OVER_LIMIT_TERMINAL_REASON,
 } from '@flowweb/shared';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { escapeWithLocalExport, safeReload, getDoc, discardLocalDiverged, exportDivergedContent } from '@/stores/canvasCollabRuntime';
+import { escapeWithLocalExport, safeReload, getDoc, discardLocalDiverged, exportDivergedContent, acceptServerRestoredRecovery } from '@/stores/canvasCollabRuntime';
 import { exportLocalBackup } from '@/collab/canvas-local-backup';
 import { loginUrl } from '@/utils/loginRedirect';
 
@@ -110,10 +110,14 @@ export interface CanvasBannerInput {
   localCacheReady: boolean;
   collabEscapePending: boolean;
   readyProbeHint: string | null;
+  /** T25b B3：恢复模式电平（deny-escape/server-restored——supervisor terminal 粘住态）。 */
+  recoveryPending: { kind: 'deny-escape' | 'server-restored'; envelopeNodeCount: number } | null;
+  /** T25b B2：boot 合并异常报告（非空=提示档——不阻断零动作承诺）。 */
+  draftMergeAnomalies: Partial<Record<string, number>> | null;
 }
 
 export type CanvasBannerBranch =
-  | ({ kind: 'terminal-auth' | 'escape-pending' | 'ss2-over-limit' | 'diverged' | 'oversized' | 'degraded' | 'persist'
+  | ({ kind: 'terminal-auth' | 'escape-pending' | 'recovery-pending' | 'merge-anomaly' | 'ss2-over-limit' | 'diverged' | 'oversized' | 'degraded' | 'persist'
       | 'write-frozen' | 'pending-backlog' | 'sync-lag' | 'conn-ui' } & BannerContent)
   | { kind: 'quota-terminal' }   // 渲染权=QuotaBanner（单链仲裁位次仍生效——压 diverged 以下全档）
   | null;
@@ -161,6 +165,42 @@ export function resolveCanvasBanner(input: CanvasBannerInput): CanvasBannerBranc
   }
   // C1：escape 独立高位分支——terminal 鉴权档之后、配额终态之前（逃生阻断是最高运营优先的即时状态）
   if (input.collabEscapePending) return escapePendingBranch();
+  // T25b B3：恢复模式横幅——escape 之后、配额终态之前（recovery 模式=supervisor terminal 粘住态
+  // 连接已停+用户/管理员裁定动作待做=高运营位）。deny-escape=打开裁定面；server-restored=只读
+  // 档告知+管理员接受（B5——REST 门 OWNER/ADMIN，非管理员点击由服务端 403 告知）。
+  if (input.recoveryPending) {
+    if (input.recoveryPending.kind === 'deny-escape') {
+      return {
+        kind: 'recovery-pending', tone: 'error', text: `多次同步被拒，已切换恢复模式（草稿 ${input.recoveryPending.envelopeNodeCount} 节点已导出）`,
+        action: (
+          <button
+            type="button"
+            data-testid="recovery-open-btn"
+            onClick={() => useCanvasStore.getState().setRecoveryPanelOpen(true)}
+            className="shrink-0 px-3 h-7 rounded-lg bg-overlay-3 hover:bg-overlay-2 text-text text-xs border border-overlay-2"
+          >
+            打开草稿裁定
+          </button>
+        ),
+      };
+    }
+    return {
+      kind: 'recovery-pending', tone: 'error', text: `服务端数据回退，已进入只读恢复模式（草稿 ${input.recoveryPending.envelopeNodeCount} 节点已导出）`,
+      action: (
+        <button
+          type="button"
+          data-testid="recovery-accept-btn"
+          onClick={() => {
+            const pid = useCanvasStore.getState().projectId;
+            if (pid) void acceptServerRestoredRecovery(pid);
+          }}
+          className="shrink-0 px-3 h-7 rounded-lg bg-overlay-3 hover:bg-overlay-2 text-text text-xs border border-overlay-2"
+        >
+          接受服务端恢复态（管理员）
+        </button>
+      ),
+    };
+  }
   if (input.wsAuthNotice) return { kind: 'terminal-auth', tone: 'warn', text: '服务繁忙，正在自动重试…' };
   if (input.wsQuotaTerminal) {
     // Y0b-5 T6（裁定 25⑸①）：ss2-over-limit=客户端本地超额（服务端 doc 往往小——瘦身指引治不了
@@ -195,6 +235,13 @@ export function resolveCanvasBanner(input: CanvasBannerInput): CanvasBannerBranc
   if (input.syncLagOver60s) return { kind: 'sync-lag', tone: 'warn', text: '同步延迟较高，请导出本地副本' };
   if (input.connUi === 'banner') return { kind: 'conn-ui', tone: 'warn', text: '连接已断开，正在自动重连…' };
   if (input.connUi === 'hint') return { kind: 'conn-ui', tone: 'info', text: '连接不稳定，正在自动重连…' };
+  // T25b B2：boot 合并提示档——链尾最低位（连接态横幅不因提示档被压——提示零动作承诺不阻断；
+  // 连接健康时可见即达）。kind×计数逐项可见（DRAFT_MERGE_ANOMALY_NON_BLOCKING 冻结语义=
+  // 不阻断不回滚不写回，正常收敛）。
+  if (input.draftMergeAnomalies && Object.keys(input.draftMergeAnomalies).length > 0) {
+    const parts = Object.entries(input.draftMergeAnomalies).map(([k, n]) => `${k}×${n}`).join('、');
+    return { kind: 'merge-anomaly', tone: 'info', text: `多标签合并完成，检测到结构异常（${parts}）——不影响内容收敛` };
+  }
   return null;
 }
 
@@ -212,10 +259,13 @@ export function SyncBanner() {
   const syncLagOver60s = useCanvasStore((s) => s.syncLagOver60s);
   const pendingBacklog = useCanvasStore((s) => s.pendingBacklog);
   const localCacheReady = useCanvasStore((s) => s.localCacheReady);
+  const recoveryPending = useCanvasStore((s) => s.recoveryPending);
+  const draftMergeAnomalies = useCanvasStore((s) => s.draftMergeAnomalies);
 
   const branch = resolveCanvasBanner({
     connUi, wsAuthNotice, wsQuotaTerminal, writeFrozen, collabEscapePending, readyProbeHint,
     canvasDiverged, canvasOversized, canvasDegraded, persistUnhealthy, syncLagOver60s, pendingBacklog, localCacheReady,
+    recoveryPending, draftMergeAnomalies,
   });
   // quota-terminal 渲染权=QuotaBanner（独立组件同挂载点——单链仲裁位次仍压制本组件全档）
   if (!branch || branch.kind === 'quota-terminal') return null;

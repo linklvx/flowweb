@@ -110,6 +110,11 @@ export const GEOMETRY_SETSTATE_TEST_ALLOWLIST = [
   'src/stores/canvasIntents.t16-xml-domains.spec.ts',
   'src/stores/canvasIntents.t17-array-domains.spec.ts',
   'src/stores/canvasCollabRuntime.t18.spec.ts',
+  'src/stores/canvasCollabRuntime.t25.spec.ts',
+  // T25b（2026-10-28）：B1 裁定面装置+四读径③ 粘贴接线装置（recoveryPending/envelope/裁定电平
+  // 直构——setState 是用例存在目的〔T9/T4/T11 同例外〕；两处登记与 geometryTrap.test.ts 锚③同批）。
+  'src/pages/canvas/components/RecoveryPanel.test.tsx',
+  'src/stores/canvasStore.t25b-binding.spec.ts',
 ];
 
 /** 棘轮基线（lint-gate 输出报数；锚测试 apps/web/src/stores/geometryTrap.test.ts 锚③同口径）。 */
@@ -164,7 +169,7 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   //   +2——diverged 档盘上导出分档+ss2 档对照注入，存量 allow-list 文件，store 注入是用例的
   //   存在目的〔同 T9/T4/T11 例外〕；+2 破线首次暴露 T8 时 t8.spec allow-list 漏列——上方位组
   //   同批补登，O0b-4「报数≤基线不进破线分支从未暴露」先例）→ 306 处 / 54 文件。
-  effective: { count: 318, files: 60 },   // Y1c T25：+1 处/+1 文件（canvasCollabRuntime.t25.spec.ts——resync-full/逃生口/4410 三分客户端接线用例 resetStore 装置复位——sanctioned 例外同模式）
+  effective: { count: 331, files: 62 },   // T25b：+13 处/+2 文件（RecoveryPanel.test 2——B1 逐字段裁定面装置；canvasStore.t25b-binding.spec 1——四读径③ 粘贴→BindMedia 接线装置；SyncBanner.test 存量 +7——B3/B2 横幅分档注入；canvasCollabRuntime.t25.spec 存量 +3——M-R1 watchdog 电平/M-R4 装置/B1 信封载体断言——sanctioned 例外同模式，与 geometryTrap.test.ts 锚③ 331/62 同口径）   // Y1c T25：+1 处/+1 文件（canvasCollabRuntime.t25.spec.ts——resync-full/逃生口/4410 三分客户端接线用例 resetStore 装置复位——sanctioned 例外同模式）
 };
 // T18 补登（2026-10-22）：canvasG34.readonlyCommands.test.ts +3 处/1 新文件（T17 G34 只读门
 // census 表装置——readonly 面直构 store 状态，setState 是用例的存在目的；T17 落地漏登记
