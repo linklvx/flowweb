@@ -286,6 +286,10 @@ model MaintenanceOperation { maintenanceId String @id  projectId String
   （已登记人工对账面，补此档：ExecutionRequest EXECUTING∧item UNKNOWN 的 runbook 处置步骤）。
 - **M-8(quality)**：collectExecFinalize 只扫 RUNNING——UNKNOWN 档删节点不义务化（冻结交人工对账，与
   UNKNOWN 纪律自洽：不自动重呼=不自动收口）→登记注记（行为面有意，非缺陷）。
+- **C-1 理论残窗（复核注记 2026-10-27）**：sweep CAS（state LIVE→SWEEPING）到 minio.delete 的单 RTT 窗内
+  新 claim() 可复活 SWEEPING 行（claim 无条件接管——T23 形态）——当前唯一 claimant=video 物化链
+  （上传秒-分钟级窗内不会对同一 content-addressed 键重 claim，结构性不可达）；彻底闭合=claim 对
+  SWEEPING 行拒让/排队（或 delete 前二次行态复核）→**Y2/GC 变体需求池**（非本批缺陷）。
 
 ### Task 24: 收缩 FrameGate+最终矩阵激活（v1.6：删候选验证与 patch 路线）
 **Files:** collab-frame-gate（T9 基础上扩语义面）；xml-schema.ts（T5c 白名单消费）

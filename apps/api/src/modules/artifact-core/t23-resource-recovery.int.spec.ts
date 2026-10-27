@@ -293,7 +293,10 @@ const balanceFrozenOf = async () => {
   });
 
   // ── C-1（收口批）：GC 清扫 TOCTOU——删除动作以删除时点谓词为准（select 后窗：候选谓词只在
-  //    SELECT 评估一次，逐行 MinIO IO 秒级窗内新代 claim 同键/锚定先行=误删在飞对象）。 ──
+  //    SELECT 评估一次，逐行 MinIO IO 秒级窗内新代 claim 同键/锚定先行=误删在飞对象）。
+  //    红形态注记（T23 复核 2026-10-27）：本两例红=seam 装置差异（修前 sweepOrphans 旧签名忽略
+  //    afterSelect 注入参——spy 注入不生效使红因非「保护态行为差」）；行为差由 quality 探针补证：
+  //    旧码对在位新 claim 行仍 minio.delete+置 DELETED=误删实锤。 ──
   it('C-1 红①：select 后新代 claim 同键（在位未过）——对象不得删+行不被 DELETED', async () => {
     const key = `artifacts/${TID}/toctou-claim-${Date.now()}/0-k`;
     const owner = `materialize:${randomUUID().slice(0, 8)}`;
