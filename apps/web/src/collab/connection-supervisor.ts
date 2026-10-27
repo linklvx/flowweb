@@ -220,6 +220,17 @@ export class CollabConnectionSupervisor {
     this.connectOnce();
   }
 
+  /** Y1c T25（4413 maintenance-freeze Retry-After 消费）：重排已排程的重连 timer——仅对
+   *  在飞 waiting 档生效（terminal 无 timer；无 timer=已连/未排程零动作）。语义=覆盖 short 档
+   *  默认 1s（重连循环反复撞冻结门防线——Retry-After 语义非指数阶梯）。 */
+  rescheduleReconnect(ms: number): boolean {
+    if (this._phase === 'terminal' || this.timer === null) return false;
+    clearTimeout(this.timer);
+    this.lastScheduledMs = ms;
+    this.timer = setTimeout(() => this.onTimerFire(), ms);
+    return true;
+  }
+
   /** 公开 kick 入口（bindReevaluateOnce 的 online/visibilitychange(可见) 接线）：0-3s jitter 排程；
    *  已排程/terminal/在飞 attempt → 忽略（false）。 */
   kickNow(): boolean {

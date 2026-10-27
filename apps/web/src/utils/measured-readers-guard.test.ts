@@ -56,7 +56,8 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     // Y1c T17：媒体列表域 ensureArrayDomainDefaults 复合（前半批 addNode/addChildNode 两构造点 +4；
     // 后半批补齐 addChildNodes/transform/addNodeAndBatchConnect 三构造点 +6）——13 行漂移至
     // 1051..1912（集合不变——域键缺省预填不改 measured 读者集）
-    'stores/canvasStore.ts': [1051, 1052, 1058, 1059, 1122, 1123, 1201, 1202, 1208, 1209, 1368, 1911, 1912],
+    // Y1c T25：recoveryPending 字段两处插入（interface +4/初始值 +1）——13 行整体 +5 漂移（集合不变）
+    'stores/canvasStore.ts': [1056, 1057, 1063, 1064, 1127, 1128, 1206, 1207, 1213, 1214, 1373, 1916, 1917],
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [53, 54],  // Y1c T1：注释+import 插入 +4 漂移
     'pages/canvas/video-editor/export/product-node.ts': [16],  // Y1c T1：import 插入 +1 漂移

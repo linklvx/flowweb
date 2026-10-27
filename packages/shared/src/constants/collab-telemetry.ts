@@ -59,7 +59,8 @@ export const TELEMETRY_DETAIL_SCHEMA: Readonly<Record<CollabTelemetryEventType, 
     // from/to 值域=runtime:134 库 status 机三值闭集（T0 审查 I-1：sink 是 metric label——无 values 域则任意串穿 sanitize 直达 label）
     from: { sink: 'metric:collab_telemetry_ws_transition_total{from,to}', values: ['connecting', 'connected', 'disconnected'] },
     to: { sink: 'metric:collab_telemetry_ws_transition_total{from,to}', values: ['connecting', 'connected', 'disconnected'] },
-    reason: { sink: 'metric:collab_telemetry_ws_reason_total{reason}', values: ['unsynced-lag', 'local-cache-degraded', 'local-cache-preserved-foreign-dirty'] },
+    // Y1c T25（§8.1 恢复流）：+五恢复档 reason（census ⑬ 受控值域登记——resync/deny-escape/server-restored/retry-after/generation-stale）
+    reason: { sink: 'metric:collab_telemetry_ws_reason_total{reason}', values: ['unsynced-lag', 'local-cache-degraded', 'local-cache-preserved-foreign-dirty', 'recovery-resync', 'recovery-deny-escape', 'recovery-server-restored', 'recovery-retry-after', 'recovery-generation-stale'] },
     // Y0b-5 T2（控制器裁决——裁定 24 SLO 通道）：hydration/reconnect 时长经 ws_status detail 扩键上送
     // （仅随迁移事件携带：hydration={from:'connecting',to:'connected'}=initCollab→ready /
     //  reconnect={from:'disconnected',to:'connected'}=掉线→authenticated——12 值封闭不新增 type）。

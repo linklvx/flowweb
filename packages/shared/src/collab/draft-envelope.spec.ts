@@ -9,12 +9,13 @@ import {
   DraftFieldConflict, DraftAdjudication, DRAFT_FIELD_CHOICE_DEFAULT,
   resolveAdjudicatedFieldValues, DRAFT_ADJUDICATION_NO_AUTO_REPLAY, DRAFT_NO_THREE_WAY_MERGE,
   NODE_ID_CONFLICT_POLICIES,
+  NODE_ID_CONFLICT_DEFAULT_POLICY, resolveImportNodeConflicts, type ImportNodeDisposition,
   DraftContentCounts, DraftDroppedRefs, DraftNotRestoredNotice, DRAFT_IMPORT_NOT_RESTORED,
   DRAFT_MERGE_ANOMALY_KINDS, DraftMergeAnomalyKind,
 } from './draft-envelope';
 
 describe('Y1c T5c 契约冻结：DraftEnvelope 类型化导出清单（§4.5——非 CRDT update 裸字节）', () => {
-  it('键集精确冻结：draftId/projectId/generation/schemaVersion/capturedAt/tabId/nodes/edges/meta/hashes 十键', () => {
+  it('键集精确冻结（T25 修正 #9 扩 historyId）：draftId/projectId/generation/schemaVersion/historyId/capturedAt/tabId/nodes/edges/meta/hashes 十一键', () => {
     const node: CanvasNodeSnapshot = {
       id: 'n1', type: 'imageGen', position: { x: 0, y: 0 },
       data: { prompt: { $yjs: 'xml', json: [] } },
@@ -25,6 +26,7 @@ describe('Y1c T5c 契约冻结：DraftEnvelope 类型化导出清单（§4.5—�
       projectId: 'p1',
       generation: 3,
       schemaVersion: 3,
+      historyId: 'hist-1',           // T25 修正 #9（确认点① 裁定 #9）：捕获纪元——跨纪元导入归 C 场景
       capturedAtMs: 1_727_000_000_000,
       tabId: 'tab-a',
       nodes: [node],
@@ -33,7 +35,7 @@ describe('Y1c T5c 契约冻结：DraftEnvelope 类型化导出清单（§4.5—�
       hashes: { nodes: 'a'.repeat(64), edges: 'b'.repeat(64) },
     };
     expect(Object.keys(env).sort()).toEqual([
-      'capturedAtMs', 'draftId', 'edges', 'generation', 'hashes', 'meta',
+      'capturedAtMs', 'draftId', 'edges', 'generation', 'hashes', 'historyId', 'meta',
       'nodes', 'projectId', 'schemaVersion', 'tabId',
     ]);
     // nodes/edges=T4 canonical 快照类型复用（禁重抄第二份形状）
@@ -133,6 +135,28 @@ describe('Y1c T5c 契约冻结：C 场景确认面三行+nodeId 冲突处置（i
   });
   it('nodeId 冲突处置枚举：skip|replace 二值（用户选——nodeId 稳定不重映射，不自动改 ID）', () => {
     expect([...NODE_ID_CONFLICT_POLICIES]).toEqual(['skip', 'replace']);
+  });
+});
+
+describe('Y1c T25 修正 #9（确认点① 裁定 #9）：C 场景逐节点冲突+默认 skip', () => {
+  it('默认策略冻结=skip（逐节点冲突无用户选择时默认跳过——不自动改 ID 不自动替换）', () => {
+    expect(NODE_ID_CONFLICT_DEFAULT_POLICY).toBe('skip');
+  });
+  it('逐节点裁定：冲突节点默认 skip、显式 replace 替换、非冲突节点恒 import——出互斥三分派', () => {
+    const existing = new Set(['n-exist', 'n-both']);
+    const envelopeNodes = ['n-new', 'n-both', 'n-exist'];
+    // 无逐节点选择（默认全 skip）
+    const def = resolveImportNodeConflicts(existing, envelopeNodes);
+    const byId = (r: ImportNodeDisposition[]) => Object.fromEntries(r.map((d) => [d.nodeId, d.disposition]));
+    expect(byId(def)).toEqual({ 'n-new': 'import', 'n-both': 'skip', 'n-exist': 'skip' });
+    // 显式 replace（用户选——替换既有节点）
+    const replaced = resolveImportNodeConflicts(existing, envelopeNodes, { 'n-both': 'replace' });
+    expect(byId(replaced)).toEqual({ 'n-new': 'import', 'n-both': 'replace', 'n-exist': 'skip' });
+  });
+  it('负控：非冲突节点的显式选择不生效（replace 仅对冲突面有意义——无冲突恒 import）', () => {
+    const existing = new Set(['n-exist']);
+    const r = resolveImportNodeConflicts(existing, ['n-new'], { 'n-new': 'skip' });
+    expect(r[0]).toEqual({ nodeId: 'n-new', disposition: 'import' });
   });
 });
 

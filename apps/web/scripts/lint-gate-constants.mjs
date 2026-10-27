@@ -164,7 +164,7 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   //   +2——diverged 档盘上导出分档+ss2 档对照注入，存量 allow-list 文件，store 注入是用例的
   //   存在目的〔同 T9/T4/T11 例外〕；+2 破线首次暴露 T8 时 t8.spec allow-list 漏列——上方位组
   //   同批补登，O0b-4「报数≤基线不进破线分支从未暴露」先例）→ 306 处 / 54 文件。
-  effective: { count: 317, files: 59 },
+  effective: { count: 318, files: 60 },   // Y1c T25：+1 处/+1 文件（canvasCollabRuntime.t25.spec.ts——resync-full/逃生口/4410 三分客户端接线用例 resetStore 装置复位——sanctioned 例外同模式）
 };
 // T18 补登（2026-10-22）：canvasG34.readonlyCommands.test.ts +3 处/1 新文件（T17 G34 只读门
 // census 表装置——readonly 面直构 store 状态，setState 是用例的存在目的；T17 落地漏登记

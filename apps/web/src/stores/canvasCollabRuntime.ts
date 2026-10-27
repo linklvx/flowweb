@@ -8,7 +8,18 @@
 // ⚠️ 循环依赖裁定（同 canvasStore.ts）：顶层仅 import 声明/函数定义/纯常量。
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
-import { CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, CollabCloseCode, resolveCloseAction, isTerminalReason, CollabAuthReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, SS2_OVER_LIMIT_TERMINAL_REASON, TEAM_DISBANDED_TERMINAL_REASON, isCollabDocStatusPayload, isCollabConnStatusPayload } from '@flowweb/shared';
+import { CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, CollabCloseCode, resolveCloseAction, isTerminalReason, CollabAuthReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, SS2_OVER_LIMIT_TERMINAL_REASON, TEAM_DISBANDED_TERMINAL_REASON, isCollabDocStatusPayload, isCollabConnStatusPayload, SERVER_RESTORED_TERMINAL_REASON, CLIENT_OUTDATED_REASON, resolveRecoveryAction, Y1C_RECOVERY_DISPATCH_TIERS, type DraftEnvelope } from '@flowweb/shared';
+// Y1c T25（§8.1 拒帧恢复+恢复模式）：rejected-recovery 模块（REJECTED/DIVERGED 状态机+DraftEnvelope
+// 类型化导出+#g docName 镜像+historyId 半链）——本模块只做会话接线，机构归彼。
+import {
+  collabDocNameOf, parseAuthReceipt, parseY1cClosePayload,
+  loadPersistedHistoryId, persistHistoryId, appendHistoryParam,
+  buildDraftEnvelope, downloadDraftEnvelope, RecoveryDenyTracker,
+  broadcastRecoveryState, type Y1cClosePayload,
+} from '@/collab/rejected-recovery';
+// T25：per-tab 记录属主 id（信封 tabId 维）+REST 项目 meta 取 g（generation-stale 客户端链）。
+import { getCollabTabId } from '@/collab/local-collab-cache';
+import { apiFetch } from '@/api/client';
 import isEqual from 'fast-deep-equal';
 import { message } from 'antd';
 import { useCanvasStore, computeStoryboardCellsPatch } from './canvasStore';
@@ -521,6 +532,21 @@ interface CollabSession {
 }
 let session: CollabSession | null = null;
 let sessionEpoch = 0;
+
+// ── Y1c T25（§8.1 拒帧恢复+恢复模式）：恢复态（模块级——跨 resync 会话重建存活）──
+/** T9 客户端半链：当前纪元 historyId（auth-receipt 回执/持久化双源——URL h= 参数上行消费）。 */
+let knownHistoryId: string | null = null;
+/** 重复 DENY 逃生口状态机（N=3 次 4411→recovery 模式——shared 转移单源；模块级跨会话存活，
+ *  页面 reload 自然复位）。 */
+const denyTracker = new RecoveryDenyTracker();
+/** stateless 前置 Y1c close 载荷（hardClose 前尽力投递——close 帧只携短串 reason；retryAfterMs/
+ *  generation 等结构化字段在此；close 消费后清）。 */
+let pendingY1cClosePayload: Y1cClosePayload | null = null;
+/** resync-full 单飞（close handler 事件面可重入——并发触发只执行一次重建）。 */
+let resyncInFlight = false;
+/** resync 恢复环内 initCollab 豁免 deny 计数复位（连续 deny 跨 resync 存活——达阈值才切 recovery）。 */
+let denyPreserveAcrossInit = false;
+denyTracker.onRecoveryMode = () => { void enterDenyEscape(); };
 // Y0b-5 T4（裁定 23⑦）：armSession 一次性 latch——同 epoch 二次触发（自愈后 re-synced 等）不重复
 // 注册 observeDeep/awarenessBridge（投影工作量翻倍防线）；initCollab 会话起点复位（新会话可武装）。
 let armedEpoch: number | null = null;
@@ -734,6 +760,140 @@ export const recovery = {
     } finally { recovering = false; }
   },
 };
+
+// ── Y1c T25（§8.1）：恢复动作三入口+信封导出 ─────────────────────────────────────────────
+
+/** DraftEnvelope 类型化导出（恢复链统一保全步——B 场景裁定面/换代离线保全双用途）：
+ *  空 doc=0 节点跳过（无可保全内容）。返回内容节点数（store recoveryPending 电平载体）。 */
+async function exportRecoveryEnvelope(): Promise<number> {
+  if (!session || !doc) return 0;
+  const envelope: DraftEnvelope | null = await buildDraftEnvelope({
+    doc,
+    projectId: session.pid,
+    generation: session.collabGeneration ?? 0,
+    schemaVersion: session.collabSchemaVersion ?? CANVAS_DOC_SCHEMA_VERSION,
+    historyId: knownHistoryId ?? '',   // 首连前无回执=空串随行（#9 纪元可检测）
+    tabId: getCollabTabId(),
+  });
+  if (!envelope) return 0;
+  try { downloadDraftEnvelope(envelope); } catch { /* 下载失败不阻断恢复主链（信封重建可再试） */ }
+  return envelope.nodes.length;
+}
+
+/** resync-full（4411/4412 拒帧恢复——重置到服务端状态，零本地增量重放）：
+ *  ①信封类型化导出保全被拒内容（用户裁定面）②删本 tab 缓存记录（毒增量禁随 boot 回放复活）
+ *  ③initCollab 全会话重建（fresh doc——服务端 SS2 种子；他 tab 记录并集照常=场景 A 语义）。
+ *  单飞+fire-and-forget（close handler 事件面不 await）。 */
+async function resyncFull(): Promise<void> {
+  if (resyncInFlight || !session) return;
+  resyncInFlight = true;
+  try {
+    recordCollabDiag('ws_status', { reason: 'recovery-resync' });
+    const pid = session.pid;
+    const meta: CollabSessionMeta = {
+      viewerUid: session.viewerUid,
+      collabGeneration: session.collabGeneration,
+      collabSchemaVersion: session.collabSchemaVersion,
+    };
+    await exportRecoveryEnvelope();
+    try { await localCache?.deleteOwnRecord(); } catch { /* fail-soft——记录留存时 boot 并集再拒再 resync（有界循环） */ }
+    denyPreserveAcrossInit = true;   // resync 环内 deny 计数保序（见 initCollab 边界复位注）
+    await initCollab(pid, meta);   // 内含 teardownSession（旧 provider/doc 拆除）
+  } catch {
+    // 重建失败=下次 close/auth 面自然重试（supervisor 重连兜底）；禁在此另起循环
+  } finally {
+    resyncInFlight = false;
+  }
+}
+
+/** deny-escape（N=3 次 4411 逃生口——§8.1「导出→重置→用户裁定导入」禁无限重连循环）：
+ *  recovery 模式粘住（重连预算停发）+信封导出+多标签通告。退出仅经用户完成裁定导入
+ *  （recoveryPending UI 动作→denyTracker.recoveryComplete）。 */
+async function enterDenyEscape(): Promise<void> {
+  if (!session) return;
+  recordCollabDiag('ws_status', { reason: 'recovery-deny-escape' });
+  supervisor.terminalDisconnect('recovery-mode');   // 重连预算停发（恢复模式粘住）
+  const nodeCount = await exportRecoveryEnvelope();
+  useCanvasStore.setState({ recoveryPending: { kind: 'deny-escape', envelopeNodeCount: nodeCount } });
+  broadcastRecoveryState({ type: 'collab-recovery', pid: session.pid, kind: 'deny-escape' });
+  message.warning('多次同步被拒，已切换恢复模式：草稿已导出，请通过恢复导入完成裁定');
+}
+
+/** server-restored 只读 recovery（4410 三分第三档/世代下跳——g_client>g_server PITR 回退形态）：
+ *  **不清缓存不 reload**（§8.1/裁定 v5-14——导出→reload=静默丢接受路径反例）——只读电平+信封
+ *  导出+多标签通告；裁定接受=admin 侧 REST recovery import（管理员裁定接受）。 */
+async function enterServerRestoredRecovery(): Promise<void> {
+  if (!session || useCanvasStore.getState().recoveryPending?.kind === 'server-restored') return;
+  recordCollabDiag('ws_status', { reason: 'recovery-server-restored' });
+  supervisor.terminalDisconnect('server-restored');   // 重连=再撞同门（世代回退态 auth/close 循环）
+  const nodeCount = await exportRecoveryEnvelope();
+  useCanvasStore.setState({
+    recoveryPending: { kind: 'server-restored', envelopeNodeCount: nodeCount },
+    collabReadOnly: true,   // 只读 recovery 电平（编辑禁用——fail-closed）
+  });
+  broadcastRecoveryState({ type: 'collab-recovery', pid: session.pid, kind: 'server-restored' });
+  message.warning('检测到服务端数据回退，已进入只读恢复模式：草稿已导出，请联系管理员裁定');
+}
+
+/** auth 拒因 generation-stale（T12 世代载体客户端链）：REST 取当前 g（DB 真值——R3 注记禁信
+ *  载荷串/本地推断）→换代通道（信封导出→purge→reload=全会话重建，reload 后 fetchProjectMeta
+ *  取新 g→provider 以新 #g 名重连）。 */
+async function handleGenerationStale(): Promise<void> {
+  if (!session) return;
+  const pid = session.pid;
+  recordCollabDiag('ws_status', { reason: 'recovery-generation-stale' });
+  try {
+    const project = await apiFetch<{ collabGeneration?: number | null }>(`/projects/${encodeURIComponent(pid)}`);
+    if (typeof project?.collabGeneration === 'number' && project.collabGeneration !== session.collabGeneration) {
+      useCanvasStore.setState({ pendingGenerationReload: project.collabGeneration });
+    }
+  } catch { /* REST 不可达→pendingGenerationReload 维持 0——reload 后 meta 链再取（不阻断重建） */ }
+  await exportRecoveryEnvelope();
+  const generationCacheKey = session.cacheKey;
+  const generationTag = useCanvasStore.getState().pendingGenerationReload;
+  safeReload('generation', { generationCacheKey, generationTag });
+}
+
+/** Y1c 四码+4410 三分客户端分派（修正 #7——先经 resolveRecoveryAction，禁落通用 backoff）。
+ *  close handler 在 supervisor.routeClose（排程/终态簿记）之后调用本分派——排程语义由本分派
+ *  按档覆盖（4413 Retry-After 重排/4410·deny-escape 终态化/4411·4412 resync 重建）。 */
+function dispatchY1cClose(code: number | undefined, reason: string | undefined): void {
+  if (code === undefined) return;
+  if (!(code in Y1C_RECOVERY_DISPATCH_TIERS) && code !== CollabCloseCode.GENERATION_SUPERSEDED) return;
+  const action = resolveRecoveryAction({ code, reason });
+  switch (action) {
+    case 'resync-full': {   // 4411/4412（4411 计数入逃生口——4412 自愈面不计）
+      if (code === CollabCloseCode.FRAME_MALFORMED) {
+        denyTracker.deny4411();
+        if (denyTracker.snapshot.mode === 'recovery') return;   // 边沿回调 enterDenyEscape 已接管
+      }
+      void resyncFull();
+      return;
+    }
+    case 'retry-after-maintenance': {   // 4413——Retry-After 覆盖 short 档默认 1s（禁反复撞冻结门）
+      const retryAfterMs = pendingY1cClosePayload?.retryAfterMs;
+      if (typeof retryAfterMs === 'number' && retryAfterMs > 1_000) {
+        supervisor.rescheduleReconnect(retryAfterMs);
+        recordCollabDiag('ws_status', { reason: 'recovery-retry-after', ms: retryAfterMs });
+      } else {
+        recordCollabDiag('ws_status', { reason: 'recovery-retry-after', ms: 1_000 });
+      }
+      return;
+    }
+    case 'force-refresh-protocol':   // 4406——强刷通道（version 探测 reload 自愈/逃生）
+      void handleVersionTerminal();
+      return;
+    case 'readonly-recovery-user-adjudication':   // 4410 server-restored——只读 recovery（不清缓存）
+      void enterServerRestoredRecovery();
+      return;
+    case 'reconnect-new-generation':   // 4410 doc-generation-stale——全会话重建（既有换代通道）
+    case 'export-draft-then-clear':    // 4410 doc-vacuuming——换代通道（T18 族导出+purge+reload）
+      void exportRecoveryEnvelope();   // 信封类型化导出随既有 .yjs 双产物（raw 族保全=T18 链）
+      return;
+    case 'backoff-retry':
+      return;   // 非 Y1c 面（防御性——上层过滤已保证）
+  }
+}
 
 /** Y0b-3 T9（P-C）：版本终态自愈——loop 保护键=观测到的服务端协议版本（/api/ready 单次探测——
  *  authenticationFailed 拒绝帧无 message 通道）。可自愈（同版本未刷过 ∧ 无未同步编辑）→sessionStorage
@@ -1640,6 +1800,8 @@ function bindProviderListeners(p: HocuspocusProvider): void {
   });
   p.on('synced', () => {
     recomputeConnStatus();
+    // Y1c T25：同步成功=deny 计数清零（1-2 次瞬态重置重新起算——recovery 态粘住仅裁定导入退出）
+    denyTracker.syncOk();
     // Y0b-5 T4：迟到 synced 自愈（failed→ready 单驱动 completeHydration——supervisor 恢复路径
     // 自然到达；成功路径此处 hydration='pending' 不触发，armSession 由 initCollab 主路径调用）
     if (useCanvasStore.getState().hydration === 'failed') completeHydration();
@@ -1658,6 +1820,19 @@ function bindProviderListeners(p: HocuspocusProvider): void {
     // 与 feed-hint 同路追平（修前只认 feed-hint=心跳载荷被静默丢弃，「漏通知仅心跳追平」语料断裂）。
     const feedHint = parseFeedHintPayload(payload as string);
     if (feedHint !== null) handleFeedHint(feedHint);
+    // Y1c T9 客户端半链（修正 #8）：auth-receipt 回执——historyId 持久化（次连 h= 上行+信封纪元维）。
+    const receipt = parseAuthReceipt(payload as string);
+    if (receipt) {
+      knownHistoryId = receipt.historyId;
+      persistHistoryId(receipt.historyId);
+      return;
+    }
+    // Y1c T25：Y1c close 前置载荷（hardClose 前尽力投递——结构化字段 retryAfterMs/generation/
+    // discardLocalCache 在此；close 帧消费 dispatchY1cClose 后随 resetY1cCloseStash 清）。
+    const y1cClose = parseY1cClosePayload(payload as string);
+    if (y1cClose && (y1cClose.code in Y1C_RECOVERY_DISPATCH_TIERS || y1cClose.code === CollabCloseCode.GENERATION_SUPERSEDED)) {
+      pendingY1cClosePayload = y1cClose;
+    }
     try {
       const msg = JSON.parse(payload);
       if (isCollabConnStatusPayload(msg)) {
@@ -1695,6 +1870,8 @@ function bindProviderListeners(p: HocuspocusProvider): void {
       // （reload 后新会话首快照即基线）——若误判跳变=刷新循环（T9a 裁定：空 SV 放行不循环）。
       const generationJumped = msg.generation !== undefined
         && lastGeneration !== undefined && msg.generation !== lastGeneration;
+      // T25：下跳判定基线=本快照前的 lastGeneration（下句基线推进在前——先存跳变方向）
+      const generationDropped = generationJumped && msg.generation! < lastGeneration!;
       const quotaOver = msg.quota.state === 'over';
       useCanvasStore.setState({
         lastDocStatusRev: msg.rev,
@@ -1709,7 +1886,13 @@ function bindProviderListeners(p: HocuspocusProvider): void {
       });
       if (msg.generation !== undefined) lastGeneration = msg.generation;   // 基线随守卫内快照推进（旧快照不污染）
       if (quotaOver) recordCollabDiag('write_reject', { reason: 'quota-soft' });
-      if (generationJumped) consumeGenerationJump();   // T11：双路之二（装载后首快照代际跳变）
+      // Y1c T25（4410 三分）：世代**下跳**（msg.generation<lastGeneration——g_client>g_server PITR
+      // 回退形态，真值=服务端 DB 列）=server-restored 只读 recovery（不清缓存不 reload——§8.1；
+      // 修前双向同路 consumeGenerationJump=导出→reload 静默丢接受路径反例）；上跳=换代通道维持。
+      if (generationJumped) {
+        if (generationDropped) void enterServerRestoredRecovery();
+        else consumeGenerationJump();
+      }
     } catch { /* 坏 JSON——非本协议通告 */ }
   });
   // Y0b-3 T9：鉴权拒绝唯一生产写点（改前声明+消费在、写入侧缺失）——reason 分型终态/瞬态
@@ -1721,6 +1904,15 @@ function bindProviderListeners(p: HocuspocusProvider): void {
     const terminal = isTerminalReason(reason);
     useCanvasStore.setState({ wsAuthNotice: { reason, terminal } });
     recordCollabDiag('auth_reject', { reason, terminal });
+    // Y1c T25（T12 世代载体客户端链）：generation-stale=携 #g<目标代> 重连——终态重建非死端。
+    // REST 取当前 g（DB 真值）→信封导出→purge→reload（全会话重建——reload 后 fetchProjectMeta
+    // 取新 g，provider 以新 #g 名重连）。先于 terminal 分派（重建自愈优先于终态 UX）。
+    if (reason === CollabAuthReason.GENERATION_STALE) {
+      terminalSuppressed = true;
+      supervisor.terminalDisconnect(reason);   // 重建窗内停重连（1.5s reload 延时窗防双头）
+      void handleGenerationStale();
+      return;
+    }
     if (terminal) {
       terminalSuppressed = true;
       // 真开关：supervisor.terminalDisconnect（内含 ws.disconnect()——shouldConnect=false，
@@ -1754,6 +1946,11 @@ function bindProviderListeners(p: HocuspocusProvider): void {
       plannedRestartUntil = Date.now() + 30_000;   // 既有 UI 钳制窗（updateConnectionUi 消费）
     }
     const decision = supervisor.routeClose(event?.code, event?.reason);
+    // Y1c T25（修正 #7）：Y1c 四码+4410 三分先经 resolveRecoveryAction 分派——routeClose 的
+    // 排程/终态簿记在前（short 档兜底），本分派按档覆盖（4413 Retry-After 重排/4410·escape 终态
+    // 化/4411·4412 resync 重建）；前置 stateless 载荷消费后清（close 帧为权威边界）。
+    dispatchY1cClose(event?.code, event?.reason);
+    pendingY1cClosePayload = null;
     if (decision.terminal && !decision.already) {
       const reason = decision.terminalReason!;
       // Y0b-4 T11：配额/代际终态走独立 quota 通道（不进 wsAuthNotice auth 词表——plan 钉死；
@@ -1811,11 +2008,19 @@ function bindProviderListeners(p: HocuspocusProvider): void {
 function createProvider(d: Y.Doc): HocuspocusProvider {
   const base = collabUrl();
   const sep = base.includes('?') ? '&' : '?';
-  const url = `${base}${sep}csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}&cb=${__CLIENT_BUILD__}`;   // T24 收口 M-1：sv=客户端编译期 schemaVersion 上行（版本门三元真承载——旧 bundle 无 sv=4406）
+  // T24 收口 M-1：sv=客户端编译期 schemaVersion 上行（版本门三元真承载——旧 bundle 无 sv=4406）。
+  // T25 客户端半链：h=<historyId>（T9 auth-receipt 回执持久化——首连无值不携带=allowFirstConnect
+  // 放行档；次连携带命中硬门三元〔PITR 恢复 bump 后旧 h=4406 强刷〕）。
+  let url = `${base}${sep}csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}&cb=${__CLIENT_BUILD__}`;
+  url = appendHistoryParam(url, knownHistoryId);
+  // T25（T12 世代载体客户端链）：wire docName=#g 规范形（世代真值=fetchProjectMeta collabGeneration
+  // DB 真值——R3 注记禁本地推断；缺省=裸名 gen0 语义，服务端 auth 面权威拒因走恢复通道）。
+  const sessionPid = session?.pid ?? '';
+  const name = session ? collabDocNameOf(session.pid, session.collabGeneration) : `project:${sessionPid}`;
   const { WebSocketClass } = createReconnectingWebSocket(url);
   provider = new HocuspocusProvider({
     url,
-    name: `project:${session?.pid}`,
+    name,
     document: d,
     // 占位 token：触发 Auth 消息流（真鉴权走 WS 握手携带的 httpOnly cookie）
     token: 'cookie-auth',
@@ -1861,6 +2066,23 @@ function bindReevaluateOnce(): void {
     recomputeConnStatus();
     supervisor.kickNow();   // Y0b-5 T3b：上线 kick（飞行模式不烧阶梯——恢复归本事件）
   });
+  // Y1c T25：多标签 BroadcastChannel 接收（同 pid 他 tab 进入恢复态→本 tab 镜像：停重连+同电平。
+  // 他 tab 的 close/auth 面独立收敛——本通道是加速通告非正确性依赖）。feature-detect（旧环境缺席）。
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const ch = new BroadcastChannel('collab-recovery');
+      ch.onmessage = (ev: MessageEvent) => {
+        const m = ev.data as { type?: string; pid?: string; kind?: 'deny-escape' | 'server-restored' };
+        if (m?.type !== 'collab-recovery' || !session || m.pid !== session.pid) return;
+        if (useCanvasStore.getState().recoveryPending) return;   // 已在恢复态（幂等）
+        supervisor.terminalDisconnect(`recovery-${m.kind}`);
+        useCanvasStore.setState({
+          recoveryPending: { kind: m.kind ?? 'deny-escape', envelopeNodeCount: 0 },
+          ...(m.kind === 'server-restored' ? { collabReadOnly: true } : {}),
+        });
+      };
+    }
+  } catch { /* 通道失败不阻断——各 tab close 面独立收敛 */ }
 }
 
 /**
@@ -1869,6 +2091,11 @@ function bindReevaluateOnce(): void {
  * 离线廉价兜底：10s 未 synced 不置 connected、不 apply 空 doc、不抬 hydrate 门——保持不可编辑，UI 层提示重试。
  */
 export async function initCollab(projectId: string, meta?: CollabSessionMeta): Promise<void> {
+  resyncInFlight = false;   // T25：会话边界释放 resync 单飞（initCollab 水合可长 pending——上一轮 resync 的 initCollab 未 settle 不阻断新会话/再 resync）
+  // T25：deny 逃生口计数会话边界复位（新会话=新额度）——resync 恢复环内豁免（denyPreserveAcrossInit
+  // 置位时保序：连续 deny 必须跨 resync 存活否则恢复环永不达阈值=逃生口结构性失效）。
+  if (denyPreserveAcrossInit) { denyPreserveAcrossInit = false; }
+  else { denyTracker.reset(); }
   // Y0b-5 T2：SLO hydration_duration 起点（performance.now 单调钟——armSession 消费；
   // Y0b-5 T4 随 armSession 抽取上移模块级）
   hydrationStartedAt = performance.now();
@@ -1891,6 +2118,9 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
   const metaComplete = typeof meta?.collabGeneration === 'number'
     && typeof meta?.collabSchemaVersion === 'number'
     && typeof meta?.viewerUid === 'string' && meta.viewerUid.length > 0;
+  // Y1c T25：historyId 半链会话播种（持久化值→次连 h= 上行；首连无值=allowFirstConnect 放行档，
+  // auth-receipt 回执到达即 persistHistoryId——本行只在会话起点读一次）。
+  knownHistoryId = loadPersistedHistoryId();
   session = {
     pid: projectId, startedAt: Date.now(), epoch,
     viewerUid: typeof meta?.viewerUid === 'string' && meta.viewerUid ? meta.viewerUid : undefined,
@@ -1917,6 +2147,9 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
     connReadOnly: false, quotaOver: false, quotaLimitBytes: 0, quotaTxBytes: 0, quotaSoftLimitBytes: 0,
     quotaResidueBytes: undefined, lastDocStatusRev: 0, localDocBytes: 0, localDelta: 0, pendingGenerationReload: 0,
     wsQuotaTerminal: null, localCacheReady: false, readyProbeHint: null,
+    // Y1c T25：恢复模式电平会话起点复位（新会话=新额度；deny 计数归零——瞬态重起算；页面 reload
+    // 后 recovery 态自然消散，裁定面在信封文件里不依赖会话态）
+    recoveryPending: null,
     // Y0b-5 T6：横幅单链字段族会话起点复位（diverged 闩锁/邻档/persist 电平/syncLag——会话态不跨会话）
     canvasDiverged: false, canvasOversized: false, canvasDegraded: false, persistUnhealthy: false, syncLagOver60s: false, pendingBacklog: false,   // T8：Σpending 流控档会话起点复位
   });

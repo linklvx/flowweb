@@ -186,3 +186,29 @@ export function fetchRuntimeFeedSnapshot(projectId: string): Promise<RuntimeFeed
 export function fetchRuntimeFeedEvents(projectId: string, after: string, limit: number): Promise<RuntimeFeedEventsEnvelope> {
   return apiFetch<RuntimeFeedEventsEnvelope>(`/collab/runtime-feed/${projectId}/events?after=${encodeURIComponent(after)}&limit=${limit}`);
 }
+
+// ── Y1c T25：DraftEnvelope 恢复导入（client→server 大差量恢复唯一接受路径——§3.2/§4.5）──
+
+export interface RecoveryImportOutcome {
+  confirmation: {
+    contentCounts: { nodeCount: number; edgeCount: number };
+    droppedRefs: { danglingEdges: number; missingParentNodes: number };
+    notRestored: { artifacts: true; executionHistory: true; billingRecords: true };
+  };
+  dispositions: Array<{ nodeId: string; disposition: 'import' | 'skip' | 'replace' }>;
+  resultReplayed: boolean;
+  epoch: { envelopeGeneration: number; envelopeHistoryId: string; crossGeneration: boolean };
+}
+
+/** 恢复导入（POST recovery-import——OWNER/EDITOR+幂等键 draftId+单飞+8MiB fail-closed；
+ *  conflictChoices=逐节点冲突用户选〔#9 默认 skip〕）。 */
+export function importDraftEnvelope(
+  projectId: string,
+  envelope: import('@flowweb/shared').DraftEnvelope,
+  conflictChoices?: Record<string, 'skip' | 'replace'>,
+): Promise<RecoveryImportOutcome> {
+  return apiFetch<RecoveryImportOutcome>(`/collab/doc/${projectId}/recovery-import`, {
+    method: 'POST',
+    body: JSON.stringify({ envelope, conflictChoices }),
+  });
+}

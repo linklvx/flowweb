@@ -11,12 +11,17 @@ import type { CanvasNodeSnapshot, CanvasEdgeSnapshot } from '../canvas/doc-codec
 
 /** 草稿信封（类型化导出清单——**非 CRDT update 裸字节**：nodes/edges=T4 canonical 快照（语义快照，
  *  墓碑/事务壳不随行）；hashes=64hex 内容摘要（sha256 计算点归 T25 web 实现——shared 无 crypto
- *  先例，canonicalPlanHashPayload 同款纪律）。恢复/拒帧/换代三场景共用本载体。 */
+ *  先例，canonicalPlanHashPayload 同款纪律）。恢复/拒帧/换代三场景共用本载体。
+ *  **T25 修正 #9（确认点① 裁定 #9——plan 登记修订通道）**：+historyId（捕获纪元——SystemHistory
+ *  epoch 标识；跨纪元（PITR/bump 后）草稿导入归 C 场景 import-as-new，纪元不构成导入阻断）。 */
 export interface DraftEnvelope {
   draftId: string;
   projectId: string;
   generation: number;
   schemaVersion: number;
+  /** 捕获纪元（SystemHistory historyId——#9：纪元漂移可检测；导入面=C 场景 typed 内容非 CRDT，
+   *  纪元不匹配不拒只随行报告） */
+  historyId: string;
   /** 捕获时刻（epoch ms——stale 判定/审计面） */
   capturedAtMs: number;
   /** 来源标签（per-tab 本地记录的 tab 维度——§3.4 boot mergeUpdates 并集的成员身份） */
@@ -194,6 +199,33 @@ export interface DraftImportConfirmation {
  *  与现有 nodeId 冲突=跳过/替换用户选，**不自动改 ID**〔v5.4〕）。 */
 export const NODE_ID_CONFLICT_POLICIES = ['skip', 'replace'] as const;
 export type NodeIdConflictPolicy = typeof NODE_ID_CONFLICT_POLICIES[number];
+
+/** T25 修正 #9：逐节点冲突默认 skip（无用户选择的冲突节点默认跳过——不自动替换不自动改 ID；
+ *  与 B 场景 DRAFT_FIELD_CHOICE_DEFAULT='current' 同纪律：默认取保守侧〔服务端现态〕）。 */
+export const NODE_ID_CONFLICT_DEFAULT_POLICY: NodeIdConflictPolicy = 'skip';
+
+/** 逐节点三分派（import=新节点导入/skip=冲突跳过/replace=冲突替换——互斥穷尽）。 */
+export type ImportNodeDispositionKind = 'import' | 'skip' | 'replace';
+export interface ImportNodeDisposition {
+  nodeId: string;
+  disposition: ImportNodeDispositionKind;
+}
+
+/** C 场景逐节点冲突裁定（纯函数——T25 修正 #9「C 场景逐节点冲突+默认 skip」）：
+ *  - 非冲突节点（existing 不含）→ 恒 import（显式选择不生效——replace/skip 只对冲突面有意义）；
+ *  - 冲突节点 → 显式选择优先，**未选择=NODE_ID_CONFLICT_DEFAULT_POLICY（skip）**。 */
+export function resolveImportNodeConflicts(
+  existingNodeIds: ReadonlySet<string>,
+  envelopeNodeIds: readonly string[],
+  choices?: Partial<Record<string, NodeIdConflictPolicy>>,
+): ImportNodeDisposition[] {
+  return envelopeNodeIds.map((nodeId) => {
+    if (!existingNodeIds.has(nodeId)) return { nodeId, disposition: 'import' } as const;
+    const chosen = choices?.[nodeId];
+    const disposition: ImportNodeDispositionKind = chosen === 'replace' ? 'replace' : NODE_ID_CONFLICT_DEFAULT_POLICY;
+    return { nodeId, disposition };
+  });
+}
 
 /** C 场景导入纪律注记（服务端候选 doc 全量校验=Schema/权限/图结构/XML 白名单——恢复流程非兼容层；
  *  唯一允许 clone 的场所〔§3.2〕）。 */

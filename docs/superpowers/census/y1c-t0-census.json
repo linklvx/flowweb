@@ -797,7 +797,7 @@
     "title": "⑦ 39 裸 `project:${pid}` docName 构造",
     "conclusion": "实测=39 处（生产代码——与 plan v1.7 声称精确一致）；另有 29 处测试（spec/test 文件）。",
     "productionBreakdown": {
-      "total": 22,
+      "total": 24,
       "yjsDocAddressing": [
         {
           "file": "apps/api/src/modules/collab/collab-persistence.service.ts",
@@ -830,6 +830,14 @@
             26
           ],
           "note": "Y1c T9 projectDocName 单源（构造面本体——㉚ 白名单登记）"
+        },
+        {
+          "file": "apps/web/src/collab/rejected-recovery.ts",
+          "lines": [
+            50,
+            50
+          ],
+          "classification": "web·T25 collabDocNameOf 镜像 ×2（api doc-name.util canvasDocName 的 web 侧单源镜像——gen0 裸名/#g 规范形两分支同行；形态锁测试=rejected-recovery.spec；非散落构造）"
         }
       ],
       "errorMessages": [

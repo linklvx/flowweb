@@ -599,6 +599,7 @@ const ENCODE_WHITELIST = {
   'apps/api/src/modules/canvas/canvas.service.ts': 1,   // Y1c T7：genesis 双路之二建头种子（project.service 同族）
   'apps/web/src/stores/canvasCollabRuntime.ts': 3,
   'apps/web/src/collab/canvas-local-backup.ts': 1,
+  'apps/api/src/modules/collab/collab-recovery-import.service.ts': 3,   // Y1c T25：recovery import 候选 clone 快照/temp diff/commitDiff 三点（唯一 clone 场所——§3.2）
 };
 
 const results = [];
@@ -1146,6 +1147,9 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-project-actor.service.ts': {   // Y1c T16：L1 扫描 URL allowlist 键（模块级 const——COMPACT_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、缺省=空表 deny-all 档、消费面=准入 L1 URL 执法非部署档位）
       COLLAB_XML_URL_HOSTS: 1,
     },
+    'apps/api/src/modules/collab/collab-recovery-import.service.ts': {   // Y1c T25：L1 扫描 URL allowlist 键（模块级 const——actor 同键同族豁免形态：缺省=空表 deny-all、消费面=recovery import 候选校验 L1 URL 执法非部署档位）
+      COLLAB_XML_URL_HOSTS: 1,
+    },
     'apps/api/src/modules/collab/collab-persistence.service.ts': {   // T40 B1：模块级 const 历史豁免 1（COMPACT_INTERVAL_MS——随 Persistence 域自 gateway 迁移，T34 复核保留结论沿承：值经 dotenv 先行在位、无 NODE_ENV 类 default 归一化需求、消费面 compact 判据非部署档位）
       COMPACT_INTERVAL_MS: 1,
     },
@@ -1520,6 +1524,9 @@ if (isMain()) {
     // Y1c T9（2026-10-24）gate 档落地：actor pre-apply 调用点 1（准入链 ⑤——origin=GateApplyOrigin）；
     // 白名单 14+1=15 点/9 文件（gate 档从注释升级为登记条目——Y1c T9 写入方换代）
     'apps/api/src/modules/collab/collab-project-actor.service.ts': 1,   // actor pre-apply（drain 批逐帧——spool 先于 apply）
+    // Y1c T25（写入方换代）：recovery import 档三点——候选 clone 快照 apply（§3.2 唯一 clone 场所）/
+    // temp typed 内容并入候选/commit diff 以 origin='import' 直写 live（全量校验后受控生命周期操作）
+    'apps/api/src/modules/collab/collab-recovery-import.service.ts': 3,
   };
   {
     const occurrences = {};

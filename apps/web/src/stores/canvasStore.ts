@@ -296,6 +296,10 @@ export interface CanvasState {
   /** Y0b-5 T8：Σpending 流控「同步积压」电平（未上行增量>1MB——5s tick 置位 forceSync+横幅
    *  pending-backlog 档；确认归零自动消。状态显示零动作承诺——永不阻塞用户输入） */
   pendingBacklog: boolean;
+  /** Y1c T25（§8.1）：恢复模式电平——deny-escape（N=3 次 4411 逃生口：导出→重置→用户裁定导入，
+   *  重连预算停发）| server-restored（g_client>g_server 只读 recovery：不清缓存+草稿导出+管理员
+   *  裁定）。envelopeNodeCount=已导出信封内容节点数（0=空画布无信封）。会话态不进快照。 */
+  recoveryPending: { kind: 'deny-escape' | 'server-restored'; envelopeNodeCount: number } | null;
   hasActiveProcessInGroup: (groupId: string) => boolean;
   /** Y0b-4 T11/T13：瘦身/校准 watermark 重置单写者（服务端真值覆盖 localDocBytes+localDelta 清零
    *  ——Q-I 校准点的组件侧入口）。写点收口 store 本体：组件面（ShrinkDialog）直调 setState 在
@@ -873,6 +877,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   persistUnhealthy: false,
   syncLagOver60s: false,
   pendingBacklog: false,
+  recoveryPending: null,
 
   /** Inner 化（Spec B）：建点命令体纯构造核——见接口 JSDoc。零 store 写（get() 只读缝——
    *  T17 order 键分配读层尾；addNode 薄壳与 addNodeAndBatchConnect（B6-3 收敛）共用，
