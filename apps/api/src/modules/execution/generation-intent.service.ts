@@ -5,7 +5,7 @@ import { BusinessException } from '../../common/exceptions/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { deriveIdemKey, normalizeRegenToken, deadlineMsForKind } from './intent-key.util';
-import { intentClaimResultTotal } from './exec.metrics';
+import { intentClaimResultTotal, countExecProjectionFailure } from './exec.metrics';   // T23 收口：observeNodeExecution 观测位失败计数
 import { NodeArtifactService, targetFieldOfKind } from '../artifact-core/node-artifact.service';
 
 /** Y1a T9（spec ㉒）：同 job 重入心跳新鲜判据——heartbeatAt 距今 < 锁窗（BullMQ lockDuration 60s）
@@ -359,6 +359,44 @@ export class GenerationIntentService {
     return this.prisma.generationIntent.findFirst({
       where: { projectId, nodeId, status: 'RUNNING', ...(jobId ? { jobId } : {}) },
     });
+  }
+
+  // ═══ Y1c T23 收口 I-1(spec)：NodeExecution 观测锚——全部 intentService.claim 调用点统一 ═══
+  // （M-5 裁定=接线的补接线面：execution 双路径+ai-image-edit/lighting 两链。观测位零副作用三义：
+  // ①读/写失败只计数不中止本代流程；②写回 0 行=fenced（旧代/换代——观测记不进而已）；③与
+  // GenerationIntent CAS 分职——本表是 durable 侧观测行，fencing 决策权威恒在 GenerationIntent
+  // execSeq CAS+MaterializeRun/Media lease CAS 双闸。nodeVersion 维持 0=feed 域权威在 RuntimeEvent。）
+
+  /** NodeExecution 当前行 claim 观测写（generation 锚：调用方既有值直用，缺省 CanvasDoc 单行读）。 */
+  async observeNodeExecution(input: { projectId: string; nodeId: string; execSeq: bigint; generation?: number }): Promise<void> {
+    try {
+      const generation = input.generation
+        ?? (await this.prisma.canvasDoc.findUnique({ where: { projectId: input.projectId }, select: { generation: true } }))?.generation
+        ?? 0;
+      await this.upsertNodeExecutionGuarded({
+        projectId: input.projectId, nodeId: input.nodeId, generation, execSeq: input.execSeq, status: 'RUNNING',
+      });
+    } catch (e) {
+      countExecProjectionFailure(e);
+    }
+  }
+
+  /** NodeExecution 当前行 CAS upsert（SQL 谓词≡shared nodeExecutionUpdateAllowed 真值表——execution-frozen
+   *  .t21-c1.int.spec I4 真库对拍锚；T23 收口自 execution.service 迁入=claim 调用点统一锚）：
+   *  `WHERE generation=EXCLUDED.generation AND execSeq<EXCLUDED.execSeq`——旧代拒/同 execSeq 拒/
+   *  单调过/换代全拒四态；0 行=fenced 观测位（调用方零副作用纪律——不中止本代流程）。 */
+  private async upsertNodeExecutionGuarded(input: {
+    projectId: string; nodeId: string; generation: number; execSeq: bigint; status: string;
+  }): Promise<boolean> {
+    const r = await this.prisma.$queryRaw<{ nodeId: string }[]>`
+      INSERT INTO "NodeExecution" ("projectId", "nodeId", "generation", "execSeq", "nodeVersion", "status", "attempts", "updatedAt")
+      VALUES (${input.projectId}::text, ${input.nodeId}::text, ${input.generation}::int, ${input.execSeq}::bigint, 0, ${input.status}::text, 1, now())
+      ON CONFLICT ("projectId", "nodeId") DO UPDATE SET
+        "generation" = EXCLUDED."generation", "execSeq" = EXCLUDED."execSeq", "status" = EXCLUDED."status",
+        "attempts" = "NodeExecution"."attempts" + 1, "updatedAt" = now()
+      WHERE "NodeExecution"."generation" = EXCLUDED."generation" AND "NodeExecution"."execSeq" < EXCLUDED."execSeq"
+      RETURNING "nodeId"`;
+    return r.length > 0;
   }
 
   /** Y1c T23（text 链 UNKNOWN 纪律——spec §6.3 偏离 36-④）：外呼结果不明（超时/5xx TEXT_PROVIDER_UNKNOWN）

@@ -545,7 +545,9 @@ async function balanceCredits(): Promise<number> {
       create: { projectId: PID, nodeId: 'i4-node', generation: 0, execSeq: 100n, nodeVersion: 0n, status: 'RUNNING' },
       update: { generation: 0, execSeq: 100n },
     });
-    const svc = execService as unknown as { upsertNodeExecutionGuarded: (i: { projectId: string; nodeId: string; generation: number; execSeq: bigint; status: string }) => Promise<boolean> };
+    // T23 收口 I-1(spec)：观测锚统一迁 GenerationIntentService（upsertNodeExecutionGuarded 随迁
+    // ——SQL 逐字节同源，真值表对拍锚不变；execution.service 侧调用面改经 observeNodeExecution）。
+    const svc = intentSvc as unknown as { upsertNodeExecutionGuarded: (i: { projectId: string; nodeId: string; generation: number; execSeq: bigint; status: string }) => Promise<boolean> };
     // 单调过：101 代同
     expect(await svc.upsertNodeExecutionGuarded({ projectId: PID, nodeId: 'i4-node', generation: 0, execSeq: 101n, status: 'RUNNING' })).toBe(true);
     // 同 execSeq 拒

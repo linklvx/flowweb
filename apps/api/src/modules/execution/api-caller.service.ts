@@ -102,7 +102,8 @@ export interface TextGenParams {
   apiUrl: string;
   /** Y1c T23（text 链外呼锚——spec §6.3 偏离 36-④）：write-ahead providerRequestId 随 submit 头下发
    *  （X-Idempotency-Key——submit-poll 链同款；openai-chat 不认键=冗余头无害，供应商接入幂等键即激活）。
-   *  rearm 屏障：同 (intentRowId,execSeq) 键复用——用户显式重试=rearm 新代新键，旧代键屏障不被绕过。 */
+   *  rearm 屏障（I-2(spec) 勘正）：rearm 复用同一 providerRequestId（ensureProviderRequestId
+   *  既有值直返+rearm 不清该列——屏障不被绕过）；新键仅随新意图行铸造。 */
   idempotencyKey?: string | null;
 }
 

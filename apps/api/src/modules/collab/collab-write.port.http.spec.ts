@@ -208,6 +208,7 @@ describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFa
       reanchorDeadline: vi.fn().mockResolvedValue(1),
       touchHeartbeat: vi.fn().mockResolvedValue(undefined),
       ensureProviderRequestId: vi.fn().mockResolvedValue('rid-t9'), // T9 write-ahead
+      observeNodeExecution: vi.fn().mockResolvedValue(undefined),   // Y1c T23 收口 I-1(spec)：NodeExecution 观测锚（统一迁 GenerationIntentService）
       recordProviderTaskId: vi.fn().mockResolvedValue(undefined),   // T9 taskId 落库
       tickFence: vi.fn().mockResolvedValue(undefined),              // T9 onTick 双职+代际
     };

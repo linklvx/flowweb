@@ -77,6 +77,7 @@ function makeService(nodes: any[], intentOverrides: Record<string, any> = {}, ar
     reanchorDeadline: vi.fn().mockResolvedValue(1), // Y0b-2 T4：外呼前重锚（T9 count 形态）
     touchHeartbeat: vi.fn().mockResolvedValue(undefined),
     ensureProviderRequestId: vi.fn().mockResolvedValue('rid-t9'), // T9 write-ahead
+    observeNodeExecution: vi.fn().mockResolvedValue(undefined),   // Y1c T23 收口 I-1(spec)：NodeExecution 观测锚（统一迁 GenerationIntentService）
     recordProviderTaskId: vi.fn().mockResolvedValue(undefined),   // T9 taskId 落库
     tickFence: vi.fn().mockResolvedValue(undefined),              // T9 onTick 双职+代际
     ...intentOverrides,

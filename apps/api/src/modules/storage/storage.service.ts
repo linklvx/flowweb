@@ -36,9 +36,10 @@ export class StorageService {
     } else {
       teamId = await getOwnerTeamId(this.prisma, userId);
     }
-    // quota estimatedSize 预检（=fileSize 预占；confirm 按 actualSize 终判——Q7 两道，两并发 presign 可同过）
-    await this.quota.assertCanUpload(teamId, dto.fileSize);
-
+    // quota estimatedSize 门禁（=fileSize 预占；confirm 按 actualSize 终判——Q7 两道）：
+    // Y1c T23 收口 I-2（Q7 根修）——门禁挪入 prepareUploadInTx 事务内（Team 行 FOR UPDATE 串行化
+    // 同团队 presign+ΣACTIVE 行锁排队后可见；此处旧形态事务外裸 assert→另起事务插行=无锁非原子，
+    // 双并发 presign 互不见对方未提交预留同过门）。超限 400 语义不变（自事务内抛出）。
     const clientUploadId = normalizeClientUploadId(dto.clientUploadId);
     const ext = dto.fileName.split('.').pop() || 'bin';
     const key = this.minio.buildKey(dto.type, userId, { ext });

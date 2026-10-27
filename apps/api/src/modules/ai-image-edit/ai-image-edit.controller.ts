@@ -68,6 +68,9 @@ export class AiImageEditController {
       // SUCCEEDED 幂等重放——零 enqueue 零扣费，回放既有产物引用
       return { replayed: true, resultRef: intent.resultRef };
     }
+    // Y1c T23 收口 I-1(spec)：M-5 补接线——claim 后 NodeExecution 观测写（统一锚
+    // GenerationIntentService.observeNodeExecution；观测位零副作用——读/写失败只计数不阻断入队）。
+    await this.intentService.observeNodeExecution({ projectId: input.projectId, nodeId: input.nodeId, execSeq: intent.execSeq });
     // T9 票三字段完整先于入队：jobId 预生成（add({jobId})）+execSeq wire=string（BigInt 禁入 JSON）
     const ticket: ExecutionTicket = { intentRowId: intent.id, execSeq: intent.execSeq.toString(), jobId: randomUUID(), expectedRev: artifactRev };   // T10：claimCapture 槽位 rev 随票
     try {

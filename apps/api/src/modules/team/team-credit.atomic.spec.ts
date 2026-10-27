@@ -86,9 +86,10 @@ describe('TeamCreditService reserve/settle/void_ 两阶段（批0.5-9+Y0b-1）',
       // Z13 单元锚：lockBalance 调用序先于 gate CAS
       expect(ledger.lockBalance.mock.invocationCallOrder[0])
         .toBeLessThan(prisma.generationIntent.updateMany.mock.invocationCallOrder[0]);
-      // 约束①锚：CAS 置位 reservedCredits——creditsConsumed:0 并守已 settle 行
+      // 约束①锚：CAS 置位 reservedCredits——creditsConsumed:0 并守已 settle 行+status:'RUNNING' 并守
+      //（T23 收口 I-1：drain FAILED 后迟到 reserve 拒——终态/停驻行禁冻结）
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
-        where: { id: 'row-1', reservedCredits: 0, creditsConsumed: 0 },
+        where: { id: 'row-1', status: 'RUNNING', reservedCredits: 0, creditsConsumed: 0 },
         data: { reservedCredits: 50 },
       });
       // 两池拆分：subscription 30 + regular 20（真值表 reserve(−c,+c)）

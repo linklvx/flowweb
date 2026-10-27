@@ -79,6 +79,7 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
       $transaction: vi.fn((fn: (tx: any) => Promise<unknown>) => fn(prisma)),
       artifactProjection: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) }, // T9：rearm/takeover 旧投影 superseded
       nodeArtifact: { findUnique: vi.fn().mockResolvedValue(null) }, // T10：claimCapture 槽位 rev 读（默认无行=0）
+      canvasDoc: { findUnique: vi.fn().mockResolvedValue({ generation: 3 }) },   // Y1c T23 收口：observeNodeExecution generation 锚
       // Z26 准入谓词：FOR SHARE 查 Team.status——默认 ACTIVE 放行；T9 nextval('exec_seq') 取号分义
       $queryRaw: vi.fn().mockImplementation(async (q: unknown) =>
         /nextval/.test(String(q)) ? [{ v: 1n }] : [{ status: 'ACTIVE' }]),
@@ -639,6 +640,52 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
       const sql = String(prisma.$queryRaw.mock.calls[0][0]);
       expect(sql).toContain("now() AT TIME ZONE 'utc'");
     });
+  });
+});
+
+describe('Y1c T23 收口 I-1(spec)：observeNodeExecution——claim 调用点统一 NodeExecution 观测锚', () => {
+  let service: GenerationIntentService;
+  let prisma: any;
+  let teamCredit: any;
+
+  beforeEach(async () => {
+    prisma = {
+      generationIntent: { findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), findFirst: vi.fn(), create: vi.fn(), createMany: vi.fn(), updateMany: vi.fn(), update: vi.fn(), findMany: vi.fn() },
+      $transaction: vi.fn((fn: (tx: any) => Promise<unknown>) => fn(prisma)),
+      artifactProjection: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      nodeArtifact: { findUnique: vi.fn().mockResolvedValue(null) },
+      canvasDoc: { findUnique: vi.fn().mockResolvedValue({ generation: 3 }) },
+      $queryRaw: vi.fn().mockResolvedValue([{ nodeId: 'n1' }]),
+    };
+    teamCredit = { voidInTx: vi.fn().mockResolvedValue(undefined), void_: vi.fn(), settle: vi.fn(), reserve: vi.fn() };
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        GenerationIntentService,
+        NodeArtifactService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: TeamCreditService, useValue: teamCredit },
+      ],
+    }).compile();
+    service = module.get(GenerationIntentService);
+  });
+
+  it('无 generation 入参 → CanvasDoc 单行读解析 generation + guarded INSERT（RUNNING——全部 claim 调用点统一观测锚）', async () => {
+    await service.observeNodeExecution({ projectId: 'p1', nodeId: 'n1', execSeq: 7n });
+    expect(prisma.canvasDoc.findUnique).toHaveBeenCalledWith({ where: { projectId: 'p1' }, select: { generation: true } });
+    const sql = String(prisma.$queryRaw.mock.calls[0][0]);
+    expect(sql).toContain('INSERT INTO "NodeExecution"');
+    expect(sql).toContain('"NodeExecution"."execSeq" < EXCLUDED."execSeq"');   // 更新守卫真值表 SQL 同源
+  });
+
+  it('携 generation 入参（冻结路径既有值）→ 零 CanvasDoc 读直写', async () => {
+    await service.observeNodeExecution({ projectId: 'p1', nodeId: 'n1', execSeq: 7n, generation: 5 });
+    expect(prisma.canvasDoc.findUnique).not.toHaveBeenCalled();
+    expect(String(prisma.$queryRaw.mock.calls[0][0])).toContain('INSERT INTO "NodeExecution"');
+  });
+
+  it('观测位零副作用：读写抛错吞并计数（countExecProjectionFailure）不外抛', async () => {
+    prisma.$queryRaw.mockRejectedValue(new Error('pg down'));
+    await expect(service.observeNodeExecution({ projectId: 'p1', nodeId: 'n1', execSeq: 7n })).resolves.toBeUndefined();
   });
 });
 

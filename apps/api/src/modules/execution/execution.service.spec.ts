@@ -102,7 +102,8 @@ describe('ExecutionService', () => {
       ensureProviderRequestId: vi.fn().mockResolvedValue('rid-t9'), // T9 write-ahead
       recordProviderTaskId: vi.fn().mockResolvedValue(undefined),   // T9 taskId 落库
       tickFence: vi.fn().mockResolvedValue(undefined),              // T9 onTick 双职+代际
-      markUnknown: vi.fn().mockResolvedValue(undefined),            // Y1c T23：text UNKNOWN 档（reserve 保留不自动重呼）
+      markUnknown: vi.fn().mockResolvedValue(1),                     // Y1c T23：text UNKNOWN 档（reserve 保留不自动重呼——收口批 M-3 分档：1=停驻成功）
+      observeNodeExecution: vi.fn().mockResolvedValue(undefined),   // Y1c T23 收口 I-1(spec)：NodeExecution 观测锚（统一迁 GenerationIntentService）
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -459,6 +460,18 @@ describe('ExecutionService', () => {
       // 用户可见文案：「可能重复生成、不会重复扣费」（诚实登记——外部 at-least-once）
       const errorEntry = result.errors.find((e: any) => e.nodeId === 'n1');
       expect(errorEntry?.error).toContain('不会重复扣费');
+    });
+
+    it('T23 收口 M-3：markUnknown 落库失败窗（行留 RUNNING=UNKNOWN 纪律失效交 reaper）——文案分档换中性承诺+遥测计数，禁推「不会重复扣费」', async () => {
+      primeText();
+      const { BusinessException } = await import('../../common/exceptions/business.exception');
+      apiCaller.callTextGen.mockRejectedValueOnce(new BusinessException('TEXT_PROVIDER_UNKNOWN', 'text 外呼结果不明（超时/5xx）', 504));
+      intentSvc.markUnknown.mockRejectedValueOnce(new Error('db down'));   // 停驻失败窗
+      const result = await service.execute('p1', 'n1', 'u1');
+      expect(result.success).toBe(false);
+      const errorEntry = result.errors.find((e: any) => e.nodeId === 'n1');
+      expect(errorEntry?.error).toContain('待对账');           // 中性文案（红：现状失败窗仍推确定性承诺）
+      expect(errorEntry?.error).not.toContain('不会重复扣费');
     });
   });
 

@@ -19,3 +19,7 @@
 - 2026-10-26（Y1c T23 收口批补登记——派发词在册口径与台账文件对齐）：media-content/media-probe 两 int spec=
   MinIO ECONNREFUSED 127.0.0.1:9000 环境缺失（本机 MinIO 未起——T21/T22/T26 批 commit message 同款
   「media 两件=MinIO 环境存量」口径在批注而未落台账行）；处置=环境态非回归，起 MinIO 后复绿。
+
+- 2026-10-27（Y1c T23 双评审收口 M-6 登记行）：collab.gateway.spec Y7 硬阈 coalesce 用例（600×8KB 累积折并
+  队列元素 ≤1MB）本机全池负载态 20s 超时间歇红（T23 批 2980/2981 一例）、隔离跑 371ms 绿——T15 时已三员
+  证实环境性（负载放大 coalesce 窗）；处置=复现时单独复跑收口（禁以环境态调阈值——与 soak echo p95 同款口径）。

@@ -115,10 +115,14 @@ export class TeamCreditService {
       const used = await this.derivedMonthlyUsed(tx, teamId, userId);
       if (member.monthlyQuota > 0 && used + amount > member.monthlyQuota) return { success: false, reason: 'QUOTA_EXCEEDED' };
       // 锁序②：gate CAS 持锁期间完成（四守卫保留——约束① CAS 锚 reservedCredits 0→amount，creditsConsumed:0 并守；
-      // T9：execSeq 并守（读行后换代并发窗收口）+reservedExecSeq 落冻结代际锚）
+      // T9：execSeq 并守（读行后换代并发窗收口）+reservedExecSeq 落冻结代际锚；
+      // T23 收口 I-1：**status:'RUNNING' 并守**——drainRefundObligations 终态化写 FAILED∧
+      // reservedCredits=0∧reservedExecSeq=null（execSeq/creditsConsumed 不动）⇒ 缺 status 谓词时
+      // 三谓词全匹配=迟到 reserve 对 FAILED 行再冻结+多烧一次外呼+FAILED∧reservedCredits>0
+      // 不变量破坏（settle/void 无同洞——独 reserve 一面）。终态/停驻行一律禁冻结。）
       const gate = await tx.generationIntent.updateMany({
         where: {
-          id: guard.intentRowId, reservedCredits: 0, creditsConsumed: 0,
+          id: guard.intentRowId, status: 'RUNNING', reservedCredits: 0, creditsConsumed: 0,
           ...(guard.execSeq !== undefined ? { execSeq: guard.execSeq } : {}),
         },
         data: { reservedCredits: amount, ...(guard.execSeq !== undefined ? { reservedExecSeq: guard.execSeq } : {}) },

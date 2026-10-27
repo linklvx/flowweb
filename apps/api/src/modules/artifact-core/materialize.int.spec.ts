@@ -144,6 +144,8 @@ const anchoredArtifact = (s: Seed) => prisma.nodeArtifact.findUnique({
   });
 
   afterAll(async () => {
+    // Y1c T23 收口（跨套件卫生——claim 自 T23 建 MaterializeRun 行）：run 观测行随项目 fixture 清
+    await prisma.materializeRun.deleteMany({ where: { projectId: PID } });
     await prisma.artifactProjection.deleteMany({ where: { projectId: PID } });
     await prisma.nodeArtifact.deleteMany({ where: { projectId: PID } });
     await prisma.mediaBinding.deleteMany({ where: { projectId: PID } });

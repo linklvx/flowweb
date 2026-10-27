@@ -17,6 +17,7 @@ describe('StorageQuotaService', () => {
         aggregate: vi.fn().mockResolvedValue({ _sum: { size: 100 } }),
         findUnique: vi.fn(),
         delete: vi.fn(),
+        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),   // T23 收口 M-7：拒档行终态 CAS（pending 守卫删行）
       },
       // Y1c T23（迁移三）：ACTIVE 预留面——默认零预留（T23 用例内覆写）
       storageReservation: {
@@ -85,23 +86,47 @@ describe('StorageQuotaService', () => {
     });
   });
 
-  it('③ confirm 二次校验（Q7）：超限删对象+删记录+抛错（事务断言顺序）', async () => {
+  it('③ confirm 二次校验（Q7）：超限拒档+删记录+抛错（T23 收口 M-7：对象删除最后——行终态 CAS 先行）', async () => {
     prisma.media.findUnique.mockResolvedValue({ id: 'm1', teamId: 't1', key: 'uploads/u1/a.png' }); // fixture 必须含 key——删的是行内 key（D1）
     const order: string[] = [];
     minio.delete.mockImplementation(async () => { order.push('minio'); });
-    prisma.media.delete.mockImplementation(async () => { order.push('media'); });
+    prisma.media.deleteMany.mockImplementation(async () => { order.push('row-cas'); return { count: 1 }; });
 
     await expect(service.assertOnConfirm('m1', 550)).rejects.toThrow('存储空间不足'); // D1：删 key/bucket 形参，两参
 
     expect(minio.delete).toHaveBeenCalledWith('uploads/u1/a.png'); // 行内 key，非请求体
-    expect(prisma.media.delete).toHaveBeenCalledWith({ where: { id: 'm1' } });
-    expect(order).toEqual(['minio', 'media']);
+    expect(prisma.media.deleteMany).toHaveBeenCalledWith({ where: { id: 'm1', status: 'pending' } });
+    expect(order).toEqual(['row-cas', 'minio']);   // M-7：对象删除永远是最后一步
   });
 
   it('③ confirm：未超限不动', async () => {
     prisma.media.findUnique.mockResolvedValue({ id: 'm1', teamId: 't1', key: 'uploads/u1/a.png' });
     await expect(service.assertOnConfirm('m1', 400)).resolves.toBeUndefined();
     expect(minio.delete).not.toHaveBeenCalled();
+  });
+
+  it('Y1c T23 收口 M-7：拒档×confirm 并发——行终态 CAS 先行（deleteMany 0 行=confirm 已完成档让位），对象删除永远是最后一步', async () => {
+    prisma.media.findUnique.mockResolvedValue({ id: 'm9', teamId: 't1', key: 'uploads/u9/a.png', status: 'pending' });
+    // 并发 confirm 已完成档：行终态 CAS（pending 守卫删行）0 命中——对象归 confirm 所有不删
+    prisma.media.deleteMany = vi.fn().mockResolvedValue({ count: 0 });
+    minio.delete.mockClear();
+    prisma.storageReservation.updateMany.mockClear();
+    await expect(service.assertOnConfirm('m9', 550)).rejects.toThrow();   // 让位冲突（并发 confirm 已收）
+    // 红（现状）：minio.delete 在行删事务外先行=误删 confirm 已完成档的对象而行终态悬挂
+    expect(minio.delete).not.toHaveBeenCalled();
+    expect(prisma.storageReservation.updateMany).not.toHaveBeenCalledWith({
+      where: { mediaId: 'm9', state: 'ACTIVE' }, data: { state: 'RELEASED' },
+    });
+  });
+
+  it('Y1c T23 收口 M-7 正路：拒档命中（pending CAS 1 行）→行删+预留释放先落、对象删除最后', async () => {
+    prisma.media.findUnique.mockResolvedValue({ id: 'm8', teamId: 't1', key: 'uploads/u8/a.png', status: 'pending' });
+    prisma.media.deleteMany = vi.fn().mockResolvedValue({ count: 1 });
+    const order: string[] = [];
+    minio.delete.mockImplementation(async () => { order.push('minio'); });
+    (prisma.media.deleteMany as any).mockImplementation(async () => { order.push('row-cas'); return { count: 1 }; });
+    await expect(service.assertOnConfirm('m8', 550)).rejects.toThrow('存储空间不足');
+    expect(order).toEqual(['row-cas', 'minio']);   // 红（现状）：['minio', ...]——对象删除先行
   });
 
   it('④ 成员放行', async () => {

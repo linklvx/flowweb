@@ -7,12 +7,13 @@
 // registerInTx 禁调 assertOnConfirm（v12 裁决④：storage-quota 超限删对象+删行——事务内副作用不可
 // 回滚；资金 quota=软限，finalize 不因 quota 回滚）。
 import {
-  Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit, ConflictException,
+  Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit, ConflictException, Optional,
 } from '@nestjs/common';
 import { Prisma, Media, ProbeState, MediaBinding } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
+import { StorageQuotaService } from '../team/storage-quota.service';   // Y1c T23 收口 I-2：presign 门禁事务内形态（Q7 根修）
 
 /** pending 上传 TTL（spec Z7''-v14：24h——presign 900s×重试窗后仍未 confirm 即弃；现状永不过期可占满 MinIO） */
 export const PENDING_UPLOAD_TTL_MS = 24 * 3600_000;
@@ -57,6 +58,9 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
+    /** Y1c T23 收口 I-2（Q7 根修）：presign 配额门禁事务内消费（assertCanUploadInTx——Team 行
+     *  FOR UPDATE 串行化同团队 presign；@Optional 解耦直构测试/装配序）。 */
+    @Optional() private readonly quota?: StorageQuotaService | null,
   ) {}
 
   /** T4-①：presign 幂等入口——同 teamId+clientUploadId 复用既有行与 key（网络重试恰一行）。
@@ -97,11 +101,17 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
    *  （无上界不入账：配额硬门计 ACTIVE 预留，无值预留=在飞上传 oversale 窗）；②**同事务**建
    *  StorageReservation(ACTIVE) 行——释放必与锚 pending 行终态迁移同事务原子（confirm→SETTLED/
    *  清扫·拒→RELEASED；lease〔pendingExpiresAt〕过期不独立释放——迟到 confirm 被 status='pending'
-   *  CAS 拒 409=在飞上传无 oversale 窗）。 */
+   *  CAS 拒 409=在飞上传无 oversale 窗）。
+   *  T23 收口 I-2（Q7 根修）：配额门禁挪入本事务（assertCanUploadInTx——Team 行 FOR UPDATE
+   *  串行化同团队 presign+ΣACTIVE 行锁排队后可见；改前 storage.service 事务外裸 assert→另起事务
+   *  插行=无锁非原子，双并发 presign 互不见对方预留同过门）。 */
   async prepareUploadInTx(tx: Prisma.TransactionClient, params: PrepareUploadParams): Promise<Media> {
     const upperBound = Number(params.size);
     if (!(upperBound > 0)) {
       throw new ConflictException('上传预登记缺有效尺寸上界（size>0）——无上界预留 fail-closed 拒受理');
+    }
+    if (this.quota) {
+      await this.quota.assertCanUploadInTx(tx, params.teamId, upperBound);
     }
     const media = await tx.media.create({
       data: {

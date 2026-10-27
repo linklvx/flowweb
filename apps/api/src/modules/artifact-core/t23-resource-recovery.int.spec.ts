@@ -36,16 +36,20 @@ const fakeMinio = {
   delete: vi.fn(async () => undefined),
 };
 const fakeQuota = { assertCanUpload: vi.fn(async () => undefined) };
-const registration = new MediaRegistrationService(prisma as unknown as PrismaService, fakeMinio as any);
 /** 存储限=1000 字节（真库订阅面注入不动——配额门谓词单源在 StorageQuotaService） */
 const fakeSub = { getLimits: vi.fn(async () => ({ seatLimit: 1, storageLimitBytes: 1000 })) };
 const quota = new StorageQuotaService(prisma as unknown as PrismaService, fakeMinio as any, fakeSub as any);
+// T23 收口 I-2：quota 注入第三参（@Optional）——presign 配额门禁事务内消费（Team FOR UPDATE 串行化）
+const registration = new MediaRegistrationService(prisma as unknown as PrismaService, fakeMinio as any, quota as any);
 const manifests = new ObjectManifestService(prisma as unknown as PrismaService, fakeMinio as any);
 
 const PID = `int-t23rr-${Date.now()}`;
 const UID = `int-t23rr-owner-${Date.now()}`;
 let TID = '';
 let PRICING: any;
+/** I-3（收口批）：本套件铸造的 intent 行 id（claim 产出行 id=cuid——前任 afterAll 按
+ * intentRowId startsWith 'int-t23rr' 清理恒零命中=残留 18 行实锤；改 in 列表精确清理）。 */
+const createdIntentRowIds: string[] = [];
 
 const balanceFrozenOf = async () => {
   // fixture 勘正（前任形态读 TeamBalance.frozenCredits——列不存在）：frozen=台账派生（ΣfrozenDelta，
@@ -81,7 +85,9 @@ const balanceFrozenOf = async () => {
     // fixture 勘正：manifest 行 id=cuid（claim 产出行）——按 objectKey 前缀清（原 id 前缀 'gc-test'
     // 恒零命中=残留源）；红③ 断言 swept===0 依赖库内无他残留。
     await prisma.objectManifest.deleteMany({ where: { objectKey: { startsWith: `artifacts/${TID}/` } } });
-    await prisma.refundObligation.deleteMany({ where: { intentRowId: { startsWith: 'int-t23rr' } } });
+    // I-3（收口批）：清理谓词改 in 列表（intentRowId=claim 产出行 cuid 永无 'int-t23rr' 前缀——
+    // 前任 startsWith 谓词恒零命中，dev 库残留 18 行实锤已另批清零）。
+    await prisma.refundObligation.deleteMany({ where: { intentRowId: { in: createdIntentRowIds } } });
     await prisma.materializeRun.deleteMany({ where: { projectId: PID } });
     await prisma.artifactProjection.deleteMany({ where: { projectId: PID } });
     await prisma.nodeArtifact.deleteMany({ where: { projectId: PID } });
@@ -108,6 +114,7 @@ const balanceFrozenOf = async () => {
       jobId: `t23-${Date.now()}`,
     });
     expect(c1.result).toBe('new');
+    createdIntentRowIds.push(c1.intent.id);
     const N1 = c1.intent.execSeq;
     await teamCredit.reserve(UID, { intentRowId: c1.intent.id, execSeq: N1 });
     // 义务先行落档（collect 面产物——drain 崩溃窗重扫等价形态）
@@ -154,6 +161,7 @@ const balanceFrozenOf = async () => {
       paramsHash: `h-${randomUUID().slice(0, 8)}`, teamId: TID, pricing: PRICING,
       gestureToken: 'g-t23-2b', jobId: `t23-3-${Date.now()}`,
     });
+    createdIntentRowIds.push(c1.intent.id);
     await teamCredit.reserve(UID, { intentRowId: c1.intent.id, execSeq: c1.intent.execSeq });
     const before = await balanceFrozenOf();
     const created = await (teamCredit as unknown as { collectExecFinalize: (p: string, n: string) => Promise<number> })
@@ -175,22 +183,40 @@ const balanceFrozenOf = async () => {
     const ob = await prisma.refundObligation.findUniqueOrThrow({ where: { intentRowId_execSeq: { intentRowId: c1.intent.id, execSeq: c1.intent.execSeq } } });
     expect(ob.state).toBe('SETTLED');
     expect(ob.reversesId).not.toBe(`intent:${c1.intent.id}`); // reversesId=exact 台账行证据（逆转前查询回填）
+
+    // I-1（收口批）：drain 终态 FAILED 后迟到 reserve 必须被拒——reserve gate 缺 status:'RUNNING'
+    // 谓词时三谓词（reservedCredits=0∧creditsConsumed=0∧execSeq）全匹配=对 FAILED 行再冻结+多烧
+    // 一次外呼+FAILED∧reservedCredits>0 不变量破坏。红=现状 success:true（再冻结推高 frozen）。
+    const frozenAfterDrain = (await balanceFrozenOf()).frozen;
+    const late = await teamCredit.reserve(UID, { intentRowId: c1.intent.id, execSeq: c1.intent.execSeq });
+    expect(late.success).toBe(false);
+    expect((await balanceFrozenOf()).frozen).toBe(frozenAfterDrain);   // 零新冻结
   });
 
   // ── 红②：lease 过期在飞 reservation 被释放（oversale）──
-  it('红②a：ACTIVE 预留计入配额硬门——两并发 presign 尺寸和超限=第二个拒（Q7 oversale 收口）', async () => {
-    // presign #1：预留 800（limit 1000）
-    const m1 = await registration.prepareUpload({
-      userId: UID, teamId: TID, clientUploadId: `up-1-${Date.now()}`,
-      key: `uploads/t23/x1-${Date.now()}`, fileName: 'f.png', mimeType: 'image/png', size: 800, type: 'uploaded',
-    });
-    const r1 = await prisma.storageReservation.findUnique({ where: { mediaId: m1.id } });
-    expect(r1).not.toBeNull();                   // 红：预留面缺席（prepareUpload 不建 StorageReservation）
+  it('红②a：Q7 真并发双 presign（fire-and-forget 重叠）——Team FOR UPDATE 串行化后恰一方过门（I-2 收口：assert→insert 无锁非原子根修）', async () => {
+    // I-2（收口批裁定=根修不降级）：改前形态「先 await #1 落预留再 assert #2」=串行零并发重叠——
+    // 真并发形态=双 presign fire-and-forget（assert 与 insert 在各自事务内重叠）。红=现状 assert
+    // 在事务外裸调用：双事务互不见对方未提交预留 ⇒ 双方过门（fulfilled=2=oversale）。
+    const stamp = Date.now();
+    const [a, b] = await Promise.allSettled([
+      registration.prepareUpload({
+        userId: UID, teamId: TID, clientUploadId: `up-c1-${stamp}`,
+        key: `uploads/t23/c1-${stamp}`, fileName: 'f.png', mimeType: 'image/png', size: 800, type: 'uploaded',
+      }),
+      registration.prepareUpload({
+        userId: UID, teamId: TID, clientUploadId: `up-c2-${stamp}`,
+        key: `uploads/t23/c2-${stamp}`, fileName: 'f.png', mimeType: 'image/png', size: 800, type: 'uploaded',
+      }),
+    ]);
+    const fulfilled = [a, b].filter((r) => r.status === 'fulfilled');
+    expect(fulfilled).toHaveLength(1);           // 恰一方过门（红：现状双方过=2）
+    const winner = fulfilled[0] as PromiseFulfilledResult<{ id: string }>;
+    const r1 = await prisma.storageReservation.findUnique({ where: { mediaId: winner.value.id } });
+    expect(r1).not.toBeNull();
     expect(r1!.state).toBe('ACTIVE');
     expect(r1!.upperBoundBytes).toBe(800n);
-    // presign #2：usage(0)+ACTIVE 预留(800)+incoming(800)>1000 ⇒ 拒（红：现状不计预留→放行=oversale）
-    await expect(quota.assertCanUpload(TID, 800)).rejects.toThrow();
-    await prisma.storageReservation.updateMany({ where: { mediaId: m1.id }, data: { state: 'RELEASED' } }); // 复位（后续用例）
+    await prisma.storageReservation.updateMany({ where: { mediaId: winner.value.id }, data: { state: 'RELEASED' } }); // 复位（后续用例）
   });
 
   it('红②b：终态释放与锚行原子——TTL sweep 释放预留后迟到 confirm 409（无「字节已让+行仍可确认」oversale 窗）+confirm→SETTLED', async () => {
@@ -259,11 +285,46 @@ const balanceFrozenOf = async () => {
     // release 归锚（claimOwner CAS——旧 owner 不清新代 claim）
     const key2 = `artifacts/${TID}/rel-${Date.now()}/0-x`;
     await manifests.claim(key2, owner, Date.now() + 60_000);
-    await manifests.claim(key2, `materialize:new-${Date.now()}`, Date.now() + 60_000).catch(() => undefined); // 同键新代（不覆写在位 claim）
+    await manifests.claim(key2, `materialize:new-${Date.now()}`, Date.now() + 60_000).catch(() => undefined); // 同键新代接管（M-3(spec) 勘正：claim=无条件接管——当次持有者=最后一次 claim；保护语义在 release owner CAS=旧 owner 不清新代 claim）
     await manifests.releaseClaim(key2, owner);   // 旧 owner 释放——不得清新代 claim
     const row2 = await prisma.objectManifest.findUniqueOrThrow({ where: { objectKey: key2 } });
     expect(row2.claimOwner).not.toBe(null);      // 新代 claim 在位
     expect(row2.claimOwner).not.toBe(owner);
+  });
+
+  // ── C-1（收口批）：GC 清扫 TOCTOU——删除动作以删除时点谓词为准（select 后窗：候选谓词只在
+  //    SELECT 评估一次，逐行 MinIO IO 秒级窗内新代 claim 同键/锚定先行=误删在飞对象）。 ──
+  it('C-1 红①：select 后新代 claim 同键（在位未过）——对象不得删+行不被 DELETED', async () => {
+    const key = `artifacts/${TID}/toctou-claim-${Date.now()}/0-k`;
+    const owner = `materialize:${randomUUID().slice(0, 8)}`;
+    await manifests.claim(key, owner, Date.now() - 1_000);   // 过期 claim（fenced 代遗留变体键形态）
+    fakeMinio.delete.mockClear();
+    // 并发窗注入：候选 SELECT 之后、行处理之前——代二同源重物化确定性同键 claim(K,未来)+上传
+    const swept = await manifests.sweepOrphans(Date.now(), async () => {
+      await manifests.claim(key, `materialize:newgen-${Date.now()}`, Date.now() + 60_000);
+    });
+    expect(swept).toBe(0);                              // 红：现状 swept=1（CAS 缺席——select 时点谓词直删）
+    expect(fakeMinio.delete).not.toHaveBeenCalledWith(key);   // 交错误删面：代二刚上传对象不被删
+    expect((await prisma.objectManifest.findUniqueOrThrow({ where: { objectKey: key } })).state).toBe('LIVE');
+  });
+
+  it('C-1 红②：select 后锚定先行（Media.key 已引用）——对象不得删+行不被 DELETED', async () => {
+    const key = `artifacts/${TID}/toctou-anchor-${Date.now()}/0-k`;
+    const owner = `materialize:${randomUUID().slice(0, 8)}`;
+    await manifests.claim(key, owner, Date.now() - 1_000);   // 过期 claim
+    fakeMinio.delete.mockClear();
+    // 并发窗注入：锚定先行（materialize 完成事务已把 Media.key 指向该 content-addressed 键）
+    const swept = await manifests.sweepOrphans(Date.now(), async () => {
+      await prisma.media.create({
+        data: {
+          userId: UID, teamId: TID, projectId: PID, bucket: 'flowai', key,
+          originalName: 'anchored.mp4', mimeType: 'video/mp4', size: 1, type: 'generated', status: 'completed',
+        },
+      });
+    });
+    expect(swept).toBe(0);                              // 红：现状 NOT EXISTS 只在 select 评估——照样删
+    expect(fakeMinio.delete).not.toHaveBeenCalledWith(key);
+    expect((await prisma.objectManifest.findUniqueOrThrow({ where: { objectKey: key } })).state).toBe('LIVE');
   });
 
   // ── MaterializeRun fencing（materializeRunId/expectedExecSeq 双锚——B12/B17 继承）──

@@ -18,7 +18,7 @@ import type { ExecutionNodePlanStatus, ExecutionRequestState } from '@flowweb/sh
 import { ExecutionRequestService, type LoadedExecution } from './execution-request.service';   // Y1c T21：受理冻结请求消费
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { intentDuplicateAttemptTotal } from './intent-reconcile.metrics';   // T12：settleFailureTotal 消费点随 video 旧链退役（settle 归 finalize 事务内——失败面回滚非计数照发）
-import { artifactDiscardedTotal, countExecProjectionFailure, textUnknownTotal } from './exec.metrics';
+import { artifactDiscardedTotal, countExecProjectionFailure, textUnknownMarkFailedTotal, textUnknownTotal } from './exec.metrics';
 import type { ExecutionClaimTicket } from './execution.types';
 
 /** Y1c T23（T21 移交⑦收口——附言④）：ExecutionRequest/ExecutionNodePlan 状态值域单源引用
@@ -346,9 +346,10 @@ export class ExecutionService {
       onClaimed?.({ nodeId: node.id, intentRowId: intent.id, execSeq: intent.execSeq.toString() });
       const attempts: number = typeof intent.attempts === 'number' ? intent.attempts : 0;
       await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId, attempts }, this.wscope(intent)).catch(countExecProjectionFailure); // best-effort
-      // Y1c T23（M-5 裁定=接线——非冻结路径写点）：NodeExecution 当前行 claim 写入（与冻结路径
-      // 同点=当前行表覆盖全部执行入口）。观测位**全链零副作用**（见 observeNodeExecution 头注）。
-      await this.observeNodeExecution({ projectId, nodeId: node.id, execSeq: intent.execSeq });
+      // Y1c T23（M-5 裁定=接线+收口 I-1(spec) 统一锚）：NodeExecution 当前行 claim 观测写——
+      // 归 GenerationIntentService.observeNodeExecution（全部 claim 调用点统一：execution 双路径
+      // +ai-image-edit/lighting 两链）；观测位零副作用三义见彼头注。
+      await this.intentService.observeNodeExecution({ projectId, nodeId: node.id, execSeq: intent.execSeq });
 
       // ── reserve（外呼之前——余额不足即拒=零外呼零沉没；T9 execSeq 票——换代行 mayCall:false 静默退役）──
       if (cost > 0) {
@@ -496,8 +497,14 @@ export class ExecutionService {
           // 供应商重复成本平台吸收+text_unknown_total 人工对账；无幂等键无查询（openai-chat opaque）
           // =外部 at-least-once 诚实登记——数据库 fencing 无法撤销已发生的外部调用。
           const marked = await this.intentService.markUnknown(claimed.id, String(err?.message ?? err), claimed.execSeq).catch(() => 0);
+          // T23 收口 M-3：markUnknown 落库失败窗（行留 RUNNING=UNKNOWN 纪律该窗失效交 reaper 收敛）
+          // ——文案分档：停驻成功才推「不会重复扣费」确定性承诺；失败=中性文案+遥测计数（禁在
+          // 不确定态推确定性承诺——扣费状态待对账）。
           if (marked === 1) textUnknownTotal.inc();
-          const unknownMsg = `${err.message}——可能重复生成、不会重复扣费（请稍后查询或重试）`;
+          else textUnknownMarkFailedTotal.inc();
+          const unknownMsg = marked === 1
+            ? `${err.message}——可能重复生成、不会重复扣费（请稍后查询或重试）`
+            : `${err.message}——外呼结果不明，扣费状态待对账（请稍后查询或重试）`;
           const attempts: number = typeof claimed.attempts === 'number' ? claimed.attempts : 0;
           await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('TEXT_PROVIDER_UNKNOWN', unknownMsg, attempts, true, claimed.intentId), this.wscope(claimed)).catch(countExecProjectionFailure);
           this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: unknownMsg });
@@ -656,41 +663,6 @@ export class ExecutionService {
 
   // ═══ Y1c T21（G4 门）：冻结请求执行路径——worker 零 doc 读（spec §6.1/§6.2）════════════════
 
-  /** NodeExecution 当前行 CAS upsert——SQL 谓词 `WHERE generation=EXCLUDED.generation AND
-   *  execSeq<EXCLUDED.execSeq` 与 shared nodeExecutionUpdateAllowed（compareExecSeq 单源）真值表
-   *  **等价**（等价性断言=execution-frozen.t21-c1.int.spec I4 用例：旧代拒/同 execSeq 拒/单调过/
-   *  换代全拒四态对拍纯函数）；0 行=fenced（旧 worker 迟到更新拒绝——观测面，不中止本代流程）。 */
-  private async upsertNodeExecutionGuarded(input: {
-    projectId: string; nodeId: string; generation: number; execSeq: bigint; status: string;
-  }): Promise<boolean> {
-    const r = await this.prisma.$queryRaw<{ nodeId: string }[]>`
-      INSERT INTO "NodeExecution" ("projectId", "nodeId", "generation", "execSeq", "nodeVersion", "status", "attempts", "updatedAt")
-      VALUES (${input.projectId}::text, ${input.nodeId}::text, ${input.generation}::int, ${input.execSeq}::bigint, 0, ${input.status}::text, 1, now())
-      ON CONFLICT ("projectId", "nodeId") DO UPDATE SET
-        "generation" = EXCLUDED."generation", "execSeq" = EXCLUDED."execSeq", "status" = EXCLUDED."status",
-        "attempts" = "NodeExecution"."attempts" + 1, "updatedAt" = now()
-      WHERE "NodeExecution"."generation" = EXCLUDED."generation" AND "NodeExecution"."execSeq" < EXCLUDED."execSeq"
-      RETURNING "nodeId"`;
-    return r.length > 0;
-  }
-
-  /** Y1c T23（M-5 裁定=接线）：非冻结路径 NodeExecution 观测位——generation 锚读（CanvasDoc 单行）
-   *  +当前行 claim 写整体包裹。**观测位零副作用三义**：①读/写失败只计数（countExecProjectionFailure）
-   *  不中止本代流程；②写回 0 行=fenced（旧代/换代——观测记不进而已，不反向影响资金/交付）；
-   *  ③与 GenerationIntent CAS 分职——后者是决策闸（0 行=丢弃交付/资金不动），本表是 durable 侧
-   *  观测行。fencing 决策权威恒在 GenerationIntent execSeq CAS+MaterializeRun/Media lease CAS 双闸。 */
-  private async observeNodeExecution(input: { projectId: string; nodeId: string; execSeq: bigint }): Promise<void> {
-    try {
-      const doc = await this.prisma.canvasDoc.findUnique({ where: { projectId: input.projectId }, select: { generation: true } });
-      await this.upsertNodeExecutionGuarded({
-        projectId: input.projectId, nodeId: input.nodeId, generation: doc?.generation ?? 0,
-        execSeq: input.execSeq, status: 'RUNNING',
-      });
-    } catch (e) {
-      countExecProjectionFailure(e);
-    }
-  }
-
   /** 冻结请求执行：scope/planMap/upstream 全自受理冻结面（ExecutionNodePlan+ExecutionInput）；
    *  claim 用 plan.paramsHash（零重算）；资金=per-item（预留已在受理事务——本路径跳过 intent reserve，
    *  成功 settleForExecutionRequestItem/失败 voidForExecutionRequestItem）。 */
@@ -769,8 +741,11 @@ export class ExecutionService {
           where: { requestId: frozen.request.id, nodeId: plan.nodeId },
           data: { status: PLAN_STATE.EXECUTING, generationIntentId: intent.id, execSeq: intent.execSeq },
         });
-        await this.upsertNodeExecutionGuarded({
-          projectId, nodeId: plan.nodeId, generation: frozen.request.generation, execSeq: intent.execSeq, status: 'RUNNING',
+        // T23 收口 I-1(spec)：观测锚统一迁 GenerationIntentService（generation=受理冻结值直用——
+        // 零 CanvasDoc 读；观测位零副作用三义=冻结路径 infra 失败亦只计数不 void/fail——与 T21 行为
+        // 差异即观测位纪律统一，资金/交付语义零变化）。
+        await this.intentService.observeNodeExecution({
+          projectId, nodeId: plan.nodeId, execSeq: intent.execSeq, generation: frozen.request.generation,
         });
         onClaimed?.({ nodeId: plan.nodeId, intentRowId: intent.id, execSeq: intent.execSeq.toString() });
         const attempts: number = typeof intent.attempts === 'number' ? intent.attempts : 0;
@@ -815,7 +790,10 @@ export class ExecutionService {
           //（text_unknown_total）；同 requestId 重试=rearm（claim UNKNOWN 再激活档）续跑该 item。
           const marked = await this.intentService.markUnknown(claimed.id, String(err?.message ?? err), claimed.execSeq).catch(() => 0);
           if (marked === 1) textUnknownTotal.inc();
-          const unknownMsg = `${err?.message ?? err}——可能重复生成、不会重复扣费（请稍后查询或重试）`;
+          else textUnknownMarkFailedTotal.inc();   // T23 收口 M-3：失败窗中性文案（同非冻结路径分档）
+          const unknownMsg = marked === 1
+            ? `${err?.message ?? err}——可能重复生成、不会重复扣费（请稍后查询或重试）`
+            : `${err?.message ?? err}——外呼结果不明，扣费状态待对账（请稍后查询或重试）`;
           await this.collabDoc.writeExecStatus(projectId, plan.nodeId, this.errorPatch('TEXT_PROVIDER_UNKNOWN', unknownMsg, 0, true, claimed.intentId), this.wscope(claimed)).catch(countExecProjectionFailure);
           this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'error', error: unknownMsg });
           errors.push({ nodeId: plan.nodeId, status: 'error', error: unknownMsg, errorCode: 'TEXT_PROVIDER_UNKNOWN' });

@@ -48,6 +48,8 @@ const prepareParams = (over: Partial<PrepareUploadParams> = {}): PrepareUploadPa
 
   afterAll(async () => {
     await prisma.media.deleteMany({ where: { teamId: TID } });
+    // Y1c T23 收口（跨套件卫生——prepareUpload 自 T23 建 StorageReservation）：预留行随团队 fixture 清
+    await prisma.storageReservation.deleteMany({ where: { teamId: TID } });
     await deleteTeamsWithPass(prisma as unknown as PrismaService, [TID]);
     await prisma.user.deleteMany({ where: { id: UID } });
     await prisma.$disconnect();

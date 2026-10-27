@@ -21,7 +21,7 @@ describe('AiImageEditController', () => {
   let controller: AiImageEditController;
   let service: { enqueueOutpaint: ReturnType<typeof vi.fn>; enqueueErase: ReturnType<typeof vi.fn>; enqueueRedraw: ReturnType<typeof vi.fn> };
   let permSvc: { assertEditor: ReturnType<typeof vi.fn>; assertEditorWithTeam: ReturnType<typeof vi.fn> };
-  let intentSvc: { claim: ReturnType<typeof vi.fn>; attachJob: ReturnType<typeof vi.fn>; fail: ReturnType<typeof vi.fn> };
+  let intentSvc: { claim: ReturnType<typeof vi.fn>; attachJob: ReturnType<typeof vi.fn>; fail: ReturnType<typeof vi.fn>; observeNodeExecution: ReturnType<typeof vi.fn> };
   let resolver: { resolveByNodeTypeKey: ReturnType<typeof vi.fn> };
   let collabSvc: { readServerSV: ReturnType<typeof vi.fn> };
   let presence: { assertAdmittable: ReturnType<typeof vi.fn> };
@@ -41,6 +41,7 @@ describe('AiImageEditController', () => {
       claim: vi.fn().mockResolvedValue({ created: true, artifactRev: 0, intent: { id: 'row-1', intentId: 'i-1', execSeq: 1n } }),   // T10：claimCapture 返回槽位 rev（ticket.expectedRev） // T9：claim 返回行携 execSeq（controller 铸票）
       attachJob: vi.fn(),
       fail: vi.fn(),
+      observeNodeExecution: vi.fn().mockResolvedValue(undefined),   // Y1c T23 收口 I-1(spec)：claim 后 NodeExecution 观测写（M-5 补接线）
     };
     // Y0b-1（E1）：kind 级定价快照（编辑 4 kind=modelId IS NULL，Z5）
     resolver = {
@@ -123,6 +124,18 @@ describe('AiImageEditController', () => {
         { intentRowId: 'row-1', execSeq: '1', jobId: expect.stringMatching(/^[0-9a-f-]{36}$/), expectedRev: 0 },   // T10：票携 claimCapture 槽位 rev
       );
       expect(result).toEqual({ jobId: 'job-redraw-1' });
+    });
+  });
+
+  describe('Y1c T23 收口 I-1(spec)：M-5 补接线——编辑链 claim 后 NodeExecution 观测写', () => {
+    it('claim 成功（created）→ observeNodeExecution({projectId,nodeId,execSeq}) 恒达（观测位零副作用纪律）', async () => {
+      const body = {
+        projectId: 'p1', nodeId: 'n1', fileId: 'f',
+        rect: { x: 0, y: 0, width: 10, height: 10 }, imageWidth: 100, imageHeight: 100,
+        stateVector: SV_OK,
+      };
+      await controller.outpaint(body, { user: { id: 'u1' } } as never);
+      expect(intentSvc.observeNodeExecution).toHaveBeenCalledWith({ projectId: 'p1', nodeId: 'n1', execSeq: 1n });
     });
   });
 

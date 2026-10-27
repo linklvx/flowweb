@@ -55,6 +55,7 @@ function makeService(reserveOk: boolean, nodes: any[]) {
     reanchorDeadline: vi.fn().mockResolvedValue(undefined), // Y0b-2 T4：外呼前重锚
     ensureProviderRequestId: vi.fn().mockResolvedValue('rid-t23'),   // Y1c T23：text 链同铸 write-ahead 键（红④根修——全 kind）
     markUnknown: vi.fn().mockResolvedValue(1),   // Y1c T23：text UNKNOWN 档
+    observeNodeExecution: vi.fn().mockResolvedValue(undefined),   // Y1c T23 收口 I-1(spec)：NodeExecution 观测锚
     touchHeartbeat: vi.fn().mockResolvedValue(undefined),
   };
   const svc: any = new (ExecutionService as any)(

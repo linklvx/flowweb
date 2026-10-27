@@ -42,6 +42,7 @@ describe('LightingController', () => {
       claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'row-1', intentId: 'i-1', execSeq: 1n } }),
       attachJob: vi.fn(),
       fail: vi.fn(),
+      observeNodeExecution: vi.fn().mockResolvedValue(undefined),   // Y1c T23 收口 I-1(spec)：claim 后 NodeExecution 观测写（M-5 补接线）
     };
     // Y0b-2 T7：SV 支配门依赖（默认=支配成立）
     collabSvc = { readServerSV: vi.fn(async () => Y.encodeStateVector(svDoc)) };
@@ -82,6 +83,11 @@ describe('LightingController', () => {
     it('should return taskId and status on success（T6 信封清剿：裸值——拦截器单层包裹）', async () => {
       const result = await controller.createTask(body, mockReq());
       expect(result).toEqual({ taskId: 'task-1', status: 'pending', jobId: 'job-9' });
+    });
+
+    it('Y1c T23 收口 I-1(spec)：claim 成功（created）→ observeNodeExecution({projectId,nodeId,execSeq}) 恒达（M-5 补接线）', async () => {
+      await controller.createTask(body, mockReq());
+      expect(intentSvc.observeNodeExecution).toHaveBeenCalledWith({ projectId: 'proj-1', nodeId: 'node-1', execSeq: 1n });
     });
 
     it('EDITOR：assertEditor 放行且 userId 取自 req.user（替换 default-user）', async () => {

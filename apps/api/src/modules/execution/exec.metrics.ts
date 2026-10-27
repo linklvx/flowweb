@@ -163,3 +163,11 @@ export const textUnknownTotal = new Counter({
   help: 'Y1c T23：text 外呼结果不明（超时/5xx）UNKNOWN 停驻计数——reserve 保留不自动重呼，人工对账面（spec §6.3 偏离 36-④）',
   registers: [register],
 });
+
+/** Y1c T23 收口 M-3：markUnknown 落库失败窗计数（行留 RUNNING=UNKNOWN 纪律该窗失效交 reaper
+ *  收敛——文案分档换中性承诺+本计数；人工对账面=text_unknown_total 正常档与本失败档的并集）。 */
+export const textUnknownMarkFailedTotal = new Counter({
+  name: 'text_unknown_mark_failed_total',
+  help: 'Y1c T23 收口：markUnknown 落库失败计数（UNKNOWN 停驻未达——行留 RUNNING 交 reaper，用户面中性文案）',
+  registers: [register],
+});
