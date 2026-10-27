@@ -92,9 +92,18 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
     });
   }
 
-  /** 事务内落 pending 行（幂等锚先于 presign）。pendingExpiresAt=TTL；type=temp 维持 7d expiresAt 语义。 */
+  /** 事务内落 pending 行（幂等锚先于 presign）。pendingExpiresAt=TTL；type=temp 维持 7d expiresAt 语义。
+   *  Y1c T23（迁移三——spec §6.3 资源回收）：①upperBoundBytes 必填 fail-closed——size≤0 拒受理
+   *  （无上界不入账：配额硬门计 ACTIVE 预留，无值预留=在飞上传 oversale 窗）；②**同事务**建
+   *  StorageReservation(ACTIVE) 行——释放必与锚 pending 行终态迁移同事务原子（confirm→SETTLED/
+   *  清扫·拒→RELEASED；lease〔pendingExpiresAt〕过期不独立释放——迟到 confirm 被 status='pending'
+   *  CAS 拒 409=在飞上传无 oversale 窗）。 */
   async prepareUploadInTx(tx: Prisma.TransactionClient, params: PrepareUploadParams): Promise<Media> {
-    return tx.media.create({
+    const upperBound = Number(params.size);
+    if (!(upperBound > 0)) {
+      throw new ConflictException('上传预登记缺有效尺寸上界（size>0）——无上界预留 fail-closed 拒受理');
+    }
+    const media = await tx.media.create({
       data: {
         userId: params.userId,
         teamId: params.teamId,
@@ -111,10 +120,15 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
         expiresAt: params.type === 'temp' ? new Date(Date.now() + 7 * 24 * 3600_000) : null,
       },
     });
+    await tx.storageReservation.create({
+      data: { teamId: params.teamId, mediaId: media.id, upperBoundBytes: BigInt(upperBound), state: 'ACTIVE' },
+    });
+    return media;
   }
 
   /** T4-②：confirm 终判（status='pending' CAS——并发双 confirm 恰一 completed；
-   *  count===0=他方已 confirm/行已清理/TTL 已扫 → 409） */
+   *  count===0=他方已 confirm/行已清理/TTL 已扫 → 409）。
+   *  Y1c T23：同事务预留 SETTLED（实字节入账 usage——预留停止计入在飞门，双计收口）。 */
   async confirmUpload(params: ConfirmUploadParams): Promise<void> {
     await this.prisma.$transaction((tx) => this.confirmInTx(tx, params));
   }
@@ -132,12 +146,26 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
       },
     });
     if (count !== 1) throw new ConflictException('上传已在确认中或已完成');
+    // 终态释放（T23）：锚行离开 pending 与预留 SETTLED 同事务原子——迟到路径此后 confirm CAS 拒 409
+    await tx.storageReservation.updateMany({
+      where: { mediaId: params.mediaId, state: 'ACTIVE' },
+      data: { state: 'SETTLED' },
+    });
   }
 
-  /** mismatch/白名单拒共享清理分支：守卫只删 pending 行（并发 confirm 已完成时零副作用） */
+  /** mismatch/白名单拒共享清理分支：守卫只删 pending 行（并发 confirm 已完成时零副作用）。
+   *  Y1c T23：删行与预留 RELEASED 同事务原子（锚行终态迁移=释放唯一时机——lease 过期不独立释放）。 */
   async deletePending(mediaId: string): Promise<number> {
-    const { count } = await this.prisma.media.deleteMany({ where: { id: mediaId, status: 'pending' } });
-    return count;
+    return this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.media.deleteMany({ where: { id: mediaId, status: 'pending' } });
+      if (count > 0) {
+        await tx.storageReservation.updateMany({
+          where: { mediaId, state: 'ACTIVE' },
+          data: { state: 'RELEASED' },
+        });
+      }
+      return count;
+    });
   }
 
   /** MediaBinding 槽位 current-state upsert（v14.2 裁决㉜/Z18''：同槽位换 media 即改行——
@@ -282,7 +310,9 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
 
   /** 过期 pending 行清理：先删对象（404 容忍；其他错误保留下轮重试）再守卫删行——
    *  崩溃窗自愈：对象已删行未删 → 下轮重扫（幂等）；只扫 pendingExpiresAt 非空行
-   *  （生成 processing 行无此列值，materialize 生命周期不进本扫）。 */
+   *  （生成 processing 行无此列值，materialize 生命周期不进本扫）。
+   *  Y1c T23：行删除与预留 RELEASED 同事务（deletePending 内原子——释放必与锚行离开 pending
+   *  同发；TTL 扫描窗内迟到 confirm 被 status='pending' CAS 拒 409=无 oversale 窗）。 */
   async sweepExpiredPending(): Promise<number> {
     if (this.sweeping) return 0; // 上轮未竟跳轮（幂等由行级 status 守卫保证，跳轮无损）
     this.sweeping = true;

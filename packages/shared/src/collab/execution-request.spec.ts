@@ -7,12 +7,14 @@
 // 本文件=T21（G4 门受理实现）/T23（资金收口）的消费契约锁：任何契约面漂移先红于此。
 import { describe, expect, it } from 'vitest';
 import {
-  canonicalPlanHashPayload, EXEC_ADMISSION_TIMEOUT_MS, EXEC_CREDIT_RESERVATION_CONTRACT,
+  canonicalPlanHashPayload, EXEC_ADMISSION_TIMEOUT_MS, EXECUTION_NODE_PLAN_STATES,
+  EXECUTION_REQUEST_STATES, EXEC_CREDIT_RESERVATION_CONTRACT,
   EXEC_FREEZE_BUDGET_MS, EXEC_INPUT_ENCODING_KINDS, EXEC_INPUT_RAW_MAX_BYTES,
   EXEC_INPUT_RETENTION_AFTER_FINAL_DAYS, EXEC_INPUT_STORED_MAX_BYTES, EXEC_MAX_NODES,
   EXEC_PROMPT_MAX_BYTES, EXEC_REFERENCED_IMAGE_IDS_MAX, EXEC_REQUEST_CONFLICT_REASONS,
   EXEC_REQUEST_EXPIRES_AT_MS, EXEC_UPSTREAM_MEDIA_IDS_MAX, ExecutionInputRow,
-  ExecutionNodePlanRow, ExecutionRequestRow, FROZEN_DOC_SEQ_CRITICAL_SECTION_STAGES,
+  ExecutionNodePlanRow, ExecutionNodePlanStatus, ExecutionRequestRow, ExecutionRequestState,
+  FROZEN_DOC_SEQ_CRITICAL_SECTION_STAGES,
   PLAN_HASH_EXCLUDED_FIELDS, PLAN_HASH_IMMUTABLE_FIELDS, validateExecutionInputLimits,
   validateExecutionScopeNodeIds,
 } from './execution-request';
@@ -164,5 +166,20 @@ describe('Y1c T5b 契约冻结：frozenDocSeq 临界区+重试冲突+资金 per-
     expect(EXEC_CREDIT_RESERVATION_CONTRACT.unclaimedSweeper).toContain('逐 item void');
     expect(EXEC_CREDIT_RESERVATION_CONTRACT.partialFailure).toContain('按 item');
     expect(EXEC_CREDIT_RESERVATION_CONTRACT.idempotentRetry).toContain('不重复预留');
+  });
+});
+
+describe('Y1c T23 状态值域单源（T21 移交⑦收口——ExecutionRequestRow.state 注记「不冻结值域」授权面）', () => {
+  it('ExecutionRequest.state 五值精确冻结：ADMITTED/EXECUTING/COMPLETED/FAILED/VOIDED（api 写点改引单源）', () => {
+    expect([...EXECUTION_REQUEST_STATES]).toEqual(['ADMITTED', 'EXECUTING', 'COMPLETED', 'FAILED', 'VOIDED']);
+  });
+  it('ExecutionNodePlan.status 五值精确冻结：PENDING/EXECUTING/SETTLED/VOIDED/SKIPPED（SKIPPED=非 executable 受理即终态）', () => {
+    expect([...EXECUTION_NODE_PLAN_STATES]).toEqual(['PENDING', 'EXECUTING', 'SETTLED', 'VOIDED', 'SKIPPED']);
+  });
+  it('值域类型面：ExecutionRequestState/ExecutionNodePlanStatus 与常量同源（编译期单源——运行时断言字面量集）', () => {
+    const s: ExecutionRequestState = 'ADMITTED';
+    const p: ExecutionNodePlanStatus = 'SKIPPED';
+    expect(EXECUTION_REQUEST_STATES).toContain(s);
+    expect(EXECUTION_NODE_PLAN_STATES).toContain(p);
   });
 });

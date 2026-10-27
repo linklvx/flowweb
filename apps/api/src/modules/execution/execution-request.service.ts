@@ -22,7 +22,7 @@ import {
   validateExecutionInputLimits,
   validateExecutionScopeNodeIds,
 } from '@flowweb/shared';
-import type { ExecutionInputEncoding } from '@flowweb/shared';
+import type { ExecutionInputEncoding, ExecutionNodePlanStatus, ExecutionRequestState } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ValidationService } from './validation.service';
 import { TopologyService } from './topology.service';
@@ -161,6 +161,16 @@ function plainOf(v: unknown): unknown {
   if (v instanceof Y.Array) return v.toArray().map(plainOf);
   return v;
 }
+
+/** Y1c T23（T21 移交⑦收口——附言④）：状态值域单源引用。写点禁散裸字面量真源——成员经 shared
+ *  类型绑定（ExecutionRequestState/ExecutionNodePlanStatus 派生自 EXECUTION_REQUEST_STATES/
+ *  EXECUTION_NODE_PLAN_STATES〔shared execution-request.ts §3b 唯一真源〕——值域漂移=本文件编译红）。 */
+const REQ_STATE: Record<'ADMITTED' | 'EXECUTING' | 'COMPLETED' | 'FAILED' | 'VOIDED', ExecutionRequestState> = {
+  ADMITTED: 'ADMITTED', EXECUTING: 'EXECUTING', COMPLETED: 'COMPLETED', FAILED: 'FAILED', VOIDED: 'VOIDED',
+};
+const PLAN_STATE: Record<'PENDING' | 'EXECUTING' | 'SETTLED' | 'VOIDED' | 'SKIPPED', ExecutionNodePlanStatus> = {
+  PENDING: 'PENDING', EXECUTING: 'EXECUTING', SETTLED: 'SETTLED', VOIDED: 'VOIDED', SKIPPED: 'SKIPPED',
+};
 
 @Injectable()
 export class ExecutionRequestService {
@@ -409,8 +419,8 @@ export class ExecutionRequestService {
         paramsHash: sha256hex(JSON.stringify([entries[n.id]!.kind, entries[n.id]!.args])),
         // M-4：非 executable（EXECUTABLE_TYPES 外——group/剪辑产物等）受理即 SKIPPED——
         // remaining 收口（PENDING/EXECUTING 计数）可达终态；值域注记：PENDING/EXECUTING/SETTLED/
-        // VOIDED/SKIPPED 五值（SKIPPED=T21 收口新增——零成本零执行分支语义）。
-        status: isExecutableNode(n) ? 'PENDING' : 'SKIPPED',
+        // VOIDED/SKIPPED 五值（SKIPPED=T21 收口新增——零成本零执行分支语义；值域单源=shared §3b）。
+        status: isExecutableNode(n) ? PLAN_STATE.PENDING : PLAN_STATE.SKIPPED,
       };
     });
     const planHash = sha256hex(canonicalPlanHashPayload(planRows as never[]));
@@ -423,7 +433,7 @@ export class ExecutionRequestService {
       await this.prisma.$transaction(async (tx) => {
         await tx.executionRequest.create({ data: {
           id, requestId, projectId, generation, historyId: history.historyId,
-          docSeq: cmd.docSeq, frozenDocSeq, userId, teamId, kind, state: 'ADMITTED',
+          docSeq: cmd.docSeq, frozenDocSeq, userId, teamId, kind, state: REQ_STATE.ADMITTED,
           reservedCredit: totalCredit, totalCredit, planHash, inputHash: contentHash,
           expiresAt: new Date(Date.now() + EXEC_REQUEST_EXPIRES_AT_MS),
         } });
@@ -519,7 +529,7 @@ export class ExecutionRequestService {
   /** 过期未执行（state=ADMITTED∧expiresAt<now）→ 逐 item void+state=VOIDED（幂等——终态不再命中）。 */
   async sweepExpired(now: Date = new Date()): Promise<number> {
     const expired = await this.prisma.executionRequest.findMany({
-      where: { state: 'ADMITTED', expiresAt: { lt: now } }, select: { id: true }, take: 100,
+      where: { state: REQ_STATE.ADMITTED, expiresAt: { lt: now } }, select: { id: true }, take: 100,
     });
     let swept = 0;
     for (const e of expired) {

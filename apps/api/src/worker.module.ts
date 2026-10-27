@@ -62,6 +62,9 @@ import { MediaProbePoller } from './modules/media/media-probe.poller';
 // T12：video materialize DB poller（MaterializeJob——ai-download processor/队列整体退役后的接替面；
 // 同 probe 形态：仅 worker 进程装配；依赖=Prisma/Minio/SafeRemoteFetch/TeamCredit/StorageQuota/EmitPort 均已 import）
 import { MaterializeJob } from './modules/artifact-core/materialize-job.service';
+// Y1c T23（迁移三）：ObjectManifest delete-claim 面（MaterializeJob 上传前 claim/锚定后 release+
+// 有界 orphan sweep——worker 进程装配：GC 保护对象=materialize 产物，api 进程不双开定时器）
+import { ObjectManifestService } from './modules/artifact-core/object-manifest.service';
 // ── storyboard/material/temp-cleanup ──
 import { StitchConsumer } from './modules/storyboard/stitch.consumer';
 import { ThumbnailGeneratorConsumer } from './modules/material-library/consumers/thumbnail-generator.consumer';
@@ -159,6 +162,7 @@ const env = validateEnv();
     SafeRemoteFetchService,   // T6：ai-image-edit/lighting/materialize 下载原语（SSRF 四门+限长）
     MediaProbePoller,         // T7：probe 单相 DB poller（图片批 4/lease 180s+视频 batch 1/lease 5min）
     MaterializeJob,           // T12：video materialize DB poller（SKIP LOCKED claim/lease 退避+终态失败幂等补偿退款）
+    ObjectManifestService,    // Y1c T23：对象登记+delete-claim（MaterializeJob 消费+有界 orphan sweep）
     GenerationIntentService,
     NodeArtifactService,   // T10：claimCapture 依赖（zero-dep——ArtifactCoreModule 闭包含 TeamModule controller，worker 平铺先例=SafeRemoteFetchService）
     MediaRegistrationService,   // T10：唯一 Media 写入点（registerInTx stage durable——ArtifactCommit 消费）

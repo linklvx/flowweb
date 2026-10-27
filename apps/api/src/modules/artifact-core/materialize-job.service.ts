@@ -25,9 +25,10 @@
 // （api-role/单进程形态下有义；worker 形态=降级计数——emit.port.ts 既有语义）。materialize 不写
 // doc（data 域）硬约束两通道共同维持。
 // 写回 lease fence（评审 P2-②）：claim 置位的 processingLeaseUntil 值=本代唯一持有物——完成/退避/
-// 终态全部写回带 WHERE processingLeaseUntil=<本代值>（无 materializeRunId 列的等效 CAS）：旧代
-// lease 过期被新代接管 ⇒ 写回 0 行=fenced（放弃写回+日志）——僵尸 worker 不得清新代 lease/叠
-// attempts/投退避，并发双下载窗收敛为「至多一代持有写回权」。
+// 终态全部写回带 WHERE processingLeaseUntil=<本代值>（值 CAS）：旧代 lease 过期被新代接管 ⇒ 写回
+// 0 行=fenced（放弃写回+日志）——僵尸 worker 不得清新代 lease/叠 attempts/投退避，并发双下载窗收敛
+// 为「至多一代持有写回权」。Y1c T23（B12/B17 继承）：claim 同事务建 MaterializeRun 行（RUNNING）
+// =durable 侧记录，与 lease 值 CAS 双闸——旧 run 迟到写回 0 命中=run 行让位 FENCED。
 // 退款先行序（先 rollback 后置 failed）：反序崩溃窗=「failed 行无人重扫」的死退款面；此序崩溃窗=
 // processing 行重 claim 自愈（退款 no-op→置 failed）；极端边缘=退款后重试成功〔用户免费得字节〕
 // ——资损方向正确侧（宁可免费字节不可吞钱）。终态入口另有 lease 失守前置读检——旧代失守即放弃
@@ -41,7 +42,7 @@
 // 免费字节不可吞钱/删在用对象）；③GC poller 扩前缀清理（枚举 `{row.key}-` 变体删非 Media.key 项）
 // 需排除「processing 行在飞 key 集」（lease 换代窗内变体枚举误删在飞对象=上传完成但对象已灭的
 // 真故障面）——竞态排除面>泄漏面，登记 Y2 与 cs 写者 registry 同批需求池，不在本卡造轮。
-import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit, Optional } from '@nestjs/common';
 import { Prisma, Media } from '@prisma/client';
 import * as Sentry from '@sentry/nestjs';
 import { createHash } from 'node:crypto';
@@ -59,6 +60,7 @@ import { sniffMimeType } from '../media/sniff';
 import { TeamCreditService } from '../team/team-credit.service';
 import { StorageQuotaService } from '../team/storage-quota.service';
 import { EmitPort } from '../gateway/emit.port';
+import { ObjectManifestService } from './object-manifest.service';   // Y1c T23：delete-claim（上传前 claim/锚定后 release——GC 交错误删收口）
 // ffprobe 单源（T7 沙箱本体——census ㉒ 纪律禁第二份字面量；buildFfprobeArgs/FFPROBE_TIMEOUT_MS 复用）
 import { buildFfprobeArgs, FFPROBE_TIMEOUT_MS } from '../media/media-probe.poller';
 import { ffprobePath } from '../media-process/media-process.service';
@@ -132,6 +134,9 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @Inject(StorageQuotaService) private readonly quota: StorageQuotaService,
     @Inject(EmitPort) private readonly emit: EmitPort,
+    /** Y1c T23（迁移三）：delete-claim 面（上传 content-addressed 键前 claim、锚定后 release）。
+     *  @Optional——直构测试（t23 int 六参形态）缺席=跳过（行域 GC 兜底仍在）。 */
+    @Optional() private readonly manifests?: ObjectManifestService | null,
   ) {}
 
   onModuleInit(): void {
@@ -171,8 +176,12 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
 
   /** 两段式事务 claim（probe claim 同形态）：SELECT FOR UPDATE SKIP LOCKED（并发双 claim 恰一）
    *  →同事务置 processingLeaseUntil+清 nextMaterializeAt（行锁保持至 commit）。
-   *  mimeType 路由=provider 声明列（processing 期 sniffed 恒 NULL）——image stage 短命行天然排除。 */
-  async claim(): Promise<Media[]> {
+   *  mimeType 路由=provider 声明列（processing 期 sniffed 恒 NULL）——image stage 短命行天然排除。
+   *  Y1c T23（B12/B17 继承——spec §6.3）：claim 同事务建 MaterializeRun 行（state=RUNNING，
+   *  expectedExecSeq=Media.sourceExecSeq——执行代际族锚，#4：与 lifecycleSeq/fenceSeq 生命周期族
+   *  无关）=durable 侧记录；run 行与 lease 值 CAS 双闸——旧 run 迟到写回（lease 被新代接管）0 命中
+   *  =让位 FENCED。返回行附 materializeRunId（写回时携带）。 */
+  async claim(): Promise<Array<Media & { materializeRunId: string }>> {
     const leaseUntil = new Date(Date.now() + MATERIALIZE_LEASE_MS);
     return this.prisma.$transaction(async (tx) => {
       // 时区纪律（probe claim 头注）：Prisma 模型 API 写 naive=UTC 墙钟，裸比 now() 会用会话 TZ
@@ -192,15 +201,25 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
         where: { id: { in: ids } },
         data: { processingLeaseUntil: leaseUntil, nextMaterializeAt: null },
       });
-      return tx.media.findMany({ where: { id: { in: ids } } });
+      const rows = await tx.media.findMany({ where: { id: { in: ids } } });
+      const withRuns: Array<Media & { materializeRunId: string }> = [];
+      for (const m of rows) {
+        const run = await tx.materializeRun.create({
+          data: { projectId: m.projectId ?? '', nodeId: m.nodeId ?? '', expectedExecSeq: m.sourceExecSeq ?? 0n, state: 'RUNNING' },
+        });
+        withRuns.push({ ...m, materializeRunId: run.id });
+      }
+      return withRuns;
     });
   }
 
   /** 单行物化。返回：completed（本代完成）/fenced（行已非 processing——他方完成/终态/复驱：幂等零
    *  动作零 IO）/retry-scheduled（瞬态退避）/terminal（终态失败——已补偿退款+failed）。
    *  幂等键=mediaId：claim 条件（status=processing）+完成/终态/退避写回 CAS（status∧本代 lease 值
-   *  守卫）双闸——kill 后重跑不重复下载/不重复 Media。 */
-  async materializeRow(row: Media): Promise<'completed' | 'fenced' | 'retry-scheduled' | 'terminal'> {
+   *  守卫）双闸——kill 后重跑不重复下载/不重复 Media。
+   *  Y1c T23：MaterializeRun 行随写回终局（COMPLETED/FAILED/FENCED——claim 建行 RUNNING；lease
+   *  失守/主动退避让渡=让位 FENCED 交新 run）。 */
+  async materializeRow(row: Media & { materializeRunId?: string }): Promise<'completed' | 'fenced' | 'retry-scheduled' | 'terminal'> {
     if (row.status !== 'processing') return 'fenced';   // 已终态/复驱——零 IO 幂等早退
     // fenced 亦来自写回 0 行（P2-② lease fence：本代 lease 被新代接管——放弃写回零污染）
     try {
@@ -208,9 +227,14 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
       const done = await this.completeMaterialized(row, r);
       if (done) {
         materializeDoneTotal.inc();
+        await this.closeRun(row.materializeRunId, 'COMPLETED');
+        // T23 delete-claim release（锚定后——Media.key 已引用 content-addressed 键）：owner CAS
+        //（新代已接管同键 claim 时本 release 0 命中=不清新代保护）
+        await this.manifests?.releaseClaim(r.key, `materialize:${row.id}`).catch(() => undefined);
         await this.observeQuota(row);
         return 'completed';
       }
+      await this.closeRun(row.materializeRunId, 'FENCED');
       return 'fenced';   // status CAS 0 命中=并发他方已完成（content-addressed 同对象——零动作）
     } catch (e) {
       const failure = e instanceof MaterializeFailure
@@ -218,6 +242,14 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
         : new MaterializeFailure('internal', false, e instanceof Error ? e.message : String(e));
       return this.fail(row, failure);
     }
+  }
+
+  /** Y1c T23：MaterializeRun 行终局（state=RUNNING CAS——已完成/FAILED 的 run 免疫；观测面写失败
+   *  仅告警不阻断主流程——run 行=durable 侧记录非决策闸）。 */
+  private async closeRun(runId: string | undefined, state: 'COMPLETED' | 'FAILED' | 'FENCED'): Promise<void> {
+    if (!runId) return;
+    await this.prisma.materializeRun.updateMany({ where: { id: runId, state: 'RUNNING' }, data: { state } })
+      .catch((e) => this.logger.warn(`[materialize] run=${runId} 终局写回 ${state} 失败（观测面——不阻断）: ${e}`));
   }
 
   /** 物化字节链（事务外——v10.1-②：外部 IO 在 orchestrator 层）：下载→sniff（非视频=mismatch
@@ -245,6 +277,11 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
     const natural = await this.probeNatural(fetched.buffer);   // 复用同一次下载（spec :45 P1）
     const sha256 = createHash('sha256').update(fetched.buffer).digest('hex');
     const key = `${row.key}-${sha256}`;                        // 预分配 base+content-addressed 后缀（image 系同构）
+    // Y1c T23 delete-claim（上传前——GC 交错误删在飞对象收口）：claimOwner=materialize:<mediaId>、
+    // claimUntil=lease 窗；claim 在位未过=manifest sweep 禁删（缺席=直构测试跳过——行域 GC 兜底仍在）
+    if (this.manifests) {
+      await this.manifests.claim(key, `materialize:${row.id}`, Date.now() + MATERIALIZE_LEASE_MS);
+    }
     try {
       await this.minio.upload(key, fetched.buffer, mimeType);
     } catch (e) {
@@ -396,8 +433,10 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
   /** 失败面：瞬态→attempts+1+nextMaterializeAt 退避+lease 释放（processing 维持——资金/交付零动作）；
    *  终态（permanent∨attempts 耗尽）→terminate。attempts 绝对置位（自 claim 快照+1）。全部写回带
    *  本代 lease 值 CAS（P2-②）：0 行=lease 已被新代接管→fenced 放弃（不叠计数/不清新代 lease/
-   *  不投退避——并发双下载窗收敛为至多一代持有写回权）。 */
-  private async fail(row: Media, failure: MaterializeFailure): Promise<'retry-scheduled' | 'terminal' | 'fenced'> {
+   *  不投退避——并发双下载窗收敛为至多一代持有写回权）。
+   *  Y1c T23：run 行随写回终局——退避让渡/lease 失守=FENCED（本 run 无后续写回者，留 RUNNING=
+   *  陈旧行污染在飞观测面；下轮 claim 建新 run）；终态=FAILED。 */
+  private async fail(row: Media & { materializeRunId?: string }, failure: MaterializeFailure): Promise<'retry-scheduled' | 'terminal' | 'fenced'> {
     const attempts = row.processingAttempts + 1;
     const terminal = failure.permanent || attempts >= MATERIALIZE_MAX_ATTEMPTS;
     materializeFailTotal.inc({ failure_kind: failure.kind, terminal: String(terminal) });
@@ -415,9 +454,13 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
         return { count: -1 };
       });
       if (count !== 1) {
-        if (count === 0) this.logger.warn(`[materialize] mediaId=${row.id} 退避写回 0 行（本代 lease 已被新代接管/他方终态）——fenced 放弃写回`);
+        if (count === 0) {
+          this.logger.warn(`[materialize] mediaId=${row.id} 退避写回 0 行（本代 lease 已被新代接管/他方终态）——fenced 放弃写回`);
+          await this.closeRun(row.materializeRunId, 'FENCED');
+        }
         return 'fenced';
       }
+      await this.closeRun(row.materializeRunId, 'FENCED');   // 主动退避让渡（lease 释放交下轮 claim 新 run）
       this.logger.warn(`[materialize] mediaId=${row.id} 第 ${attempts}/${MATERIALIZE_MAX_ATTEMPTS} 次失败（${failure.kind} 瞬态）: ${failure.message}`);
       return 'retry-scheduled';
     }
@@ -435,7 +478,7 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
    *  mediaId）③Sentry 告警+emitNodeStatus（**worker 进程=WorkerEmitPort 计数 no-op——双进程拓扑
    *  下到不了客户端**；保留供 api-role/单进程形态——真实 UI 通道=②的 failed fact）。
    *  返回 marked=false=终态未达（lease 失守∨他方已终态∨退款抛错放弃）——调用方按 fenced 语义收敛。 */
-  private async terminate(row: Media, attempts: number, failure: MaterializeFailure): Promise<boolean> {
+  private async terminate(row: Media & { materializeRunId?: string }, attempts: number, failure: MaterializeFailure): Promise<boolean> {
     const reason = `MATERIALIZE_FAILED(${failure.kind}): ${failure.message}`.slice(0, 500);
     // ⓪ lease 失守前置读检：status/lease 与本代快照不符 → 旧代放弃（新代在飞不退款不终结）
     const owner = await this.prisma.media.findUnique({
@@ -529,6 +572,7 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
     // no-op**（WorkerEmitPort——双进程拓扑下到不了客户端，保留供 api-role/单进程形态）；UI 真实
     // 通道=上方 failed fact 的 errorCode。
     if (marked) {
+      await this.closeRun(row.materializeRunId, 'FAILED');
       Sentry.captureException(new Error(`materialize 终态失败 mediaId=${row.id} intent=${row.sourceIntentRowId ?? '-'} 退款=${refunded ? '本轮已发' : '先前已发/不适用'}: ${reason}`));
       this.logger.error(`[materialize] mediaId=${row.id} 终态失败（attempts=${attempts} ${failure.kind}）——artifactState=failed+failed fact(errorCode)；补偿退款=${refunded ? '本轮已发' : '先前已发/不适用（CAS 未命中）'}: ${failure.message}`);
       if (emitTarget) {
@@ -539,6 +583,7 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
         });
       }
     } else {
+      await this.closeRun(row.materializeRunId, 'FENCED');
       this.logger.warn(`[materialize] mediaId=${row.id} 终态写回 0 行（lease 失守/他方已终态）——fenced：不告警不 emit`);
     }
     return marked;

@@ -100,6 +100,10 @@ export interface TextGenParams {
   prompt: string;
   model: string;
   apiUrl: string;
+  /** Y1c T23（text 链外呼锚——spec §6.3 偏离 36-④）：write-ahead providerRequestId 随 submit 头下发
+   *  （X-Idempotency-Key——submit-poll 链同款；openai-chat 不认键=冗余头无害，供应商接入幂等键即激活）。
+   *  rearm 屏障：同 (intentRowId,execSeq) 键复用——用户显式重试=rearm 新代新键，旧代键屏障不被绕过。 */
+  idempotencyKey?: string | null;
 }
 
 export interface TextGenResult {
@@ -529,21 +533,45 @@ export class ApiCallerService implements OnModuleInit {
     try {
       const m = await this.resolveModel(params.model);
       this.assertDispatch(m, 'openai-chat', 'text');
-      const res = await this.withDeadline(deadlineMsForKind('text'), (signal) =>
-        fetch(`${m.apiUrl}/chat/completions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${m.apiKey}` },
-          body: JSON.stringify({
-            model: m.apiModelName,
-            messages: [
-              { role: 'system', content: '你是一个AI助手，请根据用户提示词生成内容。' },
-              { role: 'user', content: params.prompt },
-            ],
-            temperature: 1,
-            max_tokens: 4096,
-          }),
-          signal,
-        }));
+      // Y1c T23 UNKNOWN 分类（spec §6.3——超时/5xx=外部结果不明，非确定失败）：deadline abort/超时与
+      // 5xx 抛 TEXT_PROVIDER_UNKNOWN 交上游 markUnknown（reserve 保留不自动重呼——用户显式查询/重试
+      // 才开新 attempt）；4xx=provider 明确拒单（确定失败，维持 plain HTTP 错误——负控锁定）。
+      let res: Response;
+      try {
+        res = await this.withDeadline(deadlineMsForKind('text'), (signal) =>
+          fetch(`${m.apiUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${m.apiKey}`,
+              ...(params.idempotencyKey ? { 'X-Idempotency-Key': params.idempotencyKey } : {}),   // T23 write-ahead 键头
+            },
+            body: JSON.stringify({
+              model: m.apiModelName,
+              messages: [
+                { role: 'system', content: '你是一个AI助手，请根据用户提示词生成内容。' },
+                { role: 'user', content: params.prompt },
+              ],
+              temperature: 1,
+              max_tokens: 4096,
+            }),
+            signal,
+          }));
+      } catch (e) {
+        // deadline abort（withDeadline ctrl.abort）/TimeoutError=请求已发出但结果未回——外部 at-least-once
+        throw new BusinessException(
+          'TEXT_PROVIDER_UNKNOWN',
+          `text 外呼结果不明（超时/网络中断——可能重复生成、不会重复扣费）: ${e instanceof Error ? e.message : String(e)}`,
+          HttpStatus.GATEWAY_TIMEOUT,
+        );
+      }
+      if (res.status >= 500) {
+        throw new BusinessException(
+          'TEXT_PROVIDER_UNKNOWN',
+          `text 外呼结果不明（HTTP ${res.status}——可能重复生成、不会重复扣费）`,
+          HttpStatus.GATEWAY_TIMEOUT,
+        );
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${m.apiUrl}/chat/completions`);
       const json = await res.json().catch(() => null) as any;
       const content = json?.choices?.[0]?.message?.content;

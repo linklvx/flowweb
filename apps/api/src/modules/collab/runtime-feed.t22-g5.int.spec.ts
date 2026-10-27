@@ -16,6 +16,8 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RuntimeFeedService, foldEventsToSnapshot, slotOfEvent, feedHintPayload } from './runtime-feed.service';
 import { LifecycleObligationSweeper } from './lifecycle-obligation.sweeper';
+import { TeamCreditService } from '../team/team-credit.service';   // Y1c T23：EXEC_FINALIZE 消费构造（collect+drain 资金主体）
+import { CreditLedgerService } from '../team/credit-ledger.service';
 
 const hasDb = !!process.env.DATABASE_URL;
 const prisma = new PrismaClient();
@@ -198,22 +200,25 @@ let TID = '';
     expect(await prisma.runtimeEvent.count({ where: { projectId: PID, kind: 'node.deleted' } })).toBe(1);
   });
 
-  it('NODE_DELETED 三清扫：VideoProject 级联删+ArtifactProjection 在飞行置 orphaned+MediaBinding reconcile 入队（M-3 注桩断言）+EXEC_FINALIZE 不被 claim（留 T23）', async () => {
+  it('NODE_DELETED 三清扫：VideoProject 级联删+ArtifactProjection 在飞行置 orphaned+MediaBinding reconcile 入队（M-3 注桩断言）+EXEC_FINALIZE 消费=collect+drain（T23 接线——本例节点无在飞意图=零 RefundObligation 行直达 DONE）', async () => {
     await prisma.videoProject.create({ data: { teamId: TID, userId: SEED_UID, workflowId: PID, sourceNodeId: 'n-del', title: 'x', data: {} } });
     await prisma.artifactProjection.create({ data: { artifactId: 'art-pending', artifactRev: 1, projectId: PID, nodeId: 'n-del', targetField: 'fileId', targetItemId: '', mediaId: 'm-p', state: 'pending' } });
     await prisma.lifecycleObligation.create({ data: { projectId: PID, nodeId: 'n-del', kind: 'NODE_DELETED', walSeq: 42n } });
     await prisma.lifecycleObligation.create({ data: { projectId: PID, nodeId: 'n-del', kind: 'EXEC_FINALIZE', walSeq: 42n } });
     // T22 收口批 M-3：reconcile 腿注桩断言（①清扫面 @Optional 注入——修前零断言）
     const reconcileCalls: string[] = [];
+    // Y1c T23：EXEC_FINALIZE 入消费域——构造携资金主体（TeamCreditService；@Optional 缺席=fail 档
+    // 重试非 DONE——生产装配恒注入）
+    const teamCredit = new TeamCreditService(prisma as unknown as PrismaService, new CreditLedgerService(prisma as unknown as PrismaService));
     const sweeperWithReconciler = new LifecycleObligationSweeper(prisma as unknown as PrismaService, feed, {
       requestReconcile: (pid: string) => { reconcileCalls.push(pid); },
-    } as never);
+    } as never, teamCredit);
     await sweeperWithReconciler.tick();
     expect(reconcileCalls).toContain(PID);   // ①MediaBinding 惰性入队腿（fence 权威之外的第二清扫面）
     expect(await prisma.videoProject.count({ where: { workflowId: PID, sourceNodeId: 'n-del' } })).toBe(0);   // ③级联（I-9：项目域过滤后）
     expect((await prisma.artifactProjection.findFirst({ where: { projectId: PID, nodeId: 'n-del' } }))?.state).toBe('orphaned');   // ②拦截
     const execFinalize = await prisma.lifecycleObligation.findFirst({ where: { projectId: PID, kind: 'EXEC_FINALIZE' } });
-    expect(execFinalize?.state).toBe('PENDING');   // 退款主体归 T23——本卡不 claim
+    expect(execFinalize?.state).toBe('DONE');   // T23 接线：collect（本节点无在飞意图=零行）+drain 完成→DONE
     const nodeDeleted = await prisma.lifecycleObligation.findFirst({ where: { projectId: PID, kind: 'NODE_DELETED' } });
     expect(nodeDeleted?.state).toBe('DONE');
   });

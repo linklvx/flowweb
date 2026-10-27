@@ -262,7 +262,7 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
   });
 
   describe('④ FAILED/VOIDED → 守卫式原子再激活', () => {
-    it.each([['FAILED'], ['VOIDED']])('%s 且 count===1 → created:true + attempts 自增+心跳/deadline 重置', async (status) => {
+    it.each([['FAILED'], ['VOIDED'], ['UNKNOWN']])('%s 且 count===1 → created:true + attempts 自增+心跳/deadline 重置（UNKNOWN=text 外呼不明档——用户显式重试=rearm 新 attempt，T23）', async (status) => {
       const existing = row({ status, attempts: 1, jobId: 'job-old', error: 'x', completedAt: new Date() });
       prisma.generationIntent.findUnique
         .mockResolvedValueOnce(existing) // claim 首查
@@ -275,7 +275,7 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
       expect(r.intent.attempts).toBe(2);
       expect(teamCredit.voidInTx).toHaveBeenCalledWith(expect.anything(), { intentRowId: existing.id, execSeq: 1n }); // T9：rearm 只释放残留冻结（row fixture execSeq=1n）
       expect(prisma.generationIntent.updateMany).toHaveBeenCalledWith({
-        where: { id: existing.id, status: { in: ['FAILED', 'VOIDED'] } },
+        where: { id: existing.id, status: { in: ['FAILED', 'VOIDED', 'UNKNOWN'] } },
         data: {
           status: 'RUNNING',
           error: null,

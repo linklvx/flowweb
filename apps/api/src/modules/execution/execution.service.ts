@@ -14,11 +14,21 @@ import { ArtifactCommitService, FundsInvariantError } from '../artifact-core/art
 import { normalizeIntentParams } from './normalize-intent-params';
 import { deadlineMsForKind, syncHardCapMs } from './intent-key.util';
 import { resolvePromptText } from '@flowweb/shared';   // Y1c T2（bug② 后半）：执行读点 prompt 解析单源（nodeExecutionUpdateAllowed 真值表等价断言住 execution-frozen.t21-c1.int.spec——本文件仅 SQL 注释锚）
+import type { ExecutionNodePlanStatus, ExecutionRequestState } from '@flowweb/shared';   // Y1c T23（T21 移交⑦）：状态值域单源引用
 import { ExecutionRequestService, type LoadedExecution } from './execution-request.service';   // Y1c T21：受理冻结请求消费
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { intentDuplicateAttemptTotal } from './intent-reconcile.metrics';   // T12：settleFailureTotal 消费点随 video 旧链退役（settle 归 finalize 事务内——失败面回滚非计数照发）
-import { artifactDiscardedTotal, countExecProjectionFailure } from './exec.metrics';
+import { artifactDiscardedTotal, countExecProjectionFailure, textUnknownTotal } from './exec.metrics';
 import type { ExecutionClaimTicket } from './execution.types';
+
+/** Y1c T23（T21 移交⑦收口——附言④）：ExecutionRequest/ExecutionNodePlan 状态值域单源引用
+ *  （shared execution-request.ts §3b——冻结路径写点字面量经类型绑定，值域漂移=本文件编译红）。 */
+const REQ_STATE: Record<'ADMITTED' | 'EXECUTING' | 'COMPLETED' | 'FAILED' | 'VOIDED', ExecutionRequestState> = {
+  ADMITTED: 'ADMITTED', EXECUTING: 'EXECUTING', COMPLETED: 'COMPLETED', FAILED: 'FAILED', VOIDED: 'VOIDED',
+};
+const PLAN_STATE: Record<'PENDING' | 'EXECUTING' | 'SETTLED' | 'VOIDED' | 'SKIPPED', ExecutionNodePlanStatus> = {
+  PENDING: 'PENDING', EXECUTING: 'EXECUTING', SETTLED: 'SETTLED', VOIDED: 'VOIDED', SKIPPED: 'SKIPPED',
+};
 
 /** Z95/Z88：组执行错误结构化契约——nodeId 定位+status 分诊（error=节点失败/skipped=别处在飞/重复外呼
  *  非节点失败）+errorCode（客户端轮换/重试判据单源）。success=errors.length===0（真单出口）。 */
@@ -336,6 +346,9 @@ export class ExecutionService {
       onClaimed?.({ nodeId: node.id, intentRowId: intent.id, execSeq: intent.execSeq.toString() });
       const attempts: number = typeof intent.attempts === 'number' ? intent.attempts : 0;
       await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId, attempts }, this.wscope(intent)).catch(countExecProjectionFailure); // best-effort
+      // Y1c T23（M-5 裁定=接线——非冻结路径写点）：NodeExecution 当前行 claim 写入（与冻结路径
+      // 同点=当前行表覆盖全部执行入口）。观测位**全链零副作用**（见 observeNodeExecution 头注）。
+      await this.observeNodeExecution({ projectId, nodeId: node.id, execSeq: intent.execSeq });
 
       // ── reserve（外呼之前——余额不足即拒=零外呼零沉没；T9 execSeq 票——换代行 mayCall:false 静默退役）──
       if (cost > 0) {
@@ -365,13 +378,12 @@ export class ExecutionService {
         return;
       }
 
-      // ── T9 provider 锚（write-ahead+query-first）：submit-poll 类 submit 前落库幂等键（消灭 submit→DB
-      //    崩溃窗）+携行内既有 providerTaskId 为 resumeTaskId（命中即按任务直查零重复 submit——Z83 链）；
-      //    text=openai-chat 同步单次无任务锚（能力矩阵显式标注不可 query-first）零锚直呼。 ──
-      let idempotencyKey: string | null = null;
-      if (claimPack.kind !== 'text') {
-        idempotencyKey = await this.intentService.ensureProviderRequestId(intent.id, intent.execSeq);
-      }
+      // ── T9+T23 provider 锚（write-ahead+query-first）：submit 前落库幂等键（消灭 submit→DB 崩溃窗）
+      //    +携行内既有 providerTaskId 为 resumeTaskId（命中即按任务直查零重复 submit——Z83 链）。
+      //    Y1c T23（红④根修）：text 链同铸 write-ahead providerRequestId（原 `kind!=='text'` 跳过=零键
+      //    零锚 rearm 必重呼——spec §6.3 偏离 36-④）；text=openai-chat 同步单次无 providerTaskId 锚
+      //    （Z88 显式 null 维持），键经 X-Idempotency-Key 头下发=同 (intentRowId,execSeq) 外呼屏障。 ──
+      const idempotencyKey = await this.intentService.ensureProviderRequestId(intent.id, intent.execSeq);
 
       // ── 外呼（text 链单次 fetch 无轮询；image/video onTick 双职=心跳续命+代际/终态即 abort）──
       const outcome = await claimPack.call(this.intentOnTick(intent.id, intent.execSeq), {
@@ -477,6 +489,21 @@ export class ExecutionService {
           errors.push({ nodeId: node.id, status: 'error', error: msg, errorCode: 'FUNDS_INVARIANT_VIOLATION' });
           return;
         }
+        if (err instanceof BusinessException && err.errorCode === 'TEXT_PROVIDER_UNKNOWN') {
+          // Y1c T23 UNKNOWN 纪律（spec §6.3 偏离 36-④）：text 外呼结果不明（超时/5xx）≠确定失败——
+          // markUnknown 停驻（reserve 保留：确认成功才 settle、取消/重试才 void——禁 void_/禁 fail=
+          // 禁自动重呼）；用户显式重试=rearm 新 attempt（claim UNKNOWN 再激活档，旧冻结随 rearm 释放）。
+          // 供应商重复成本平台吸收+text_unknown_total 人工对账；无幂等键无查询（openai-chat opaque）
+          // =外部 at-least-once 诚实登记——数据库 fencing 无法撤销已发生的外部调用。
+          const marked = await this.intentService.markUnknown(claimed.id, String(err?.message ?? err), claimed.execSeq).catch(() => 0);
+          if (marked === 1) textUnknownTotal.inc();
+          const unknownMsg = `${err.message}——可能重复生成、不会重复扣费（请稍后查询或重试）`;
+          const attempts: number = typeof claimed.attempts === 'number' ? claimed.attempts : 0;
+          await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('TEXT_PROVIDER_UNKNOWN', unknownMsg, attempts, true, claimed.intentId), this.wscope(claimed)).catch(countExecProjectionFailure);
+          this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: unknownMsg });
+          errors.push({ nodeId: node.id, status: 'error', error: unknownMsg, errorCode: 'TEXT_PROVIDER_UNKNOWN' });
+          return;
+        }
         await this.teamCredit.void_({ intentRowId: claimed.id, execSeq: claimed.execSeq })
           .catch((e) => this.logger.warn(`[reserve-settle] 意图 ${claimed.intentId} void_ 解冻失败（reconcile 超龄兜底）: ${e}`));
         await this.intentService.fail(claimed.id, String(err), undefined, claimed.execSeq);
@@ -530,9 +557,10 @@ export class ExecutionService {
       return {
         kind: 'text',
         callArgs,
-        call: async () => {
-          // text 链单次 fetch 无轮询无 onTick（能力矩阵：openai-chat 同步——不可 query-first 零 provider 锚）
-          const textResult = await this.apiCaller.callTextGen(callArgs);
+        call: async (_onTick, provider) => {
+          // text 链单次 fetch 无轮询无 onTick（openai-chat 同步 opaque——无 providerTaskId 锚）；
+          // Y1c T23：write-ahead idempotencyKey 随头下发（X-Idempotency-Key——外呼屏障，红④）
+          const textResult = await this.apiCaller.callTextGen({ ...callArgs, idempotencyKey: provider.idempotencyKey });
           return {
             resultRef: `text:${String(textResult.content).slice(0, 100)}`, // 无 Media/URL 锚点——观测用占位
             resultText: textResult.content, // T10：finalizeText 产物正文（NodeArtifact.resultText）
@@ -646,6 +674,23 @@ export class ExecutionService {
     return r.length > 0;
   }
 
+  /** Y1c T23（M-5 裁定=接线）：非冻结路径 NodeExecution 观测位——generation 锚读（CanvasDoc 单行）
+   *  +当前行 claim 写整体包裹。**观测位零副作用三义**：①读/写失败只计数（countExecProjectionFailure）
+   *  不中止本代流程；②写回 0 行=fenced（旧代/换代——观测记不进而已，不反向影响资金/交付）；
+   *  ③与 GenerationIntent CAS 分职——后者是决策闸（0 行=丢弃交付/资金不动），本表是 durable 侧
+   *  观测行。fencing 决策权威恒在 GenerationIntent execSeq CAS+MaterializeRun/Media lease CAS 双闸。 */
+  private async observeNodeExecution(input: { projectId: string; nodeId: string; execSeq: bigint }): Promise<void> {
+    try {
+      const doc = await this.prisma.canvasDoc.findUnique({ where: { projectId: input.projectId }, select: { generation: true } });
+      await this.upsertNodeExecutionGuarded({
+        projectId: input.projectId, nodeId: input.nodeId, generation: doc?.generation ?? 0,
+        execSeq: input.execSeq, status: 'RUNNING',
+      });
+    } catch (e) {
+      countExecProjectionFailure(e);
+    }
+  }
+
   /** 冻结请求执行：scope/planMap/upstream 全自受理冻结面（ExecutionNodePlan+ExecutionInput）；
    *  claim 用 plan.paramsHash（零重算）；资金=per-item（预留已在受理事务——本路径跳过 intent reserve，
    *  成功 settleForExecutionRequestItem/失败 voidForExecutionRequestItem）。 */
@@ -656,13 +701,13 @@ export class ExecutionService {
   ): Promise<ExecutionResult> {
     const frozen = await this.executionRequests.loadForExecution(projectId, requestId);
     if (!frozen) throw new BusinessException('EXEC_REQUEST_NOT_FOUND', `执行请求不存在：${requestId}`, HttpStatus.BAD_REQUEST);
-    if (frozen.request.state === 'VOIDED') throw new BusinessException('EXEC_REQUEST_VOIDED', '执行请求已过期作废（重新发起）', HttpStatus.CONFLICT);
+    if (frozen.request.state === REQ_STATE.VOIDED) throw new BusinessException('EXEC_REQUEST_VOIDED', '执行请求已过期作废（重新发起）', HttpStatus.CONFLICT);
     // R3（二轮）：终态重执行门——COMPLETED=幂等回显 200 零外呼（重试安全）；FAILED=409 REQUEST_STALE
     // （防重试死循环烧外呼——失败终态的重试须换新 requestId 重新受理）。
-    if (frozen.request.state === 'COMPLETED') {
+    if (frozen.request.state === REQ_STATE.COMPLETED) {
       return { success: true, errors: [], results: [], totalCost: 0 };
     }
-    if (frozen.request.state === 'FAILED') {
+    if (frozen.request.state === REQ_STATE.FAILED) {
       throw new BusinessException('REQUEST_STALE', '执行请求已失败终态（重新发起须换新 requestId）', HttpStatus.CONFLICT);
     }
     if (!this.collabDoc.isLeaseServing()) throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'collab not serving' });
@@ -670,10 +715,10 @@ export class ExecutionService {
     // 复读态分流：VOIDED=拒绝执行（交错(a)：过期 void 后迟到 execute）；EXECUTING=幂等续跑放行。
     // 【M5 登记红直写例外】本路径 writeExecStatus=doc.exec 写（census ⑤ 登记族——until=T22 切 PG
     // 权威）；deliverArtifact doc 写面 until=T32——两例外非本卡收口面。
-    const claimedReq = await this.prisma.executionRequest.updateMany({ where: { id: frozen.request.id, state: 'ADMITTED' }, data: { state: 'EXECUTING' } });
+    const claimedReq = await this.prisma.executionRequest.updateMany({ where: { id: frozen.request.id, state: REQ_STATE.ADMITTED }, data: { state: REQ_STATE.EXECUTING } });
     if (claimedReq.count === 0) {
       const re = await this.prisma.executionRequest.findUnique({ where: { id: frozen.request.id }, select: { state: true } });
-      if (re?.state === 'VOIDED') throw new BusinessException('EXEC_REQUEST_VOIDED', '执行请求已过期作废（重新发起）', HttpStatus.CONFLICT);
+      if (re?.state === REQ_STATE.VOIDED) throw new BusinessException('EXEC_REQUEST_VOIDED', '执行请求已过期作废（重新发起）', HttpStatus.CONFLICT);
     }
 
     const results: ExecutionResult['results'] = [];
@@ -722,7 +767,7 @@ export class ExecutionService {
         await this.prisma.generationIntent.update({ where: { id: intent.id }, data: { executionRequestId: frozen.request.id } }).catch(() => {});
         await this.prisma.executionNodePlan.updateMany({
           where: { requestId: frozen.request.id, nodeId: plan.nodeId },
-          data: { status: 'EXECUTING', generationIntentId: intent.id, execSeq: intent.execSeq },
+          data: { status: PLAN_STATE.EXECUTING, generationIntentId: intent.id, execSeq: intent.execSeq },
         });
         await this.upsertNodeExecutionGuarded({
           projectId, nodeId: plan.nodeId, generation: frozen.request.generation, execSeq: intent.execSeq, status: 'RUNNING',
@@ -734,8 +779,8 @@ export class ExecutionService {
         // 资金：受理 per-item 预留在档——本路径跳过 intent reserve（双冻结防护）
         const reanchored = await this.intentService.reanchorDeadline(intent.id, entry.kind, intent.execSeq);
         if (reanchored === 0) continue;
-        let idempotencyKey: string | null = null;
-        if (entry.kind !== 'text') idempotencyKey = await this.intentService.ensureProviderRequestId(intent.id, intent.execSeq);
+        // Y1c T23（红④根修）：write-ahead providerRequestId 全 kind 铸键（text 链原被排除=零键零锚）
+        const idempotencyKey = await this.intentService.ensureProviderRequestId(intent.id, intent.execSeq);
         const outcome = await this.frozenCall(entry, { onTick: this.intentOnTick(intent.id, intent.execSeq), resumeTaskId: intent.providerTaskId ?? null, idempotencyKey, onProviderTaskId: (taskId) => this.intentService.recordProviderTaskId(intent.id, intent.execSeq, taskId) });
         // C1（收口）：settlement mode='execreq'——finalize 事务内 per-item 结算（F1 语义等价迁移：
         // settled:false/金额≠creditCost=同等硬度整体回滚；失败进 catch→void per-item——资金不悬挂〔I2〕）。
@@ -756,13 +801,26 @@ export class ExecutionService {
           totalDeducted += plan.creditCost;
         } else {
           await this.prisma.executionNodePlan.updateMany({
-            where: { requestId: frozen.request.id, nodeId: plan.nodeId, status: 'EXECUTING' },
-            data: { status: 'SETTLED' },
+            where: { requestId: frozen.request.id, nodeId: plan.nodeId, status: PLAN_STATE.EXECUTING },
+            data: { status: PLAN_STATE.SETTLED },
           });
         }
         if (outcome.resultRow) results.push(outcome.resultRow);
         this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'done', fileId: committed.mediaId });
       } catch (err: any) {
+        if (err instanceof BusinessException && err.errorCode === 'TEXT_PROVIDER_UNKNOWN' && claimed) {
+          // Y1c T23 UNKNOWN 纪律（冻结路径）：text 外呼结果不明≠确定失败——per-item 预留**保留**
+          //（不 voidForExecutionRequestItem=「reserve 在 UNKNOWN 期间保留」）+markUnknown 替代 fail
+          //（不自动重呼）；plan 行留 EXECUTING ⇒ remaining 不归零、请求留 EXECUTING 交人工对账
+          //（text_unknown_total）；同 requestId 重试=rearm（claim UNKNOWN 再激活档）续跑该 item。
+          const marked = await this.intentService.markUnknown(claimed.id, String(err?.message ?? err), claimed.execSeq).catch(() => 0);
+          if (marked === 1) textUnknownTotal.inc();
+          const unknownMsg = `${err?.message ?? err}——可能重复生成、不会重复扣费（请稍后查询或重试）`;
+          await this.collabDoc.writeExecStatus(projectId, plan.nodeId, this.errorPatch('TEXT_PROVIDER_UNKNOWN', unknownMsg, 0, true, claimed.intentId), this.wscope(claimed)).catch(countExecProjectionFailure);
+          this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'error', error: unknownMsg });
+          errors.push({ nodeId: plan.nodeId, status: 'error', error: unknownMsg, errorCode: 'TEXT_PROVIDER_UNKNOWN' });
+          continue;
+        }
         if (plan.reservedCredit > 0) {
           await this.teamCredit.voidForExecutionRequestItem({ executionRequestId: frozen.request.id, nodeId: plan.nodeId }).catch(() => {});
         }
@@ -776,9 +834,9 @@ export class ExecutionService {
         errors.push({ nodeId: plan.nodeId, status: 'error', error: String(err?.message ?? err), errorCode });
       }
     }
-    const remaining = await this.prisma.executionNodePlan.count({ where: { requestId: frozen.request.id, status: { in: ['PENDING', 'EXECUTING'] } } });
+    const remaining = await this.prisma.executionNodePlan.count({ where: { requestId: frozen.request.id, status: { in: [PLAN_STATE.PENDING, PLAN_STATE.EXECUTING] } } });
     if (remaining === 0) {
-      await this.prisma.executionRequest.updateMany({ where: { id: frozen.request.id }, data: { state: errors.length === 0 ? 'COMPLETED' : 'FAILED' } });
+      await this.prisma.executionRequest.updateMany({ where: { id: frozen.request.id }, data: { state: errors.length === 0 ? REQ_STATE.COMPLETED : REQ_STATE.FAILED } });
     }
     return { success: errors.length === 0, errors, results, totalCost: totalDeducted };
   }
@@ -793,6 +851,7 @@ export class ExecutionService {
         prompt: String(entry.args.prompt ?? entry.promptText ?? 'Hello'),
         model: String(entry.args.model ?? ''),
         apiUrl: '',
+        idempotencyKey: provider.idempotencyKey,   // Y1c T23：write-ahead 键随头下发（外呼屏障）
       });
       return { resultRef: `text:${String(textResult.content).slice(0, 100)}`, resultText: textResult.content, resultRow: { nodeId: '', type: 'text', content: textResult.content } };
     }

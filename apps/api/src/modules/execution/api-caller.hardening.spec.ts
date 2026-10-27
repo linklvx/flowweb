@@ -96,6 +96,41 @@ describe('Y0b-2 T2：mock 四分支硬失败+AIModel 单源（Z80/Z101）', () =
   });
 });
 
+// ── Y1c T23：text 链外呼锚（spec §6.3 偏离 36-④——write-ahead X-Idempotency-Key+UNKNOWN 分类）──
+describe('Y1c T23：text 链 write-ahead 幂等键+UNKNOWN 分类（超时/5xx→结果不明档）', () => {
+  it('红④：idempotencyKey 随 callTextGen 下发 X-Idempotency-Key 头（submit-poll 链同款——openai-chat 不认键=冗余头无害）', async () => {
+    const svc = makeSvc(KIMI);
+    const fetchMock = vi.fn(async () => jsonRes({ choices: [{ message: { content: '回答' } }] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await svc.callTextGen({ prompt: 'p', model: KIMI.id, apiUrl: '', idempotencyKey: 'prid-t23-1' });
+    const [, init] = (fetchMock.mock.calls[0] as any[]);
+    expect(init.headers['X-Idempotency-Key']).toBe('prid-t23-1'); // 现状（红）：TextGenParams 零键——头缺席
+  });
+
+  it('T23 UNKNOWN：5xx → TEXT_PROVIDER_UNKNOWN（外部结果不明——非确定失败，上游按 UNKNOWN 纪律保留冻结）', async () => {
+    const svc = makeSvc(KIMI);
+    vi.stubGlobal('fetch', vi.fn(async () => jsonRes({ error: 'boom' }, 502)));
+    // 现状（红）：非 2xx 一律 plain Error(/HTTP 502/)——5xx 与 4xx 不分档（UNKNOWN 无从分类）
+    await expect(svc.callTextGen({ prompt: 'p', model: KIMI.id, apiUrl: '' }))
+      .rejects.toMatchObject({ errorCode: 'TEXT_PROVIDER_UNKNOWN' });
+  });
+
+  it('T23 UNKNOWN：超时（abort/TimeoutError）→ TEXT_PROVIDER_UNKNOWN（deadline 到点=结果不明非确定失败）', async () => {
+    const svc = makeSvc(KIMI);
+    const abortErr = new Error('This operation was aborted');
+    abortErr.name = 'AbortError';
+    vi.stubGlobal('fetch', vi.fn(async () => { throw abortErr; }));
+    await expect(svc.callTextGen({ prompt: 'p', model: KIMI.id, apiUrl: '' }))
+      .rejects.toMatchObject({ errorCode: 'TEXT_PROVIDER_UNKNOWN' });
+  });
+
+  it('T23 负控：4xx 维持确定失败（plain HTTP 错误——provider 明确拒单无副作用，不入 UNKNOWN 档）', async () => {
+    const svc = makeSvc(KIMI);
+    vi.stubGlobal('fetch', vi.fn(async () => jsonRes({ error: 'x' }, 429)));
+    await expect(svc.callTextGen({ prompt: 'p', model: KIMI.id, apiUrl: '' })).rejects.toThrow(/HTTP 429/);
+  });
+});
+
 describe('Y0b-2 T2：deadline 驱动轮询+停滞检测（Z68/Z69/Z83/Z105）', () => {
   beforeEach(() => {
     vi.useFakeTimers();

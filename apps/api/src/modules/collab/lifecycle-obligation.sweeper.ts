@@ -12,8 +12,11 @@
 //      deliverArtifact fence——此处收尾在飞行，退款走 poller/R3 既有链非本 sweeper）；
 //    ③VideoProject 级联=sourceNodeId 引用行删除（收编 web fire-and-forget
 //      cascadeDeleteVideoProject 缺口——服务端权威清扫）。
-//  - **EXEC_FINALIZE→RefundObligation 收口=归 T23**（退款主体——本 sweeper 不 claim 该 kind，
-//    行维持 PENDING 至 T23 接线；「本卡只接义务出队语义」）。
+//  - **EXEC_FINALIZE → RefundObligation 收口**（Y1c T23 接线——T22 期留 T23 位）：collect
+//    （该节点在飞 RUNNING 意图逐行义务化——unique(intentRowId,execSeq) 幂等）+drain（pinned
+//    代际命中=FAILED+release 精确逆转 exact reserve 行；迟到旧义务 pinned 对换代行 0 命中=让位
+//    零资金动作——spec §6.3 退款 fencing；资金主体=TeamCreditService.collectExecFinalize/
+//    drainRefundObligations，本 sweeper 只做义务出队与驱动）。
 //
 // 转移纪律：claim（PENDING→CLAIMED+租约）→执行→complete（DONE）/fail（attempts+1，≥5→DEAD
 // fail-closed 人工面）——nextObligationQueueState 纯函数单源（shared execution-chain.ts §5）。
@@ -23,6 +26,7 @@ import { nextObligationQueueState, LIFECYCLE_OBLIGATION_LEASE } from '@flowweb/s
 import { PrismaService } from '../../prisma/prisma.service';
 import { RuntimeFeedService } from './runtime-feed.service';
 import { BindingReconcileService } from '../media-delivery/binding-reconcile.service';
+import { TeamCreditService } from '../team/team-credit.service';   // Y1c T23：EXEC_FINALIZE 退款主体（@Optional——直构测试无资金面）
 
 /** sweeper tick 周期（义务面=秒级可见性足够——FEED_TOMBSTONE 投递延迟直接关系 UI 删除收敛）。 */
 const OBLIGATION_SWEEP_INTERVAL_MS = 3_000;
@@ -43,6 +47,9 @@ export class LifecycleObligationSweeper implements OnApplicationShutdown {
     @Inject(RuntimeFeedService) private readonly feed: RuntimeFeedService,
     /** ①清扫面注入（media-delivery 模块——collab 模块跨模块引用经 @Optional 解耦直构测试）。 */
     @Optional() private readonly reconciler?: BindingReconcileService | null,
+    /** Y1c T23：EXEC_FINALIZE 退款主体（team 模块——@Optional 同款解耦：直构测试〔t22-g5 三参
+     *  形态〕无资金面时该 kind 执行 false 转 fail 档重试，生产装配恒注入）。 */
+    @Optional() private readonly teamCredit?: TeamCreditService | null,
   ) {}
 
   onModuleInit(): void {
@@ -59,7 +66,7 @@ export class LifecycleObligationSweeper implements OnApplicationShutdown {
     this.timer = null;
   }
 
-  /** 一轮：claim 批（T22 消费 kind 过滤——EXEC_FINALIZE 留 T23）→逐行执行→complete/fail。 */
+  /** 一轮：claim 批（T23 起 EXEC_FINALIZE 入消费域）→逐行执行→complete/fail。 */
   async tick(): Promise<{ claimed: number; done: number; failed: number }> {
     if (this.destroyed || this.busy) return { claimed: 0, done: 0, failed: 0 };
     this.busy = true;
@@ -90,7 +97,8 @@ export class LifecycleObligationSweeper implements OnApplicationShutdown {
    *  T22 收口批 I-5：原谓词只 state='PENDING'（PENDING 行 claimUntilMs 恒 NULL——租约形同虚设；
    *  CLAIMED∧租约过期行崩溃后永久卡死）。修=谓词扩 lease-expired 档+重派按 shared
    *  nextObligationQueueState lease-expired 分支计 attempts（CLAIMED 过期=attempts+1；
-   *  ≥maxAttempts=DEAD fail-closed 不再重派）。 */
+   *  ≥maxAttempts=DEAD fail-closed 不再重派）。
+   *  Y1c T23：EXEC_FINALIZE 入 claim 域（消费面=collect+drain——T22 期「留 T23」兑现）。 */
   private async claim() {
     const owner = `obligation-${randomUUID().slice(0, 8)}`;
     const untilMs = BigInt(Date.now() + OBLIGATION_LEASE_MS);
@@ -100,7 +108,7 @@ export class LifecycleObligationSweeper implements OnApplicationShutdown {
       >`
         SELECT "id", "kind", "projectId", "nodeId", "walSeq", "state", "attempts" FROM "LifecycleObligation"
         WHERE ("state" = 'PENDING' OR ("state" = 'CLAIMED' AND "claimUntilMs" IS NOT NULL AND "claimUntilMs" < ${Date.now()}::bigint))
-          AND "kind" IN ('FEED_TOMBSTONE', 'NODE_DELETED')
+          AND "kind" IN ('FEED_TOMBSTONE', 'NODE_DELETED', 'EXEC_FINALIZE')
         ORDER BY "createdAt"
         LIMIT ${OBLIGATION_BATCH}
         FOR UPDATE SKIP LOCKED`;
@@ -143,7 +151,20 @@ export class LifecycleObligationSweeper implements OnApplicationShutdown {
   private async execute(row: { id: string; kind: string; projectId: string; nodeId: string; walSeq: bigint }): Promise<boolean> {
     if (row.kind === 'FEED_TOMBSTONE') return this.executeFeedTombstone(row.projectId, row.nodeId, row.walSeq);
     if (row.kind === 'NODE_DELETED') return this.executeNodeDeletedCleanup(row.projectId, row.nodeId);
+    if (row.kind === 'EXEC_FINALIZE') return this.executeExecFinalize(row.projectId, row.nodeId);
     return false;   // 结构性不可达（claim 已滤 kind）
+  }
+
+  /** EXEC_FINALIZE（Y1c T23）：在飞意图义务化（collect）+退款收口（drain）——资金主体=TeamCreditService
+   *  （pinned execSeq fencing：命中=FAILED+release 逆转 exact reserve 行/迟到旧义务=让位零资金动作）。
+   *  @Optional 缺席（直构测试三参形态）=false 转 fail 档（生产装配恒注入——collab.module imports TeamModule）。 */
+  private async executeExecFinalize(pid: string, nodeId: string): Promise<boolean> {
+    if (!pid) return true;
+    if (!this.teamCredit) return false;
+    const created = await this.teamCredit.collectExecFinalize(pid, nodeId);
+    const drained = await this.teamCredit.drainRefundObligations();
+    this.logger.log(`[obligation] EXEC_FINALIZE node=${nodeId}：collect ${created} 行义务化，drain settled=${drained.settled} collected=${drained.collected}`);
+    return true;
   }
 
   /** FEED_TOMBSTONE：node.deleted 事件投递（幂等：同 (nodeId,walSeq) 已在档=直达 true）。 */

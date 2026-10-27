@@ -152,3 +152,14 @@ export function countExecProjectionFailure(err: unknown): void {
   collabExecProjectionFailedTotal.inc({ cause: classifyExecProjectionFailure(err) });
 }
 
+
+/** Y1c T23（text 链 UNKNOWN 纪律——spec §6.3 偏离 36-④）：text 外呼结果不明（超时/5xx
+ *  TEXT_PROVIDER_UNKNOWN）行入 UNKNOWN 档计数——**人工对账面**（reaper/reconcile RUNNING-only
+ *  扫描=UNKNOWN 行不自动收敛；openai-chat opaque 无查询能力=外部 at-least-once 诚实登记：
+ *  供应商重复成本平台吸收、资金 at-most-once「可能重复生成、不会重复扣费」）。runbook 对账读
+ *  本计数+GenerationIntent status=UNKNOWN 行集。 */
+export const textUnknownTotal = new Counter({
+  name: 'text_unknown_total',
+  help: 'Y1c T23：text 外呼结果不明（超时/5xx）UNKNOWN 停驻计数——reserve 保留不自动重呼，人工对账面（spec §6.3 偏离 36-④）',
+  registers: [register],
+});

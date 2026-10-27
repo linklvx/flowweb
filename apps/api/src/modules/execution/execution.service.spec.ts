@@ -35,10 +35,13 @@ describe('ExecutionService', () => {
   beforeEach(async () => {
     prisma = {
       canvasProject: { findUnique: vi.fn() },
+      canvasDoc: { findUnique: vi.fn().mockResolvedValue({ generation: 0 }) },   // Y1c T23（M-5）：NodeExecution claim 写点 generation 锚
       modelResolution: { findMany: vi.fn().mockResolvedValue([]) },
       modelDuration: { findMany: vi.fn().mockResolvedValue([]) },
       style: { findMany: vi.fn().mockResolvedValue([]) },
       generationIntent: { findUnique: vi.fn().mockResolvedValue({ status: 'RUNNING', execSeq: 1n, attempts: 1 }) }, // T9 catch fence 读行
+      // Y1c T23：NodeExecution 当前行写接线（M-5 裁定=接线）——$queryRaw 零行=fenced 观测位（零副作用）
+      $queryRaw: vi.fn().mockResolvedValue([]),
     };
     collabDoc = {
       readCanvas: vi.fn().mockResolvedValue({ nodes: [], edges: [] }),
@@ -99,6 +102,7 @@ describe('ExecutionService', () => {
       ensureProviderRequestId: vi.fn().mockResolvedValue('rid-t9'), // T9 write-ahead
       recordProviderTaskId: vi.fn().mockResolvedValue(undefined),   // T9 taskId 落库
       tickFence: vi.fn().mockResolvedValue(undefined),              // T9 onTick 双职+代际
+      markUnknown: vi.fn().mockResolvedValue(undefined),            // Y1c T23：text UNKNOWN 档（reserve 保留不自动重呼）
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -419,6 +423,42 @@ describe('ExecutionService', () => {
       topology.collectUpstreamData.mockResolvedValue({ textContents: [], imageMediaId: undefined });
       await service.execute('p1', 'a1', 'u1');
       expect(apiCaller.callImageGen).toHaveBeenCalledWith(expect.objectContaining({ prompt: '音频旁白词' }));
+    });
+  });
+
+  // ── Y1c T23：text 生成链外呼锚（v1.6 纪律收口——spec §6.3 偏离 36-④）：write-ahead
+  //    providerRequestId（kind!=='text' 铸键跳过=零键零锚——rearm 重试无屏障重复外呼根修）
+  //    +UNKNOWN 纪律（超时/5xx→reserve 保留不自动重呼不自动解冻——用户显式重试才开新 attempt）。 ──
+  describe('Y1c T23：text 链外呼锚+UNKNOWN 纪律', () => {
+    const textNode = { id: 'n1', type: 'textInput', data: { content: '正文', prompt: { text: '面板词' }, model: 'm-text' } };
+    const primeText = () => {
+      prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+      topology.getScope.mockReturnValue([textNode]);
+      topology.sort.mockReturnValue([textNode]);
+      topology.collectUpstreamData.mockResolvedValue({ textContents: [], imageMediaId: undefined });
+    };
+
+    it('红④：text 外呼前铸 write-ahead providerRequestId 并随 callTextGen 下发（X-Idempotency-Key——rearm 屏障）', async () => {
+      primeText();
+      await service.execute('p1', 'n1', 'u1');
+      // 现状（红）：:372 `kind !== 'text'` 才铸键——text 链 ensureProviderRequestId 零调用+callTextGen 零键
+      expect(intentSvc.ensureProviderRequestId).toHaveBeenCalledWith('intent-1', 1n);
+      expect(apiCaller.callTextGen).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: 'rid-t9' }));
+    });
+
+    it('T23 UNKNOWN：text 外呼超时/5xx（TEXT_PROVIDER_UNKNOWN）→ markUnknown+保留冻结——禁 void_/fail 自动重呼', async () => {
+      primeText();
+      const { BusinessException } = await import('../../common/exceptions/business.exception');
+      apiCaller.callTextGen.mockRejectedValueOnce(new BusinessException('TEXT_PROVIDER_UNKNOWN', 'text 外呼结果不明（超时/5xx）', 504));
+      const result = await service.execute('p1', 'n1', 'u1');
+      expect(result.success).toBe(false);
+      // UNKNOWN 纪律：reserve 在 UNKNOWN 期间保留（不 void_）+不置 FAILED（不 fail）——行入 UNKNOWN 档
+      expect(intentSvc.markUnknown).toHaveBeenCalledWith('intent-1', expect.any(String), 1n);
+      expect(teamCredit.void_).not.toHaveBeenCalled();
+      expect(intentSvc.fail).not.toHaveBeenCalled();
+      // 用户可见文案：「可能重复生成、不会重复扣费」（诚实登记——外部 at-least-once）
+      const errorEntry = result.errors.find((e: any) => e.nodeId === 'n1');
+      expect(errorEntry?.error).toContain('不会重复扣费');
     });
   });
 

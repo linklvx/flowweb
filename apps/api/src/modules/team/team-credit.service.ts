@@ -2,6 +2,16 @@ import { Injectable, Inject, ForbiddenException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreditLedgerService } from './credit-ledger.service';
+import type { ExecutionNodePlanStatus, ExecutionRequestState } from '@flowweb/shared';
+
+/** Y1c T23（T21 移交⑦收口——附言④）：ExecutionRequest/ExecutionNodePlan 状态值域单源引用
+ *  （shared execution-request.ts §3b——写点字面量经类型绑定，值域漂移=本文件编译红）。 */
+const REQ_STATE: Record<'ADMITTED' | 'EXECUTING' | 'COMPLETED' | 'FAILED' | 'VOIDED', ExecutionRequestState> = {
+  ADMITTED: 'ADMITTED', EXECUTING: 'EXECUTING', COMPLETED: 'COMPLETED', FAILED: 'FAILED', VOIDED: 'VOIDED',
+};
+const PLAN_STATE: Record<'PENDING' | 'EXECUTING' | 'SETTLED' | 'VOIDED' | 'SKIPPED', ExecutionNodePlanStatus> = {
+  PENDING: 'PENDING', EXECUTING: 'EXECUTING', SETTLED: 'SETTLED', VOIDED: 'VOIDED', SKIPPED: 'SKIPPED',
+};
 
 /** 月界单源（Y0b-2 T0/Z96）：业务时区=Asia/Shanghai 固定 +8 无 DST——纯 UTC 会使配额在每月 1 日 08:00
  *  重置，产品语义错；Date.UTC 计算后平移 -8h，消灭 Node 本地时区 vs Prisma naive UTC 的错位。 */
@@ -166,7 +176,7 @@ export class TeamCreditService {
       const used = await this.derivedMonthlyUsed(ltx, req.teamId, userId);
       const inflightAgg = await ltx.executionRequest.aggregate({
         _sum: { reservedCredit: true },
-        where: { teamId: req.teamId, userId, reservedCredit: { gt: 0 }, state: { in: ['ADMITTED', 'EXECUTING'] } },
+        where: { teamId: req.teamId, userId, reservedCredit: { gt: 0 }, state: { in: [REQ_STATE.ADMITTED, REQ_STATE.EXECUTING] } },
       });
       const execreqInFlight = inflightAgg._sum.reservedCredit ?? 0;
       if (member.monthlyQuota > 0 && used + execreqInFlight + total > member.monthlyQuota) {
@@ -222,8 +232,8 @@ export class TeamCreditService {
       // I1（T21 收口）：CAS 抢占——只对 ADMITTED 行生效；0 行=claim 抢先（EXECUTING）或已终态
       // →让位 return false（不释放执行中资金——交错(b)：sweeper 选中后 claim 抢先=void 让位）。
       const claimed = await ltx.executionRequest.updateMany({
-        where: { id: executionRequestId, state: 'ADMITTED' },
-        data: { state: 'VOIDED', reservedCredit: 0 },
+        where: { id: executionRequestId, state: REQ_STATE.ADMITTED },
+        data: { state: REQ_STATE.VOIDED, reservedCredit: 0 },
       });
       if (claimed.count === 0) return false;
       const req = await ltx.executionRequest.findUniqueOrThrow({ where: { id: executionRequestId } });
@@ -244,7 +254,7 @@ export class TeamCreditService {
         }
         await ltx.executionNodePlan.updateMany({
           where: { requestId: executionRequestId, nodeId: item.nodeId, reservedCredit: item.reservedCredit },   // I1：item CAS 谓词
-          data: { reservedCredit: 0, status: 'VOIDED' },
+          data: { reservedCredit: 0, status: PLAN_STATE.VOIDED },
         });
       }
       return true;
@@ -275,7 +285,7 @@ export class TeamCreditService {
       }
       await ltx.executionNodePlan.updateMany({
         where: { requestId: input.executionRequestId, nodeId: input.nodeId, reservedCredit: item.reservedCredit },   // I1：item CAS 谓词
-        data: { reservedCredit: 0, status: 'VOIDED' },
+        data: { reservedCredit: 0, status: PLAN_STATE.VOIDED },
       });
       await ltx.executionRequest.updateMany({
         where: { id: input.executionRequestId },
@@ -307,7 +317,7 @@ export class TeamCreditService {
       if (reserveRows.length === 0) return { success: true, settled: false, amount: 0 };
       const claimed = await ltx.executionNodePlan.updateMany({
         where: { requestId: input.executionRequestId, nodeId: input.nodeId, reservedCredit: item.reservedCredit },   // I1：item CAS 谓词
-        data: { reservedCredit: 0, status: 'SETTLED' },
+        data: { reservedCredit: 0, status: PLAN_STATE.SETTLED },
       });
       if (claimed.count === 0) return { success: true, settled: false, amount: 0 };   // 他者已收口（CAS miss）——零 decrement
       let settledAmount = 0;
@@ -338,6 +348,103 @@ export class TeamCreditService {
    *  ⇒ 旧代结算 0 命中（settled:false 零动作——不得核销新代冻结）。settleInTx=T10 finalize 事务内消费形态。 */
   async settle(guard: { intentRowId: string; execSeq?: bigint }): Promise<{ success: boolean; settled: boolean }> {
     return this.prisma.$transaction((raw) => this.settleInTx(raw, guard), { timeout: 15_000, maxWait: 5_000 });
+  }
+
+  // ═══ Y1c T23（spec §6.3 退款义务——EXEC_FINALIZE 消费面）：RefundObligation collect/drain ═══
+  // 纪律（shared execution-chain.ts §5 LIFECYCLE_OBLIGATION_REFUND_PATH）：删除节点的在飞
+  // GenerationIntent 资金收口=精确业务记录逆转——unique(intentRowId,execSeq) 幂等+reversesId 指向
+  // exact 台账行；**不依据客户端 doc 字段或过期 worker 状态**（资金记录=台账行本身）。
+
+  /** collect（EXEC_FINALIZE 义务落地）：节点在飞（RUNNING）意图逐行义务化——创建 PENDING
+   *  RefundObligation（pinned execSeq=执行代际族锚；creditAmount=creditCost 快照〔提示值——
+   *  实际逆转金额恒以台账 exact reserve 行为准〕；reversesId 先落 `intent:<id>` 占位、drain 时回填
+   *  exact 台账行 id）。幂等：unique(intentRowId,execSeq)+skipDuplicates——重复 collect 零新行。 */
+  async collectExecFinalize(projectId: string, nodeId: string): Promise<number> {
+    const running = await this.prisma.generationIntent.findMany({
+      where: { projectId, nodeId, status: 'RUNNING' },
+      select: { id: true, execSeq: true, creditCost: true },
+    });
+    if (running.length === 0) return 0;
+    const r = await this.prisma.refundObligation.createMany({
+      data: running.map((i) => ({
+        intentRowId: i.id,
+        execSeq: i.execSeq,
+        reversesId: `intent:${i.id}`,   // 占位（幂等键族纪律同 `intent:` 前缀）——drain 回填 exact 行
+        creditAmount: i.creditCost,
+        state: 'PENDING',
+      })),
+      skipDuplicates: true,   // unique(intentRowId,execSeq)——重扫/崩溃窗重放恰一次
+    });
+    return r.count;
+  }
+
+  /** drain（PENDING 义务逐行收口）：pinned (intentRowId,execSeq) 对行现态分义——
+   *  ①命中（行仍 RUNNING∧execSeq==pinned：义务生成时的那一代在飞）⇒ 单事务：lockBalance→
+   *    intent CAS RUNNING→FAILED（execSeq 守卫）→anti-join 逆转 exact reserve 行（release(+c,−c)+
+   *    reversesId 配对）→义务 SETTLED+reversesId 回填 exact 台账行 id。交付不可能（节点已删）
+   *    =FAILED 终态+冻结释放。
+   *  ②让位（行已终态/换代〔rearm 新代在飞〕/行灭失）⇒ 零资金动作、义务 SETTLED（迟到旧义务
+   *    pinned execSeq 对换代行 0 命中=让位——新代冻结纹丝不动）。
+   *  返回 {settled=让位收口数, collected=真退款收口数}。 */
+  async drainRefundObligations(batch = 50): Promise<{ settled: number; collected: number }> {
+    const pending = await this.prisma.refundObligation.findMany({
+      where: { state: 'PENDING' },
+      orderBy: { createdAt: 'asc' },
+      take: batch,
+    });
+    let settled = 0;
+    let collected = 0;
+    for (const ob of pending) {
+      const outcome = await this.drainRefundObligation(ob);
+      if (outcome === 'collected') collected += 1; else settled += 1;
+    }
+    return { settled, collected };
+  }
+
+  /** 单义务收口（事务内三步：CAS 终态化→精确逆转→义务 SETTLED；CAS 0 命中=并发让位零资金动作）。 */
+  private async drainRefundObligation(ob: { id: string; intentRowId: string; execSeq: bigint }): Promise<'collected' | 'settled'> {
+    const intent = await this.prisma.generationIntent.findUnique({ where: { id: ob.intentRowId } });
+    if (!intent || intent.status !== 'RUNNING' || intent.execSeq !== ob.execSeq) {
+      // 让位（迟到旧义务）：行已终态/换代/灭失——pinned 0 命中，零资金动作直收口
+      await this.prisma.refundObligation.updateMany({ where: { id: ob.id, state: 'PENDING' }, data: { state: 'SETTLED' } });
+      return 'settled';
+    }
+    const reason = 'EXEC_FINALIZE:节点已删除——在飞意图收口（交付不可能）'.slice(0, 500);
+    let reversesRowId: string | null = null;
+    let casHit = false;
+    await this.prisma.$transaction(async (raw) => {
+      const tx = await this.ledger.ledgerTx(raw);
+      await this.ledger.lockBalance(tx, intent.teamId);   // 锁序①（契约 20）
+      // intent CAS（RUNNING∧pinned execSeq→FAILED）：0 命中=并发终态化/换代——让位零资金动作
+      const cas = await tx.generationIntent.updateMany({
+        where: { id: ob.intentRowId, status: 'RUNNING', execSeq: ob.execSeq },
+        data: { status: 'FAILED', reservedCredits: 0, reservedExecSeq: null, error: reason, completedAt: new Date() },
+      });
+      if (cas.count === 0) return;
+      casHit = true;
+      // 精确逆转：anti-join 未冲销 reserve 行——release(+c,−c)+reversesId 配对（Z6 真值表；
+      // 池别/金额逐台账行——不依据 ob.creditAmount 提示值）
+      const reserveRows = await tx.$queryRaw<Array<{ id: string; creditType: 'subscription' | 'regular'; balanceDelta: number }>>`
+        SELECT r."id" AS id, r."creditType" AS "creditType", r."balanceDelta" AS "balanceDelta"
+        FROM "TeamCreditTransaction" r
+        WHERE r."teamId" = ${intent.teamId}::text AND r."referenceId" = ${'intent:' + ob.intentRowId}::text AND r."type" = 'reserve'
+          AND NOT EXISTS (SELECT 1 FROM "TeamCreditTransaction" x WHERE x."reversesId" = r."id")
+        FOR UPDATE OF r`;
+      for (const r of reserveRows) {
+        reversesRowId = r.id;
+        await this.ledger.mutate(tx, {
+          teamId: intent.teamId, operatorUserId: intent.userId, type: 'release', creditType: r.creditType,
+          balanceDelta: Math.abs(r.balanceDelta), frozenDelta: -Math.abs(r.balanceDelta),
+          referenceId: `intent:${ob.intentRowId}`, reversesId: r.id,
+          idempotencyKey: `refund-ob:${ob.id}:${r.id}`,
+        });
+      }
+      await tx.refundObligation.updateMany({
+        where: { id: ob.id, state: 'PENDING' },
+        data: { state: 'SETTLED', ...(reversesRowId ? { reversesId: reversesRowId } : {}) },
+      });
+    }, { timeout: 15_000, maxWait: 5_000 });
+    return casHit ? 'collected' : 'settled';
   }
 
   /** T9 settleInTx：调用方事务内核销（ledgerTx 内部装饰幂等——SET LOCAL 重执行无害）。 */

@@ -128,6 +128,20 @@ export const EXEC_MAX_NODES = 20 as const;
 /** 父行过期（spec §6.1——expiresAt=now+15min；未 claim 由 sweeper 逐 item void 释放） */
 export const EXEC_REQUEST_EXPIRES_AT_MS = 900_000 as const;        // 15min=15*60*1000（字面量直书以配 as const）
 
+// ═══ §3b 状态值域单源（Y1c T23 收口——T21 移交⑦；ExecutionRequestRow.state 注记「不冻结值域」
+// 授权面：值域常量收本单源，api 侧写点改引——禁再散字面量真源）══════════════════════════════
+
+/** ExecutionRequest.state 值域（受理=ADMITTED→执行=EXECUTING→终态 COMPLETED|FAILED|VOIDED；
+ *  ADMITTED→VOIDED=过期 sweeper 逐 item void（CAS 抢占）；COMPLETED=幂等回显 200 零外呼；
+ *  FAILED=重试须换新 requestId（409 REQUEST_STALE——防重试死循环烧外呼）。 */
+export const EXECUTION_REQUEST_STATES = ['ADMITTED', 'EXECUTING', 'COMPLETED', 'FAILED', 'VOIDED'] as const;
+export type ExecutionRequestState = typeof EXECUTION_REQUEST_STATES[number];
+
+/** ExecutionNodePlan.status 值域（受理 PENDING→EXECUTING→SETTLED|VOIDED；SKIPPED=非 executable
+ *  受理即终态〔M-4——零成本零执行分支〕；remaining 收口谓词=PENDING/EXECUTING 计数）。 */
+export const EXECUTION_NODE_PLAN_STATES = ['PENDING', 'EXECUTING', 'SETTLED', 'VOIDED', 'SKIPPED'] as const;
+export type ExecutionNodePlanStatus = typeof EXECUTION_NODE_PLAN_STATES[number];
+
 // ═══ §4 受理校验纯函数族（插入前一次性——任一失败整请求 4xx 不落半行）════════════════════════
 
 export type ExecutionScopeAdmission =

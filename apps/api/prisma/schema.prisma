@@ -1133,7 +1133,12 @@ model ExecutionOutbox {
   @@index([projectId, state, claimUntilMs])
 }
 
-/// MaterializeRun（spec §6.3——materializeRunId+expectedExecSeq 双锚 fencing；state 值域 T23 消费定形）。
+/// MaterializeRun（spec §6.3——materializeRunId+expectedExecSeq 双锚 fencing）。
+/// Y1c T23 定形：state 值域=RUNNING→COMPLETED|FAILED|FENCED（终态；claim 建行 RUNNING，
+/// 完成/终态失败/lease 失守写回带 runId+state=RUNNING CAS——旧 run 迟到写 0 命中=让位，
+/// 兑现「materializeRunId/expectedExecSeq fencing」（B12/B17 继承——与 Media.processingLeaseUntil
+/// 值 CAS 双闸，run 行=durable 侧记录）。expectedExecSeq=Media.sourceExecSeq（执行代际族——
+/// #4：与 lifecycleSeq/fenceSeq 生命周期族无关）。
 model MaterializeRun {
   id              String   @id @default(cuid())
   projectId       String
@@ -1146,7 +1151,8 @@ model MaterializeRun {
 }
 
 /// RefundObligation（spec §6.3——unique(intentRowId,execSeq)+reversesId 幂等：exact settle row 逆转；
-/// 不依据客户端 doc 字段或过期 worker 状态）。#11 退款路径：EXEC_FINALIZE 义务收口链消费（T26）。
+/// 不依据客户端 doc 字段或过期 worker 状态）。#11 退款路径：EXEC_FINALIZE 义务收口链消费（T26 生成面
+/// /T23 sweeper 消费面——迟到旧义务（pinned execSeq）对换代行 0 命中=让位零资金动作）。
 model RefundObligation {
   id           String   @id @default(cuid())
   intentRowId  String
@@ -1158,6 +1164,42 @@ model RefundObligation {
   updatedAt    DateTime @updatedAt
 
   @@unique([intentRowId, execSeq])
+}
+
+/// StorageReservation（spec §6.3 资源回收——上传配额预留状态机；Y1c T23 迁移三）：
+/// presign 受理同事务建行（upperBoundBytes 必填——无上界 fail-closed 拒受理）；配额硬门
+/// （assertCanUpload/assertOnConfirm）计 ACTIVE 预留（Q7「两并发 presign 同过」收口）；
+/// 终态释放=锚 pending Media 行终态迁移同事务（confirm→SETTLED 实字节入账/取消·TTL·拒→RELEASED）
+/// ——**lease（pendingExpiresAt）过期不独立释放**：释放必与锚行离开 pending 原子同发
+/// （迟到 confirm 被 status='pending' CAS 拒 409）=在飞上传无 oversale 窗。
+/// 生成产物链（registerInTx 资金软限形态）不建预留——quota=软限裁决（v10 裁决④）维持。
+model StorageReservation {
+  id              String   @id @default(cuid())
+  teamId          String
+  mediaId         String   @unique
+  upperBoundBytes BigInt
+  state           String   @default("ACTIVE")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([teamId, state])
+}
+
+/// ObjectManifest（spec §6.3——对象登记+delete-claim；Y1c T23 迁移三）：claimOwner/claimUntil
+/// 在位未过=**GC 禁删**（在飞上传/物化键保护——T19 登记 Y2「GC 变体枚举误删在飞对象」收口机制：
+/// 物化链上传 content-addressed 键前 claim、锚定〔Media.key 引用/事务提交〕后 release）；
+/// 有界 orphan=manifest 行域内清扫（claim 已过期∧无 Media.key 引用∧行龄过界——无全桶枚举）。
+model ObjectManifest {
+  id         String   @id @default(cuid())
+  objectKey  String   @unique
+  sizeBytes  BigInt   @default(0)
+  claimOwner String?
+  claimUntil BigInt?
+  state      String   @default("LIVE")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([state, claimUntil])
 }
 
 /// NodeLifecycle（spec §6.5——服务端只读观察产物；lifecycleSeq=per-project 单调数值序；
@@ -1449,6 +1491,7 @@ enum IntentStatus {
   SUCCEEDED
   FAILED
   VOIDED
+  UNKNOWN // Y1c T23：text 链外呼结果不明（超时/5xx）——reserve 保留（不自动重呼不自动解冻），用户显式重试=rearm 新 attempt（同 providerRequestId 屏障）；reaper/reconcile 均 RUNNING-only 扫描=UNKNOWN 行不自动收敛（人工对账面 text_unknown_total）
 }
 
 // ========== Y1a+Y1b T2：产物权威/投影交付/引用索引/媒体事实 ==========

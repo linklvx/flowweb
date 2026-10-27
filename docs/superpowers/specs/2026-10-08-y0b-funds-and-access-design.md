@@ -1102,6 +1102,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - media_materialize_lag
 - member_revoked_conns
 - provider_redrive_blocked_total
+- text_unknown_total
 - wal_fsync_error_total
 - wal_fsync_latency
 - wal_pending_bytes

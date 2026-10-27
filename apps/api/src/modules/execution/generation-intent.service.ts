@@ -28,11 +28,16 @@ export class IntentExhaustedError extends BusinessException {
   }
 }
 
-/** ACTIVE = claim/complete/fail 的状态机守卫集。PENDING 已删（0.5-1）——claim 直建 RUNNING。 */
+/** ACTIVE = claim/complete/fail 的状态机守卫集。PENDING 已删（0.5-1）——claim 直建 RUNNING。
+ *  Y1c T23：UNKNOWN（text 链外呼结果不明——超时/5xx）非终态停驻档——不入 ACTIVE（reaper/reconcile
+ *  均 RUNNING-only 扫描=UNKNOWN 行不自动收敛，人工对账面 text_unknown_total）；reserve 在 UNKNOWN
+ *  期间保留（markUnknown 不动资金），用户显式重试=rearm（同 FAILED/VOIDED 守卫式再激活）。 */
 const ACTIVE = ['RUNNING'] as const;
 /** 可再激活的终态：FAILED=押金还押着（重试 alreadyCharged 免费续跑）；VOIDED=退款已归零（重试正常扣费）——
- *  creditsConsumed 不动，四格扣费语义由此分叉正确（F13 补强真值表）。 */
-const REARMABLE = ['FAILED', 'VOIDED'] as const;
+ *  creditsConsumed 不动，四格扣费语义由此分叉正确（F13 补强真值表）。
+ *  Y1c T23：+UNKNOWN（text 外呼结果不明——rearm=voidInTx 释放残留冻结+新代 reserve：旧代钱已让渡、
+ *  新 attempt 正常计费=「取消才 void」分支；供应商重复成本平台吸收）。 */
+const REARMABLE = ['FAILED', 'VOIDED', 'UNKNOWN'] as const;
 
 /** Y0b-1（E1）：定价快照五字段——claim 入参必填（validation 预检产 plans 同源），
  *  create 时无条件固化（creditCost:0 也固化——E1/A2：免费行也是规则行的产物，非"未解析"）。 */
@@ -354,6 +359,19 @@ export class GenerationIntentService {
     return this.prisma.generationIntent.findFirst({
       where: { projectId, nodeId, status: 'RUNNING', ...(jobId ? { jobId } : {}) },
     });
+  }
+
+  /** Y1c T23（text 链 UNKNOWN 纪律——spec §6.3 偏离 36-④）：外呼结果不明（超时/5xx TEXT_PROVIDER_UNKNOWN）
+   *  → RUNNING→UNKNOWN 停驻（execSeq CAS——旧代不明结果不得污染新代行）。资金纪律：**reserve 保留**
+   *  （不 void_/不 fail——确认成功才 settle、取消/重试才 void：rearm 走 claim 守卫式再激活释放旧冻结）。
+   *  UNKNOWN 不入 ACTIVE ⇒ reaper/reconcile RUNNING-only 扫描不自动收敛（人工对账面——text_unknown_total
+   *  计数+runbook）；用户可见文案「可能重复生成、不会重复扣费」由调用方投影。 */
+  async markUnknown(id: string, error: string, execSeq: bigint): Promise<number> {
+    const r = await this.prisma.generationIntent.updateMany({
+      where: { id, status: 'RUNNING', execSeq },
+      data: { status: 'UNKNOWN', error: error.slice(0, 500) },
+    });
+    return r.count;
   }
 
   /** 批0.5-9 void：reserve 失败（零扣费）终态——与 FAILED 分义不混：FAILED=冻结已退（void_ 解冻后）
