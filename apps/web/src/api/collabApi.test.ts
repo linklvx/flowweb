@@ -177,11 +177,20 @@ describe('collabApi（T25b 四读径③：BindMedia/CloneBinding）', () => {
       .rejects.toBeInstanceOf(MediaRevConflictError);   // CAS 冲突类型化（粘贴档同 F2 纪律——用户裁定后重提）
   });
 
-  it('★T25b 收口 I-2/I-3：fetchServerCanvas GET /collab/doc/:pid/canvas+importDraftEnvelope deletionNodeIds 随 body', async () => {
+  it('★T25b 微批 C-1：fetchServerCanvas 指用户面端点 GET /projects/:pid/collab/canvas（真 wire 形态：{code:0,data} envelope 解包+非 2xx 透传 throw）+importDraftEnvelope deletionNodeIds 随 body', async () => {
     (global.fetch as any).mockResolvedValue(okEnvelope({ nodes: [{ id: 's1' }], edges: [] }));
     const model = await fetchServerCanvas('p1');
-    expect((global.fetch as any).mock.calls[0][0]).toBe('/api/collab/doc/p1/canvas');
+    expect((global.fetch as any).mock.calls[0][0]).toBe('/api/projects/p1/collab/canvas');   // 微批 C-1：旧 /collab/doc/:pid/canvas=worker 通道（生产 403/裸形态契约击穿）
     expect(model).toEqual({ nodes: [{ id: 's1' }], edges: [] });
+    // 真 wire 负控：403（非 EDITOR）→ apiFetch throw（status 透传——生产权限拒非静默空模型）
+    (global.fetch as any).mockReset();
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: false, status: 403, statusText: 'Forbidden',
+      clone: () => ({ json: async () => ({ code: -1, message: '无项目编辑权限' }) }),
+      json: async () => ({ code: -1, message: '无项目编辑权限' }),
+      headers: new Headers(),
+    });
+    await expect(fetchServerCanvas('p1')).rejects.toMatchObject({ status: 403 });
     (global.fetch as any).mockReset();
     (global.fetch as any).mockResolvedValue(okEnvelope({ confirmation: { contentCounts: { nodeCount: 0, edgeCount: 0 }, droppedRefs: { danglingEdges: 0, missingParentNodes: 0 }, notRestored: { artifacts: true, executionHistory: true, billingRecords: true } }, dispositions: [], resultReplayed: false, deletions: { requested: 1, applied: 1 }, epoch: { envelopeGeneration: 3, envelopeHistoryId: 'h', crossGeneration: false } }));
     await importDraftEnvelope('p1', { draftId: 'd', projectId: 'p1', generation: 3, schemaVersion: 3, historyId: 'h', capturedAtMs: 1, tabId: 't', nodes: [], edges: [], meta: {}, hashes: { nodes: 'n', edges: 'e' } }, { 'n1': 'replace' }, ['n3']);

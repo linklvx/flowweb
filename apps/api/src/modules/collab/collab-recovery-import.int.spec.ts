@@ -236,11 +236,22 @@ maybe('Y1c T25 recovery import REST 服务面（真 gateway+真 PG——唯一�
     await flush(PID);
     const env = envelopeOf([{ id: 'n-i3-new' }], [], { draftId: 'draft-t25b-i3' });
     const out = await svc.importEnvelope(PID, UID, env, undefined, undefined, ['n-del', 'n-ghost']);
-    expect(out.deletions).toEqual({ requested: 2, applied: 1 });   // n-ghost 缺档幂等跳过（修前：无 deletions 报告——红）
+    expect(out.deletions).toEqual({ requested: 2, applied: 1, filteredIntersection: 0 });   // n-ghost 缺档幂等跳过（修前：无 deletions 报告——红）
     await flush(PID);
     const revived = await reviveFromPg(PID);
     expect(revived.getMap('nodes').has('n-del')).toBe(false);   // 修前：节点残留（红锚）
     expect(revived.getMap('nodes').has('n-i3-new')).toBe(true);   // 新增导入照常
+  }, 60_000);
+
+  it('★微批 M-6 deletionNodeIds∩envelope.nodes 服务端滤交集（手工 REST 复活收口+filtered 报告缺档语义）——修前交集 id 仍走删除段=envelope 并入项同批被删（红）', async () => {
+    const env = envelopeOf([{ id: 'n-keep' }, { id: 'n-i3-new' }], [], { draftId: 'draft-t25b-m6' });
+    const out = await svc.importEnvelope(PID, UID, env, undefined, undefined, ['n-keep', 'n-ghost']);
+    // n-keep∈envelope.nodes=滤交集（信封导入面权威——禁同批先删后并复活/互杀）；n-ghost 缺档跳过
+    expect(out.deletions).toEqual({ requested: 2, applied: 0, filteredIntersection: 1 });   // 修前：无 filteredIntersection 键（红）
+    await flush(PID);
+    const revived = await reviveFromPg(PID);
+    expect(revived.getMap('nodes').has('n-keep')).toBe(true);   // 信封成员存活（修前：删除段吞并=复活失败〔红〕）
+    expect(revived.getMap('nodes').has('n-i3-new')).toBe(true);
   }, 60_000);
 
   it('replace 用户选（冲突节点替换——nodeId 稳定不重映射）', async () => {

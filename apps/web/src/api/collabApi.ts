@@ -196,8 +196,9 @@ export interface RecoveryImportOutcome {
     notRestored: { artifacts: true; executionHistory: true; billingRecords: true };
   };
   dispositions: Array<{ nodeId: string; disposition: 'import' | 'skip' | 'replace' }>;
-  /** T25b 收口 I-3：删除确认执行报告（requested=用户确认集；applied=服务端现存实删）。 */
-  deletions?: { requested: number; applied: number };
+  /** T25b 收口 I-3：删除确认执行报告（requested=用户确认集；applied=服务端现存实删；
+   *  filteredIntersection=微批 M-6 deletionNodeIds∩envelope.nodes 滤除数——信封成员面归导入通道）。 */
+  deletions?: { requested: number; applied: number; filteredIntersection: number };
   resultReplayed: boolean;
   epoch: { envelopeGeneration: number; envelopeHistoryId: string; crossGeneration: boolean };
 }
@@ -217,11 +218,13 @@ export function importDraftEnvelope(
   });
 }
 
-/** T25b 收口 I-2：B 场景裁定「当前」侧服务端真值读径（GET /collab/doc/:pid/canvas——
- *  collab-read.controller readCanvas 既有端点复用；信封与 store nodes 同出一 doc 的同源空转根修：
- *  current 侧必须是服务端态非本地投影）。 */
+/** T25b 微批 C-1：B 场景裁定「当前」侧服务端真值读径——**用户面端点**
+ *  GET /projects/:pid/collab/canvas（collab-canvas-read.controller：全局 AuthGuard 会话面+
+ *  assertEditor 门+标准 {code:0} envelope——apiFetch 契约；旧指 GET /collab/doc/:pid/canvas=
+ *  worker 内部通道〔WorkerWriteAuthGuard Bearer token+@NoTransform 裸形态〕生产恒 403/契约
+ *  击穿——微批根修；信封与 store nodes 同出一 doc 的同源空转根修语义不变）。 */
 export function fetchServerCanvas(projectId: string): Promise<import('@flowweb/shared').CanvasReadModel> {
-  return apiFetch<import('@flowweb/shared').CanvasReadModel>(`/collab/doc/${projectId}/canvas`);
+  return apiFetch<import('@flowweb/shared').CanvasReadModel>(`/projects/${projectId}/collab/canvas`);
 }
 
 // ════ Y1c T25b 四读径③：复制/粘贴 typed BindMedia/CloneBinding 命令（shared 契约 typed body）════

@@ -10,6 +10,7 @@
 //      （importDraftEnvelope 生产接通=B4 接线闭环）。
 import {
   deriveStoryboardCells, resolveStoryboardConfig, validateParentGraph,
+  resolveAdjudicatedFieldValues,
   DRAFT_MERGE_ANOMALY_KINDS, DRAFT_MERGE_ANOMALY_NON_BLOCKING, type DraftMergeAnomalyKind,
   type DraftEnvelope, type DraftFieldConflict, type DraftFieldChoice,
 } from '@flowweb/shared';
@@ -99,8 +100,25 @@ export interface RecoveryAdjudicationView {
 
 const jsonEq = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
-/** 裁定视图（纯函数）：envelope（draft）×current（服务端重置态）三分派。data 键并集逐键深比对
- *  （JSON 等值——RichText 域容器/数组同构比对）；等值键=非冲突面（无需用户裁定）。 */
+/** 单节点 data 键并集逐键深比对（JSON 等值——RichText 域容器/数组同构比对）→冲突行。
+ *  视图（buildRecoveryAdjudicationView）与 typed 载荷（buildAdjudicatedImport）共用本 diff——
+ *  判定面单源（禁两套键差分）。 */
+function diffNodeData(nodeId: string, draftData: Record<string, unknown>, currentData: Record<string, unknown>): DraftFieldConflict[] {
+  const conflicts: DraftFieldConflict[] = [];
+  for (const key of new Set([...Object.keys(draftData), ...Object.keys(currentData)])) {
+    if (key in draftData && !(key in currentData)) {
+      conflicts.push({ nodeId, key, currentValue: undefined, draftValue: draftData[key] });
+    } else if (!(key in draftData) && key in currentData) {
+      conflicts.push({ nodeId, key, currentValue: currentData[key], draftValue: undefined });
+    } else if (!jsonEq(draftData[key], currentData[key])) {
+      conflicts.push({ nodeId, key, currentValue: currentData[key], draftValue: draftData[key] });
+    }
+  }
+  return conflicts;
+}
+
+/** 裁定视图（纯函数）：envelope（draft）×current（服务端重置态）三分派。等值键=非冲突面
+ *  （无需用户裁定）。 */
 export function buildRecoveryAdjudicationView(
   envelope: DraftEnvelope,
   currentNodes: readonly RecoveryAdjudicationNodeRef[],
@@ -116,17 +134,7 @@ export function buildRecoveryAdjudicationView(
       additions.push({ id: d.id, type: d.type, data: d.data as Record<string, unknown> | undefined });
       continue;
     }
-    const draftData = (d.data ?? {}) as Record<string, unknown>;
-    const curData = cur.data ?? {};
-    for (const key of new Set([...Object.keys(draftData), ...Object.keys(curData)])) {
-      if (key in draftData && !(key in curData)) {
-        conflicts.push({ nodeId: d.id, key, currentValue: undefined, draftValue: draftData[key] });
-      } else if (!(key in draftData) && key in curData) {
-        conflicts.push({ nodeId: d.id, key, currentValue: curData[key], draftValue: undefined });
-      } else if (!jsonEq(draftData[key], curData[key])) {
-        conflicts.push({ nodeId: d.id, key, currentValue: curData[key], draftValue: draftData[key] });
-      }
-    }
+    conflicts.push(...diffNodeData(d.id, (d.data ?? {}) as Record<string, unknown>, cur.data ?? {}));
   }
   for (const c of currentNodes) {
     if (!draftIds.has(c.id)) deletions.push(c);
@@ -165,15 +173,21 @@ export async function buildAdjudicatedImport(
       if (adopted.has(d.id)) nodes.push(d);   // 采纳新增（非冲突面恒 import）
       continue;
     }
-    // 冲突节点：任一 draft 选域才承载（全 current=服务端现态已正确零写）
-    const choices = adjudication.fieldChoices[d.id] ?? {};
+    // 冲突节点：**服务端值起底+仅显式 draft 选域覆写**（微批 I-1/I-5 根修——修前 {...draftData}
+    // 起底=未触碰字段以草稿值静默覆盖服务端，违 §4.5 B 行「未选择=默认保留当前」冻结语义）。
+    // 判定单源=shared resolveAdjudicatedFieldValues（choices[key] ?? DRAFT_FIELD_CHOICE_DEFAULT
+    // 语义由冻结函数承载——本模块零第二套裁定规则；diff 面=diffNodeData 与视图共用）。
     const draftData = (d.data ?? {}) as Record<string, unknown>;
     const serverData = server.data ?? {};
-    const hasDraftPick = Object.entries(choices).some(([, c]) => c === 'draft');
-    if (!hasDraftPick) continue;
-    const mergedData: Record<string, unknown> = { ...draftData };
-    for (const [key, choice] of Object.entries(choices)) {
-      if (choice === 'current') mergedData[key] = key in serverData ? serverData[key] : undefined;   // current 选域=服务端值（缺键=删域）
+    const nodeConflicts = diffNodeData(d.id, draftData, serverData);
+    const resolutions = resolveAdjudicatedFieldValues(nodeConflicts, {
+      adoptedNodeIds: [], fieldChoices: adjudication.fieldChoices, deletionConfirmations: [],
+    });
+    if (!resolutions.some((r) => r.chosen === 'draft')) continue;   // 全 current=服务端现态已正确零写
+    const mergedData: Record<string, unknown> = { ...serverData };   // 服务端值起底（未触碰/等值字段恒服务端态）
+    for (const r of resolutions) {
+      if (r.chosen === 'draft') mergedData[r.key] = r.value;         // 显式 draft 选域=草稿值覆写
+      else if (r.value === undefined) delete mergedData[r.key];      // current 选域且服务端缺键=域不携（信封自洽）
     }
     nodes.push({ ...d, data: mergedData } as DraftEnvelope['nodes'][number]);
     conflictChoices[d.id] = 'replace';

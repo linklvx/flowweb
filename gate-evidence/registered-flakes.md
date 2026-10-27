@@ -29,3 +29,7 @@
 - 2026-10-27（Y1c T24 终验微批）：collab.gateway.auth-reason「session-expired 真协议透传」在 verify full
   背靠背满载轮下 10s 用例超时（用例含完整 onModuleInit 启动链——负载放大启动窗）；隔离 3/3 绿+同码
   冷却后 verify full 30/30 PASS（口径同 Y7 行——环境负载态非回归，禁以环境态调阈值）。
+
+- 2026-10-28（Y1c T25b 双评审收口 spec M-2 登记）：collab-soak-t19.heavy.spec.ts 负载敏感 flake——本机高载态
+  （多全池并行/宿主后台高 CPU）时间歇红，隔离/净载跑绿；baseline 高载同爆实证已录（T25b 批全池并行验证期）。
+  处置=负载敏感族隔离重跑绿即过（禁以环境态调阈值——与 soak echo p95/Y7 同款口径；plan 收口批注同步）。

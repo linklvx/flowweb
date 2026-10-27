@@ -1,7 +1,7 @@
 // apps/web/src/pages/canvas/components/RecoveryPanel.tsx
 // Y1c T25b B1/B4（plan :338——spec §4.5 表 B 行 v5.4 用户裁定式）：B 场景（同代拒帧恢复）逐字段
-// 裁定 UI。数据层=shared DRAFT_FIELD_CHOICE_DEFAULT/resolveAdjudicatedFieldValues（冻结）+
-// collab/recovery-adjudication（视图/typed 载荷构造——T25b 新建）。
+// 裁定 UI。数据层=collab/recovery-adjudication（视图/typed 载荷构造——T25b 新建；其内部消费
+// shared 冻结单源 DRAFT_FIELD_CHOICE_DEFAULT/resolveAdjudicatedFieldValues——裁定判定零第二套）。
 //   收口 I-2：裁定「当前」侧=REST 服务端真值（fetchServerCanvas——GET /collab/doc/:pid/canvas
 //   既有端点复用）。信封与 store nodes 同出一 doc 的同源空转根修：store 投影不可作 current 源
 //   （spec §4.5 B 行「客户端重置到服务端状态」后裁定）；服务端读失败=重试面（禁静默 store 兜底）。

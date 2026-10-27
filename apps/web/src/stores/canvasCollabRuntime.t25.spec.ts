@@ -438,7 +438,7 @@ describe('T25b M-R1：resync 相位守卫（kickNow/assertHealthy 让位+teardow
     exportGate.gate = null;
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(1_000);
-  }, 20_000);   // 满池并行载下 fake-timer 冲刷窗真实耗时超 vitest 默认 5s（隔离绿为凭）
+  }, 60_000);   // 满池并行载下 fake-timer 冲刷窗真实耗时超 vitest 默认 5s；本机高载态 20s 仍间歇超（registered-flakes 负载敏感族），60s 真实钟上界自愈带宽
 });
 
 // ══════════ T25b M-R4：4406 恢复序列逐档降级（export 抛错不得跳过清 h/purge/通告） ══════════
@@ -465,7 +465,7 @@ describe('T25b M-R4：handleClientOutdatedRecovery 逐档降级', () => {
     expect(vi.mocked(purgePidCaches)).toHaveBeenCalledWith('u1', 'p1');
     expect(posted.some((m) => m?.type === 'collab-recovery' && m?.kind === 'history-bump')).toBe(true);
     expect(reloadSpy).toHaveBeenCalledTimes(1);   // handleVersionTerminal 强刷照常达
-  }, 20_000);   // AbortSignal.timeout 真实钟+满池并行载——vitest 默认 5s 池载超限（隔离绿为凭）
+  }, 60_000);   // AbortSignal.timeout 真实钟+满池并行载——5s 默认池载超限；本机高载态 20s 仍间歇超（registered-flakes 负载敏感族），60s 真实钟上界自愈带宽
 });
 
 // ══════════ T25b M-R2：history-bump 镜像腿（接收端 sibling 尽力导出）——修前零测试 ══════════

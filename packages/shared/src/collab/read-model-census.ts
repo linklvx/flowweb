@@ -9,8 +9,9 @@
 /** census 落盘文件名（T19 产出物——docs/superpowers/census/ 域）。 */
 export const READ_MODEL_CENSUS_FILENAME = 'read-model-census.json' as const;
 
-/** fixture 计数冻结（plan T19 卡：27 fixture——T19 填充达成；本常量=T19 侧数量门的单源）。 */
-export const READ_MODEL_CENSUS_FIXTURE_COUNT = 27 as const;
+/** fixture 计数冻结（plan T19 卡：27 fixture——T19 填充达成；本常量=T19 侧数量门的单源）。
+ *  T25b 微批 C-1：+1（api-canvas-read-user-face——B 场景裁定 current 侧用户面读端点）→28。 */
+export const READ_MODEL_CENSUS_FIXTURE_COUNT = 28 as const;
 
 /** 单条 census 条目（读模型读者面登记——id/file/fields/test 锚+shape hash+fixtures）。 */
 export interface ReadModelCensusEntry {

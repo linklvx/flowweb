@@ -53,8 +53,10 @@ export interface RecoveryImportResult {
   edgeDispositions: Array<{ edgeId: string; disposition: 'import' | 'skip' }>;
   /** draftId 幂等回放标记（重试同结果）。 */
   resultReplayed: boolean;
-  /** T25b 收口 I-3：B 场景删除确认执行报告（typed REST 承载——禁 doc 写承载裁定）。 */
-  deletions: { requested: number; applied: number };
+  /** T25b 收口 I-3：B 场景删除确认执行报告（typed REST 承载——禁 doc 写承载裁定）。
+   *  微批 M-6：filteredIntersection=deletionNodeIds∩envelope.nodes 滤除数（信封成员面归导入
+   *  通道权威——同批互杀收口）。 */
+  deletions: { requested: number; applied: number; filteredIntersection: number };
   /** 跨代/跨纪元随行报告（不阻断——typed 内容导入非 CRDT 回灌；C 场景本就跨代）。 */
   epoch: { envelopeGeneration: number; envelopeHistoryId: string; crossGeneration: boolean };
 }
@@ -211,10 +213,15 @@ export class CollabRecoveryImportService {
 
       // 收口 I-3：删除确认先于信封并入（信封天然不含删除确认面节点——先删后并零复活；幂等：
       // 候选缺该 id=跳过。删除节点的触达边由下方悬挂边扫除段收敛报告）。
+      // 微批 M-6：**先滤 deletionNodeIds ∩ envelope.nodes**（信封成员面归导入通道权威——手工
+      // REST 携带交集 id 禁同批先删后并互杀/复活；滤除数进 deletions.filteredIntersection 报告）。
+      const envelopeIdSet = new Set(envelope.nodes.map((n) => n.id));
+      const effectiveDeletions = deletionNodeIds.filter((id) => !envelopeIdSet.has(id));
+      const filteredIntersection = deletionNodeIds.length - effectiveDeletions.length;
       let deletionsApplied = 0;
-      if (deletionNodeIds.length > 0) {
+      if (effectiveDeletions.length > 0) {
         candidate.transact(() => {
-          for (const id of deletionNodeIds) {
+          for (const id of effectiveDeletions) {
             if (candidate.getMap('nodes').has(id)) {
               candidate.getMap('nodes').delete(id);
               deletionsApplied += 1;
@@ -284,7 +291,7 @@ export class CollabRecoveryImportService {
       return {
         edgeDispositions,
         /** T25b 收口 I-3：删除确认执行报告（requested=用户确认集；applied=候选现存实删——缺档幂等跳过） */
-        deletions: { requested: deletionNodeIds.length, applied: deletionsApplied },
+        deletions: { requested: deletionNodeIds.length, applied: deletionsApplied, filteredIntersection },
         confirmation: {
           contentCounts: { nodeCount: envelope.nodes.length, edgeCount: envelope.edges.length },
           droppedRefs: { danglingEdges, missingParentNodes },

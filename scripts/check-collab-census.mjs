@@ -1629,6 +1629,7 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-doc-registry.service.ts': 4,   // toReadModel×4（病理观测/vacuum 重建/等价校验同行双读）
     'apps/api/src/modules/collab/collab-document.service.ts': 5,       // readCanvas×2（def+fallback）+snapshotCached def+toReadModel×2
     'apps/api/src/modules/collab/collab-read.controller.ts': 2,        // readCanvas def+透传
+    'apps/api/src/modules/collab/collab-canvas-read.controller.ts': 1, // T25b 微批 C-1：readCanvas 用户面透传（assertEditor 门——B 场景裁定 current 侧读径）
     'apps/api/src/modules/collab/collab-shrink.service.ts': 2,         // toReadModel×2（影子源/预演）
     'apps/api/src/modules/collab/collab-write.port.ts': 4,             // readCanvas abstract+Direct def/委托+Http def
     'apps/api/src/modules/execution/execution.service.ts': 1,          // readCanvas 计费读

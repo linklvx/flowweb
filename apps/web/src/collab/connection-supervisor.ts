@@ -315,16 +315,6 @@ export class CollabConnectionSupervisor {
     if (this._phase === 'resyncing') this._phase = 'idle';
   }
 
-  /** T25b B4（面 B——recovery 模式出口）：terminal 相位恢复（deny-escape 恢复模式粘住的唯一出口
-   *  ——用户完成裁定导入后 denyTracker.recoveryComplete+本方法+connectOnce）。非 terminal=no-op。 */
-  resume(): boolean {
-    if (this._phase !== 'terminal') return false;
-    this.clearTimers();
-    this._phase = 'idle';
-    this.terminalReason = undefined;
-    return true;
-  }
-
   // ── 内部 ──
 
   private wsOf(): any {

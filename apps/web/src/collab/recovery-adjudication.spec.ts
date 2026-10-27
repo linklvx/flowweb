@@ -143,14 +143,41 @@ describe('T25b 收口 I-3：buildAdjudicatedImport（裁定→typed 导入载荷
     expect(none).toBeNull();
   });
 
-  it('★current 选域字段回写服务端值进载荷（信封自洽——非草稿值混入）', async () => {
-    const out = await buildAdjudicatedImport(ENV(), SERVER, {
+  it('★微批 I-1/I-5 mixed-pick：同节点多差异字段只显式选其一 draft——未触碰字段=服务端值（默认保留当前=DRAFT_FIELD_CHOICE_DEFAULT 单源语义；修前 {...draftData} 起底=未触碰字段以草稿值静默覆盖服务端）', async () => {
+    const envMixed = (): DraftEnvelope => ({
+      draftId: 'd-mix', projectId: 'p1', generation: 3, schemaVersion: 3, historyId: 'h1',
+      capturedAtMs: 1, tabId: 't1',
+      nodes: [
+        { id: 'n1', type: 'imageGen', data: { prompt: '草稿文案', style: '草稿风格', ratio: '16:9' } } as never,
+      ],
+      edges: [], meta: {},
+      hashes: { nodes: 'x', edges: 'y' },
+    });
+    const serverMixed = [
+      { id: 'n1', type: 'imageGen', data: { prompt: '当前文案', style: '当前风格', ratio: '16:9' } },   // prompt+style 两差异字段；ratio 等值
+    ];
+    const out = await buildAdjudicatedImport(envMixed(), serverMixed, {
       adoptedIds: [],
-      fieldChoices: { n1: { prompt: 'current', style: 'draft' } },   // style 等值非冲突面——draft 选=同值 no-op
+      fieldChoices: { n1: { prompt: 'draft' } },   // 仅 prompt 显式 draft——style 未触碰（默认=保留当前）
       deletionIds: [],
     });
     const n1 = out!.envelope.nodes.find((n) => n.id === 'n1')!;
-    expect((n1.data as Record<string, unknown>).prompt).toBe('当前文案');   // current 选域=服务端值（修前形态：草稿值混入=覆盖用户裁定）
+    const data = n1.data as Record<string, unknown>;
+    expect(data.prompt).toBe('草稿文案');     // 显式 draft 选域=草稿值
+    expect(data.style).toBe('当前风格');       // ★修前：'草稿风格'（未触碰字段草稿值混入=契约击穿〔红〕）
+    expect(data.ratio).toBe('16:9');           // 等值字段不受扰
+  });
+
+  it('★微批 I-1/I-5 单源语义：等值字段显式 draft 选=同值 no-op（非冲突面零裁定行——node 不入载荷）；current 选域回写服务端值归 mixed-pick 用例锁', async () => {
+    // n1 prompt 差异面选 current（默认保留当前=零写）+style 等值面显式 draft（值相同=no-op）
+    // ⇒ 无任何冲突行 draft 胜出=node 不入载荷（全 current=服务端现态已正确——shared
+    // resolveAdjudicatedFieldValues 单源：判定只及冲突行，等值键无裁定面）
+    const out = await buildAdjudicatedImport(ENV(), SERVER, {
+      adoptedIds: [],
+      fieldChoices: { n1: { prompt: 'current', style: 'draft' } },
+      deletionIds: [],
+    });
+    expect(out).toBeNull();
   });
 });
 

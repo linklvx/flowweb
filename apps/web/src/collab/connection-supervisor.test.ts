@@ -505,7 +505,7 @@ describe('T25b M-R1/M-2：resyncing 相位（kickNow/assertHealthy 让位+teardo
     expect(sup.assertHealthy(true)).toBe(true);           // 恢复常规监管（watchdog 出手——防让位死区）
   });
 
-  it('★M-2 teardown 保持 resyncing 相位（destroy await 缝守卫）+resume 出口（recovery 模式唯一出口）', () => {
+  it('★M-2 teardown 保持 resyncing 相位（destroy await 缝守卫）——resume 公法已删（微批 spec M-3 收口：resumeFromRecovery 改走 resyncFull 重建，terminal 出口=teardown 归 idle 零遗留公法）', () => {
     const sup = makeSupervisor();
     sup.beginResync();
     sup.teardown();
@@ -513,8 +513,7 @@ describe('T25b M-R1/M-2：resyncing 相位（kickNow/assertHealthy 让位+teardo
     sup.endResync();
     sup.terminalDisconnect('recovery-mode');
     expect(sup.phase).toBe('terminal');
-    expect(sup.resume()).toBe(true);                      // B4 出口
+    sup.teardown();                                       // 生产 terminal 出口形态（resyncFull→initCollab→teardownSession）
     expect(sup.phase).toBe('idle');
-    expect(sup.resume()).toBe(false);                     // 非 terminal no-op
   });
 });
