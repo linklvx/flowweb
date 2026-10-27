@@ -14,10 +14,10 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { isFkGone } from './pg-error.util';
-import { isGateApplyOrigin } from '@flowweb/shared';
+import { isGateApplyOrigin, classifyDocUpdateOrigin } from '@flowweb/shared';
 import { parseDocName, projectDocName } from './doc-name.util';
 import { captureCollabException } from '../../utils/sentry-scrub';
-import { storeInFlightDocs, collabLeaseRowMissingTotal, collabDrainDurationSeconds, collabDrainProjectsTotal, collabFlushDocumentOutcomeTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, yjsStorePayloadBytes, yjsStoreDuration, yjsCompactDuration, yjsCompactDeletedRows, yjsCompactTombstoneBytes, yjsStoreTotal, type CollabStoreTrigger } from './store.metrics';
+import { docUpdateOriginTotal, storeInFlightDocs, collabLeaseRowMissingTotal, collabDrainDurationSeconds, collabDrainProjectsTotal, collabFlushDocumentOutcomeTotal, yjsStoreAppendFailureTotal, yjsStoreCompactFailureTotal, yjsStoreDrainTotal, yjsStoreTailAnomalyTotal, yjsStoreUnexpectedThrowTotal, yjsUnloadHandoffFailureTotal, yjsUpdatesDiscardedDeletedTotal, yjsStorePayloadBytes, yjsStoreDuration, yjsCompactDuration, yjsCompactDeletedRows, yjsCompactTombstoneBytes, yjsStoreTotal, type CollabStoreTrigger } from './store.metrics';
 
 /** 批3-4：compact 门限由行数（原 COMPACT_THRESHOLD=32）改时间门限——debounce 收紧（5s→1/2s）会让
  *  行数门限的 compact 频率同步放大（advisory lock+重放+deleteMany 成本不低）。loadDocument 播种
@@ -213,6 +213,12 @@ export class CollabPersistenceService {
     if (!this.docListeners.has(document)) {   // 监听防重复注册（update 事件一次）
       this.docListeners.add(document);
       document.on('update', (u: Uint8Array, origin: unknown) => {
+        // Y1c T24（spec v5.4⑤ origin 枚举）：doc_update_origin_total{origin} 单点计数（replay 抑制
+        // 早退**之前**——load 档=装载/恢复重放事件也计）；仅 server-direct 命中时告警（越 allowlist
+        // 的服务端写——节流 1 次/pid/小时防刷屏；load/import/maintenance=合法受控路径零告警）。
+        const originKind = classifyDocUpdateOrigin(origin, { replaying: this.replaying.has(document) });
+        docUpdateOriginTotal.inc({ origin: originKind });
+        if (originKind === 'server-direct') this.warnServerDirectWrite(this.docProject.get(document) ?? '-', u.byteLength);
         if (this.replaying.has(document)) return;
         const pid = this.docProject.get(document)!;
         const q = this.pendingQueues.get(pid);
@@ -234,10 +240,22 @@ export class CollabPersistenceService {
     }
   }
 
+  /** Y1c T24：server-direct serving 写告警节流台账（pid→上次告警时间——1 次/小时防刷屏）。 */
+  private readonly serverDirectWarnAt = new Map<string, number>();
+
+  /** server-direct 写结构告警（origin 未识别=越 allowlist 的服务端 doc 写——观测面非阻断；
+   *  分类细则见 shared doc-update-origin.ts 头注）。 */
+  private warnServerDirectWrite(pid: string, bytes: number): void {
+    const now = Date.now();
+    const last = this.serverDirectWarnAt.get(pid) ?? 0;
+    if (now - last < 3_600_000) return;
+    this.serverDirectWarnAt.set(pid, now);
+    this.host.logger.warn(`doc_update_origin_total{server-direct} serving 写（pid=${pid} bytes=${bytes}）——越 allowlist 的服务端 doc 写（load/replay/maintenance 外路径）`);
+  }
+
   /** 重放抑制窗（B1 自 loadDocument applyReplayed 闭包提取）：只包裹 apply 同步段——update 事件在
    *  事务清理期同步发放被精确抑制；await 窗口内写入不被抑制、进 pending。 */
-  withReplaySuppressed(document: Y.Doc, u: Uint8Array): void {
-    this.replaying.add(document);
+  withReplaySuppressed(document: Y.Doc, u: Uint8Array): void {    this.replaying.add(document);
     try { Y.applyUpdate(document, u); } finally { this.replaying.delete(document); }
   }
 

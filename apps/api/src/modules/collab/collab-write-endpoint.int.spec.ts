@@ -194,7 +194,7 @@ maybe('Y0c T27 write-batch 端点（端到端真链+三探针）', () => {
     // 合法全档 scope 但 writeNodeData（T15：op 级 403——旧键级 400 WORKER_KEY_NOT_ALLOWED 随通道退役）
     const keyReject = await fetch(`${baseUrl}/api/collab/doc/write-batch`, {
       method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}`, 'x-worker-scope': mintWorkerScopeToken(TOKEN, PID, { intentRowId: INTENT_N1.id, execSeq: INTENT_N1.execSeq.toString() }) },
-      body: JSON.stringify({ projectId: PID, ops: [{ op: 'writeNodeData', nodeId: 'n1', patch: { content: 'x' } }] }),
+      body: JSON.stringify({ projectId: PID, ops: [{ op: 'writeNodeData', nodeId: 'n1', patch: { result: 'x' } }] }),   // Y1c T24 D-3：'content' 已移出键域（Z108 UNKNOWN_KEY 400 先拒——键级先拒形态）；worker 403 面改 'result' 同测
     });
     expect(keyReject.status).toBe(403);
     expect(((await keyReject.json()) as { code?: string }).code).toBe('WORKER_OP_NOT_ALLOWED');

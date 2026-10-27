@@ -140,7 +140,7 @@ describe('Y0c T15 Z128：常驻 pid 恒 1 条 direct（读路径零抖动零重�
   it('关页后（无 WS）重复写不再重复装载：写批连发零新开零 disconnect；写值在会话内可见（出口判据）', async () => {
     const fx = makeFixture();
     for (let i = 0; i < 3; i += 1) {
-      const r = await fx.writer.writeBatch('p1', [{ op: 'writeNodeData', nodeId: 'n1', patch: { content: `v${i}` } }]);
+      const r = await fx.writer.writeBatch('p1', [{ op: 'writeNodeData', nodeId: 'n1', patch: { result: `v${i}` }   /* Y1c T24 D-3：content 键移除——result 同测 */ }]);
       expect(r[0]).toMatchObject({ written: true });
     }
     expect(fx.openDirectConnection).toHaveBeenCalledTimes(1);
@@ -186,7 +186,7 @@ describe('Y0c T15 Z128：常驻 pid 恒 1 条 direct（读路径零抖动零重�
     const doc = fx.docs.get('project:p1')!;
     const captured: unknown[] = [];
     doc.on('update', (_u: Uint8Array, origin: unknown) => { captured.push(origin); });
-    await fx.writer.writeBatch('p1', [{ op: 'writeNodeData', nodeId: 'n1', patch: { content: 'v1' } }]);
+    await fx.writer.writeBatch('p1', [{ op: 'writeNodeData', nodeId: 'n1', patch: { result: 'v1' }   /* Y1c T24 D-3 */ }]);
     expect(captured).toHaveLength(1);
     expect(captured[0]).toBe(SERVER_TRANSACT_ORIGIN);
   });
@@ -211,7 +211,7 @@ describe('Y0c T15 Z83：释放窗口并发 acquire', () => {
     void fx.residency().releaseSessionFor('p1');                 // 释放开跑→releasing→disconnect 挂起
     expect(fx.residency().sessionState('p1')).toBe('releasing');
 
-    const s2 = fx.writer.writeBatch('p1', [{ op: 'writeNodeData', nodeId: 'n1', patch: { content: 'v1' } }]);   // 并发 acquire 撞 releasing
+    const s2 = fx.writer.writeBatch('p1', [{ op: 'writeNodeData', nodeId: 'n1', patch: { result: 'v1' }   /* Y1c T24 D-3 */ }]);   // 并发 acquire 撞 releasing
 
     fnHold.resolve();                                            // s1 fn 完成（finally refCount-- 落孤儿条目）
     await s1;
@@ -221,7 +221,7 @@ describe('Y0c T15 Z83：释放窗口并发 acquire', () => {
     expect(results[0]).toMatchObject({ index: 0, op: 'writeNodeData', written: true });
     const doc2 = fx.docs.get('project:p1')!;
     expect(doc2.getMap('nodes').has('k1')).toBe(true);           // 零静默丢弃：第一会话写经持久化在新实例可见（时点③路径）
-    expect(((doc2.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>).get('content')).toBe('v1');
+    expect(((doc2.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>).get('result')).toBe('v1');   // Y1c T24 D-3：content→result
     expect(fx.residency().residentProjectIds().filter((p: string) => p === 'p1')).toHaveLength(1);   // 会话表无双条目
     expect(fx.residency().sessionState('p1')).toBe('held');
     expect(fx.openDirectConnection).toHaveBeenCalledTimes(2);    // 原 conn+释放完成后新 conn
@@ -440,7 +440,7 @@ describe('Y0c T15：withSession 受理门+新开观测', () => {
     const fx = makeFixture();
     fx.gateway.isWritableOrDegraded.mockReturnValue('spool-unwritable');
     await expect(fx.svc.readCanvas('p1')).resolves.toBeTruthy();
-    await expect(fx.writer.writeBatch('p1', [{ op: 'writeNodeData', nodeId: 'n1', patch: { content: 'v1' } }]))
+    await expect(fx.writer.writeBatch('p1', [{ op: 'writeNodeData', nodeId: 'n1', patch: { result: 'v1' }   /* Y1c T24 D-3 */ }]))
       .rejects.toMatchObject({ status: 503 });
     expect(fx.openDirectConnection).toHaveBeenCalledTimes(1);    // 写门早退零直开（读会话池化在先）
   });

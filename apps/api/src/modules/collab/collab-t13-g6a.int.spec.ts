@@ -45,9 +45,12 @@ const DB_URL = (process.env.DATABASE_URL ?? '').replace(/^"|"$/g, '');
 const PIDS = ['y1c-t13-a', 'y1c-t13-b', 'y1c-t13-c'];
 
 const frameOf = (key: string, val: unknown, big?: Uint8Array) => {
+  // Y1c T24 矩阵对齐：节点=合法 Y.Map 信封（标量节点值=L2 node-not-map 毒帧——G6a 主语=恢复/截断）
   const d = new Y.Doc();
-  const m = d.getMap('nodes') as Y.Map<unknown>;
-  if (big) m.set(key, big); else m.set(key, val);
+  const node = new Y.Map(); const data = new Y.Map();
+  data.set('model', big ?? val);
+  node.set('type', 'textInput'); node.set('data', data);
+  (d.getMap('nodes') as Y.Map<unknown>).set(key, node);
   return Y.encodeStateAsUpdate(d);
 };
 
@@ -55,7 +58,14 @@ const frameOf = (key: string, val: unknown, big?: Uint8Array) => {
 function ss2BigFrame(): Uint8Array {
   const d = new Y.Doc();
   const m = d.getMap('nodes') as Y.Map<unknown>;
-  for (let i = 0; i < 63; i++) m.set('big-' + i, new Uint8Array(128 * 1024).fill(1 + i));
+  // Y1c T24 矩阵对齐：节点=合法 Y.Map 信封（裸 Uint8Array 节点值=L2 node-not-map 毒帧）——大字节
+  // 载荷入 data.model（Uint8Array 原样承载，帧字节量级不变）
+  for (let i = 0; i < 63; i++) {
+    const node = new Y.Map(); const data = new Y.Map();
+    data.set('model', String.fromCharCode(97 + (i % 26)).repeat(128 * 1024));   // 原始二进制=lww 值域外（矩阵拒）——大字节面用长字符串原语（量级同 128KiB）
+    node.set('type', 'textInput'); node.set('data', data);
+    m.set('big-' + i, node);
+  }
   return Y.encodeStateAsUpdate(d);
 }
 

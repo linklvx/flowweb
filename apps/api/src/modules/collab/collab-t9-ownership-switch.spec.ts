@@ -43,8 +43,12 @@ function buildGateway(opts: { lease?: ReturnType<typeof createLeaseStub> } = {})
 }
 
 function makeFrame(name: string, key: string, val: unknown) {
+  // Y1c T24 矩阵对齐：节点=合法 Y.Map 信封（标量节点值=L2 node-not-map 毒帧——所有权主语=管线计数）
   const src = new Y.Doc();
-  src.getMap('nodes').set(key, val);
+  const node = new Y.Map(); const data = new Y.Map();
+  data.set('model', val);
+  node.set('type', 'textInput'); node.set('data', data);
+  src.getMap('nodes').set(key, node);
   return { type: messageYjsUpdate, payload: Y.encodeStateAsUpdate(src) };
 }
 
@@ -61,7 +65,7 @@ describe('Y1c T9 所有权切换（偏离 38①——P1 入口条件）', () => 
     doc.on('update', () => { updateEvents += 1; });   // 广播由库 update 事件驱动（S1 harness 锁库侧面——此处锚事件恰一）
     const f = makeFrame('project:p1', 'own1', 'v1');
     await gateway.hooks.beforeSync({ type: f.type, payload: f.payload, document: doc, connection: conn } as never);
-    expect(doc.getMap('nodes').get('own1')).toBe('v1');          // pre-apply 落 doc
+    expect(((doc.getMap('nodes').get('own1') as Y.Map<unknown>).get('data') as Y.Map<unknown>).get('model')).toBe('v1');          // pre-apply 落 doc（T24 夹具=map 信封）
     expect(repo.appendBatch).toHaveBeenCalledTimes(1);            // 恰一次 PG 批写
     const rows = repo.appendBatch.mock.calls[0][1] as Array<{ frameCount: number; updateHash: string }>;
     expect(rows).toHaveLength(1);                                 // 一次 PG row（actor drain 批单行）

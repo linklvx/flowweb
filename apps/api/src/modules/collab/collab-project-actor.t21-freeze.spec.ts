@@ -13,9 +13,17 @@ import type { Logger } from '@nestjs/common';
 
 function makeConn() { return { socketId: 'sock-' + Math.random().toString(36).slice(2, 8), readOnly: false, sendStateless: () => {} } as never; }
 
+/** T24 夹具读回（map 信封 data.model——原标量节点值断言现代化）。 */
+const modelOf = (d: Y.Doc, key: string): unknown =>
+  ((d.getMap('nodes').get(key) as Y.Map<unknown>).get('data') as Y.Map<unknown>).get('model');
+
 function frameSetting(key: string, val: unknown) {
+  // Y1c T24 矩阵对齐：节点=合法 Y.Map 信封（标量节点值=L2 node-not-map 毒帧——freeze 主语=临界区语义）
   const src = new Y.Doc();
-  (src.getMap('nodes') as Y.Map<unknown>).set(key, val);
+  const node = new Y.Map(); const data = new Y.Map();
+  data.set('model', val);
+  node.set('type', 'textInput'); node.set('data', data);
+  (src.getMap('nodes') as Y.Map<unknown>).set(key, node);
   return Y.encodeStateAsUpdate(src);
 }
 
@@ -62,7 +70,7 @@ describe('Y1c T21 G4-⑥：frozenDocSeq 临界区（withFrozenPrefix——红前
     const actor = buildActor(spool, repo, doc);
     // 帧 1：fsync+apply 完成（submit resolve）但 PG 批挂起 → applied=1, pgSeq=0
     await actor.submit('p1', frameSetting('n1', 'applied-not-persisted'), makeConn(), 'update');
-    expect(doc.getMap('nodes').get('n1')).toBe('applied-not-persisted');   // doc 已含未持久帧（竞态存在性实锤）
+    expect(modelOf(doc, 'n1')).toBe('applied-not-persisted');   // doc 已含未持久帧（竞态存在性实锤；T24 夹具=map 信封）
     // 冻结读：pgSeq(0)≠appliedSeq(1) ⇒ flush-timeout 拒绝（不返回 ok——否则冻结输入含未持久帧）
     const r = await actor.withFrozenPrefix('p1', async () => 'must-not-run', { gateBudgetMs: 200, flushBudgetMs: 150 });
     expect(r).toEqual({ ok: false, reason: 'flush-timeout' });
@@ -94,7 +102,7 @@ describe('Y1c T21 G4-⑥：frozenDocSeq 临界区（withFrozenPrefix——红前
     // release 后帧 2 落定
     for (let i = 0; i < 100 && !frame2Settled; i++) await new Promise((res) => setTimeout(res, 10));
     expect(frame2Settled).toBe(true);
-    expect(doc.getMap('nodes').get('n2')).toBe('during-freeze');
+    expect(modelOf(doc, 'n2')).toBe('during-freeze');
   });
 
   it('I-1（收口）：flush 等待窗内换代（generationOf 漂移）→冻结读作废 gate-timeout（回退 PG 重建档）——八阶段 verify-generation-unchanged', async () => {
@@ -129,7 +137,7 @@ describe('Y1c T21 G4-⑥：frozenDocSeq 临界区（withFrozenPrefix——红前
     await actor.submit('p1', frameSetting('n1', 'persisted-1'), makeConn(), 'update');
     await new Promise((res) => setTimeout(res, 30));   // PG 批落定（mock 立即 ok）
     const r = await actor.withFrozenPrefix('p1', async ({ doc: d, pgSeq, appliedSeq }) => {
-      expect((d.getMap('nodes') as Y.Map<unknown>).get('n1')).toBe('persisted-1');
+      expect(modelOf(d, 'n1')).toBe('persisted-1');
       expect(pgSeq).toBe(appliedSeq);
       return pgSeq;
     });

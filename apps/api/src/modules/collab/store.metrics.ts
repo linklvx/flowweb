@@ -1341,3 +1341,23 @@ export const lifecycleFencesStaledTotal = new Counter({
   help: 'replayAll 回灌窗 fence stale 打点计数（I-1 收口：stale-ACTIVE 交付逃逸 fail-closed 面——行数非调用数）',
   registers: [register],
 });
+
+/** Y1c T24（spec v5.4 §3.2 v5.4⑤）：doc update 事件 origin 枚举计数（closed 六值——
+ *  DOC_UPDATE_ORIGINS 单源；仅 server-direct 在 serving 期写 doc 时告警——分类器
+ *  classifyDocUpdateOrigin，事件面=persistence update 监听单点）。 */
+export const docUpdateOriginTotal = new Counter({
+  name: 'doc_update_origin_total',
+  help: 'doc update 事件按 origin 计数（gate|connection|load|import|maintenance|server-direct——仅 server-direct serving 写告警）',
+  labelNames: ['origin'],
+  registers: [register],
+});
+
+/** Y1c T24（spec v5.4 §3.2 NORMALIZE 面）：读侧图异常屏蔽计数（kind 词表=GRAPH_ANOMALY_KINDS
+ *  单源——悬挂边/重复边/悬挂父/父链环/跨组父；media-ref-missing 归 T26 PG join 接线）。
+ *  评估面=actor apply 后临界区（ProjectDocIndex 同源增量——与读侧 maskGraphAnomalies 同语义）。 */
+export const graphAnomalyTotal = new Counter({
+  name: 'graph_anomaly_total',
+  help: '图异常读侧屏蔽计数（NORMALIZE 面——kind 词表 GRAPH_ANOMALY_KINDS；复用 T9/T26 同一 ProjectDocIndex 实例评估）',
+  labelNames: ['kind'],
+  registers: [register],
+});

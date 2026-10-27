@@ -842,7 +842,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
         const name = 'project:p-boi3';
         const { provider, synced } = kit.connect(name);
         await synced;
-        provider.document.getMap('nodes').set('n', new Y.Map([['x', 1]]));
+        provider.document.getMap('nodes').set('n', new Y.Map([['type', 'textInput'], ['data', new Y.Map()]]));   // Y1c T24 矩阵对齐（裸 x 键=L2 node-key 毒帧）
         await pollUntil(() => (kit.repo.appendBatch as MockRepo['append']).mock.calls.length >= 1, 5_000);   // 首次 store 已失败
         // 注意时序：repo.appendBatch 调用点先于 spool fsync 完成（copy-first：splice 恒在新家落定之后）——
         // 全量并发下断言与 fsync 竞速会伪红，peek 落定必须轮询（帧可见=fsync 完成的直接证据）
@@ -888,7 +888,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
       const kit1 = await startDualClientServer({ appendBatch: failingRepo({ failAppend: 99 }).appendBatch }, 200, new CollabSpoolService(dir));   // Y1c T9：注入面=appendBatch（PG 腿）
       const { provider, synced } = kit1.connect('project:p-boi4');
       await synced;
-      provider.document.getMap('nodes').set('k', new Y.Map([['x', 1]]));
+      provider.document.getMap('nodes').set('k', new Y.Map([['type', 'textInput'], ['data', new Y.Map()]]));   // Y1c T24 矩阵对齐
       await pollUntil(() => (kit1.repo.appendBatch as MockRepo['appendBatch']).mock.calls.length >= 1, 5_000);   // 失败已发生 → 帧已入 WAL（未 confirm）
       await provider.destroy();
       kit1.forget(provider);                    // 自管 destroy 后移出 dispose 清理数组——防双 destroy（惯例同上）

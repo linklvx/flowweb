@@ -474,3 +474,77 @@ export function validateXmlL1(update: Uint8Array, opts: XmlL1Options = {}): XmlL
   }
   return { ok: true };
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// Y1c T24：L2 changed-subtree walk（apply 后 live 子树整树校验——单表单源禁双表）
+// ══════════════════════════════════════════════════════════════════════════
+
+/** XmlElement/XmlFragment/XmlText 结构性判定（L2 live walk 面——零跨实例 instanceof 陷阱：
+ *  同 yjs 实例域内 instanceof 可靠；wire 伪形态由结构性方法缺失自然跳过/容器非 XML 提前返回）。 */
+const isXmlElementLike = (v: unknown): v is { toArray: () => unknown[]; getAttributes: () => Record<string, unknown>; length: number } =>
+  typeof v === 'object' && v !== null && typeof (v as { toArray?: unknown }).toArray === 'function' && typeof (v as { getAttributes?: unknown }).getAttributes === 'function';
+
+/** XmlText/字符串承载（Y.XmlText 或子串——toArray 展开后的混合列表）。 */
+const textBytesOf = (v: unknown): number => {
+  if (typeof v === 'string') return textEncoder.encode(v).byteLength;
+  if (typeof v === 'object' && v !== null && typeof (v as { toString?: unknown }).toString === 'function' && 'toDelta' in (v as object)) {
+    return textEncoder.encode(String((v as { toString(): string }).toString())).byteLength;
+  }
+  return 0;
+};
+
+/**
+ * L2 apply 后 changed-subtree walk（spec §3.2 v5.4⑫——T24 激活）：live XmlFragment 整树校验——
+ * 元素名/mark/属性键白名单（XML_ELEMENTS/XML_MARKS/XML_ATTRS **同表单源**——L1 帧内扫描的帧外父
+ * 挂接面兜底：未知属性/嵌套 XmlFragment/域外 URL/超深链/超长文本在 L1 帧内不可解析形态由此拦截）。
+ * mention id/image src 的 mediaId 存在性仍不入本面（XML_MEDIA_ANCHOR——归执行受理/ProjectDocIndex）；
+ * URL allowlist 真源住调用方（L1 同款注入——fail-closed 缺省 deny-all http(s)）。
+ */
+export function validateXmlSubtree(container: unknown, opts: XmlL1Options = {}): XmlL1Verdict {
+  if (container == null) return { ok: true };   // 容器缺位（删除面）——非违规
+  if (!isXmlFragmentLike(container) && !isXmlElementLike(container)) return { ok: true };   // 非 XML 承载（标量域键）——L1/矩阵面管辖
+  const walk = (node: unknown, depth: number): XmlL1Verdict => {
+    if (depth > XML_MAX_DEPTH) return { ok: false, reason: `xml-depth-exceeded:${depth}` };
+    if (typeof node === 'string' || node === null || node === undefined) return { ok: true };
+    if (typeof node !== 'object') return { ok: true };
+    if ('toDelta' in (node as object)) {
+      // Y.XmlText：mark 键域+文本字节域+mark 值 URL 扫描（toDelta attributes 面）
+      const bytes = textBytesOf(node);
+      if (bytes > XML_TEXT_MAX_BYTES) return { ok: false, reason: 'xml-text-bytes-exceeded' };
+      try {
+        const delta = (node as unknown as { toDelta: () => Array<{ attributes?: Record<string, unknown> }> }).toDelta();
+        for (const d of delta) {
+          for (const [k, v] of Object.entries(d.attributes ?? {})) {
+            if (!MARK_NAMES.has(k)) return { ok: false, reason: `xml-attr:format-key:${k}` };
+            if (typeof v === 'string' && urlOutsideAllowlist(v, opts.allowedUrlHosts)) {
+              return { ok: false, reason: `xml-url:${v.slice(0, 32)}` };
+            }
+          }
+        }
+      } catch { /* 非常规承载——跳过 delta 面（字节/结构面已覆盖） */ }
+      return { ok: true };
+    }
+    if (isXmlElementLike(node)) {
+      const name = (node as unknown as { nodeName?: unknown }).nodeName;
+      if (typeof name !== 'string' || !ELEMENT_NAMES.has(name)) return { ok: false, reason: `unknown-xml-element:${String(name)}` };
+      const allowed = XML_ATTRS[name as XmlElementName];
+      for (const [k, v] of Object.entries(node.getAttributes())) {
+        if (!allowed.includes(k)) return { ok: false, reason: `xml-attr:${name}.${k}` };
+        if (typeof v === 'string' && urlOutsideAllowlist(v, opts.allowedUrlHosts)) {
+          return { ok: false, reason: `xml-url:${v.slice(0, 32)}` };
+        }
+      }
+    } else if (isXmlFragmentLike(node)) {
+      if (depth > 0) return { ok: false, reason: 'xml-nested-fragment' };   // XML 树内嵌套 XmlFragment（域容器=depth 0 直挂 data map）
+    } else {
+      return { ok: false, reason: 'xml-node-kind-unknown' };   // XmlHook/其他承载——结构性拒绝
+    }
+    const children = (node as unknown as { toArray: () => unknown[] }).toArray();
+    for (const c of children) {
+      const r = walk(c, depth + 1);
+      if (!r.ok) return r;
+    }
+    return { ok: true };
+  };
+  return walk(container, 0);
+}

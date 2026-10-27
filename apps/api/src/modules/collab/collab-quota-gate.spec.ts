@@ -16,6 +16,15 @@ import { CollabShrinkService } from './collab-shrink.service';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { CLIENT_PROTOCOL_VERSION, isCollabDocStatusPayload, isCollabConnStatusPayload } from '@flowweb/shared';
 
+/** Y1c T24 矩阵对齐夹具：节点=合法 Y.Map 信封（type+data{model:val}——标量节点值在 DENY/L2 矩阵下
+ * =node-not-map 毒帧；配额测试主语=帧字节/计数非节点形状，val 差异保持帧字节量级）。 */
+const setNode = (ydoc: Y.Doc, key: string, val: unknown) => {
+  const node = new Y.Map(); const data = new Y.Map();
+  data.set('model', val);
+  node.set('type', 'textInput'); node.set('data', data);
+  ydoc.getMap('nodes').set(key, node);
+};
+
 /** 小值配额（maxDocBytes 8KB/soft 6553；Update 帧闸 2×maxTxBytes=8192） */
 const QUOTA_SMALL = { maxDocBytes: 8192, maxTxBytes: 4096, msgRate: 200, bytesRate: 2_097_152 };
 const SOFT = Math.floor(QUOTA_SMALL.maxDocBytes * 0.8);
@@ -73,10 +82,10 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       const stateless: any[] = [];
       B.provider.on('stateless', ({ payload }: { payload: string }) => stateless.push(JSON.parse(payload)));
       // 穿 soft 前置批（fastpath 放行——truth 播种小值）→ 冷却窗外实测：measured(6KB)+bytes(3KB)>MAX → 硬限首触
-      A.ydoc.getMap('nodes').set('b1', 'x'.repeat(6000));
+      setNode(A.ydoc, 'b1', 'x'.repeat(6000));
       await pollUntil(() => B.ydoc.getMap('nodes').has('b1'), 3_000);
       g.seedTruthMeasuredAt('q1a', Date.now() - 3_000);   // 冷却窗外（白盒——进入判据④实测）
-      A.ydoc.getMap('nodes').set('b2', 'y'.repeat(3000));
+      setNode(A.ydoc, 'b2', 'y'.repeat(3000));
       await pollUntil(() => B.ydoc.getMap('nodes').has('b2'), 3_000);   // 触发帧放行不丢（硬限首触禁静默丢合法帧）
       await pollUntil(() => stateless.some((m) => m?.type === 'doc-status' && m?.quota?.state === 'over'), 3_000);   // 快照 over 先到
       await pollUntil(() => g.quotaFrozenHas('q1a'), 2_000);       // setImmediate 冻结落地
@@ -100,11 +109,11 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       await A.synced;
       await freezeDoc(kit.gateway, 'q1b');
       const dropped = await metricDelta('collab_quota_writes_dropped_total', { reason: 'quota' }, async () => {
-        for (let i = 0; i < 3; i++) A.ydoc.getMap('nodes').set(`k${i}`, i);        // 反例臂：3 帧突发
+        for (let i = 0; i < 3; i++) setNode(A.ydoc, `k${i}`, i);        // 反例臂：3 帧突发
         await pollUntil(() => g.overPushStates().some((s) => s.count >= 3), 3_000);
         await sleep(400);                                                       // 未跨 10s 窗——不升级
         expect(A.closeInfo()).toBeNull();
-        for (let i = 3; i < 20; i++) A.ydoc.getMap('nodes').set(`k${i}`, i);       // 补足 20 帧（真实计数）
+        for (let i = 3; i < 20; i++) setNode(A.ydoc, `k${i}`, i);       // 补足 20 帧（真实计数）
         await pollUntil(() => g.overPushStates().some((s) => s.count >= 20), 3_000);
       });
       expect(dropped).toBeGreaterThanOrEqual(20);
@@ -112,7 +121,7 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       const st = g.overPushStates()[0];
       st.firstAt -= 10_000;
       const rejected = await metricDelta('collab_quota_frame_rejected_total', { reason: 'doc-over-quota' }, async () => {
-        A.ydoc.getMap('nodes').set('final', 1);
+        setNode(A.ydoc, 'final', 1);
         await pollUntil(() => A.closeInfo() !== null, 5_000);
       });
       expect(rejected).toBe(1);
@@ -126,7 +135,7 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       const A = connectWithCloseSpy(kit, 'project:q1009');
       await A.synced;
       const rejected = await metricDelta('collab_quota_frame_rejected_total', { reason: 'frame-too-large' }, async () => {
-        A.ydoc.getMap('nodes').set('huge', 'z'.repeat(6000));   // 6000 > 2×1024=2048
+        setNode(A.ydoc, 'huge', 'z'.repeat(6000));   // 6000 > 2×1024=2048
         await pollUntil(() => A.closeInfo() !== null, 5_000);
       });
       expect(rejected).toBe(1);
@@ -168,7 +177,7 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       const V = connectWithCloseSpy(kit, 'project:q1v');
       await V.synced;
       kit.permSvc.resolveWithTeam.mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' });
-      V.ydoc.getMap('nodes').set('huge', 'z'.repeat(6000));   // VIEWER 巨帧——闸先于 readOnly（否则被静默吞=无 close）
+      setNode(V.ydoc, 'huge', 'z'.repeat(6000));   // VIEWER 巨帧——闸先于 readOnly（否则被静默吞=无 close）
       await pollUntil(() => V.closeInfo() !== null, 5_000);
       expect(V.closeInfo()).toEqual({ code: 1009, reason: 'frame-too-large' });
     } finally { await kit.dispose(); }
@@ -185,7 +194,7 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       // 白盒：账面 truth 抬高（stale-high——触发判据④实测后回落真值）+冷却窗基线老化
       g.seedDocTruth('q5', 7000);
       g.seedTruthMeasuredAt('q5', Date.now() - 3_000);
-      for (let i = 0; i < 50; i++) A.ydoc.getMap('nodes').set(`k${i}`, i);   // 每帧独立事务（~20B）
+      for (let i = 0; i < 50; i++) setNode(A.ydoc, `k${i}`, i);   // 每帧独立事务（~20B）
       await pollUntil(async () => (await counterOf('collab_quota_fastpath_total')) - f0 >= 49, 5_000);   // 帧落定（到达异步）
       expect((await counterOf('collab_quota_truth_measured_total')) - m0).toBe(1);   // 首帧实测 1 次（P0-1：冷却窗内不重测）
       expect((await counterOf('collab_quota_fastpath_total')) - f0).toBe(49);        // 其后 49 帧全快路径
@@ -201,7 +210,7 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       await freezeDoc(kit.gateway, 'q6');
       const m0 = await counterOf('collab_quota_truth_measured_total');
       const d0 = await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' });
-      for (let i = 0; i < 50; i++) A.ydoc.getMap('nodes').set(`k${i}`, i);
+      for (let i = 0; i < 50; i++) setNode(A.ydoc, `k${i}`, i);
       await pollUntil(async () => (await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' })) - d0 >= 50, 5_000);
       expect((await counterOf('collab_quota_truth_measured_total')) - m0).toBe(0);   // 判据② over 短路——冻结面零编码
       expect((await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' })) - d0).toBe(50);   // readOnly 早退逐帧计数（帧间隔<10s 窗——不升级 4404）
@@ -220,14 +229,14 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       g.seedDocTruth('q8', QUOTA_SMALL.maxDocBytes - 50);
       g.seedTruthMeasuredAt('q8', Date.now());
       g.seedDocDelta('q8', 0);
-      A.ydoc.getMap('nodes').set('mid', 'm'.repeat(200));
+      setNode(A.ydoc, 'mid', 'm'.repeat(200));
       await pollUntil(() => stateless.some((m) => m?.type === 'doc-status' && m?.quota?.state === 'over'), 3_000);   // over 先通告
       await pollUntil(() => serverDoc(kit.gateway, 'q8').getMap('nodes').has('mid'), 3_000);   // 触发帧照常放行
       expect(g.quotaFrozenHas('q8')).toBe(false);                               // 两态分离——pending≠frozen
       // G-1 红门：确认窗内帧闸照常拒（pending 态不进判据②短路——②只认 quotaFrozenDocs）
       const C = connectWithCloseSpy(kit, 'project:q8');
       await C.synced;
-      C.ydoc.getMap('nodes').set('huge', 'z'.repeat(9000));                          // >2×maxTxBytes=8192
+      setNode(C.ydoc, 'huge', 'z'.repeat(9000));                          // >2×maxTxBytes=8192
       await pollUntil(() => C.closeInfo() !== null, 5_000);
       expect(C.closeInfo()).toEqual({ code: 1009, reason: 'frame-too-large' });
       await C.provider.destroy(); kit.forget(C.provider);
@@ -235,7 +244,7 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       await pollUntil(() => stateless.some((m) => m?.type === 'doc-status' && m?.quota?.state === 'ok'), 5_000);
       expect(g.docTruthOf('q8')).toBeLessThan(SOFT);
       expect(g.quotaFrozenHas('q8')).toBe(false);
-      A.ydoc.getMap('nodes').set('after', 'ok');
+      setNode(A.ydoc, 'after', 'ok');
       await pollUntil(() => serverDoc(kit.gateway, 'q8').getMap('nodes').has('after'), 3_000); // 校准后放行如常
     } finally { await kit.dispose(); }
   }, 30_000);
@@ -247,20 +256,20 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       const A = connectWithCloseSpy(kit, 'project:q9');
       await A.synced; await settle();
       await freezeDoc(kit.gateway, 'q9');
-      for (let i = 0; i < 20; i++) A.ydoc.getMap('nodes').set(`k${i}`, i);
+      for (let i = 0; i < 20; i++) setNode(A.ydoc, `k${i}`, i);
       await pollUntil(() => g.overPushStates().some((s) => s.count >= 20), 5_000);
       // idle-reset 臂：lastAt 距今>5s（休眠恢复/慢速持续形态）→计数重置——不升级
       const st = g.overPushStates()[0];
       st.firstAt -= 10_000; st.lastAt -= 6_000;
-      A.ydoc.getMap('nodes').set('wake', 1);
+      setNode(A.ydoc, 'wake', 1);
       await sleep(600);
       expect(A.closeInfo()).toBeNull();                              // idle-reset 生效——不升级（计数已清零）
       // 持续形态臂：重新积累 20 帧（帧间隔<5s——无 idle-reset）+firstAt 跨 10s →升级
-      for (let i = 100; i < 120; i++) A.ydoc.getMap('nodes').set(`k${i}`, i);
+      for (let i = 100; i < 120; i++) setNode(A.ydoc, `k${i}`, i);
       await pollUntil(() => g.overPushStates().some((s) => s.count >= 20), 5_000);
       const st2 = g.overPushStates()[0];
       st2.firstAt = Date.now() - 10_500;   // lastAt 近期（刚写）——持续形态
-      A.ydoc.getMap('nodes').set('final', 1);
+      setNode(A.ydoc, 'final', 1);
       await pollUntil(() => A.closeInfo() !== null, 5_000);
       expect(A.closeInfo()).toEqual({ code: 4404, reason: 'doc-over-quota' });
     } finally { await kit.dispose(); }
@@ -275,7 +284,7 @@ describe('Y0b-4 T4 guardSyncFrame 分层判据（Q-B v3/Q-C/Q-D/Q-S）', () => {
       await A.synced; await B.synced; await settle();
       await freezeDoc(kit.gateway, 'q3');
       const d0 = await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' });
-      A.ydoc.getMap('nodes').set('fk', 'frozen-edit');
+      setNode(A.ydoc, 'fk', 'frozen-edit');
       await pollUntil(async () => (await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' })) - d0 >= 1, 5_000);
       expect((await counterOf('collab_quota_writes_dropped_total', { reason: 'quota' })) - d0).toBe(1);   // 库吞+计数
       await sleep(500);
@@ -444,7 +453,7 @@ describe('Y0b-4 T9a vacuum——SV 代际门三向/terminal close/serving 门（
     try {
       const A = connectWithCloseSpy(kit, 'project:vt1');
       await A.synced;
-      A.ydoc.getMap('nodes').set('n1', 'x'.repeat(100));
+      setNode(A.ydoc, 'n1', 'x'.repeat(100));
       await pollUntil(() => serverDoc(kit.gateway as any, 'vt1').getMap('nodes').has('n1'), 3_000);
       const hang = makeHangingVacuumRepo(kit, 'vt1');
       const svc = buildVacuumSvc(kit, hang.repo);
@@ -458,7 +467,7 @@ describe('Y0b-4 T9a vacuum——SV 代际门三向/terminal close/serving 门（
       await pollUntil(() => (kit.gateway as any).isVacuuming('vt1') === false, 2_000);
       const C = kit.connect('project:vt1');                    // 完成后解除——新连接正常（新代）
       await C.synced;
-      C.ydoc.getMap('nodes').set('after', 'ok');
+      setNode(C.ydoc, 'after', 'ok');
       await pollUntil(() => serverDoc(kit.gateway as any, 'vt1').getMap('nodes').has('after'), 3_000);
     } finally { await kit.dispose(); }
   }, 30_000);
@@ -504,7 +513,7 @@ describe('Y0b-4 T9a vacuum——SV 代际门三向/terminal close/serving 门（
       // ① vacuum 前在线客户端产生历史（旧代 gen0 内容）——历史面与旧测试同源（SV clock 形态不再是判据）
       const A = kit.connect('project:gen1');
       await A.synced;
-      A.ydoc.getMap('nodes').set('old-a', 'x'.repeat(50));
+      setNode(A.ydoc, 'old-a', 'x'.repeat(50));
       await pollUntil(() => serverDoc(g, 'gen1').getMap('nodes').has('old-a'), 3_000);
       const vacuumedState = Buffer.from(Y.encodeStateAsUpdate(serverDoc(g, 'gen1')));
       // 模拟 vacuum ⑥ 落库后新代（generation=1；preVacuumSv 列已随 SV 代际门退役删除——迁移 20261024160000）
@@ -532,7 +541,7 @@ describe('Y0b-4 T9a vacuum——SV 代际门三向/terminal close/serving 门（
       await B.synced;                                            // 无 close（放行）
       expect(serverDocNamed(g, 'project:gen1#g1').getMap('nodes').has('old-a')).toBe(true);   // 全量同步（新代装载含内容——canonical Map 键）
       // ③ vacuum 后 reload 新建编辑（新 clientID——世代准入与 clientID 无关）⇒ 放行——reload 不循环
-      B.ydoc.getMap('nodes').set('post-vac', 'y');
+      setNode(B.ydoc, 'post-vac', 'y');
       await pollUntil(() => serverDocNamed(g, 'project:gen1#g1').getMap('nodes').has('post-vac'), 3_000);
       expect(serverDocNamed(g, 'project:gen1#g1').connections.size).toBe(1);     // B 连接存活（未被世代准入误杀）
     } finally { await kit.dispose(); }

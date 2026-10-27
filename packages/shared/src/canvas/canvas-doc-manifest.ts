@@ -95,8 +95,13 @@ type _EdgeAnchor = _AssertNoMissing<_MissingEdgeKeys>;  // 勿删——删即静
 
 /** writeNodeData 服务端键域=现行写面实测键集（ai-download/ai-image-edit/lighting/execution 四调用方
  *  全枚举 2026-10-14）：fileId/resultUrl/videoUrl/content/result/errorCode。新增键未分类即
- *  UNKNOWN_KEY 红（键集冻结的宗旨）。 */
-const SERVER_NODE_DATA_KEYS = ['fileId', 'resultUrl', 'videoUrl', 'content', 'result', 'errorCode'] as const;
+ *  UNKNOWN_KEY 红（键集冻结的宗旨）。
+ *  **Y1c T24 D-3 裁定（2026-10-27）**：`'content'` 移除——T15 收口删 doc 直写腿+T22 deliverArtifact
+ *  切 PG 写后全仓零合法写者（grep 实证：`{op:'writeNodeData'}` 生产构造点=0、worker 通道 403、
+ *  deleteNodeDataKeys 'content' 删键调用点=0），而 textInput.content 自 T16 起=xml 域用户键
+ *  （DOC_SCHEMA_V4 textInput.content:xmlSpec）——保留即「未来白名单扩键单层穿透」纵深缺口
+ *  （writeBatch 误用 {content} 绕域保护无守卫拦）。死键 fail-closed：误用 → UNKNOWN_KEY 拒。 */
+const SERVER_NODE_DATA_KEYS = ['fileId', 'resultUrl', 'videoUrl', 'result', 'errorCode'] as const;
 
 /** writeExecStatus 键域=现行 ExecStatusPatch 写面实测键集（枚举全文见 DOC_WRITE_OPS.writeExecStatus——
  *  本常量即单源，path 派生+valueTypes 逐键声明同源，不再此处重抄）。T4 评审勘误（2026-10-14）：

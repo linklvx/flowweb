@@ -32,7 +32,7 @@ import { CollabDocRegistryService } from './collab-doc-registry.service';
 import { parseDocName, isValidDocName, admitDocNameForGeneration, projectDocName } from './doc-name.util';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
-import { CollabAuthReason, CollabCloseCode, negotiateClientVersion, userColorOfUserId, DOC_VACUUMING_TERMINAL_REASON, resolveVersionGate, CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
+import { CollabAuthReason, CollabCloseCode, negotiateClientVersion, userColorOfUserId, DOC_VACUUMING_TERMINAL_REASON, resolveVersionGate, CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, CLIENT_OUTDATED_REASON, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
 import { RSS_RELEASE_BYTES, RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
 import { COLLAB_ROLE_DEFAULT, type CollabRole } from '../../config/env';
 import type { CollabConnection, FreezeReason } from './collab.gateway';   // W3b：type-only 零运行时边（无 design:paramtypes 环——偏离 67 循环前提对纯类型不成立；W3a DR 同款先例，collab-conn.util 候选否因 census ⑤/backpressure 锚词面冲突）
@@ -375,6 +375,10 @@ export class CollabSessionGuardService {
    *  惰性语义保持（rateAllowed 仅 originAllowed 才 clientIpOf+consume——:620 桶不空转）。 */
   handleUpgrade({ request, socket }: onUpgradePayload): void {
     try {
+      // Y1c T24：升级 socket 登记（request 对象身份键控——onAuthenticate 的 request=同一 IncomingMessage
+      // 实例；版本门 4406 terminal close 经此反查原始 socket：库 onAuthenticate throw 只发 PermissionDenied
+      // 消息**不关连接**〔esm:938-942〕——旧 bundle 客户端无从得知终态=重试无限循环撞同一硬门）。
+      this.upgradeSockets.set(request, socket);
       const origin = request.headers.origin;
       const originAllowed = typeof origin === 'string' && this.allowedOrigins().includes(origin);
       // 惰性：仅 originAllowed 才 clientIpOf+consume（原短路 return 语义——桶不空转，:620）
@@ -397,6 +401,37 @@ export class CollabSessionGuardService {
     try {
       socket?.write?.(`${statusLine}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
       socket?.end?.();
+    } catch { /* 已断 */ }
+  }
+
+  /** Y1c T24：升级 socket 台账（WeakMap request 键控——随连接消亡；onAuthenticate 反查面）。 */
+  private readonly upgradeSockets = new WeakMap<object, unknown>();
+
+  /**
+   * Y1c T24：版本门 terminal close 投递（4406 client-outdated——spec §3.2 v5.4⑧/偏离 37⑰）。
+   * 库行为（4.6.0 esm:938-942）：onAuthenticate throw → writePermissionDenied 消息+簿记清理，
+   * **socket 保持打开**——旧 bundle 客户端（无 4406 终态认知）30s 超时/用户操作重连=无限循环撞门。
+   * 码权威投递=P7 先例（webSocket.close 形态）——auth 期 Connection 未建（esm:1054 new 在 hook 后），
+   * 经 upgradeSockets 反查原始 socket 直写 RFC6455 close 帧（0x88+2B code BE+reason UTF-8≤123B；
+   * server→client 帧不掩码）后 end。throw 照旧（库簿记清理面保持）；close 已先行抵达。
+   */
+  private closeUpgradeTerminal(request: unknown, code: number, reason: string): void {
+    const socket = (request != null ? this.upgradeSockets.get(request as object) : undefined) as
+      | { write?: (b: Buffer) => void; end?: () => void }
+      | undefined;
+    if (socket == null) return;   // 未登记（直构测试/非升级路径）——denyAuth throw 面兜底
+    try {
+      const reasonBuf = Buffer.from(reason, 'utf8').subarray(0, 123);
+      const payload = Buffer.alloc(2 + reasonBuf.byteLength);
+      payload.writeUInt16BE(code, 0);
+      reasonBuf.copy(payload, 2);
+      const closeFrame = Buffer.alloc(2 + payload.byteLength);
+      closeFrame[0] = 0x88;   // FIN+opcode 8（Connection Close）
+      closeFrame[1] = payload.byteLength;
+      payload.copy(closeFrame, 2);
+      socket.write?.(closeFrame);
+      socket.end?.();
+      collabWsCloseTotal.inc({ code: String(code), reason });
     } catch { /* 已断 */ }
   }
 
@@ -571,7 +606,7 @@ export class CollabSessionGuardService {
    *  context 携带 token/sessionExpiresAt 供 sweep 复验。
    *  W3b verdict 纯函数化：确定性门前段=decideAuthAdmission（§5）；执法副作用（inc/connectionConfig.readOnly/
    *  broadcastSpoolDegraded）留壳按 verdict 执行；heapPressureSample/admitQuery 两侧读的惰性+门序逐字保持；DB 段不纯函数化。 */
-  private async authenticateInner({ requestHeaders, requestParameters, documentName, connectionConfig, socketId }: onAuthenticatePayload) {
+  private async authenticateInner({ requestHeaders, requestParameters, documentName, connectionConfig, socketId, request }: onAuthenticatePayload) {
     const deny = (reason: CollabAuthReasonCode, message: string) => this.denyAuth(reason, message, 'state');
     try {
       // —— 确定性门前段（§5 decideAuthAdmission 纯判定；执行序 heap→version→docName→draining→lease→breaker 钉死）——
@@ -588,6 +623,13 @@ export class CollabSessionGuardService {
       const admission = breakerOpen ? decideAuthAdmission({ hasDoc, heapTripped, csv, docNameValid, shuttingDown, leaseServing, breakerOpen }) : pre;
       if (!admission.proceed) {
         if (admission.loadRejectCount) collabLoadRejectedTotal.inc({ reason: admission.loadRejectCount });   // P-B 双计数（auth 面）
+        if (admission.source === 'version') {
+          // Y1c T24：版本门 deny=terminal 4406 close 先行（旧 bundle 无终态认知=重试无限循环撞门——
+          // resolveCloseAction(4406)=terminal+CLIENT_OUTDATED_REASON 强刷档；csv 缺失/不可解析/过期/
+          // server-outdated 全族同投：循环阻断优先于 reload 有效性分档〔server-outdated 档强刷后
+          // 部署对齐自然消解〕）。
+          this.closeUpgradeTerminal(request, CollabCloseCode.CLIENT_OUTDATED, CLIENT_OUTDATED_REASON);
+        }
         if (admission.source === 'version') collabVersionNegotiationRejectTotal.inc({ reason: admission.reason });   // 版本门审计（reason=REASON_BY_VERDICT 映射）
         throw this.denyAuth(admission.reason, admission.message, admission.source);
       }
@@ -610,6 +652,8 @@ export class CollabSessionGuardService {
           { protocolVersion: CLIENT_PROTOCOL_VERSION, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, historyId: this.serverHistory.historyId },
         );
         if (verdict === 'client-outdated') {
+          // Y1c T24：三元硬门 deny=terminal 4406 close 先行（同四档门——hid 不匹配/缺失撞门循环阻断）
+          this.closeUpgradeTerminal(request, CollabCloseCode.CLIENT_OUTDATED, CLIENT_OUTDATED_REASON);
           collabVersionNegotiationRejectTotal.inc({ reason: CollabAuthReason.SCHEMA_OUTDATED });
           throw this.denyAuth(CollabAuthReason.SCHEMA_OUTDATED, `client history/protocol outdated（hid ${hidRaw === null || hidRaw === '' ? '首连' : '不匹配'}）`, 'version');
         }

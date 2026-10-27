@@ -1070,6 +1070,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - doc_recovery_total
 - doc_snapshot_bytes
 - doc_unload_blocked_total
+- doc_update_origin_total
 - event_loop_lag_seconds
 - exec_orphan_blocked_total
 - exec_outbound_duration_seconds
@@ -1081,6 +1082,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - exec_sync_pending_total
 - execution_group_duration_seconds
 - execution_settle_failure_total
+- graph_anomaly_total
 - http_request_duration_seconds
 - http_requests_in_flight
 - intent_claim_result_total

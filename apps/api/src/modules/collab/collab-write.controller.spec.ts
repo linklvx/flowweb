@@ -73,7 +73,7 @@ describe('Y0c T27 write-batch 内容校验（Z108 执法档 requireIdempotentOps
 
   it.each([
     ['UNKNOWN_KEY', { projectId: 'p1', ops: [{ op: 'writeNodeData', nodeId: 'n1', patch: { evilKey: 'x' } }] }],
-    ['PATCH_TOO_LARGE', { projectId: 'p1', ops: [{ op: 'writeNodeData', nodeId: 'n1', patch: { content: 'x'.repeat(65_537) } }] }],
+    ['PATCH_TOO_LARGE', { projectId: 'p1', ops: [{ op: 'writeNodeData', nodeId: 'n1', patch: { result: 'x'.repeat(65_537) } }] }],   // Y1c T24 D-3：'content' 键移除（UNKNOWN_KEY 先拒）——大值面改 'result' 同测
     ['OP_COUNT_EXCEEDED', { projectId: 'p1', ops: Array.from({ length: 1001 }, () => ({ op: 'deleteExecOrphans' })) }],
     ['PROTO_KEY_BANNED', { projectId: 'p1', ops: [{ op: 'writeNodeData', nodeId: 'n1', patch: JSON.parse('{"__proto__":"x"}') }] }],   // JSON wire 形态（字面量 {__proto__:} 不建自有键——JSON.parse 才是端点实际收到面）
   ])('内容违规 %s ⇒ 400 违规清单携码（writer 零调用——业务拒绝在进门不进事务）', async (code, body) => {
@@ -154,7 +154,7 @@ describe('T13（plan v11.2 ①）双收窄——token 已设档（worker 通道 
   it('红·绿：writeNodeData（任意键——content/fileId）⇒ 403 WORKER_OP_NOT_ALLOWED（T15 收口：op 级先拒——键级白名单随 writeNodeData 通道退役；writer 零调用）', async () => {
     const writer = writerStub();
     const c = mkController(writer, intentRow);
-    for (const key of ['content', 'fileId', 'result', 'videoUrl', 'resultUrl', 'errorCode']) {
+    for (const key of ['fileId', 'result', 'videoUrl', 'resultUrl', 'errorCode']) {   // Y1c T24 D-3：'content' 已移出键域（worker 档前 Z108 UNKNOWN_KEY 400 拒——键级先拒形态，非本档 403 面）
       const err: any = await c.writeBatch({ projectId: 'p1', ops: [{ op: 'writeNodeData', nodeId: 'n1', patch: { [key]: 'x' } }] }, fullScope()).catch((e) => e);
       expect(err.status, `键 ${key} 须 403（op 白名单先拒）`).toBe(403);
       expect(err.response?.code).toBe('WORKER_OP_NOT_ALLOWED');

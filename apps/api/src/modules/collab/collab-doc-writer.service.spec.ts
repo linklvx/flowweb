@@ -155,7 +155,7 @@ describe('Y0c T8 writeBatch（片 A1 行为契约）', () => {
     const n1 = seedNode(doc);
     const { writer } = makeWriter(doc);
     const ops: DocWriteOp[] = [
-      { op: 'writeNodeData', nodeId: 'n1', patch: { content: '同一产物' } },
+      { op: 'writeNodeData', nodeId: 'n1', patch: { result: '同一产物' } },   // Y1c T24 D-3：'content' 键移除（死键 fail-closed）——幂等语义面改 'result' 同测
       { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1, intentId: 'i-1' } },
     ];
 
@@ -166,9 +166,9 @@ describe('Y0c T8 writeBatch（片 A1 行为契约）', () => {
     expect(second[0]).toMatchObject({ index: 0, op: 'writeNodeData', written: true });   // 幂等 op 键级 set 同值收敛
     expect(second[1]).toMatchObject({ index: 1, op: 'writeExecStatus', written: false, reason: 'terminal-superseded' }); // 已生效=守卫吸收
     const data = n1.get('data') as Y.Map<any>;
-    expect(data.get('content')).toBe('同一产物');                                        // 状态语义等价（重放不破坏）
+    expect(data.get('result')).toBe('同一产物');                                         // 状态语义等价（重放不破坏）
     expect((doc.getMap('exec').get('n1') as Y.Map<any>).get('status')).toBe('done');
-    expect(Array.from(data.keys())).toEqual(['content']);                               // 无重复键无垃圾态
+    expect(Array.from(data.keys())).toEqual(['result']);                                // 无重复键无垃圾态
   });
 });
 

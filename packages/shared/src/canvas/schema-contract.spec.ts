@@ -77,8 +77,9 @@ describe('Y1c T3 DOC_SCHEMA_V4 契约（矩阵冻结唯一基准）', () => {
   });
 
   it('manifest 现键零漂移：v3 服务端域键（SERVER_NODE_DATA_KEYS 形域）在矩阵内一律 server-forbidden 分类', () => {
-    // SERVER_NODE_DATA_KEYS={fileId,resultUrl,videoUrl,content,result,errorCode}（manifest 单源——此处
+    // SERVER_NODE_DATA_KEYS={fileId,resultUrl,videoUrl,result,errorCode}（manifest 单源——此处
     // 不 import 私有常量，按语义域断言矩阵侧分类）：矩阵中出现的键若属服务端产物/进度域必须 forbidden。
+    // Y1c T24 D-3：'content' 已移除（死键 fail-closed——textInput.content=xml 域用户键，零合法写者）。
     const serverDomain = new Set(['fileId', 'resultUrl', 'videoUrl', 'result', 'errorCode', 'status',
       'trimTaskStatus', 'trimmedFileId', 'nodeStatus']);
     for (const [type, entry] of Object.entries(DOC_SCHEMA_V4)) {

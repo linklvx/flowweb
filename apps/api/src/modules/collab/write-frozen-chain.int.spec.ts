@@ -67,7 +67,7 @@ describe('Y0b-5 T9：write-frozen 断言链 ①②A（drain 冻结+拒不物化�
       expect(m.quota.state).toBe('ok');
     }
     // 基线编辑对端可见
-    a.ydoc.transact(() => a.ydoc.getMap('nodes').set('base-node', new Y.Map([['v', 1]])));
+    a.ydoc.transact(() => a.ydoc.getMap('nodes').set('base-node', new Y.Map([['type', 'textInput'], ['data', new Y.Map()]])   /* Y1c T24 矩阵对齐 */));
     await pollUntil(() => b.ydoc.getMap('nodes').has('base-node'), 5_000);
     // ② drain（in-process 直调——REST 面 POST /api/drain 归脚本 drill）
     (kit.gateway as any).beginDraining();
@@ -78,7 +78,7 @@ describe('Y0b-5 T9：write-frozen 断言链 ①②A（drain 冻结+拒不物化�
       expect(c.connStatus.some((x) => x.readOnly === true)).toBe(true);   // applyWriteFreeze 单源
     }
     // 断言A：冻结期新编辑帧 readOnly 拒不物化（对端不可见——PG 落行归脚本 drill 重放断言）
-    a.ydoc.transact(() => a.ydoc.getMap('nodes').set('frozen-node', new Y.Map([['v', 1]])));
+    a.ydoc.transact(() => a.ydoc.getMap('nodes').set('frozen-node', new Y.Map([['type', 'textInput'], ['data', new Y.Map()]])   /* Y1c T24 矩阵对齐 */));
     await new Promise((r) => setTimeout(r, 1_500));
     expect(b.ydoc.getMap('nodes').has('frozen-node')).toBe(false);
   }, 20_000);   // 真实 timer 窗（连接+1.5s 拒绝窗+pollUntil 上界）——默认 5s 不够
@@ -92,7 +92,7 @@ describe('Y0b-5 T9：write-frozen 断言链 ④⑤B（断线期 quota 翻转→�
       // 临时 client C 突发大帧走真实配额冻结链，翻转发生在 A/B 不在场窗口）
       const c = connectCaptured(kit, pid, 'C');
       await c.synced;
-      c.ydoc.transact(() => c.ydoc.getMap('nodes').set('big-node', new Y.Map([['blob', 'x'.repeat(BIG_BYTES)]])));
+      c.ydoc.transact(() => c.ydoc.getMap('nodes').set('big-node', new Y.Map([['type', 'textInput'], ['data', new Y.Map([['model', 'x'.repeat(BIG_BYTES)]])]])   /* Y1c T24 矩阵对齐（大值入 data.model） */));
       await pollUntil(() => c.status.some((m) => m.quota?.state === 'over'), 10_000);   // scheduleFreezePending 广播（≤2s 冷却+余量）
       await pollUntil(() => c.connStatus.some((x) => x.readOnly === true), 8_000);      // freezeQuota 落地（setImmediate 同 turn）
       // ④b 权威快照定影：recalibrate 纯校准→force 广播（T8 偏差③——dedup 键不含 bytes）携带最新 truth
@@ -127,7 +127,7 @@ describe('Y0b-5 T9：write-frozen 断言链 ④⑤B（断线期 quota 翻转→�
       );
       for (const cc of [a2, b2]) expect(cc.connStatus.some((x) => x.readOnly === false)).toBe(true);
       const appendsBefore = kit.repo.appendBatch.mock.calls.length;
-      a2.ydoc.transact(() => a2.ydoc.getMap('nodes').set('thaw-marker', new Y.Map([['v', 1]])));
+      a2.ydoc.transact(() => a2.ydoc.getMap('nodes').set('thaw-marker', new Y.Map([['type', 'textInput'], ['data', new Y.Map()]])   /* Y1c T24 矩阵对齐 */));
       await pollUntil(() => b2.ydoc.getMap('nodes').has('thaw-marker'), 5_000);   // 编辑放行+对端可见
       await pollUntil(() => kit.repo.appendBatch.mock.calls.length > appendsBefore, 5_000);   // 物化（store 链路发生——debounce 窗后落 repo）
     } finally {

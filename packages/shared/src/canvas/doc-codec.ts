@@ -24,6 +24,7 @@ import type { TextLike } from './text-domains';
 import type { XmlFragmentLike, XmlElementLike, XmlTextLike } from './xml-schema';
 import type { YArrayLike } from './array-domains';
 import { type DocMapLike, type StoredNodeRecord } from './collab-doc-ops';
+import { maskGraphAnomalies } from './graph-normalize';
 
 // ── 值域类型：PM JSON / 富文本 / canonical 打标签快照 ──
 
@@ -321,16 +322,29 @@ export function serializeCanvas(doc: Y.Doc): CanvasDocument {
 
 /** doc → plain JSON 读模型：v3 纯 JSON 值逐位透传（≡readRecordsFromMaps——收编零行为变更，
  *  含键序）；v4 嵌套类型解码（Y.Text→string/Y.Map→对象/Y.Array→数组/XmlFragment→
- *  {text,html,json}）。全树零共享 Y 实例（plain 值深拷贝——mutate 隔离）。 */
+ *  {text,html,json}）。全树零共享 Y 实例（plain 值深拷贝——mutate 隔离）。
+ *  Y1c T24 NORMALIZE：读侧确定性屏蔽（maskGraphAnomalies——悬挂边/重复边/悬挂 parentId/父链环/
+ *  跨组 parent；并发删除+建边=合法 CRDT 中间态在读者呈现层收敛；serializeCanvas canonical 备份
+ *  **不屏蔽**——原文保真，屏蔽只住读模型）。 */
 export function toReadModel(doc: Y.Doc): CanvasReadModel {
   const base = readRecordsFromMaps(doc as unknown as DocLike);
+  // NORMALIZE（T24）：屏蔽计算在「形状化投影」上做（id/type/parentId/edge 端点——maskGraphAnomalies
+  // 输入域），结果按 **序保持** 映射回原记录（nodes map 不换序仅清 parentId；edges filter 保序）。
+  const normalized = maskGraphAnomalies({
+    nodes: base.nodes.map((n) => ({ id: n.id, type: n.type, parentId: n.parentId ?? null })),
+    edges: base.edges.map((e) => ({ id: e.id, source: e.source ?? '', target: e.target ?? '' })),
+  });
+  const keptEdgeIds = new Set(normalized.edges.map((e) => e.id));
+  const parentCleared = new Set(
+    normalized.nodes.filter((n, i) => n.parentId == null && base.nodes[i] != null && base.nodes[i].parentId != null).map((n) => n.id),
+  );
   return {
     nodes: base.nodes.map((n) => {
       const data: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(n.data)) data[k] = decodeYValue(v);   // 键序保持（vacuum 等价 JSON 口径）
-      return { ...n, data };
+      return { ...n, ...(parentCleared.has(n.id) ? { parentId: undefined } : {}), data };
     }),
-    edges: base.edges,
+    edges: base.edges.filter((e) => keptEdgeIds.has(e.id)),
   };
 }
 
@@ -430,9 +444,32 @@ function sanitizePublicData(type: string, data: Record<string, unknown>, policy:
     const v = data[field];
     if (isRichTextValue(v)) { out[field] = { text: v.text }; continue; }   // 红线 1：html/json 永不出公开面
     if (typeof v === 'string' && isDisallowedUrl(v, policy.allowedUrlHosts)) continue;   // URL host 域外剥键
-    out[field] = v;
+    out[field] = deepSanitizeUrl(v, policy.allowedUrlHosts, 0);   // Y1c T24（T19 浅扫缺口收口）：嵌套载体深度剥除
   }
   return out;
+}
+
+/** 深度 URL 剥除（Y1c T24——数组项/对象值/双层嵌套载体；bounded depth 4：data 值域 JSON 嵌套
+ *  实测 ≤3〔array item/map children/extConfig〕，越深原样透出〔纵深上界：data 值本受矩阵键域
+ *  约束——未知键 gate 已拒〕）。RichTextValue 已在浅层出口只余 text——不再入本面。 */
+function deepSanitizeUrl(v: unknown, hosts: readonly string[] | undefined, depth: number): unknown {
+  if (typeof v === 'string') return v;   // 顶层字符串已在调用方判过；深层字符串值在此判
+  if (Array.isArray(v)) {
+    if (depth >= 4) return v;
+    return v
+      .map((it) => typeof it === 'string' && isDisallowedUrl(it, hosts) ? undefined : deepSanitizeUrl(it, hosts, depth + 1))
+      .filter((it) => it !== undefined);
+  }
+  if (typeof v === 'object' && v !== null) {
+    if (depth >= 4 || isRichTextValue(v)) return v;
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      if (typeof val === 'string' && isDisallowedUrl(val, hosts)) continue;
+      out[k] = deepSanitizeUrl(val, hosts, depth + 1);
+    }
+    return out;
+  }
+  return v;
 }
 
 /** 读模型 → 公开快照：dropTypes 节点剔除（连带触达边——悬空 parentId 不滤〔结构域归调用方〕）+

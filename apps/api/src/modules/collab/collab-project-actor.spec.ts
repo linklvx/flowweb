@@ -63,8 +63,16 @@ function buildActor<T extends CollabProjectActorService = CollabProjectActorServ
 }
 
 function frameSetting(pid2: string, key: string, val: unknown) {
+  // Y1c T24 矩阵对齐：节点值=合法 Y.Map 信封（T9 期标量节点值在 DENY/L2 矩阵下=node-not-map 毒帧
+  // ——测试主语是管线机制非节点形状，夹具现代化为 {type,data{model:val}}：val 差异保持帧字节
+  // 唯一性〔dedup 用例语义不变〕）。
   const src = new Y.Doc();
-  (src.getMap('nodes') as Y.Map<unknown>).set(key, val);
+  const node = new Y.Map();
+  const data = new Y.Map();
+  data.set('model', val);
+  node.set('type', 'textInput');
+  node.set('data', data);
+  (src.getMap('nodes') as Y.Map<unknown>).set(key, node);
   return Y.encodeStateAsUpdate(src);
 }
 
@@ -153,7 +161,7 @@ describe('Y1c T9 六红组①-⑥（spool-first 写管线核心——红→绿�
     const { actor } = buildActor(spool, doc);
     const f = frameSetting('p1', 'n4', 'pre');
     await actor.submit('p1', f, makeConn(), 'update');
-    expect((doc.getMap('nodes') as Y.Map<unknown>).get('n4')).toBe('pre');   // resolve 时已 apply（红④旧相=guard 放行后才库 apply）
+    expect(((doc.getMap('nodes') as Y.Map<unknown>).get('n4') as Y.Map<unknown>).get('data')).toBeDefined();   // resolve 时已 apply（红④旧相=guard 放行后才库 apply；T24 夹具=map 信封）
     expect(gateOriginEvents).toBe(1);
     Y.applyUpdate(doc, f, { source: 'connection', connection: null, gate: true });   // 库重放形态
     expect(gateOriginEvents).toBe(1);   // 幂等重放零 update 事件（yjs hasContent=false）
@@ -215,7 +223,7 @@ describe('Y1c T9 用例组（actor 批验证/去重/copy/毒帧/SS2/上限/Frame
     const view = big.subarray(32, 32 + f.byteLength);   // 共享底层 buffer 的视图（禁直用——越界读/后续改写风险）
     await actor.submit('p1', view, makeConn(), 'update');
     big.fill(0xff);   // 提交后改写底层 buffer（真拷贝=不受影响；subarray 直用=内容被毁）
-    expect((doc.getMap('nodes') as Y.Map<unknown>).get('c1')).toBe('copy-me');
+    expect((((doc.getMap('nodes') as Y.Map<unknown>).get('c1') as Y.Map<unknown>).get('data') as Y.Map<unknown>).get('model')).toBe('copy-me');   // T24 夹具=map 信封（帧字节 copy 语义不变）
     expect(sha256hex(view)).not.toBe(sha256hex(f));   // 反例实证：视图确已被动——actor 入账的是独立 copy
   }, 20_000);
 
@@ -496,7 +504,7 @@ describe('Y1c T9 双评审收口（C1 detached 守卫/Q-I1 states 清理/Q-I2 �
     expect(r2.walSeq, '复用被截 walSeq（密集前缀——不留洞）').toBe(2n);
     expect(r2.noop).not.toBe(true);
     expect(spool.watermark('p1')!.spoolHeadSeq, '真 WAL 写入（spoolHead 随新帧推进）').toBe(2n);
-    expect((doc.getMap('nodes') as Y.Map<unknown>).get('sibad')).toBe(1);
+    expect((((doc.getMap('nodes') as Y.Map<unknown>).get('sibad') as Y.Map<unknown>).get('data') as Y.Map<unknown>).get('model')).toBe(1);   // T24 夹具=map 信封（重发新帧语义不变）
   }, 20_000);
 
   it('S-M3：SS2 全局预算跨项目并发——4×ss2FrameGate（4 项目各 1 pending）占满 → 第 5 项目 SS2 瞬态拒 1008', async () => {

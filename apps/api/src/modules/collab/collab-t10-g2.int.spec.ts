@@ -20,9 +20,16 @@ const hasDb = !!process.env.DATABASE_URL;
 const maybe = hasDb ? describe : describe.skip;
 const PID = 'y1c-t10-g2';
 
+const modelOf = (d: Y.Doc, key: string): unknown =>
+  ((d.getMap('nodes').get(key) as Y.Map<unknown>).get('data') as Y.Map<unknown>).get('model');   // T24 夹具读回
+
 const frameOf = (key: string, val: unknown) => {
+  // Y1c T24 矩阵对齐：节点=合法 Y.Map 信封（标量节点值=L2 node-not-map 毒帧——G2 主语=前缀/去重/恢复）
   const src = new Y.Doc();
-  (src.getMap('nodes') as Y.Map<unknown>).set(key, val);
+  const node = new Y.Map(); const data = new Y.Map();
+  data.set('model', val);
+  node.set('type', 'textInput'); node.set('data', data);
+  (src.getMap('nodes') as Y.Map<unknown>).set(key, node);
   return Y.encodeStateAsUpdate(src);
 };
 
@@ -139,7 +146,7 @@ maybe('Y1c T10 G2 故障矩阵（十红组——真 PG）', () => {
     expect(validateActorRanges(ranges, { firstWalSeq: rows[0].firstWalSeq, lastWalSeq: rows[0].seq })).toEqual({ ok: true });
     expect(ranges[0].userId).toBe('u-1');
     expect(ranges[0].actorKind).toBe('user');
-    expect((doc.getMap('nodes') as Y.Map<unknown>).get('dup-key')).toBe(1);   // 业务效果恰一次
+    expect(modelOf(doc, 'dup-key')).toBe(1);   // 业务效果恰一次（T24 夹具=map 信封）
   });
 
   // ② PG 提交失败 WAL 保留且 pgSeq 不越失败帧
@@ -228,7 +235,7 @@ maybe('Y1c T10 G2 故障矩阵（十红组——真 PG）', () => {
     const reload = new Y.Doc();
     if (h.state && h.state.byteLength > 0) Y.applyUpdate(reload, new Uint8Array(h.state));
     for (const u of h.updates) Y.applyUpdate(reload, new Uint8Array(u));
-    expect((reload.getMap('nodes') as Y.Map<unknown>).get('snap-1')).toBe(1);
+    expect(modelOf(reload, 'snap-1')).toBe(1);
     const cd = await wmRow();
     expect(cd!.pgSeq).toBe(r1.walSeq);                  // 重放后水位保持
   });

@@ -117,7 +117,8 @@ async function seedProject(pid: string): Promise<void> {
 
 async function seedNode(pid: string, nodeId: string, data: Record<string, unknown> = { content: 'seed' }): Promise<void> {
   await residency.withSession(pid, (doc) => {
-    const n = new Y.Map();
+    const n = new Y.Map();   // Y1c T24 矩阵对齐：type 必备
+    n.set('type', 'imageGen');
     n.set('data', new Y.Map(Object.entries(data)));
     doc.getMap('nodes').set(nodeId, n);
   }, { mode: 'write' });
@@ -407,7 +408,8 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     const IDS = { slotA: 'n-slot-a', slotB: 'n-slot-b', ordA: 'n-ord-a', ordB: 'n-ord-b' };
     a.ydoc.transact(() => {
       const mk = (id: string, data: Record<string, unknown>) => {
-        const n = new Y.Map();
+        const n = new Y.Map();   // Y1c T24 矩阵对齐：type 必备（裸 data 信封=L2 unknown-node-type 毒帧）
+        n.set('type', 'imageGen');
         n.set('data', new Y.Map(Object.entries(data)));
         a.ydoc.getMap('nodes').set(id, n);
       };
@@ -416,7 +418,8 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     });
     b.ydoc.transact(() => {
       const mk = (id: string, data: Record<string, unknown>) => {
-        const n = new Y.Map();
+        const n = new Y.Map();   // Y1c T24 矩阵对齐：type 必备
+        n.set('type', 'imageGen');
         n.set('data', new Y.Map(Object.entries(data)));
         b.ydoc.getMap('nodes').set(id, n);
       };
@@ -499,7 +502,7 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
       // 的成员、反之亦然，slot 键分配无协调路径）——这才是协作画布最真实的同格位冲突形态。
       const mkChild = (doc: Y.Doc, id: string, slot: number): void => {
         const n = new Y.Map();
-        n.set('type', 'image');          // 分镜子=图片节点（attachMember/dropImage 形态——判定不查子类型）
+        n.set('type', 'imageGen');       // 分镜子=图片节点（attachMember/dropImage 形态——判定不查子类型；Y1c T24 矩阵对齐：type=矩阵真名〔'image' 菜单短名=L2 unknown-node-type 毒帧〕）
         n.set('parentId', GROUP);        // membership 信封（isStoryboardChildRecord 判据）
         n.set('data', new Y.Map(Object.entries({ slot })));   // slot 派生真源（禁两可：无 order 键）
         doc.getMap('nodes').set(id, n);

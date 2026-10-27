@@ -90,7 +90,7 @@ describe('A9 最后连接关闭→脏 doc 销毁（WS 路径·失败态——spo
       const name = 'project:p-anchor-a9';
       const { provider, synced } = kit.connect(name);
       await synced;
-      provider.document.getMap('nodes').set('n', new Y.Map([['x', 1]]));
+      provider.document.getMap('nodes').set('n', new Y.Map([['type', 'textInput'], ['data', new Y.Map()]]));   // Y1c T24 矩阵对齐（type 必备——裸 x 键=L2 node-key 毒帧）
       await pollUntil(() => kit.gateway.server.hocuspocus.documents.get(name)?.getMap('nodes').has('n') === true, 5_000);  // 写已达服务端（destroy 前确认——防"update 未达即断开"的通过无意义竞态）
       // 探针修正（v1 断言红+stderr 实证）：debounce 在途时断连走 executeNow 分支（hocuspocus-server.esm.js:1384-1385），
       // store 失败被库吞（"Document stays in memory to avoid data loss" :1547）→ doc 不卸载（A1 的 WS 面——
@@ -193,7 +193,7 @@ describe('Z80 正例① 持有 direct ⇒ 谓词恒 false ⇒ 4 入口 no-op（Z
     try {
       const { provider, synced } = kit.connect(name);
       await synced;
-      provider.document.getMap('nodes').set('n', new Y.Map([['x', 1]]));
+      provider.document.getMap('nodes').set('n', new Y.Map([['type', 'textInput'], ['data', new Y.Map()]]));   // Y1c T24 矩阵对齐（type 必备——裸 x 键=L2 node-key 毒帧）
       await pollUntil(() => kit.gateway.server.hocuspocus.documents.get(name)?.getMap('nodes').has('n') === true, 5_000);   // 写已达服务端（A9 同款防通过无意义竞态）
       provider.destroy();
       kit.forget(provider);   // WS 关页→onClose：:1383 计数含 direct=1 ⇒ 早退（Z59 入口③）

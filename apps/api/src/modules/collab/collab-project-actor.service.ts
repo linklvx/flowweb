@@ -56,7 +56,6 @@ import {
   CollabCloseCode,
   DOC_OVER_QUOTA_TERMINAL_REASON,
   DOC_GENERATION_STALE_TERMINAL_REASON,
-  QUOTA_DEFAULTS,
   type FlushThroughResult,
 } from '@flowweb/shared';
 import {
@@ -64,11 +63,14 @@ import {
   isFrameNodeTypeName,
   validateActorRanges,
   validateXmlL1,
+  validateFrameDeny,
+  validateAppliedL2,
   type FrameEffect,
   type ProjectDocIndex,
   type GateApplyOrigin,
   type ActorRange,
   type CanvasActorKind,
+  type GraphAnomalyKind,
 } from '@flowweb/shared';
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
@@ -76,7 +78,7 @@ import { CollabLifecycleObserverService, type LifecycleFrame } from './collab-li
 import { projectDocName, parseDocName, canvasDocName } from './doc-name.util';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { captureCollabException } from '../../utils/sentry-scrub';
-import { actorDrainBatchTotal, actorDrainBatchFrames, actorDedupHitTotal, actorFrameOutcomeTotal, actorPoisonFrameTotal, collabQuotaFrameRejectedTotal, frameEffectsTotal, inboundQueueOverLimitTotal, lifecycleObligationsCreatedTotal, lifecycleRowsCreatedTotal, projectBackpressureTotal, ss2SemaphoreTotal, yjsStorePayloadBytes, yjsStoreTotal } from './store.metrics';
+import { actorDrainBatchTotal, actorDrainBatchFrames, actorDedupHitTotal, actorFrameOutcomeTotal, actorPoisonFrameTotal, collabQuotaFrameRejectedTotal, frameEffectsTotal, graphAnomalyTotal, inboundQueueOverLimitTotal, lifecycleObligationsCreatedTotal, lifecycleRowsCreatedTotal, projectBackpressureTotal, ss2SemaphoreTotal, yjsStorePayloadBytes, yjsStoreTotal } from './store.metrics';
 import type { CollabConnection } from './collab.gateway';
 
 /** 帧受理结果（resolve 形态——ACK 档位前置面：walSeq=帧序号；noop=true=零 WAL 零 apply 放行
@@ -114,37 +116,16 @@ export interface CollabProjectActorHost {
   isMaintenanceBlocked?(pid: string): boolean;
 }
 
-/** P1 shape fixture 校验（准入链 ①——root/预算/通用格式；全类型最终矩阵运行时准入在 T24 激活）。 */
-const P1_ALLOWED_ROOTS = new Set(['nodes', 'edges', 'exec', 'meta']);
-/** P1 结构预算工程值（T24 矩阵激活时收紧——本卡防 DoS 级上界：structs ≤8×maxNodesPerTx、
- *  ds 区间 ≤4096；帧字节闸在 gate ⓪ 先行（Update 2×maxTxBytes/SS2 maxDocBytes+ALLOWANCE）。 */
-const P1_MAX_STRUCTS = 8 * QUOTA_DEFAULTS.maxNodesPerTx;
-const P1_MAX_DS_RANGES = 4096;
 /** Y1c T16：L1 扫描 URL allowlist（真源住调用方——xml-schema XML_URL_ALLOWLIST_CONTRACT）：
  *  默认空表=deny-all http(s) 属性 URL（修正批#1：image.src=mediaId/link href 未启用——绝对
- *  URL 值 off-spec）；部署受控域经 COLLAB_XML_URL_HOSTS 逗号分隔注入（同源 MinIO/CDN 面）。 */
+ *  URL 值 off-spec）；部署受控域经 COLLAB_XML_URL_HOSTS 逗号分隔注入（同源 MinIO/CDN 面）。
+ *  Y1c T24：同表注入 L2 changed-subtree walk（validateAppliedL2——单表单源禁双表）。 */
 const XML_ATTR_URL_ALLOWED_HOSTS: readonly string[] = (process.env.COLLAB_XML_URL_HOSTS ?? '')
   .split(',').map((h) => h.trim()).filter((h) => h !== '');
 
-export function validateP1Shape(update: Uint8Array): { ok: true } | { ok: false; code: number; reason: string } {
-  let decoded: ReturnType<typeof Y.decodeUpdate>;
-  try {
-    decoded = Y.decodeUpdate(update);   // ① 通用格式：解码失败=4411 毒帧面（零 WAL 零 apply）
-  } catch {
-    return { ok: false, code: CollabCloseCode.FRAME_MALFORMED, reason: 'frame-malformed' };
-  }
-  if (decoded.structs.length > P1_MAX_STRUCTS || decoded.ds.clients.size > P1_MAX_DS_RANGES) {
-    return { ok: false, code: CollabCloseCode.FRAME_MALFORMED, reason: 'frame-budget-exceeded' };
-  }
-  // root 白名单：根级 struct 的 parent=根名（string）；嵌套（parent=ID）归 T24 全类型矩阵
-  for (const st of decoded.structs) {
-    const parent = (st as unknown as { parent?: unknown }).parent;
-    if (typeof parent === 'string' && !P1_ALLOWED_ROOTS.has(parent)) {
-      return { ok: false, code: CollabCloseCode.FRAME_MALFORMED, reason: `unknown-root:${parent}` };
-    }
-  }
-  return { ok: true };
-}
+// Y1c T24：准入链 ① DENY 矩阵=shared validateFrameDeny（P2 最终矩阵运行时激活——exec 根/未知
+// 类型/未知键/值类型/容器替换/预算；DS 区间计数修正=Σ per-client range 数；原 T9 P1 shape
+// fixture〔P1_ALLOWED_ROOTS/P1_MAX_*〕随升格收编 shared——root 白名单 exec 删除+全类型矩阵）。
 
 /** SV wire 编码（Map<client,clock> → Uint8Array——Y.decodeStateVector 同格式：varUint n + n×(client,clock)）。
  *  批内逐帧 pending 预检的覆盖演进面（同批同 client 后继帧以前驱已准入区间为覆盖——防批合帧误判 4412）。 */
@@ -175,6 +156,8 @@ class FrameEffectsCollector {
   private buffer: FrameEffect[] = [];
   private walSeq: bigint = 0n;
   private frameDeleted = new Set<string>();
+  /** Y1c T24：事务事件缓冲（L2 changed-subtree walk 输入——apply 后取走；观察者回调签名结构性窄化）。 */
+  private eventBuffer: unknown[] = [];   // YEvent 结构性透传（takeEvents 出口窄化——shared validateAppliedL2 签名）
   private installed = new WeakSet<Y.Doc>();
   private nodeIds = new WeakMap<object, string>();   // typeIdToNodeId：node Y.Map 实例→nodeId
 
@@ -183,12 +166,20 @@ class FrameEffectsCollector {
     this.buffer = [];
     this.walSeq = walSeq;
     this.frameDeleted = new Set();
+    this.eventBuffer = [];
   }
 
   /** apply 后取走（T24/T26 消费 buffer 的取走面）。 */
   take(): FrameEffect[] {
     const out = this.buffer;
     this.buffer = [];
+    return out;
+  }
+
+  /** Y1c T24：L2 事件取走（afterTransaction 触达面——validateAppliedL2 输入）。 */
+  takeEvents(): Array<Y.YEvent<never>> {
+    const out = this.eventBuffer as unknown as Array<Y.YEvent<never>>;
+    this.eventBuffer = [];
     return out;
   }
 
@@ -199,7 +190,10 @@ class FrameEffectsCollector {
     const edges = doc.getMap('edges');
     // typeIdToNodeId 播种：既有节点（rebuild 后增量维护——索引与 appliedSeq 同源推进）
     for (const [id, v] of nodes.entries()) if (v && typeof v === 'object') this.nodeIds.set(v as object, id);
+    // Y1c T24：事件缓冲（两根 observeDeep 同点——afterTransaction 触达面全量进 L2 walk）
+    const noteEvents = (events: unknown[]): void => { this.eventBuffer.push(...events); };
     nodes.observeDeep((events) => {
+      noteEvents(events);
       for (const ev of events) {
         const path = ev.path;
         const target = ev.target as unknown as { get?: (k: string) => unknown };
@@ -211,8 +205,13 @@ class FrameEffectsCollector {
               const type = val && typeof val === 'object' ? (val as { get?: (k: string) => unknown }).get?.('type') : undefined;
               if (typeof val === 'object' && val !== null) this.nodeIds.set(val as object, key);
               if (isFrameNodeTypeName(type)) {
+                // Y1c T24（T26 收口批两行②——用例对齐注记）：NODE_RESTORED 在单事务 delete+re-add 的
+                // Yjs map 事件合并形态下**不可达**（实测 yjs 13.6.32：同事务 delete→set 合并为单事件
+                // action='update'，无 keysDeleted/keysAdded 序列——本分支不触发且 update 形态零 effect=
+                // 存在性净不变语义正确）；跨事务 delete 帧+re-add 帧=两帧两事务，frameDeleted 随 begin()
+                // 逐帧清空 ⇒ re-add 走 NODE_CREATED。分支保留=FrameEffect 词表完备面（freeze 联合类型）。
                 this.buffer.push(this.frameDeleted.has(key)
-                  ? { kind: 'NODE_RESTORED', nodeId: key, type, walSeq: this.walSeq }   // delete+restore 同帧=两枚 effect 两行义务
+                  ? { kind: 'NODE_RESTORED', nodeId: key, type, walSeq: this.walSeq }
                   : { kind: 'NODE_CREATED', nodeId: key, type, walSeq: this.walSeq });
               }
               // 同事务新建的 data 子 map 不产独立事件（实测）——媒体引用在节点新增面一并差分
@@ -260,6 +259,7 @@ class FrameEffectsCollector {
       }
     });
     edges.observeDeep((events) => {
+      noteEvents(events);
       for (const ev of events) {
         if (ev.path.length !== 0) continue;   // 边端点改写归 T24 矩阵（键级足够）
         for (const [edgeId, ch] of ev.changes.keys) {
@@ -281,10 +281,33 @@ export class ProjectDocIndexImpl implements ProjectDocIndex {
   private readonly nodeTypes = new Map<string, string>();
   private readonly edgesByNodeMap = new Map<string, Set<string>>();
   private readonly mediaRefsByNodeMap = new Map<string, Set<string>>();
+  /** Y1c T24：edgeId→端点（NORMALIZE 评估面——重复边检测；随 apply/rebuild 维护，冻结契约面外扩成员）。 */
+  private readonly edgeEndpoints = new Map<string, { source: string; target: string }>();
 
   nodeType(nodeId: string): string | undefined { return this.nodeTypes.get(nodeId); }
   get edgesByNode(): ReadonlyMap<string, ReadonlySet<string>> { return this.edgesByNodeMap; }
   get mediaRefsByNode(): ReadonlyMap<string, ReadonlySet<string>> { return this.mediaRefsByNodeMap; }
+
+  /** Y1c T24：图异常评估（NORMALIZE 面——同一索引实例 O(E) 增量评估；与读侧 maskGraphAnomalies
+   *  同语义分类：dangling-edge=端点节点不在册/duplicate-edge=同 source→target 重复）。 */
+  graphAnomalies(): Partial<Record<GraphAnomalyKind, number>> {
+    const out: Partial<Record<GraphAnomalyKind, number>> = {};
+    const dangling = new Set<string>();
+    for (const [nodeId, edgeIds] of this.edgesByNodeMap) {
+      if (this.nodeTypes.has(nodeId)) continue;
+      for (const eid of edgeIds) dangling.add(eid);
+    }
+    if (dangling.size > 0) out['dangling-edge'] = dangling.size;
+    const seenPair = new Set<string>();
+    let dup = 0;
+    for (const ep of this.edgeEndpoints.values()) {
+      const pk = `${ep.source}\u0000${ep.target}`;
+      if (seenPair.has(pk)) dup += 1;
+      else seenPair.add(pk);
+    }
+    if (dup > 0) out['duplicate-edge'] = dup;
+    return out;
+  }
 
   apply(effects: readonly FrameEffect[]): void {
     for (const e of effects) {
@@ -299,6 +322,7 @@ export class ProjectDocIndexImpl implements ProjectDocIndex {
           this.mediaRefsByNodeMap.delete(e.nodeId);
           break;
         case 'EDGE_ADDED': {
+          this.edgeEndpoints.set(e.edgeId, { source: e.source, target: e.target });
           for (const n of [e.source, e.target]) {
             const s = this.edgesByNodeMap.get(n) ?? new Set<string>();
             s.add(e.edgeId);
@@ -307,6 +331,7 @@ export class ProjectDocIndexImpl implements ProjectDocIndex {
           break;
         }
         case 'EDGE_REMOVED': {
+          this.edgeEndpoints.delete(e.edgeId);
           for (const n of [e.source, e.target]) this.edgesByNodeMap.get(n)?.delete(e.edgeId);
           break;
         }
@@ -329,6 +354,7 @@ export class ProjectDocIndexImpl implements ProjectDocIndex {
     this.nodeTypes.clear();
     this.edgesByNodeMap.clear();
     this.mediaRefsByNodeMap.clear();
+    this.edgeEndpoints.clear();
     const nodes = doc.getMap('nodes');
     for (const [id, v] of nodes.entries()) {
       if (!v || typeof v !== 'object') continue;
@@ -349,6 +375,7 @@ export class ProjectDocIndexImpl implements ProjectDocIndex {
       if (!v || typeof v !== 'object') continue;
       const src = String((v as { get?: (k: string) => unknown }).get?.('source') ?? '');
       const tgt = String((v as { get?: (k: string) => unknown }).get?.('target') ?? '');
+      this.edgeEndpoints.set(eid, { source: src, target: tgt });
       for (const n of [src, tgt]) {
         const s = this.edgesByNodeMap.get(n) ?? new Set<string>();
         s.add(eid);
@@ -368,8 +395,10 @@ interface QueueItem {
   bytes: number;
   enqueuedAt: number;
   submitGeneration: number | undefined;
-  /** Y1c T10：帧认领者（actorRanges 事实源——submit 时捕获；维护帧='system'）。 */
+  /** Y1c T24：帧认领者（actorRanges 事实源——submit 时捕获；维护帧='system'）。 */
   actor: { userId: string; actorKind: CanvasActorKind };
+  /** Y1c T24：帧新增 structs 的 client 集（准入段计算——绑定执法/L2 毒帧计数消费）。 */
+  newClients?: number[];
   resolve: (r: ActorFrameResult) => void;
   reject: (e: FrameRejectError) => void;
 }
@@ -460,6 +489,28 @@ export class CollabProjectActorService {
   private readonly ss2PendingProjects = new Set<string>();
   /** 认证后 per-connection 入站排队字节（submit 未落定面——超 2×ss2FrameGate close 1009）。 */
   private readonly inboundBytesByConn = new WeakMap<object, number>();
+  // ═══ Y1c T24：clientID 绑定四元+单活跃（偏离 38⑰）+per-connection 毒帧速率限制 ═══
+  /** 绑定表：键 `${pid}|${gen}|${userId}|${client}`（四元=projectId+generation+userId+yjs clientID
+   *  ——spec §3.2 v5.4⑰）；值=当前活跃连接（socketId/conn 引用/lastSeenAt/毒帧计数/封禁窗）。
+   *  执法点=准入链 ② 后（pending 预检后——**帧新增 structs（clock>SV）才绑定**：SS2 全量回灌含
+   *  他端 client 历史 structs（clock≤SV 非新增）不抢绑定——只有本连接**原创**的新 struct 才声称
+   *  clientID 归属。同四元禁两活跃连接（同键并发=CRDT 结构性损坏）；旧连接活跃=先 close 旧再纳新；
+   *  僵尸超时替换；异活跃用户（同 pid|gen|client 异 userId）=碰撞拒（可重试 close）。 */
+  private readonly clientBindings = new Map<string, {
+    socketId: string; conn: CollabConnection | null; userId: string; lastSeenAt: number;
+    poisonCount: number; poisonWindowStart: number; bannedUntil: number;
+  }>();
+  /** 绑定表上界（FIFO 驱逐——离线 client 残留绑定不挤内存；8k=单实例连接面×clientID 余量）。 */
+  private static readonly CLIENT_BINDING_MAX = 8192;
+  /** 僵尸绑定超时（lastSeenAt 静默超此值=可替换——不计连接存活探测的保守值）。 */
+  private static readonly CLIENT_BINDING_ZOMBIE_MS = 60_000;
+  /** per-connection 毒帧速率限制（L2 违规重复重建 DoS 防护——绑定表承载：跨重连按四元累计）。 */
+  private static readonly POISON_RATE_LIMIT = 3;
+  private static readonly POISON_RATE_WINDOW_MS = 10 * 60_000;
+  private static readonly POISON_BAN_MS = 10 * 60_000;
+  /** NORMALIZE 异常计数增量台账（per-pid 前值——graph_anomaly_total 只计增量防每帧重计膨胀）。 */
+  private readonly prevAnomalies = new Map<string, Partial<Record<GraphAnomalyKind, number>>>();
+  private readonly prevAnomalyPids = new Set<string>();
 
   constructor(
     @Inject(CollabSpoolService) private readonly spool: CollabSpoolService,
@@ -489,9 +540,19 @@ export class CollabProjectActorService {
   }
 
   /** Y1c T26 三轮 F-1：装载缝前缀报告（DR loadDocument→gateway 转发——doc 装载时已应用的 PG 前缀；
-   *  同 doc 实例重装覆写。测试直构缺报=无键〔门槛视 0 最保守〕）。 */
+   *  同 doc 实例重装覆写。测试直构缺报=无键〔门槛视 0 最保守〕）。
+   *  Y1c T24：索引装载即 rebuild 走 noteDocIndexRebuild(pid, doc)（gateway 装载缝显式对——
+   *  本缝无 pid 面不做反查全扫）。 */
   noteDocLoadedPrefix(document: Y.Doc, loadPgSeq: bigint): void {
     this.docLoadPrefix.set(document, loadPgSeq);
+  }
+
+  /** Y1c T24（登记项「docIndex 装载即 rebuild」根修）：装载缝显式索引重建（gateway DR.loadDocument
+   *  后转发 pid+doc 显式对；幂等）——装载 doc=PG 前缀真值，索引自装载态重建后随 effects 增量
+   *  （此前仅 apply 增量=装载 doc 既有节点在索引缺席，DENY/NORMALIZE 索引消费面失真）。 */
+  noteDocIndexRebuild(projectId: string, document: Y.Doc): void {
+    const st = this.stateOf(projectId);
+    st.docIndex.rebuild(document);
   }
 
   /** Q-I1：doc 卸载/项目消失的 per-project actor 状态清理（BEFORE_UNLOAD_DRAIN_CONTRACT.cleanupKey
@@ -505,6 +566,8 @@ export class CollabProjectActorService {
    *  幂等（无键 no-op）。 */
   onProjectStateCleanup(projectId: string): void {
     this.landedSince.delete(projectId);
+    this.prevAnomalies.delete(projectId);   // Y1c T24：NORMALIZE 增量台账随项目清理
+    this.prevAnomalyPids.delete(projectId);
     const st = this.states.get(projectId);
     if (!st) return;
     if (st.draining || st.queue.length > 0) return;   // 帧落定中——保守留驻
@@ -636,6 +699,101 @@ export class CollabProjectActorService {
     }
   }
 
+  // ═══ Y1c T24：clientID 绑定四元+单活跃执法（偏离 38⑰）+毒帧速率限制（38⑫ L2 面）═══
+
+  private evictClientBindings(): void {
+    while (this.clientBindings.size > CollabProjectActorService.CLIENT_BINDING_MAX) {
+      const oldest = this.clientBindings.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.clientBindings.delete(oldest);
+    }
+  }
+
+  /**
+   * 帧新增 structs 的 clientID 绑定执法（准入链 ② 后——pending 预检保证 clock 连续性下，
+   * clock>SV 的 structs=本连接原创）。返回 undefined=放行；string=拒绝 reason（close 1008 可重试档）。
+   * - 毒帧封禁窗内（L2 违规累计超限）→ 'poison-rate-limited'（防重复重建 DoS）；
+   * - 同 pid|gen|client 异 userId 活跃 → 'clientid-collision'（clientID=CRDT 结构标识非身份凭证）；
+   * - 同四元他连接在绑：旧连接 socket 仍连且 fresh → **先 close 旧再纳新**（接管）；僵尸超时替换。
+   */
+  private enforceClientBinding(
+    pid: string, generation: number | undefined, item: QueueItem, newClients: readonly number[],
+  ): string | undefined {
+    if (newClients.length === 0 || !item.conn) return undefined;
+    const userId = item.actor.userId;
+    const gen = generation ?? 0;
+    const now = Date.now();
+    for (const client of newClients) {
+      const key = `${pid}|${gen}|${userId}|${client}`;
+      const entry = this.clientBindings.get(key);
+      // 异活跃用户碰撞先行（同 (pid,gen,client) 已绑他 userId——降维复核与四元键存否无关：
+      // client 归属另一用户=CRDT 身份冒用面，「异活跃用户拒/碰撞=可重试 close」）
+      if (this.findCrossUserBinding(pid, gen, client, userId) !== undefined) return 'clientid-collision';
+      if (entry === undefined) {
+        this.clientBindings.set(key, { socketId: item.conn.socketId ?? '', conn: item.conn, userId, lastSeenAt: now, poisonCount: 0, poisonWindowStart: now, bannedUntil: 0 });
+        this.evictClientBindings();
+        continue;
+      }
+      if (entry.bannedUntil > now) { entry.lastSeenAt = now; return 'poison-rate-limited'; }
+      if (entry.socketId !== item.conn.socketId) {
+        const stillConnected = entry.conn != null && entry.conn.socketId === entry.socketId;
+        const fresh = now - entry.lastSeenAt < CollabProjectActorService.CLIENT_BINDING_ZOMBIE_MS;
+        if (stillConnected && fresh) {
+          // 旧连接活跃：先 close 旧再纳新（同四元接管——禁两活跃连接共享 clientID=结构性损坏）
+          this.host.hardClose(entry.conn, CollabCloseCode.RATE_LIMITED_CLOSE, 'clientid-superseded');
+        }
+        // 僵尸（socket 已断/静默超时）=直接替换（毒帧计数/封禁窗随绑定继承——跨重连累计）
+        this.clientBindings.set(key, { socketId: item.conn.socketId ?? '', conn: item.conn, userId, lastSeenAt: now, poisonCount: entry.poisonCount, poisonWindowStart: entry.poisonWindowStart, bannedUntil: entry.bannedUntil });
+      } else {
+        entry.lastSeenAt = now;
+      }
+    }
+    return undefined;
+  }
+
+  /** 跨 userId 绑定碰撞探测（同 pid|gen|client 已绑他 userId——降维扫描受上界约束）。 */
+  private findCrossUserBinding(pid: string, gen: number, client: number, userId: string): string | undefined {
+    const suffix = `|${client}`;
+    const prefix = `${pid}|${gen}|`;
+    for (const key of this.clientBindings.keys()) {
+      if (key.startsWith(prefix) && key.endsWith(suffix) && !key.startsWith(`${prefix}${userId}|`)) return key;
+    }
+    return undefined;
+  }
+
+  /** L2 违规毒帧计数（绑定表面——跨重连按四元累计；超限封禁窗）。 */
+  private notePoisonViolation(pid: string, item: QueueItem, newClients: readonly number[]): void {
+    const now = Date.now();
+    for (const client of newClients) {
+      const key = `${pid}|${this.host.generationOf(pid) ?? 0}|${item.actor.userId}|${client}`;
+      const entry = this.clientBindings.get(key);
+      if (entry === undefined) continue;
+      if (now - entry.poisonWindowStart > CollabProjectActorService.POISON_RATE_WINDOW_MS) {
+        entry.poisonWindowStart = now;
+        entry.poisonCount = 0;
+      }
+      entry.poisonCount += 1;
+      if (entry.poisonCount >= CollabProjectActorService.POISON_RATE_LIMIT) {
+        entry.bannedUntil = now + CollabProjectActorService.POISON_BAN_MS;
+        this.host.logger.warn(`clientID 绑定毒帧速率限制触发 ${key}——封禁 ${CollabProjectActorService.POISON_BAN_MS / 1000}s（L2 违规重复重建 DoS 防护）`);
+      }
+    }
+  }
+
+  /** NORMALIZE 异常增量计数（graph_anomaly_total{kind}——同一 ProjectDocIndex 实例评估；只计增量）。 */
+  private noteGraphAnomalies(pid: string, st: ProjectActorState): void {
+    const anomalies = (st.docIndex as ProjectDocIndexImpl).graphAnomalies();
+    const kinds = Object.keys(anomalies) as GraphAnomalyKind[];
+    if (kinds.length === 0 && !this.prevAnomalyPids.has(pid)) return;
+    const prev = this.prevAnomalies.get(pid) ?? {};
+    for (const k of kinds) {
+      const delta = (anomalies[k] ?? 0) - (prev[k] ?? 0);
+      if (delta > 0) graphAnomalyTotal.inc({ kind: k }, delta);
+    }
+    this.prevAnomalies.set(pid, anomalies);
+    this.prevAnomalyPids.add(pid);
+  }
+
   private evictDedupMap(): void {
     let oldest: string | undefined;
     while (this.dedupMap.size > WAL_DEDUP_INDEX_MAX_ENTRIES) {
@@ -754,8 +912,9 @@ export class CollabProjectActorService {
           this.clearDedup(pid, item.hashHex);
           continue;
         }
-        // ① P1 shape fixture（root/预算/通用格式——解码失败=4411 毒帧面）
-        const shape = validateP1Shape(item.payload);
+        // ① DENY 矩阵（Y1c T24 激活——shared validateFrameDeny：root 白名单〔exec 删除〕/meta 白名单/
+        //    未知类型/未知键/值类型/容器替换/预算〔DS=Σ区间数〕；解码失败=4411 毒帧面；帧外父深链归 L2）
+        const shape = validateFrameDeny(item.payload);
         if (!shape.ok) {
           this.host.hardClose(item.conn, shape.code, shape.reason);
           this.rejectItem(item, new FrameRejectError(shape.code, shape.reason));
@@ -786,10 +945,27 @@ export class CollabProjectActorService {
             this.clearDedup(pid, item.hashHex);
             continue;
           }
+          // Y1c T24：帧新增 structs 的 client 集（clock>SV=本连接原创——SS2 历史 structs 不抢绑定）
+          const newClients: number[] = [];
           for (const st of Y.decodeUpdate(item.payload).structs) {
             const end = st.id.clock + st.length;
             const prev = svMap.get(st.id.client) ?? 0;
-            if (end > prev) svMap.set(st.id.client, end);
+            if (end > prev) {
+              svMap.set(st.id.client, end);
+              if (!newClients.includes(st.id.client)) newClients.push(st.id.client);
+            }
+          }
+          item.newClients = newClients;
+          // ② ′clientID 绑定四元+单活跃（偏离 38⑰——毒帧封禁/异用户碰撞/旧连接接管；可重试 close 1008）
+          if (item.conn) {
+            const bindingReject = this.enforceClientBinding(pid, authGen, item, newClients);
+            if (bindingReject !== undefined) {
+              actorFrameOutcomeTotal.inc({ outcome: 'rejected' });
+              this.host.hardClose(item.conn, CollabCloseCode.RATE_LIMITED_CLOSE, bindingReject);
+              this.rejectItem(item, new FrameRejectError(CollabCloseCode.RATE_LIMITED_CLOSE, bindingReject));
+              this.clearDedup(pid, item.hashHex);
+              continue;
+            }
           }
         }
         admitted.push(item);
@@ -949,6 +1125,38 @@ export class CollabProjectActorService {
           captureCollabException(err, { docName: projectDocName(pid), reason: 'actor-poison-frame', connectionId: '-' });
           return;
         }
+        // ── Y1c T24：L2 apply 后 changed-subtree walk（偏离 38⑫——事件级语义执法：帧外父挂接的
+        //    未知元素/属性/嵌套 fragment/超深/超长/域外 URL+对既有节点的矩阵后验〔容器替换/值类型/
+        //    未知键/type 不可变〕）。违规=毒帧（同协议：close 4411+截断至**前帧** appliedSeq〔本帧
+        //    appliedSeq 未推进〕）+绑定表毒帧计数（速率限制防重复重建 DoS）。 ──
+        const l2Events = collector.takeEvents();
+        const l2 = validateAppliedL2(document, l2Events, { allowedUrlHosts: XML_ATTR_URL_ALLOWED_HOSTS });
+        if (!l2.ok) {
+          this.notePoisonViolation(pid, item, item.newClients ?? []);
+          const err = Object.assign(new Error(`l2 violation: ${l2.reason}`), { l2Reason: l2.reason });
+          actorPoisonFrameTotal.inc();
+          actorDrainBatchTotal.inc({ result: 'poison' });
+          try {
+            this.host.hardClose(item.conn, CollabCloseCode.FRAME_MALFORMED, `l2:${l2.reason}`);
+            const conns = (document as unknown as { connections?: Map<object, unknown> }).connections;
+            for (const c of [...(conns?.keys() ?? [])]) {
+              this.host.hardClose(c as unknown as CollabConnection, CollabCloseCode.FRAME_MALFORMED, 'frame-malformed');
+            }
+            await this.spool.truncateWalAfter(pid, st.appliedSeq);
+          } catch (tErr) {
+            this.host.logger.error(`L2 poison protocol truncate/close failed for ${pid}: ${(tErr as Error).message}——walHealthy 已由 spool 侧 fail-closed`);
+          }
+          this.host.logger.error(`L2 毒帧 4411 for ${pid} walSeq=${walSeq} reason=${l2.reason}——WAL 截断至 appliedSeq=${st.appliedSeq}+全连接 close`);
+          for (let m = k; m < admitted.length; m++) {
+            this.rejectItem(admitted[m], new FrameRejectError(CollabCloseCode.FRAME_MALFORMED, `l2:${l2.reason}`));
+            this.clearDedup(pid, admitted[m].hashHex);
+            entries[m] = undefined;
+          }
+          for (let m = 0; m < k; m++) if (entries[m]) this.pushAppliedEntry(pid, entries[m]!);
+          void this.flushApplied(pid).catch(() => {});
+          captureCollabException(err, { docName: projectDocName(pid), reason: 'actor-l2-poison-frame', connectionId: '-' });
+          return;
+        }
         // appliedSeq=walSeq（apply 成功）+FrameEffects 取走（apply 后 actor 临界区内为准——修正 #1）
         st.appliedSeq = walSeq;
         this.spool.noteApplied(pid, walSeq);
@@ -956,6 +1164,9 @@ export class CollabProjectActorService {
         const effects = collector.take();
         for (const e of effects) frameEffectsTotal.inc({ kind: e.kind });
         st.docIndex.apply(effects);
+        // Y1c T24：NORMALIZE 异常增量计数（graph_anomaly_total{kind}——同一索引实例评估；读侧屏蔽
+        // =doc-codec toReadModel maskGraphAnomalies 同语义）
+        this.noteGraphAnomalies(pid, st);
         entries[k] = this.mkAppliedEntry(pid, item, appended[k].frameId, walSeq, effects);
         actorFrameOutcomeTotal.inc({ outcome: 'applied' });
         this.resolveItem(item, { walSeq });   // 逐帧 resolve（beforeSync await——ACK 时帧必已 fsync+apply）

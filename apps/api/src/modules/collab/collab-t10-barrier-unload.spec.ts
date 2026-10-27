@@ -17,8 +17,12 @@ import { buildBarrierCorpus } from '@flowweb/shared';
 import type { Logger, ServiceUnavailableException } from '@nestjs/common';
 
 const frameOf = (key: string, val: unknown) => {
+  // Y1c T24 矩阵对齐：节点=合法 Y.Map 信封（标量节点值=L2 node-not-map 毒帧——barrier 主语=帧落定语义）
   const src = new Y.Doc();
-  (src.getMap('nodes') as Y.Map<unknown>).set(key, val);
+  const node = new Y.Map(); const data = new Y.Map();
+  data.set('model', val);
+  node.set('type', 'textInput'); node.set('data', data);
+  (src.getMap('nodes') as Y.Map<unknown>).set(key, node);
   return Y.encodeStateAsUpdate(src);
 };
 

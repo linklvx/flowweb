@@ -80,21 +80,20 @@ describe('T19 soak 阻断门（10 客户端×~70s 压缩版：收敛+资源域�
         let appended = 0;
         const myNode = `n-${idx}`;
         c.ydoc.transact(() => {
-          const n = new Y.Map();
-          n.set('data', new Y.Map(Object.entries({ c: 0, ts: Date.now() })));
+          const n = new Y.Map();   // Y1c T24 矩阵对齐：type 必备+键域走 model（矩阵键——裸 c/ts/k*=unknown-data-key 毒帧）
+          n.set('type', 'textInput');
+          n.set('data', new Y.Map(Object.entries({ model: `0:${Date.now()}` })));
           c.ydoc.getMap('nodes').set(myNode, n);
         });
         for (let r = 0; r < ROUNDS; r += 1) {
           c.ydoc.transact(() => {
             const entry = c.ydoc.getMap('nodes').get(myNode) as Y.Map<any>;
             const data = entry.get('data') as Y.Map<any>;
-            data.set('c', r + 1);
-            data.set('ts', Date.now());
-            data.set(`k${r % 20}`, 'x'.repeat(32));   // 键集轮换（Y.Map 增长+删除压力——doc 尺寸增长面）
-            if (r % 20 === 19) data.delete(`k${(r - 19) % 20}`);   // 删旧键（非无界增长）
+            data.set('model', `${r + 1}:${Date.now()}:${'x'.repeat(32)}${r % 20}`);   // 值轮换增长（T24 键域单键——doc 尺寸增长面等价：每轮新值字符串）
             if (r > 0 && r % 50 === 0) {
-              const m = new Y.Map();
-              m.set('data', new Y.Map(Object.entries({ member: `${idx}-${r}`, payload: 'y'.repeat(256) })));
+              const m = new Y.Map();   // Y1c T24 矩阵对齐：type 必备+model 承载
+              m.set('type', 'textInput');
+              m.set('data', new Y.Map(Object.entries({ model: `${idx}-${r}:` + 'y'.repeat(256) })));
               c.ydoc.getMap('nodes').set(`m-${idx}-${r}`, m);
               appended += 1;
             }
