@@ -53,9 +53,9 @@ export class CanvasDocUpdateRepository {
   private leaseOwner: string | null = null;
   setLeaseOwner(owner: string | null): void { this.leaseOwner = owner; }
 
-  /** P23/V26 锁键单源：**T10 后仅 vacuumReplace 消费**（T12 状态机化收口）——append/compact 已去锁
-   *  （census⑩：actor 单写者+WAL walSeq 构造性保证 seq 序≡提交序；compact 一致性=RR 快照）。跨进程
-   *  同键消费=scripts/collab-renumber-layer.mjs（离线 CLI——api 停写前提下与 vacuumReplace 互斥保险）。 */
+  /** P23/V26 锁键单源：**T27 收尾 I-3' 起两消费方**——vacuumReplace（T12 状态机化收口锚）+appendBatch
+   *  （Y1c T27 收尾微批恢复锁先行——见 appendBatch 事务首语句论证；跨进程同键消费=scripts/
+   *  collab-renumber-layer.mjs〔离线 CLI——api 停写前提下与 vacuumReplace 互斥保险〕）。 */
   private lockProject(
     tx: { $executeRaw: (q: TemplateStringsArray, ...values: unknown[]) => Promise<unknown> },
     projectId: string,
@@ -109,7 +109,9 @@ export class CanvasDocUpdateRepository {
    *  **T10 删 advisory lock（census⑩）**：append/compact 不再取锁——actor 单写者+WAL walSeq 使「seq 序≡
    *  提交序」由构造保证（行 seq=已 fsync 的 walSeq，非 DB 取号）；compact 一致性=RR 快照（DELETE 只删
    *  快照可见行=被重放集，新 append 行天然幸存）。vacuumReplace 保留同键锁（T12 状态机化收口锚——
-   *  CLI renumber 跨进程保险）。旧取号序列（canvas doc update seq——T9 退役 nextval 单帧取号）同批 DROP
+   *  CLI renumber 跨进程保险）。**Y1c T27 收尾 I-3'：appendBatch 恢复锁先行**（$transaction 首语句
+   *  ——lifecycle inTx 写面串行化，论证见事务内注释；compact 维持去锁）。旧取号序列（canvas doc
+   *  update seq——T9 退役 nextval 单帧取号）同批 DROP
    *  （迁移 20261024140000——行 seq=WAL walSeq 非取号）。返回 rows=实插行数（conflict 命中=幂等视为已提交）。 */
   /** C1（T10 收口）：缺行判定的 fenced 分型单点——CollabLease 行删=leaseRowMissing throw
    *  （配置错误非 fenced，重试无用——gateway 落 spool 不排梯 SV13）；行在=确 fenced〔owner≠me〕。 */
@@ -177,6 +179,16 @@ export class CanvasDocUpdateRepository {
     // V8（Y0a-2 复审 I-1 落地）：交互式事务显式上界（5s/1s）——同旧单帧 append 语义
     const watermarkLanded = await this.prisma.$transaction(
       async (tx) => {
+        // ── Y1c T27 收尾微批 I-3'（Controller 裁定 (a) 接线——2026-10-28）：$transaction 首语句恢复
+        //    per-project advisory xact lock（lockProject 单源——vacuumReplace 同键 T12 锚）。论证：
+        //    T10 删锁论据（行 seq=walSeq+ON CONFLICT 幂等）只覆盖帙行面、**不覆盖 inTx 钩内 lifecycleSeq
+        //    MAX+1 分配面**——flush↔reconciler 并发窗可产生重复 lifecycleSeq（NodeLifecycle PK=
+        //    (projectId,nodeId,lifecycleSeq)，跨节点不撞）与同 (nodeId,walSeq,state) 双行（不同 seq、
+        //    无第二唯一约束）；锁先行后第二事务的 seen 幂等读落在第一事务提交后=去重成立；同键与
+        //    vacuumReplace 互斥天然成立、同 tx 重入 no-op（PG advisory 可重入）、xact 域自动释放、
+        //    hashtext 跨项目碰撞=仅多余串行无害；锁序 advisory→行锁全路径一致无环；derive 在事务外
+        //    （spool replayAll 先 derive 后 appendBatch——长派生不持锁）。恢复锁先行=有据非回退。 ──
+        await this.lockProject(tx, projectId);
         let n = 0;
         for (const r of rows) {
           // 显式类型 cast（PG 参数类型推断：无 cast 的 unknown 参数在 INSERT..SELECT 列位会折

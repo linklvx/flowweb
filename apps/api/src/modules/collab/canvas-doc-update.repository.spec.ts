@@ -345,15 +345,19 @@ describe('Y0a-3 fence 下沉（契约 2/15/16——owner-only SV1+advisory lock 
     return { repo: new CanvasDocUpdateRepository(prisma as any), prisma, txq, exec, query };
   }
 
-  it('appendBatch：Y1c T10 去锁（census⑩）+owner-only EXISTS（形状无 TTL 项）+ON CONFLICT DO NOTHING（updateHash 幂等）+水位 CAS 同事务', async () => {
+  it("appendBatch：Y1c T27 收尾 I-3' 恢复锁先行（首语句 advisory xact lock——Controller 裁定 (a)）+owner-only EXISTS（形状无 TTL 项）+ON CONFLICT DO NOTHING（updateHash 幂等）+水位 CAS 同事务", async () => {
     const txq = vi.fn().mockResolvedValue([{ seq: 1n }]);
     const exec = vi.fn().mockResolvedValue([]);
     const { repo, exec: e } = buildRepo({ txQuery: txq, txExec: exec });
     repo.setLeaseOwner('me');
     const r = await repo.appendBatch('p1', [seedRow(new Uint8Array([1]), 1n)], { expectedPgSeq: 0n, newPgSeq: 1n, walCheckpointSeq: 1n });
     expect(r).toEqual({ ok: true, rows: 1 });
-    expect(e.mock.calls.length).toBe(0);                              // Y1c T10：锁语句退役（actor 单写者+WAL walSeq 构造性保证 seq 序≡提交序）
-    const insert = txq.mock.calls[0];
+    // Y1c T27 收尾 I-3'：$transaction 首语句=per-project advisory xact lock（lockProject 单源——
+    // vacuumReplace 同键 T12 锚；T10 去锁论据只覆盖帙行面、不覆盖 inTx 钩内 lifecycleSeq MAX+1
+    // 分配面——恢复锁先行=有据非回退；census⑩/㉞ 锚 1→2）
+    expect(e.mock.calls.length).toBe(1);
+    expect(shape(e.mock.calls[0])).toContain('pg_advisory_xact_lock(hashtext(');
+    const insert = txq.mock.calls[0];   // 锁走 $executeRaw——$queryRaw 首语句仍是 INSERT
     expect(shape(insert)).toContain('EXISTS (SELECT 1 FROM "CollabLease"');
     expect(shape(insert)).not.toContain('"expiresAt" >= now()');      // SV1：fence 去 TTL
     expect(shape(insert)).toContain('ON CONFLICT DO NOTHING');        // Y1c T9：重试/重组批幂等

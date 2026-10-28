@@ -446,4 +446,66 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
     await prisma.$executeRaw`DELETE FROM "CanvasDocUpdate" WHERE "projectId" = ${PID}::text AND seq = 3::bigint`;
   });
 
+  // ═══ Y1c T27 收尾微批 M-a（quality）：drift>target 修复分支行为断言（现零覆盖——收口 M-1 使 dbGeneration
+  // 真值可达后本分支仍无测试；确定性编舞=racer 持同键 advisory 锁卡 vacuumReplace 于锁前〔live read 已过〕，
+  // 等待者落位后并发换代落定 → 锁内行集漂移+dbGeneration≥target → roll-forward）═══
+  it("M-a drift≥target 修复分支：switchingStage vacuumReplace 行集漂移且锁内 dbGeneration≥target → roll-forward（postSwitch 4410@DB 真值+WAL 切代）+VERIFYING 收敛 COMPLETED（红先行——现零覆盖）", async () => {
+    connsOf.push({ sendStateless: () => {} });   // 4410 完整投递断言面
+    const req = await maintenance.request({ projectId: PID, idempotencyKey: `k-${randomUUID()}`, requestedBy: 'int', source: 'rest' });
+    if (!req.ok) throw new Error('request 失败');
+    // racer：持同键 advisory xact lock（vacuumReplace lockProject 单源）——switchingStage 的 vacuumReplace
+    // 将阻塞在首语句取锁（live read〔generation=0<target〕已过——首分支 roll-forward 拦截不触发）
+    let racerLockTaken!: () => void;
+    let releaseRacer!: () => void;
+    const lockTaken = new Promise<void>((r) => { racerLockTaken = r; });
+    const racer = prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${PID})::bigint)`;
+      racerLockTaken();
+      await new Promise<void>((r) => { releaseRacer = r; });
+    }, { timeout: 20_000 });
+    await lockTaken;
+    const runP = maintenance.run(req.maintenanceId, { drainBudgetMs: 3_000 });   // canonical 内置 rebuild
+    // 确定性等待：vacuumReplace 后端在本锁上排队（PG 口径：advisory 等待=wait_event_type 'Lock' +
+    // wait_event 'advisory'+同语句形状——run 已过 FREEZING/DRAINING/EXPORTING/REBUILDING 到达 SWITCHING 段取锁点）
+    let waiterSeen = false;
+    for (let i = 0; i < 160 && !waiterSeen; i++) {
+      const w = await prisma.$queryRaw<{ n: number }[]>`
+        SELECT COUNT(*)::int AS n FROM pg_stat_activity
+        WHERE wait_event_type = 'Lock' AND wait_event = 'advisory' AND query LIKE '%pg_advisory_xact_lock%'`;
+      if ((w[0]?.n ?? 0) > 0) waiterSeen = true;
+      else await new Promise((r) => setTimeout(r, 50));
+    }
+    if (!waiterSeen) {
+      releaseRacer!();
+      await racer.catch(() => {});
+      const early = await runP;
+      throw new Error(`waiter 未出现——run 提前离开：${JSON.stringify(early)}`);
+    }
+    expect(waiterSeen, 'vacuumReplace 应阻塞在 advisory lock（run 到达 SWITCHING 段取锁点）').toBe(true);
+    // 并发换代落定（锁外第二连接=「另一 switcher 已提交」形态）：g1 rev0 快照〔state 承接=VERIFYING
+    // hash 等值〕+generation 拨 1 +额外一行增量（锁内行集计数漂移 3≠2）
+    const snap0 = await prisma.canvasDocSnapshot.findUnique({ where: { projectId_generation_snapshotRev: { projectId: PID, generation: 0, snapshotRev: 0n } } });
+    await prisma.canvasDocSnapshot.upsert({
+      where: { projectId_generation_snapshotRev: { projectId: PID, generation: 1, snapshotRev: 0n } },
+      create: { projectId: PID, generation: 1, snapshotRev: 0n, stateSeq: 3n, state: snap0!.state, stateHash: snap0!.stateHash, vacuumEpoch: 1, schemaVersion: 3 },
+      update: {},
+    });
+    await prisma.canvasDoc.update({ where: { projectId: PID }, data: { generation: 1, currentSnapshotRev: 0n, purgeBelowSeq: null } });
+    await prisma.$executeRaw`INSERT INTO "CanvasDocUpdate" ("projectId", generation, seq, "firstWalSeq", "frameCount", "updateHash", update, "createdAt")
+      VALUES (${PID}::text, 1::int, 3::bigint, 3::bigint, 1::int, ${'d' + '3'.padEnd(63, '0')}::char(64), ${Buffer.from(Y.encodeStateAsUpdate(createCanvasDoc()))}, now()) ON CONFLICT DO NOTHING`;
+    releaseRacer!();
+    await racer;
+    // ★ drift≥target 修复分支：drift throw 附 dbGeneration=1（锁内实读——M-1 真值）≥target(1) →
+    // roll-forward（净 abort 假死分支不触发）→ postSwitch 4410+WAL 切代 → VERIFYING hash 等值 → COMPLETED
+    const run = await runP;
+    expect(run.result, `drift≥target 应 roll-forward 到终态（got ${JSON.stringify(run)}）`).toBe('completed');
+    const after = await prisma.canvasDoc.findUnique({ where: { projectId: PID }, select: { generation: true, maintenanceId: true } });
+    expect(after?.generation).toBe(1);
+    expect(after?.maintenanceId).toBeNull();
+    // postSwitchActions 证据（M-5：4410 载荷+WAL 切代 generation=DB 真值）
+    expect(switchedWal).toContainEqual({ pid: PID, generation: 1 });
+    expect(closed.some((c) => c.code === CollabCloseCode.GENERATION_SUPERSEDED)).toBe(true);
+    expect((await prisma.maintenanceOperation.findUnique({ where: { maintenanceId: req.maintenanceId } }))?.stage).toBe('COMPLETED');
+  }, 30_000);
+
 });

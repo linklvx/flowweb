@@ -563,19 +563,61 @@ export class CollabProjectActorService {
     return this.lifecycleObserver;
   }
 
-  /** **Y1c T27 收口 I-3(spec)**：replay 回灌帙的帧前缀 effects 派生（T26 锚「恢复链终态=帧前缀重
-   *  derive」落地）：装载 PG 已提交前缀（repo.loadForHydration——快照+增量行重放）建基线 doc→
-   *  FrameEffectsCollector（T9 收集器单源——无第二套解析器）逐帧 begin/apply/take→LifecycleFrame[]。
+  /** **Y1c T27 收口 I-3(spec)+收尾 M-b**：replay 回灌帙的帧前缀 effects 派生（T26 锚「恢复链终态=
+   *  帧前缀重 derive」落地）：装载 PG 已提交前缀（repo.loadForHydration——快照+增量行重放）建基线
+   *  doc→FrameEffectsCollector（T9 收集器单源——无第二套解析器）逐帧 begin/apply/take→LifecycleFrame[]。
+   *  **M-b 轮界 memo**（第三参在场）：基线 doc 缓存在 memo 槽（per-(调用,项目)——loadForHydration
+   *  单次 IO），每轮在基线 **clone** 上派生（内存操作免 IO——O(R²) 根修）；返回批附 **advance**
+   *  闭包（replayAll 仅在 appendBatch ok 后调用=基线只含已提交前缀；失败/重试轮不推进=重试轮
+   *  effects 非空保全——提前推进则 CRDT 重放 no-op diff=首试效果永久丢）。无 memo=旧逐次装载形
+   *  （兼容——boot 未携 memo 派生面）。基线 doc 生命周期=调用域 memo（GC 回收——裸 doc 零监听
+   *  零定时器，无显式 destroy 义务）。
    *  L1/DENY/L2 不跑（回灌帧=崩溃前已过准入并 fsync 的帧——非准入面）；eventBuffer 弃置（L2 消费面
    *  不在回灌域）。**幂等**：重试/ambiguous commit 重跑同帧——基线已含上轮提交行→重放 no-op diff→
    *  effects 空+seen 命中跳过（persistFramesInTx 幂等承接）。派生失败=返回 null（fail-soft 保守回退
-   *  T26 最小正确 stale 面——回灌本体不阻塞）。
-   *  消费方=spool.replayAll deriveLifecycleFrames 回调（gateway boot 接线——listen 前串行：与 actor
-   *  flush 临界区时序不相交=无第二写者；lifecycleSeq 分配单点 persistFramesInTx 事务内 MAX+1 不变）。 */
+   *  T26 最小正确 stale 面——回灌本体不阻塞+spool 侧 collab_lifecycle_replay_derive_failure_total 计数）。
+   *  消费方=spool.replayAll deriveLifecycleFrames 回调（gateway boot/reconciler 两接线——reconciler
+   *  并发面由 appendBatch 恢复 advisory 锁先行串行化〔I-3'〕：lifecycleSeq 分配单点 persistFramesInTx
+   *  事务内 MAX+1，锁序下第二事务 seen 幂等读落在第一事务提交后=去重成立）。 */
   async deriveLifecycleFramesForReplay(
     pid: string,
     frames: ReadonlyArray<{ walSeq: bigint; payload: Uint8Array }>,
-  ): Promise<LifecycleFrame[] | null> {
+    memo?: import('./collab-spool.service').ReplayDeriveMemo,
+  ): Promise<ReadonlyArray<LifecycleFrame> | (ReadonlyArray<LifecycleFrame> & { advance(): void }) | null> {
+    if (memo) {
+      // ── M-b memo 形态：基线槽（首派生装载一次，轮间 clone 复用）──
+      let slot = memo.slots.get(pid) as { doc: Y.Doc } | undefined;
+      try {
+        if (!slot) {
+          const hydrate = await this.repo.loadForHydration(pid);
+          const baseline = createCanvasDoc();
+          if (hydrate.state) Y.applyUpdate(baseline, new Uint8Array(hydrate.state));
+          for (const u of hydrate.updates) Y.applyUpdate(baseline, new Uint8Array(u));
+          slot = { doc: baseline };
+          memo.slots.set(pid, slot);
+        }
+        const clone = createCanvasDoc();
+        try {
+          Y.applyUpdate(clone, Y.encodeStateAsUpdate(slot.doc));   // 基线 clone（内存操作免 IO）
+          const collector = new FrameEffectsCollector();
+          collector.install(clone);
+          const out: LifecycleFrame[] = [];
+          for (const f of frames) {
+            collector.begin(f.walSeq);
+            Y.applyUpdate(clone, f.payload);
+            out.push({ walSeq: f.walSeq, effects: collector.take() });
+          }
+          const baseline = slot.doc;
+          return Object.assign(out, {
+            advance: () => { for (const f of frames) Y.applyUpdate(baseline, f.payload); },   // 仅轮 ok 后由 replayAll 调
+          });
+        } finally { clone.destroy(); }
+      } catch (err) {
+        this.host?.logger?.warn?.(`deriveLifecycleFramesForReplay failed for ${pid}: ${(err as Error).message}——保守回退 stale 面（回灌本体不阻塞）`);
+        return null;
+      }
+    }
+    // ── 无 memo 兼容形：逐次全量装载（旧形态）──
     let doc: Y.Doc | null = null;
     try {
       const hydrate = await this.repo.loadForHydration(pid);
@@ -805,7 +847,9 @@ export class CollabProjectActorService {
         const stillConnected = entry.conn != null && entry.conn.socketId === entry.socketId;
         const fresh = now - entry.lastSeenAt < CollabProjectActorService.CLIENT_BINDING_ZOMBIE_MS;
         if (stillConnected && fresh) {
-          // 旧连接活跃：先 close 旧再纳新（同四元接管——禁两活跃连接共享 clientID=结构性损坏）
+          // 旧连接活跃：先 close 旧再纳新（同四元接管——禁两活跃连接共享 clientID=结构性损坏）。
+          // T27 收尾 nano②：SUPERSEDED 接管窄窗「重试即愈」——被 close 侧为 1008 可重试档非封禁，
+          // 重连后同四元再帧即对称接管回绑定（单事件让位、无持久损害面——与 poison 封禁档分界）。
           this.host.hardClose(entry.conn, CollabCloseCode.RATE_LIMITED_CLOSE, CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.superseded);
         }
         // 僵尸（socket 已断/静默超时）=直接替换（毒帧计数在 conn 面 poisonByConn——不随绑定走）

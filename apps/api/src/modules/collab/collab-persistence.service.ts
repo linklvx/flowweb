@@ -514,9 +514,24 @@ export class CollabPersistenceService {
 
   /** Y1c T26 二轮 R-1①：生命周期观察器 face 注入（gateway 经 setter 传 projectActor.lifecycleObserverFace
    *  ——setMaintenanceSink 先例）——reconcileSpool 的 replayAll 入口（:879 生产在役）两档（adopt 外来段
-   *  形/ownPending 裸形）均带 stale 面（stale-ACTIVE 交付逃逸窗收口）；未注入（直构/测试）=null 不带。 */
-  private lifecycleObserverFace: { staleProjectFencesInTx(tx: import('@prisma/client').Prisma.TransactionClient, projectId: string): Promise<number> } | null = null;
-  setLifecycleObserver(face: { staleProjectFencesInTx(tx: import('@prisma/client').Prisma.TransactionClient, projectId: string): Promise<number> } | null | undefined): void {
+   *  形/ownPending 裸形）均带 stale 面（stale-ACTIVE 交付逃逸窗收口）；未注入（直构/测试）=null 不带。
+   *  Y1c T27 收尾 I-3'（Controller 裁定 (a) 接线）：face 扩 derive+persist 两可选面——reconciler 30s
+   *  回灌帙**重派生 lifecycle/义务/fence 行**（boot 预算耗尽残帧/adopt 外来段帙的派生缺档=doc-lag 窗
+   *  〔T26 F-1 anchor 点名〕根修；boot 路径 gateway startCollabAfterLease 三回调直连不动）。
+   *  并发面=appendBatch 恢复 per-project advisory 锁先行（I-3'）——flush↔reconciler 串行化，第二写者
+   *  险有界闭合；缺任一面=stale-only 现行最小正确形态。 */
+  private lifecycleObserverFace: {
+    staleProjectFencesInTx(tx: import('@prisma/client').Prisma.TransactionClient, projectId: string): Promise<number>;
+    /** 派生面（gateway 注入=projectActor.deriveLifecycleFramesForReplay——memo 携带轮界基线）。 */
+    deriveLifecycleFramesForReplay?(projectId: string, frames: ReadonlyArray<{ walSeq: bigint; payload: Uint8Array }>, memo: import('./collab-spool.service').ReplayDeriveMemo): Promise<import('./collab-spool.service').ReplayDerivedBatch | ReadonlyArray<{ walSeq: bigint; effects: readonly import('@flowweb/shared').FrameEffect[] }> | null>;
+    /** persist 面（observer.persistFramesInTx——重派生行与回灌帙同事务）。 */
+    persistFramesInTx?(tx: import('@prisma/client').Prisma.TransactionClient, projectId: string, frames: ReadonlyArray<{ walSeq: bigint; effects: readonly import('@flowweb/shared').FrameEffect[] }>): Promise<unknown>;
+  } | null = null;
+  setLifecycleObserver(face: {
+    staleProjectFencesInTx(tx: import('@prisma/client').Prisma.TransactionClient, projectId: string): Promise<number>;
+    deriveLifecycleFramesForReplay?(projectId: string, frames: ReadonlyArray<{ walSeq: bigint; payload: Uint8Array }>, memo: import('./collab-spool.service').ReplayDeriveMemo): Promise<import('./collab-spool.service').ReplayDerivedBatch | ReadonlyArray<{ walSeq: bigint; effects: readonly import('@flowweb/shared').FrameEffect[] }> | null>;
+    persistFramesInTx?(tx: import('@prisma/client').Prisma.TransactionClient, projectId: string, frames: ReadonlyArray<{ walSeq: bigint; effects: readonly import('@flowweb/shared').FrameEffect[] }>): Promise<unknown>;
+  } | null | undefined): void {
     this.lifecycleObserverFace = face ?? null;
   }
 
@@ -906,9 +921,16 @@ export class CollabPersistenceService {
     // Y1c T26 二轮 R-1①：两档（adopt 点名形/ownPending 裸形）均带 lifecycleObserver——回灌帙与
     // 项目级 fence stale 同事务（stale-ACTIVE 交付逃逸窗收口：PG 瞬断 flush 失败→含删帧滞留→
     // 30s 机械重插无 stale 无义务→空闲项目窗持续）。
+    // Y1c T27 收尾 I-3'（Controller 裁定 (a) 接线）：face 两面齐备时 derive+persist 随载——回灌帙
+    // 重派生 lifecycle/义务/fence（恢复链终态=与首次 apply 等价——doc-lag 窗缺档根修；缺面=stale-only）。
+    const face = this.lifecycleObserverFace;
     await this.spool.replayAll(this.repo, {
       ...(byProject.length ? { projectIds: byProject } : {}),
-      ...(this.lifecycleObserverFace ? { lifecycleObserver: this.lifecycleObserverFace } : {}),
+      ...(face ? { lifecycleObserver: face } : {}),
+      ...(face?.deriveLifecycleFramesForReplay && face?.persistFramesInTx ? {
+        deriveLifecycleFrames: (pid: string, frames: ReadonlyArray<{ walSeq: bigint; payload: Uint8Array }>, memo: import('./collab-spool.service').ReplayDeriveMemo) => face.deriveLifecycleFramesForReplay!(pid, frames, memo),
+        lifecyclePersist: (tx: import('@prisma/client').Prisma.TransactionClient, pid: string, frames: ReadonlyArray<{ walSeq: bigint; effects: readonly import('@flowweb/shared').FrameEffect[] }>) => face.persistFramesInTx!(tx, pid, frames),
+      } : {}),
     });
     if (ownPending) this.rearmQueues();   // own 段的驱动=退避梯（replayAll 不点名全量——幂等回灌无害）
     this.host.logger.warn(JSON.stringify({ event: 'spool_reconcile_adopted', projects: byProject, segments: adopted.length, ownPending }));

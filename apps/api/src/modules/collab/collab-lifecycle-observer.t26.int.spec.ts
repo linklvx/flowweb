@@ -562,4 +562,159 @@ describe('Y1c T26 收口批（真 PG）', () => {
       await cleanupProjectFixture(prisma, pid);
     }
   }, 30_000);
+
+  // ═══ Y1c T27 收尾微批（I-3' Controller 裁定 (a) 接线 + M-b 轮界 memo——红先行）═══
+  /** derive 回调经 actor 公法（红先行=签名/face 面尚未存在的形态直传——as never 收窄，修后同一形）。 */
+  const deriveViaActor = (actor: CollabProjectActorService) =>
+    (target: string, frames: ReadonlyArray<{ walSeq: bigint; payload: Uint8Array }>, memo?: unknown) =>
+      (actor as unknown as { deriveLifecycleFramesForReplay: (p: string, f: ReadonlyArray<{ walSeq: bigint; payload: Uint8Array }>, m?: unknown) => Promise<unknown> })
+        .deriveLifecycleFramesForReplay(target, frames, memo);
+
+  /** 生产 reconciler 装置（persistence 直构+gateway 形态三面 face——stale/derive/persist；R-1 二轮同款）。 */
+  async function reconcileViaPersistence(actor: CollabProjectActorService, observer: CollabLifecycleObserverService, spoolInstance: CollabSpoolService): Promise<void> {
+    const persistence = new CollabPersistenceService(repo as never, spoolInstance as never);
+    persistence.bindHost({
+      logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), verbose: vi.fn(), fatal: vi.fn() } as unknown as Logger,
+      getDocument: () => undefined,
+      docStats: () => ({ loadedDocs: 0, connections: 0, directConns: 0 }),
+      onUpdateDelta: () => {},
+      onFencedByWrite: async () => {},
+      calibrateTruth: () => undefined,
+      observeDocBytes: () => {},
+      isIsolated: () => false,
+      isServingState: () => true,
+      isShuttingDownFlag: () => false,
+      onSpoolRecoveredFlip: () => {},
+      currentLeaseEpoch: () => null,
+    } as never);
+    persistence.setLifecycleObserver({
+      staleProjectFencesInTx: (tx: import('@prisma/client').Prisma.TransactionClient, p: string) => observer.staleProjectFencesInTx(tx, p),
+      deriveLifecycleFramesForReplay: deriveViaActor(actor),
+      persistFramesInTx: (tx: import('@prisma/client').Prisma.TransactionClient, p: string, frames: never) => observer.persistFramesInTx(tx, p, frames),
+    } as never);
+    await (persistence as unknown as { reconcileSpool(): Promise<void> }).reconcileSpool();
+  }
+
+  it("红（I-3' 接线）：生产 reconciler 路径（reconcileSpool ownPending 档）回灌帙重派生 lifecycle/义务/fence——修前=face 缺 derive 面（stale-only）三表零行（boot 预算耗尽残帧/adopt 外来段帙 lifecycle/义务/fence 行永不派生=doc-lag 窗缺档）", async () => {
+    const observer = new CollabLifecycleObserverService(prisma as never);
+    const pid = `t27i3r-${Date.now()}`;
+    await ensureProjectFixture(prisma, pid);
+    const segDir = await makeSpoolDir('y1c-t27-i3r-');
+    try {
+      await seedDocRow(pid);
+      await wipeLifecycleRows(pid);
+      // PG 已提交前缀（seq=1 建 nI3 帙）+已派生基线（ACTIVE 当前行+fence 对齐——建帙当时已派生形态）
+      const fm = makeFrames();
+      const createFrame = fm.create('nI3');
+      await prisma.$executeRaw`INSERT INTO "CanvasDocUpdate" ("projectId", generation, seq, "firstWalSeq", "frameCount", "updateHash", update, "createdAt")
+        VALUES (${pid}::text, 1::int, 1::bigint, 1::bigint, 1::int, ${'i' + '1'.padEnd(63, '0')}::char(64), ${Buffer.from(createFrame)}, now())`;
+      await prisma.canvasDoc.update({ where: { projectId: pid }, data: { pgSeq: 1n, walCheckpointSeq: 1n } });
+      await prisma.nodeLifecycle.create({ data: { projectId: pid, nodeId: 'nI3', lifecycleSeq: 1n, isCurrent: true, state: 'ACTIVE', walSeq: 1n } });
+      await prisma.deliveryFence.create({ data: { projectId: pid, nodeId: 'nI3', fenceSeq: 1n, state: 'ACTIVE' } as never });
+      // 滞留删除帙（ownPending 形态：own 段直接 append——walSeq 自 PG 真值续号 2）
+      const spoolD = new CollabSpoolService(segDir.dir);
+      spoolD.setOwner('t27-i3r-owner');
+      spoolD.setProjectGeneration(pid, 1);
+      spoolD.seedWalSeqFromPg(pid, 1n);
+      const appendedDel = await spoolD.appendBatch(pid, [fm.del('nI3')]);
+      await spoolD.noteApplied(pid, appendedDel[0].walSeq);   // actor 管线形态（append→apply→noteApplied——水位三元不变量）
+      const actorD = new CollabProjectActorService(spoolD, repo, undefined, observer);
+      // ★ 生产 reconciler 入口（30s tick）——gateway 形态三面 face（红=reconcileSpool 只带 stale 面：派生被忽略）
+      await reconcileViaPersistence(actorD, observer, spoolD);
+      // 回灌本体：帙落 PG+pgSeq 推进（红绿两态均成立——非红锚）
+      const head = await prisma.canvasDoc.findUnique({ where: { projectId: pid }, select: { pgSeq: true } });
+      expect(head?.pgSeq).toBe(2n);
+      // ★ 修前红=lifecycle/义务零行（机械回灌 stale-only）
+      const rows = await prisma.nodeLifecycle.findMany({ where: { projectId: pid, nodeId: 'nI3' }, orderBy: { lifecycleSeq: 'asc' } });
+      expect(rows.length, "reconciler 回灌帙重派生 lifecycle 行（修前=零行——I-3' 接线缺档）").toBeGreaterThanOrEqual(2);
+      expect(rows[rows.length - 1].state).toBe('DELETED');
+      expect(rows[rows.length - 1].isCurrent).toBe(true);
+      const obligations = await prisma.lifecycleObligation.findMany({ where: { projectId: pid, nodeId: 'nI3' }, orderBy: { kind: 'asc' } });
+      expect(obligations.map((o) => o.kind)).toEqual(['EXEC_FINALIZE', 'FEED_TOMBSTONE', 'NODE_DELETED']);
+      expect(obligations.every((o) => o.walSeq === 2n)).toBe(true);
+      const fence = await prisma.deliveryFence.findUnique({ where: { projectId_nodeId: { projectId: pid, nodeId: 'nI3' } } });
+      expect(fence?.state).toBe('DELETED');
+      expect(fence?.fenceSeq).toBe(rows[rows.length - 1].lifecycleSeq);
+    } finally {
+      await wipeLifecycleRows(pid);
+      await cleanupProjectFixture(prisma, pid);
+      await segDir.cleanup();
+    }
+  }, 30_000);
+
+  it('红（M-b IO-once）：单次 replayAll 调用内每项目至多一次 loadForHydration（轮界 memo——9 帧>REPLAY_MERGE_MAX_FRAMES=8 两轮；修前=每轮全量装载 O(R²)）', async () => {
+    const observer = new CollabLifecycleObserverService(prisma as never);
+    const pid = `t27memo1-${Date.now()}`;
+    await ensureProjectFixture(prisma, pid);
+    const segDir = await makeSpoolDir('y1c-t27-memo1-');
+    try {
+      await seedDocRow(pid);
+      await wipeLifecycleRows(pid);
+      const spoolD = new CollabSpoolService(segDir.dir);
+      spoolD.setOwner('t27-memo1-owner');
+      spoolD.setProjectGeneration(pid, 1);
+      const fm = makeFrames();
+      for (let i = 0; i < 9; i++) {
+        const appended = await spoolD.appendBatch(pid, [fm.create(`nM${i}`)]);   // walSeq 1..9 → 两轮（8+1）
+        await spoolD.noteApplied(pid, appended[0].walSeq);   // actor 管线形态（append→apply→noteApplied）
+      }
+      const actorD = new CollabProjectActorService(spoolD, repo, undefined, observer);
+      const loads = vi.spyOn(repo, 'loadForHydration');
+      const r = await spoolD.replayAll(repo, {
+        projectIds: [pid],
+        lifecycleObserver: observer,
+        deriveLifecycleFrames: deriveViaActor(actorD),
+        lifecyclePersist: (tx: import('@prisma/client').Prisma.TransactionClient, p: string, frames: never) => observer.persistFramesInTx(tx, p, frames),
+      } as never);
+      const loadCount = loads.mock.calls.filter((c) => c[0] === pid).length;   // 先取数再 restore（restore 清 calls）
+      loads.mockRestore();
+      expect(r.replayed).toBe(9);
+      expect(loadCount, '单次 replayAll 调用内 loadForHydration 恰一次（修前=每轮一次≥2——M-b O(R²)）').toBe(1);
+    } finally {
+      await wipeLifecycleRows(pid);
+      await cleanupProjectFixture(prisma, pid);
+      await segDir.cleanup();
+    }
+  }, 30_000);
+
+  it('红（M-b 保全）：appendBatch 首试（批）失败→重试轮 effects 非空且落库（失败/重试轮基线不前进——修前=重试轮 stale-only：帧落 PG 而派生零行=首试效果永久丢）', async () => {
+    const observer = new CollabLifecycleObserverService(prisma as never);
+    const pid = `t27memo2-${Date.now()}`;
+    await ensureProjectFixture(prisma, pid);
+    const segDir = await makeSpoolDir('y1c-t27-memo2-');
+    try {
+      await seedDocRow(pid);
+      await wipeLifecycleRows(pid);
+      const spoolD = new CollabSpoolService(segDir.dir);
+      spoolD.setOwner('t27-memo2-owner');
+      spoolD.setProjectGeneration(pid, 1);
+      const fm = makeFrames();
+      const appended2 = await spoolD.appendBatch(pid, [fm.create('nP1'), fm.create('nP2')]);   // 单轮批（2 帧）
+      for (const a of appended2) await spoolD.noteApplied(pid, a.walSeq);   // actor 管线形态（append→apply→noteApplied）
+      const actorD = new CollabProjectActorService(spoolD, repo, undefined, observer);
+      // PG 瞬断形态：首轮批 appendBatch reject → per-frame 重试（X8 重试环）——重试轮须携派生 persist
+      const realAppend = repo.appendBatch.bind(repo);
+      const appendSpy = vi.spyOn(repo, 'appendBatch').mockImplementation((async (p: string, rows: ReadonlyArray<{ lastWalSeq: bigint }>, wm: unknown, inTx: unknown) => {
+        if (rows.length > 1) throw Object.assign(new Error('pg blip'), { code: 'P1001' });
+        return realAppend(p, rows as never, wm as never, inTx as never);
+      }) as never);
+      const r = await spoolD.replayAll(repo, {
+        projectIds: [pid],
+        lifecycleObserver: observer,
+        deriveLifecycleFrames: deriveViaActor(actorD),
+        lifecyclePersist: (tx: import('@prisma/client').Prisma.TransactionClient, p: string, frames: never) => observer.persistFramesInTx(tx, p, frames),
+      } as never);
+      appendSpy.mockRestore();
+      expect(r.replayed).toBe(2);
+      expect(r.failed).toBe(0);
+      // ★ 重试轮派生落库（红=修前重试轮 stale-only：NodeLifecycle 零行=首试 effects 永久丢）
+      const rows = await prisma.nodeLifecycle.findMany({ where: { projectId: pid, nodeId: { in: ['nP1', 'nP2'] } } });
+      expect(rows.length, '重试轮 effects 非空且落库（基线不前进——修前=零行）').toBe(2);
+      expect(rows.every((x) => x.state === 'ACTIVE' && x.isCurrent)).toBe(true);
+    } finally {
+      await wipeLifecycleRows(pid);
+      await cleanupProjectFixture(prisma, pid);
+      await segDir.cleanup();
+    }
+  }, 30_000);
 });

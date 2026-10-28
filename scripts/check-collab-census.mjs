@@ -601,6 +601,7 @@ const ENCODE_WHITELIST = {
   'apps/web/src/collab/canvas-local-backup.ts': 1,
   'apps/api/src/modules/collab/collab-recovery-import.service.ts': 3,   // Y1c T25：recovery import 候选 clone 快照/temp diff/commitDiff 三点（唯一 clone 场所——§3.2）
   'apps/api/src/modules/collab/collab-maintenance.service.ts': 1,   // Y1c T27：维护 REBUILDING canonical 新代快照编码（fresh clientID rebuild payload——§6.6）
+  'apps/api/src/modules/collab/collab-project-actor.service.ts': 1,   // Y1c T27 收尾 M-b：replay derive 基线 clone 编码（memo 轮间复用——load 档）
 };
 
 const results = [];
@@ -896,7 +897,7 @@ if (isMain()) {
     // Y1c T9（2026-10-24）：spool-first 写管线核心两新文件入闭包（经 gateway 引入）——applyUpdate=gate
     // 档生产调用点（㉜ 同批登记）；frame-gate hocuspocus import=beforeSyncPayload type-only 行。
     'apps/api/src/modules/collab/collab-project-actor.service.ts': {
-      applyUpdate: { n: 4, until: '片D' },               // T9 actor pre-apply ⑤+T27 收口 I-3 replay 重派生（基线装载×2+逐帙 apply——load 档语义）
+      applyUpdate: { n: 9, until: '片D' },               // T9 actor pre-apply ⑤+T27 收口 I-3 replay 重派生（基线装载×2+逐帙 apply——load 档语义）+T27 收尾 M-b memo 形 +5（基线槽装载×2+clone 编码应用+逐帙 apply+advance 推进——load 档）
     },
     // Y1c T21（G4 门）：ExecutionService 冻结路径引入闭包——applyUpdate=PG 前缀重建候选 doc 装载
     // （load 档语义同 repository compact scratch；㉜ 同批登记）。
@@ -915,7 +916,7 @@ if (isMain()) {
     'apps/api/src/modules/collab/canvas-doc-update.repository.ts': { encodeStateAsUpdate: 2 },   // compact 快照重编码+tombstone 余量测量（④同源——Y1c T11 懒建档种子随 state 列退役删除 3→2）
     'apps/api/src/modules/collab/collab-doc-registry.service.ts': { encodeStateAsUpdate: 3 },   // T41 W3a+Y1c T9 decode 2→1（SV 代际门迁 frame-gate）→Y1c T12 decode 1→0（SV 代际门退役〔偏离 27〕——世代执法改道 docName 段；encode 3=装载真值/residue/measureTruth 不变）
     // Y1c T12：collab-frame-gate decodeStateVector 1→0 随 SV 代际门退役删除（偏离 27——条目同步移除）
-    'apps/api/src/modules/collab/collab-project-actor.service.ts': { mergeUpdates: 1, decodeStateVector: 1 },   // Y1c T9：PG drain 批合并+批内 pending 预检 SV 基准（覆盖演进）——decode 随续作补登
+    'apps/api/src/modules/collab/collab-project-actor.service.ts': { mergeUpdates: 1, decodeStateVector: 1, encodeStateAsUpdate: 1 },   // Y1c T9：PG drain 批合并+批内 pending 预检 SV 基准（覆盖演进）——decode 随续作补登；encode=T27 收尾 M-b replay derive 基线 clone 编码（④ 同批登记）
     'apps/api/src/modules/collab/collab-persistence.service.ts': { mergeUpdates: 6 },   // T40 B1 8→6（Y1c T9：PG 腿/降级支换轨维护 sink——coalesce/handoff×2/force-spool/detached retry 四位残留）
     'apps/api/src/modules/collab/collab-maintenance.service.ts': { encodeStateAsUpdate: 1 },   // Y1c T27：REBUILDING canonical 新代快照编码（④同源）
     // Y1c T9：spool mergeUpdates 条目撤销（replayAll 改 per-frame 批行——帧合并归 actor PG 腿）
@@ -1530,7 +1531,7 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-integrity-probe.ts': 2,
     // Y1c T9（2026-10-24）gate 档落地：actor pre-apply 调用点 1（准入链 ⑤——origin=GateApplyOrigin）；
     // 白名单 14+1=15 点/9 文件（gate 档从注释升级为登记条目——Y1c T9 写入方换代）
-    'apps/api/src/modules/collab/collab-project-actor.service.ts': 4,   // T9 pre-apply ⑤+T27 收口 I-3 deriveLifecycleFramesForReplay（基线装载×2+逐帙 apply——replay 重派生 load 档）
+    'apps/api/src/modules/collab/collab-project-actor.service.ts': 9,   // T9 pre-apply ⑤+T27 收口 I-3 deriveLifecycleFramesForReplay（基线装载×2+逐帙 apply）+T27 收尾 M-b memo 形 +5（基线槽装载×2+clone 编码应用+逐帙 apply+advance 推进——replay 重派生 load 档）
     // Y1c T25（写入方换代）：recovery import 档三点——候选 clone 快照 apply（§3.2 唯一 clone 场所）/
     // temp typed 内容并入候选/commit diff 以 origin='import' 直写 live（全量校验后受控生命周期操作）
     'apps/api/src/modules/collab/collab-recovery-import.service.ts': 3,
@@ -1583,7 +1584,10 @@ if (isMain()) {
   // ── ㉞ Y1c T10（census⑩ 删除面）：doc 写路径 advisory lock+canvas_doc_update_seq 清零断言 ──
   //  前置=census⑩ 三项消费点核（appendBatch/vacuumReplace/compact——y1c-t0-census.md §⑩）：
   //  T10 删 append/compact 两路（actor 单写者+WAL walSeq 构造性保证 seq 序≡提交序；compact=RR 快照），
-  //  vacuumReplace 保留同键锁=**恰 1 处**（T12 状态机化收口锚——census⑩ ⚠️ 注记兑现）；CLI
+  //  vacuumReplace 保留同键锁（T12 状态机化收口锚——census⑩ ⚠️ 注记兑现）。**Y1c T27 收尾 I-3'
+  //  （Controller 裁定 (a) 接线）：appendBatch 恢复锁先行**=$transaction 首语句（lifecycle inTx 写面
+  //  串行化——flush↔reconciler 并发窗 lifecycleSeq MAX+1 分配去重；T10 删锁论据只覆盖帙行面）——
+  //  期望值 1→2（vacuumReplace+appendBatch；compact 维持去锁）。CLI
   //  collab-renumber-layer.mjs 离线锁保留（跨进程保险，api 停写前提）。canvas_doc_update_seq 全仓清零
   //  （DROP 迁移 20261024140000——nextval 生产消费=旧单帧 append 已随 T9 退役；CLI 改道 MAX(seq)+1）。
   //  计法：repo 侧数 `this.lockProject(` 调用点（stripped——锁 SQL 住模板串会被剥，调用的语义锚）；
@@ -1591,7 +1595,7 @@ if (isMain()) {
   {
     const repoFile = files.find((p) => relOf(p) === 'apps/api/src/modules/collab/canvas-doc-update.repository.ts');
     const lockCalls = repoFile ? (byFile.get(repoFile).stripped.match(/this\.lockProject\(/g) ?? []).length : -1;
-    const lockPass = lockCalls === 1;   // vacuumReplace 仅存（appendBatch/compact 清零）
+    const lockPass = lockCalls === 2;   // T27 收尾 I-3'：vacuumReplace+appendBatch 恢复锁先行（lifecycle inTx 写面——裁定 (a)）；compact 维持清零
     const seqDetails = [];
     for (const p of files) {
       const rel = relOf(p);
@@ -1608,10 +1612,10 @@ if (isMain()) {
     } catch { /* 结构性缺失由 cliLock=-1 兜底判红 */ }
     const cliPass = cliLock === 1 && cliSeq === 0;   // 离线 CLI 同键锁保留（与 vacuumReplace 互斥保险）+序列清零
     report('㉞',
-      `doc 写路径 advisory lock 清零（census⑩ T10——repo lockProject 恰 1 调用点=vacuumReplace〔T12 收口〕+CLI 离线锁保留；canvas_doc_update_seq src+CLI 面清零）`,
+      `doc 写路径 advisory lock 面（census⑩ T10 锚+T27 收尾 I-3' 恢复——repo lockProject 恰 2 调用点=vacuumReplace〔T12 收口〕+appendBatch〔lifecycle inTx 写面串行化——Controller 裁定 (a)〕+CLI 离线锁保留；compact 维持清零+canvas_doc_update_seq src+CLI 面清零）`,
       lockPass && seqDetails.length === 0 && cliPass,
       [
-        ...(!lockPass ? [`lockProject 调用点=${lockCalls}（期望恰 1=vacuumReplace——appendBatch/compact 须清零）`] : []),
+        ...(!lockPass ? [`lockProject 调用点=${lockCalls}（期望恰 2=vacuumReplace+appendBatch〔I-3' 恢复〕——compact 须清零）`] : []),
         ...seqDetails,
         ...(!cliPass ? [`CLI renumber：锁消费点=${cliLock}（期望恰 1）/序列残留=${cliSeq}（期望 0）`] : []),
       ]);

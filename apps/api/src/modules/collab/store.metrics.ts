@@ -1341,6 +1341,13 @@ export const lifecycleFencesStaledTotal = new Counter({
   help: 'replayAll 回灌窗 fence stale 打点计数（I-1 收口：stale-ACTIVE 交付逃逸 fail-closed 面——行数非调用数）',
   registers: [register],
 });
+/** Y1c T27 收尾微批 M-b（quality）：replay 回灌帙帧前缀派生失败计数（derive null/throw 均计——
+ *  保守回退 stale-only 的可观测面；持续非零=恢复链终态缺档（lifecycle/义务行未派生）告警线。 */
+export const lifecycleReplayDeriveFailureTotal = new Counter({
+  name: 'collab_lifecycle_replay_derive_failure_total',
+  help: 'replayAll 回灌帙帧前缀派生失败计数（M-b：null/throw 均计——保守回退 stale-only；持续非零=恢复链终态派生缺档）',
+  registers: [register],
+});
 
 /** Y1c T24（spec v5.4 §3.2 v5.4⑤）：doc update 事件 origin 枚举计数（closed 六值——
  *  DOC_UPDATE_ORIGINS 单源；仅 server-direct 在 serving 期写 doc 时告警——分类器

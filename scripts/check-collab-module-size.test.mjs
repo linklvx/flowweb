@@ -65,10 +65,10 @@ test('SIZE_LIMITS：恰七文件（gateway B3 实测终标+SG/DR/persistence 偏
 });
 
 test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑现——plan ≤600 字面为防倒退锚非可达值〕；SG 1238/DR 1082=任务卡钉死值；persistence T14 实测重标 950→1037）+CI 修复批三新文件（T10 实测+1.3 余量：limits 42→55/budget 119→155/heartbeat 31→40）', () => {
-  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab.gateway.ts'], 1150);   // …→Y1c T24 1103→Y1c T27 1144→T27 收口 1150（boot replayAll 重派生接线 +6——净增面非膨胀，锚=实测同批）
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab.gateway.ts'], 1161);   // …→Y1c T24 1103→Y1c T27 1144→T27 收口 1150（boot replayAll 重派生接线 +6——净增面非膨胀，锚=实测同批）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-session-guard.service.ts'], 1371);   // T25 收口 +13（方向分档 4410 server-restored 码投递）   // …→T12 1298→T22 收口批补账 1304→Y1c T24 1348（版本门 4406 terminal close 投递 closeUpgradeTerminal +44——净增面非膨胀，锚=实测同批）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-doc-registry.service.ts'], 1162);   // T25 收口 +5（serverRestoredForm 方向标记）   // …→复核残留 1144→T22 收口批补账 1150（T26 三轮 loadPgSeq 装载缝 +6——净增面非膨胀，锚=实测同批）
-  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-persistence.service.ts'], 1124);   // …→T12 1091→T22 收口批补账 1105→Y1c T24 1123（origin 枚举计数 doc_update_origin_total +18——净增面非膨胀，锚=实测同批）
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-persistence.service.ts'], 1146);   // …→T12 1091→T22 收口批补账 1105→Y1c T24 1123（origin 枚举计数 doc_update_origin_total +18——净增面非膨胀，锚=实测同批）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-limits.ts'], 55);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-outbound-budget.ts'], 155);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-heartbeat.ts'], 42);   // …40→T22 收口批补账 42（enricher 钩 +2——净增面非膨胀，锚=实测同批）

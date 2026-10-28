@@ -26,7 +26,9 @@ export class CollabMaintenanceController {
     const requestedBy = (req as { user?: { id?: string } }).user?.id ?? 'admin';
     const r = await this.maintenance.request({ projectId, idempotencyKey, requestedBy, source: 'rest', leaseOwner: 'rest' });
     if (!r.ok) {
-      const status = r.code === 'MAINTENANCE_ACTIVE' ? 409 : r.code === 'IN_FLIGHT_EXECUTIONS' ? 409 : 404;
+      // Y1c T27 收尾 M-c(quality)：FAILED_RESUME_REQUIRED 404→409（conflict——post-SWITCHING FAILED
+      // 在档=维护态冲突需 resume roll-forward，非「项目不存在」；修前 404 吞 resume 指引误导运维）。
+      const status = r.code === 'MAINTENANCE_ACTIVE' || r.code === 'IN_FLIGHT_EXECUTIONS' || r.code === 'FAILED_RESUME_REQUIRED' ? 409 : 404;
       throw new HttpException({ code: r.code, maintenanceId: r.maintenanceId ?? undefined }, status);
     }
     // 后台驱动（同幂等键重放=已在档 op 不二次 run——run 幂等续跑由 stage CAS 承载）

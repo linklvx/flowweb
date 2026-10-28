@@ -435,7 +435,18 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     });
     this.persistence.setMaintenanceSink((pid, payload) => this.projectActor.submitMaintenance(pid, payload));
     // Y1c T26 二轮 R-1①：观察器 face 注入 persistence（reconcileSpool 的 replayAll 入口带 stale 面）
-    this.persistence.setLifecycleObserver(this.projectActor.lifecycleObserverFace);
+    // Y1c T27 收尾 I-3'（Controller 裁定 (a) 接线）：face 扩传 derive+persist 两面——reconciler 30s
+    // 回灌帙重派生 lifecycle/义务/fence（boot 预算耗尽残帧/adopt 外来段帙缺档=doc-lag 窗根修；
+    // 并发面=appendBatch 恢复 advisory 锁先行串行化——flush↔reconciler 第二写者险有界闭合）。
+    // boot 路径（startCollabAfterLease replayAll）三回调直连不动。
+    {
+      const observerFace = this.projectActor.lifecycleObserverFace;
+      this.persistence.setLifecycleObserver(observerFace == null ? undefined : {
+        staleProjectFencesInTx: (tx, pid) => observerFace.staleProjectFencesInTx(tx, pid),
+        deriveLifecycleFramesForReplay: (pid, frames, memo) => this.projectActor.deriveLifecycleFramesForReplay(pid, frames, memo),
+        persistFramesInTx: (tx, pid, frames) => observerFace.persistFramesInTx(tx, pid, frames),
+      });
+    }
     this.hooks = {
       // W3b（RC4=A）：connected 钩子体即迁 SG.onConnected（消费面 8 成员 5 SG 所有+isVacuuming/
       // quotaFrozenDocs/buildDocStatus SG→DR 直引 3 位）——GW 接线改 1 行（寿命台账播种/wrapBackpressure/
@@ -971,7 +982,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         // T26 plan 锚落地；派生=actor collector 单源；listen 前串行=单写者论证见 spool.replayAll 头注）
         const replay = await this.spool.replayAll(this.repo, {
           lifecycleObserver: this.projectActor.lifecycleObserverFace,
-          deriveLifecycleFrames: (pid, frames) => this.projectActor.deriveLifecycleFramesForReplay(pid, frames),
+          deriveLifecycleFrames: (pid, frames, memo) => this.projectActor.deriveLifecycleFramesForReplay(pid, frames, memo),   // T27 收尾 M-b：memo 转发（轮界基线——IO 一次；接线目标不变）
           lifecyclePersist: (tx, pid, frames) => this.projectActor.lifecycleObserverFace?.persistFramesInTx(tx, pid, frames) ?? Promise.resolve(null),
         });
         if (replay.failed > 0) {

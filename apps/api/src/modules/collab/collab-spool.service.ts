@@ -58,6 +58,7 @@ import {
   walFsyncLatency,
   docPrefixGapTotal,
   lifecycleFencesStaledTotal,
+  lifecycleReplayDeriveFailureTotal,
 } from './store.metrics';
 import { isFkGone } from './pg-error.util';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
@@ -66,6 +67,25 @@ import { projectDocName } from './doc-name.util';
 export interface SpoolFrame { frameId: string; payload: Uint8Array; walSeq: bigint }
 /** T9 actor/维护通道单帧追加结果（walSeq 随帧返回——PG 批行 seq 口径）。 */
 export interface WalAppendedFrame { frameId: string; walSeq: bigint }
+
+/** Y1c T27 收尾微批 M-b：replayAll **调用域**派生 memo（spool 每次 replayAll 调用新建、derive 回调
+ *  解释——per-project opaque 槽位）。轮间复用=「已提交前缀基线」内存 clone 派生（loadForHydration
+ *  单次=IO 一次）；**跨 replayAll 调用不复用**（新调用新 memo——调用间隙他写者提交会使缓存基线
+ *  陈旧〔effects 在缺帧基线上派生=错派〕）。 */
+export interface ReplayDeriveMemo {
+  /** per-project 派生缓存槽（opaque——derive 提供方自管：actor 存已提交前缀基线 doc）。 */
+  readonly slots: Map<string, unknown>;
+}
+
+/** Y1c T27 收尾微批 M-b：派生批返回形。advance=轮 ok 后推进基线——**仅 appendBatch ok 后由
+ *  replayAll 调用；失败/重试轮禁调**（基线不前进=重试轮在不含本轮帧的基线上重放=effects 非空
+ *  保全；提前推进=CRDT 重放 no-op diff=effects 空=首试效果永久丢——memo 保全红锚定的形态）。
+ *  兼容形=裸 LifecycleFrame[]（advance 缺席=no-op——无 memo 派生面先例形态）。 */
+export interface ReplayDerivedBatch {
+  frames: ReadonlyArray<{ walSeq: bigint; effects: readonly import('@flowweb/shared').FrameEffect[] }>;
+  /** 轮 ok 后推进基线（Y.applyUpdate 幂等——重入安全）。 */
+  advance(): void;
+}
 
 const SEGMENT_MAX_BYTES = 4 * 1024 * 1024;
 /** 帧记录 payloadLen 合法上界（spike 同源格式级 sanity 界——>9MiB WS 门/4MiB 批界的宽松上限）。
@@ -1730,7 +1750,12 @@ export class CollabSpoolService {
    *  Y1c T26 I-1 收口：opts.lifecycleObserver 在场时回灌帙与「项目级 fence stale」同事务落定
    *  （appendBatch inTx）——replay 机械落帙行不派生 effects，生命周期表维持 stale-ACTIVE 且
    *  fenceSeq==lifecycleSeq 双陈旧匹配=交付逃逸洞；fenceSeq=0 制造不匹配→fence-stale fail-closed
-   *  直至下一生命周期事件/presence 播种重对齐（语义终态=帧前缀重 derive，T27 恢复链——plan 锚）。 */
+   *  直至下一生命周期事件/presence 播种重对齐（语义终态=帧前缀重 derive，T27 恢复链——plan 锚）。
+   *  Y1c T27 收尾 I-3'（Controller 裁定 (a) 接线）：derive/persist 双回调经 reconciler 路径同载
+   *  （boot 直连外新增——doc-lag 窗〔T26 F-1 anchor〕帙重派生缺档根修）。
+   *  Y1c T27 收尾 M-b：轮界 memo——单次调用内每项目至多一次 loadForHydration（IO 一次），轮间在
+   *  「已提交前缀基线」clone 上派生；appendBatch ok 后才 advance 推进基线（失败/重试轮基线不前进
+   *  ——否则重试轮在已含本轮帧的基线上重放=no-op diff=effects 空=首试效果永久丢）；跨调用不复用。 */
   async replayAll(
     repo: Pick<CanvasDocUpdateRepository, 'appendBatch'>,
     opts?: {
@@ -1740,12 +1765,16 @@ export class CollabSpoolService {
       /** **Y1c T27 收口 I-3(spec)**：帧前缀 effects 派生回调（gateway 接线=actor.deriveLifecycleFramesForReplay
        *  ——T9 collector 单源无第二解析器）。在场且 lifecyclePersist 在场时回灌帙与重派生
        *  obligations/lifecycle 行同事务（恢复链终态=与首次 apply 等价——T26 plan 锚落地）；返回 null
-       *  =派生失败保守回退 stale-only（回灌本体不阻塞）。
-       *  单写者论证：回灌=boot listen 前串行（actor 临界区未接管）——两调用面时序不相交；lifecycleSeq
-       *  分配单点=persistFramesInTx 事务内 per-project MAX+1（无并发分配窗——T26 M-3 选型不变）。
+       *  =派生失败保守回退 stale-only（回灌本体不阻塞+collab_lifecycle_replay_derive_failure_total 计数）。
+       *  单写者论证：boot 回灌=listen 前串行（actor 临界区未接管）；reconciler 路径=appendBatch 恢复
+       *  per-project advisory 锁先行（I-3'——lifecycleSeq MAX+1 分配面串行化，flush↔reconciler 并发窗
+       *  第二事务的 seen 幂等读落在第一事务提交后=去重成立）。
+       *  **M-b memo 契约**：第三参=本次 replayAll 调用域 memo（spool 新建 opaque 载体——derive 提供方
+       *  存「已提交前缀基线」；返回 ReplayDerivedBatch（含 advance）=轮 ok 后由 replayAll 推进基线；
+       *  兼容形=裸 LifecycleFrame[]〔advance 缺席=no-op——无 memo 派生面〕）。
        *  actorRanges 注记（T27 附言②裁定落痕）：回灌行 actorRanges 恒 NULL=「恢复纪元非认领写」语义
        *  非数据缺失——**消费者须显式判 NULL（fail-closed）**，要求非 NULL 的未来消费点不得静默容缺。 */
-      deriveLifecycleFrames?: (projectId: string, frames: ReadonlyArray<{ walSeq: bigint; payload: Uint8Array }>) => Promise<ReadonlyArray<{ walSeq: bigint; effects: readonly import('@flowweb/shared').FrameEffect[] }> | null>;
+      deriveLifecycleFrames?: (projectId: string, frames: ReadonlyArray<{ walSeq: bigint; payload: Uint8Array }>, memo: ReplayDeriveMemo) => Promise<ReplayDerivedBatch | ReadonlyArray<{ walSeq: bigint; effects: readonly import('@flowweb/shared').FrameEffect[] }> | null>;
       /** observer persist 面（与 deriveLifecycleFrames 配对消费——结构内联同 stale 面先例）。 */
       lifecyclePersist?: (tx: import('@prisma/client').Prisma.TransactionClient, projectId: string, frames: ReadonlyArray<{ walSeq: bigint; effects: readonly import('@flowweb/shared').FrameEffect[] }>) => Promise<unknown>;
     },
@@ -1757,6 +1786,28 @@ export class CollabSpoolService {
     // T9 新表形态：回灌行=per-frame 单帙行（walSeq 随帧透出——行 seq=原帧 walSeq，「WAL 损坏只允许丢
     // walSeq>pgSeq 的帧」的 PG 前缀可证性由此保持；X8 合并上界仍管每轮 IO 形状——合批进同事务多行）。
     const genOf = (projectId: string) => this.currentGeneration(projectId);
+    // ── M-b 轮界 memo（本次调用域——跨 replayAll 调用不复用）+派生批归一（null/throw=计数+stale-only 回退）──
+    const memo: ReplayDeriveMemo = { slots: new Map() };
+    const deriveBatch = async (projectId: string, frames: ReadonlyArray<SpoolFrame>): Promise<ReplayDerivedBatch | null> => {
+      if (!opts?.deriveLifecycleFrames || !opts?.lifecyclePersist) return null;   // 派生面缺席≠失败（零计数）
+      try {
+        const out = await opts.deriveLifecycleFrames(projectId, frames, memo);
+        if (out == null) { lifecycleReplayDeriveFailureTotal.inc(); return null; }
+        if (Array.isArray(out)) {
+          // 兼容形=LifecycleFrame[]（actor memo 形把 advance 挂在数组上——Object.assign 形态；缺席=no-op）
+          const adv = (out as { advance?: () => void }).advance;
+          return { frames: out, advance: typeof adv === 'function' ? adv.bind(out) : () => {} };
+        }
+        return out as ReplayDerivedBatch;
+      } catch { lifecycleReplayDeriveFailureTotal.inc(); return null; }
+    };
+    const persistInTxOf = (projectId: string, batch: ReplayDerivedBatch | null, staleInTx: ((tx: import('@prisma/client').Prisma.TransactionClient) => Promise<void>) | undefined) =>
+      batch
+        ? async (tx: import('@prisma/client').Prisma.TransactionClient) => {
+            await staleInTx?.(tx);                                        // 先项目级 stale 打点（T26 R-1①——fence 先失配）
+            await opts!.lifecyclePersist!(tx, projectId, batch.frames);    // 后重派生行+fence 对齐覆写（触达节点）
+          }
+        : staleInTx;   // 无派生面=现行 stale-only（T26 最小正确）
     for (const projectId of opts?.projectIds ?? this.keys()) {
       if (Date.now() > deadline) return { replayed, failed, discarded };   // I2：项目间守预算
       // Y1c T26 I-1：stale inTx（与回灌帙同事务——幂等：每轮重复打点=行值恒 0 no-op）。M-7：计数
@@ -1770,19 +1821,10 @@ export class CollabSpoolService {
         if (frames.length === 0) break;
         const totalBytes = frames.reduce((s, f) => s + f.payload.byteLength, 0);
         if (totalBytes > CollabSpoolService.REPLAY_MERGE_MAX_BYTES) frames.length = this.truncateByBytes(frames, CollabSpoolService.REPLAY_MERGE_MAX_BYTES);
-        // Y1c T27 收口 I-3：帧前缀重派生（轮内帧集）——null/失败=保守回退 stale-only（回灌本体不阻塞）
-        let derivedFrames: ReadonlyArray<{ walSeq: bigint; effects: readonly import('@flowweb/shared').FrameEffect[] }> | null = null;
-        if (opts?.deriveLifecycleFrames && opts?.lifecyclePersist) {
-          try {
-            derivedFrames = (await opts.deriveLifecycleFrames(projectId, frames)) ?? null;
-          } catch { derivedFrames = null; }
-        }
-        const persistInTx = derivedFrames && opts?.lifecyclePersist && staleInTx
-          ? async (tx: import('@prisma/client').Prisma.TransactionClient) => {
-              await staleInTx(tx);                                        // 先项目级 stale 打点（T26 R-1①——fence 先失配）
-              await opts!.lifecyclePersist!(tx, projectId, derivedFrames!);   // 后重派生行+fence 对齐覆写（触达节点）
-            }
-          : staleInTx;   // 无派生面=现行 stale-only（T26 最小正确）
+        // Y1c T27 收口 I-3+M-b：帧前缀重派生（轮内帧集，memo 基线 clone）——null/失败=保守回退
+        // stale-only（回灌本体不阻塞+计数）
+        const batch = await deriveBatch(projectId, frames);
+        const persistInTx = persistInTxOf(projectId, batch, staleInTx);
         let roundAppended = false;
         try {
           const lastWalSeq = frames.reduce((m, f) => (f.walSeq > m ? f.walSeq : m), 0n);
@@ -1793,6 +1835,7 @@ export class CollabSpoolService {
             generation: genOf(projectId), walSeq: f.walSeq, frameHash: frameHashOf(f.payload), update: f.payload,
           })), { expectedPgSeq: null, newPgSeq: lastWalSeq, walCheckpointSeq: lastWalSeq }, persistInTx ?? staleInTx);
           if (!r.ok) throw new Error(`appendBatch fenced (${r.reason})`);
+          batch?.advance();   // M-b：**ok 后才推进基线**（失败/重试轮禁调——基线只含已提交前缀）
           await this.confirm(projectId, frames.map((f) => f.frameId));
           if (staledThisTx > 0) lifecycleFencesStaledTotal.inc(staledThisTx);
           replayed += frames.length;
@@ -1808,10 +1851,15 @@ export class CollabSpoolService {
             for (let attempt = 1; ; attempt++) {
               if (Date.now() > deadline) { failed += 1; this.logger.error(`spool replay budget-exhausted for ${projectId}:${frame.frameId}——帧保留（运行期由退避梯自愈，X5）`); break; }
               try {
+                // M-b 保全：逐帧重派生（失败轮基线未推进——本帧 effects 非空）+重试轮携 persist
+                //（修前重试轮 stale-only=首试 effects 永久丢）；每帧 ok 后逐帧 advance 基线。
+                const fb = await deriveBatch(projectId, [frame]);
+                const fpersist = persistInTxOf(projectId, fb, staleInTx);
                 const r2 = await repo.appendBatch(projectId, [CanvasDocUpdateRepository.singleFrameRow({
                   generation: genOf(projectId), walSeq: frame.walSeq, frameHash: frameHashOf(frame.payload), update: frame.payload,
-                })], { expectedPgSeq: null, newPgSeq: frame.walSeq, walCheckpointSeq: frame.walSeq }, staleInTx);
+                })], { expectedPgSeq: null, newPgSeq: frame.walSeq, walCheckpointSeq: frame.walSeq }, fpersist ?? staleInTx);
                 if (!r2.ok) throw new Error(`appendBatch fenced (${r2.reason})`, { cause: e });
+                fb?.advance();
                 await this.confirm(projectId, [frame.frameId]);
                 if (staledThisTx > 0) lifecycleFencesStaledTotal.inc(staledThisTx);
                 replayed += 1;

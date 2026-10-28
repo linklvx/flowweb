@@ -1823,7 +1823,7 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
         expect(kit.spool.depth()).toMatchObject({ strandedFiles: 0, ownFiles: 0 });   // 收养+回灌+回收闭环（缺 quarantine 步=段永不 unlink=红）
         await expect(stat(segPath)).rejects.toMatchObject({ code: 'ENOENT' });
         await expect(stat(`${segPath}.quarantine`)).rejects.toMatchObject({ code: 'ENOENT' });   // sidecar 随段回收
-        expect(kit.repo.appendBatch).toHaveBeenCalledWith('prc', expect.anything(), expect.objectContaining({ expectedPgSeq: null }), undefined);   // 好帧已回灌 PG（Y1c T10：回灌带水位 catch-up——expectedPgSeq=null 单调追赶形态；Y1c T26 第四参=stale inTx 位〔直构无 observer=undefined〕）
+        expect(kit.repo.appendBatch).toHaveBeenCalledWith('prc', expect.anything(), expect.objectContaining({ expectedPgSeq: null }), expect.any(Function));   // 好帧已回灌 PG（Y1c T10：回灌带水位 catch-up——expectedPgSeq=null 单调追赶形态；Y1c T27 收尾 M-b 第四参=派生 persist inTx 闭包〔boot 直构无 observer=stale 面 absent+persist 面代 no-op 形——派生在场即闭包，修前=undefined〕）
       } finally { await kit.dispose(); }
     } finally { await cleanup(); }
   });
