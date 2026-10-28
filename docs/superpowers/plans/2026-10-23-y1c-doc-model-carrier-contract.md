@@ -381,6 +381,9 @@ model MaintenanceOperation { maintenanceId String @id  projectId String
 - [x] **M-c(quality) FAILED_RESUME_REQUIRED REST 404→409**（collab-maintenance.controller start 映射——conflict 语义〔post-SWITCHING FAILED 在档需 resume roll-forward 非「项目不存在」〕；负控 404/409 旧档不回归）。红=404→绿=409。
 - [x] **nano 两件**：①registered-flakes.md 台账文件名笔误勘正（:37「collab-delivery int」→实际套件 collab-lifecycle-observer.t26.int.spec.ts〔DeliveryFence 交付域〕——仓内无 collab-delivery 文件）；②SUPERSEDED 接管窄窗「重试即愈」头注一行（actor enforceClientBinding——1008 可重试档非封禁，重连同四元再帧即对称接管回绑定）。
 - [x] **随批登记**：census 四锚同步（④encode +1=actor clone 编码/⑮applyUpdate 4→9+encode 白名单/㉜actor 4→9/㉞lockProject 期望 1→2〔I-3' 恢复裁定注记〕）；module-size gateway 1150→1161+persistence 1124→1146（净增面非膨胀）；metric-names 199。
+- **quality 复核登记两项（APPROVED 附带——2026-10-28，不阻断；SWEEPING 单 RTT 残窗先例同款）**：①锁等待计入 appendBatch 5s 交互事务上界——vacuumReplace（10s 上界）持锁期并发 flush 可能 P2028 超时，由 PG breaker/退避梯/spool 重试环承接=**恢复 T10 前既有语义**（同锁同上界先在）非新增退化；②reconciler derive 的 loadForHydration 基线装载在锁外——装载后同 tick 内 flush 先提交同帙时 effects 仍非空派生一次（seen 锁内去重保正确性，仅计数/实插计数虚高一次）——无正确性影响。
+
+**T27 闭环（2026-10-28，双员 APPROVED——spec@0db7528b〔I-1/I-2/I-3 全闭环+三非阻断注记〕/quality@667e5e04〔I-3'(a) 串行化独立推演闭合+绕过面全仓排查零+lifecycle 写路径全经锁内+五红四处 worktree 复演全真+四池对拍〕）：终态链 c560096d→0db7528b→667e5e04。**
 
 ### Task 28: P3 出口
 - [ ] G4/G5 证据汇编+增量投影（YEvent path[0] observeDeep——单节点 patch 断言）+verify 全绿→**用户确认点④**→Commit。
