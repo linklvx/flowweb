@@ -31,6 +31,8 @@ import { TopologyService } from '../execution/topology.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';   // Y1c T27 收口红④：CLI 源词法面（doc-shape 静态门先例）
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import type { Logger } from '@nestjs/common';
 
@@ -131,6 +133,7 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
     switchedWal = [];
     connsOf.length = 0;
     await prisma.maintenanceOperation.deleteMany({ where: { projectId: PID } });
+    await prisma.generationIntent.deleteMany({ where: { projectId: PID } });   // T27 收口：in-flight 布景行跨用例清（execSeq/idemKey 全局唯一——残留互撞）
     await buildKit();
   });
 
@@ -341,4 +344,106 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
   it('4413 载荷 Retry-After：freezeInfo 携带 retryAfterMs（wire 契约 retryAfterMs 字段面）', () => {
     expect(MAINTENANCE_FREEZE_RETRY_AFTER_MS).toBeGreaterThan(0);
   });
+
+  // ═══ Y1c T27 双评审收口批（Controller 裁定——红先行）═══
+  it('红①（I-1 双员收敛）pre-SWITCHING FAILED 恢复出口：FAILED 后 request 新行=接管（旧行 SUPERSEDED+闸换新 id）——修前=PROJECT_NOT_FOUND 误报=项目受理永久 503 唯手工 SQL', async () => {
+    // 布景：FAILED 落定（drain 超时——红③ 用例同法）
+    const gi = await prisma.generationIntent.create({
+      data: { projectId: PID, nodeId: 'n1', userId: 'u-x', teamId: 't-x', intentId: 'i-f1', kind: 'text',
+        paramsHash: 'h', creditCost: 0, heartbeatAt: new Date(), deadlineAt: new Date(Date.now() + 60_000),
+        idemKey: `idem-${randomUUID()}`, execSeq: 900011n } as never,
+    });
+    const failed = await maintenance.request({ projectId: PID, idempotencyKey: `k-${randomUUID()}`, requestedBy: 'int', source: 'rest' });
+    expect(failed.ok).toBe(true);
+    const failRun = await maintenance.run(failed.ok ? failed.maintenanceId : '', { drainBudgetMs: 50 });
+    expect(failRun.result).toBe('failed');
+    // ★ 红：FAILED 在档时 request 新行——修前 {ok:false, code:'PROJECT_NOT_FOUND'}（404 误报）
+    const takeover = await maintenance.request({ projectId: PID, idempotencyKey: `k-${randomUUID()}`, requestedBy: 'int', source: 'rest' });
+    expect(takeover.ok, `FAILED 接管应成功（got ${JSON.stringify(takeover)}）`).toBe(true);
+    if (!takeover.ok) return;
+    // 旧行 SUPERSEDED+闸换新 id+DB generation 未动（pre-SWITCHING——新 op 从当代重跑）
+    const prevOp = await prisma.maintenanceOperation.findUnique({ where: { maintenanceId: failed.ok ? failed.maintenanceId : '' } });
+    expect(prevOp?.stage).toBe('FAILED');
+    expect(prevOp?.status).toBe('SUPERSEDED');
+    expect((await prisma.canvasDoc.findUnique({ where: { projectId: PID }, select: { maintenanceId: true } }))?.maintenanceId).toBe(takeover.maintenanceId);
+    // 接管行可跑到 COMPLETED（出口真实可达——清障后新 op 全链）
+    await prisma.generationIntent.delete({ where: { id: gi.id } });
+    const rerun = await maintenance.run(takeover.maintenanceId, { drainBudgetMs: 3_000 });
+    expect(rerun.result).toBe('completed');
+    expect((await prisma.canvasDoc.findUnique({ where: { projectId: PID }, select: { generation: true } }))?.generation).toBe(1);
+  });
+
+  it('红①-b（I-1 误报码修正）post-SWITCHING FAILED：request 拒 FAILED_RESUME_REQUIRED（准确指引 resume roll-forward——非 404 误报）+resume 出口可达', async () => {
+    // 布景：COMPLETED 后手工改 FAILED+闸回写（=post-SWITCHING FAILED 形态：generation>=target）
+    const req = await maintenance.request({ projectId: PID, idempotencyKey: `k-${randomUUID()}`, requestedBy: 'int', source: 'rest' });
+    if (!req.ok) throw new Error('request 失败');
+    expect((await maintenance.run(req.maintenanceId, { drainBudgetMs: 3_000 })).result).toBe('completed');
+    await prisma.$executeRaw`UPDATE "MaintenanceOperation" SET stage = 'FAILED', status = 'FAILED', error = 'VERIFYING: injected' WHERE "maintenanceId" = ${req.maintenanceId}::text`;
+    await prisma.$executeRaw`UPDATE "CanvasDoc" SET "maintenanceId" = ${req.maintenanceId}::text WHERE "projectId" = ${PID}::text`;
+    // ★ post-SWITCHING FAILED 不接管（禁跳过 VERIFYING）——准确指引码
+    const again = await maintenance.request({ projectId: PID, idempotencyKey: `k-${randomUUID()}`, requestedBy: 'int', source: 'rest' });
+    expect(again).toMatchObject({ ok: false, code: 'FAILED_RESUME_REQUIRED' });
+    // resume roll-forward 出口可达：FAILED→VERIFYING→run→COMPLETED
+    const resume = await maintenance.resume(req.maintenanceId);
+    expect(resume).toMatchObject({ ok: true });
+    expect((await maintenance.run(req.maintenanceId)).result).toBe('completed');
+    expect((await prisma.canvasDoc.findUnique({ where: { projectId: PID }, select: { maintenanceId: true } }))?.maintenanceId).toBeNull();
+  });
+
+  it('红②（I-2 spec）FAILED 只读维持跨重启：boot resumeActiveOnBoot 重 freeze（只维持只读不续跑）——修前=frozen 进程面空+doc 帧写静默恢复（违「不自动恢复写」）', async () => {
+    // 布景：pre-SWITCHING FAILED 在 PG（run 失败档）+服务实例 freeze 面清空（=进程重启形态——fresh 实例）
+    const gi = await prisma.generationIntent.create({
+      data: { projectId: PID, nodeId: 'n1', userId: 'u-x', teamId: 't-x', intentId: 'i-f2', kind: 'text',
+        paramsHash: 'h', creditCost: 0, heartbeatAt: new Date(), deadlineAt: new Date(Date.now() + 60_000),
+        idemKey: `idem-${randomUUID()}`, execSeq: 900012n } as never,
+    });
+    const req = await maintenance.request({ projectId: PID, idempotencyKey: `k-${randomUUID()}`, requestedBy: 'int', source: 'rest' });
+    expect((await maintenance.run(req.ok ? req.maintenanceId : '', { drainBudgetMs: 50 })).result).toBe('failed');
+    maintenance.clearFrozenForTest();   // 进程内 freeze 面清空=重启形态
+    expect(maintenance.isFrozen(PID)).toBe(false);   // 红锚前提：重启后进程面空
+    // ★ boot 重 freeze：FAILED 行纳入（只维持只读不续跑——stage 仍 FAILED）
+    const resumed = await maintenance.resumeActiveOnBoot();
+    expect(resumed).toBe(1);
+    expect(maintenance.isFrozen(PID), 'FAILED 行重 freeze（只读维持跨重启）').toBe(true);
+    const opAfter = await prisma.maintenanceOperation.findUnique({ where: { maintenanceId: req.ok ? req.maintenanceId : '' } });
+    expect(opAfter?.stage).toBe('FAILED');   // 不续跑（run 未被触发——FAILED 无续跑面）
+    // 帧写仍 4413 只读维持（actor freeze 面经 host 读 maintenance）
+    const conn = { socketId: 's-r2', readOnly: false, context: { user: { id: 'u1' } }, sendStateless: () => {}, webSocket: { send: () => {}, close: () => {} } } as never;
+    const d = new Y.Doc(); const node = new Y.Map(); const data = new Y.Map();
+    data.set('model', 'z2'); node.set('type', 'textInput'); node.set('data', data);
+    d.getMap('nodes').set('nz2', node);
+    await expect(actor.submit(PID, Y.encodeStateAsUpdate(d), conn, 'update')).rejects.toMatchObject({ code: CollabCloseCode.MAINTENANCE_FREEZE });
+    await prisma.generationIntent.delete({ where: { id: gi.id } }).catch(() => {});
+  });
+
+  it('红④（I-2 quality）CLI SWITCHING 删除上界：锁内读后并发 append 一行 → seq<=maxSeq 上界删除 → 并发新行幸存（修前=整删静默丢帧）', async () => {
+    // ★ CLI 现行为红（词法面——doc-shape 静态门先例）：SWITCHING 事务 DELETE 必须带 seq 上界参数
+    //（修前=WHERE "projectId" 整删——锁内读后窗内并发新行被整删=换代后静默丢帧，tripwire 不覆盖外部删形态）
+    const cliSrc = readFileSync(join(process.cwd(), '../../scripts/collab-rebuild-gen.mjs'), 'utf8');
+    const delMatches = cliSrc.match(/DELETE FROM "CanvasDocUpdate"[^;]*/g) ?? [];
+    expect(delMatches.length, 'CLI SWITCHING 删除语句恰一处').toBe(1);
+    expect(delMatches[0], '删除谓词带 seq<=maxSeq 上界（修前=整删红）').toContain('seq <= $');
+    // DB 谓词语义锚（行为面）：布景 gen0 头+快照+两行增量（seq 1..2）——beforeEach seedDoc 基线
+    const before = await prisma.$queryRaw<{ n: number }[]>`SELECT COUNT(*)::int AS n FROM "CanvasDocUpdate" WHERE "projectId" = ${PID}::text`;
+    expect(before[0]!.n).toBe(2);
+    // CLI SWITCHING 事务谓词仿真：锁内读 maxSeq=2 → 并发插 seq=3（另一连接——真实 CLI 竞态窗形态）
+    // → DELETE 上界（修前 CLI WHERE projectId 整删=3 行全消；修后=+AND seq<=maxSeq 并发新行幸免）
+    const PrismaCtor = (await import('@prisma/client')).PrismaClient;
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${PID})::bigint)`;
+      const rows = await tx.$queryRaw<{ seq: bigint }[]>`SELECT seq FROM "CanvasDocUpdate" WHERE "projectId" = ${PID}::text ORDER BY seq ASC`;
+      const maxSeq = rows[rows.length - 1]!.seq;
+      const another = new PrismaCtor({ datasources: { db: { url: process.env.DATABASE_URL!.replace(/^"|"$/g, '') } } } as never);
+      try {
+        await another.$executeRaw`INSERT INTO "CanvasDocUpdate" ("projectId", generation, seq, "firstWalSeq", "frameCount", "updateHash", update, "createdAt")
+          VALUES (${PID}::text, 0::int, 3::bigint, 3::bigint, 1::int, ${'u' + '3'.padEnd(63, '0')}::char(64), ${Buffer.from(Y.encodeStateAsUpdate(createCanvasDoc()))}, now()) ON CONFLICT DO NOTHING`;
+      } finally { await another.$disconnect(); }
+      await tx.$executeRaw`DELETE FROM "CanvasDocUpdate" WHERE "projectId" = ${PID}::text AND seq <= ${maxSeq}::bigint`;
+    }, { timeout: 10_000 });
+    const after = await prisma.$queryRaw<{ seq: bigint }[]>`SELECT seq FROM "CanvasDocUpdate" WHERE "projectId" = ${PID}::text`;
+    expect(after.map((r) => r.seq), '并发新行幸存（上界删除——CLI 修前整删形态=3 行全消静默丢帧）').toEqual([3n]);
+    // 清场（seq=3 行为并发仿真残留——恢复布景基线供后续用例）
+    await prisma.$executeRaw`DELETE FROM "CanvasDocUpdate" WHERE "projectId" = ${PID}::text AND seq = 3::bigint`;
+  });
+
 });

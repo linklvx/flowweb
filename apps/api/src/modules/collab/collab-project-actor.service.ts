@@ -39,6 +39,7 @@
 // 闭包登记红 until 片D——见两登记面注释）。
 import { Injectable, Optional, Inject, Logger } from '@nestjs/common';
 import * as Y from 'yjs';
+import { createCanvasDoc } from './canvas-doc.factory';   // Y1c T27 收口 I-3：replay 派生基线 doc（工厂单源）
 import { createHash } from 'node:crypto';
 import {
   ACTOR_DRAIN_BATCH_MAX_BYTES,
@@ -554,8 +555,48 @@ export class CollabProjectActorService {
 
   /** Y1c T26 I-1 收口：观察器结构面透出（gateway boot replayAll 接线——spool 不 import service，
    *  结构类型 { staleProjectFencesInTx } 即 replay 回灌窗 stale 面；observer 未接线=undefined）。 */
-  get lifecycleObserverFace(): { staleProjectFencesInTx(tx: import('@prisma/client').Prisma.TransactionClient, projectId: string): Promise<number> } | undefined {
+  get lifecycleObserverFace(): {
+    staleProjectFencesInTx(tx: import('@prisma/client').Prisma.TransactionClient, projectId: string): Promise<number>;
+    /** Y1c T27 收口 I-3：persist 面（回灌帙重派生行同事务——replayAll lifecyclePersist 消费） */
+    persistFramesInTx(tx: import('@prisma/client').Prisma.TransactionClient, projectId: string, frames: readonly LifecycleFrame[]): Promise<unknown>;
+  } | undefined {
     return this.lifecycleObserver;
+  }
+
+  /** **Y1c T27 收口 I-3(spec)**：replay 回灌帙的帧前缀 effects 派生（T26 锚「恢复链终态=帧前缀重
+   *  derive」落地）：装载 PG 已提交前缀（repo.loadForHydration——快照+增量行重放）建基线 doc→
+   *  FrameEffectsCollector（T9 收集器单源——无第二套解析器）逐帧 begin/apply/take→LifecycleFrame[]。
+   *  L1/DENY/L2 不跑（回灌帧=崩溃前已过准入并 fsync 的帧——非准入面）；eventBuffer 弃置（L2 消费面
+   *  不在回灌域）。**幂等**：重试/ambiguous commit 重跑同帧——基线已含上轮提交行→重放 no-op diff→
+   *  effects 空+seen 命中跳过（persistFramesInTx 幂等承接）。派生失败=返回 null（fail-soft 保守回退
+   *  T26 最小正确 stale 面——回灌本体不阻塞）。
+   *  消费方=spool.replayAll deriveLifecycleFrames 回调（gateway boot 接线——listen 前串行：与 actor
+   *  flush 临界区时序不相交=无第二写者；lifecycleSeq 分配单点 persistFramesInTx 事务内 MAX+1 不变）。 */
+  async deriveLifecycleFramesForReplay(
+    pid: string,
+    frames: ReadonlyArray<{ walSeq: bigint; payload: Uint8Array }>,
+  ): Promise<LifecycleFrame[] | null> {
+    let doc: Y.Doc | null = null;
+    try {
+      const hydrate = await this.repo.loadForHydration(pid);
+      doc = createCanvasDoc();
+      const collector = new FrameEffectsCollector();
+      collector.install(doc);
+      if (hydrate.state) Y.applyUpdate(doc, new Uint8Array(hydrate.state));
+      for (const u of hydrate.updates) Y.applyUpdate(doc, new Uint8Array(u));
+      const out: LifecycleFrame[] = [];
+      for (const f of frames) {
+        collector.begin(f.walSeq);
+        Y.applyUpdate(doc, f.payload);
+        out.push({ walSeq: f.walSeq, effects: collector.take() });
+      }
+      return out;
+    } catch (err) {
+      this.host?.logger?.warn?.(`deriveLifecycleFramesForReplay failed for ${pid}: ${(err as Error).message}——保守回退 stale 面（回灌本体不阻塞）`);
+      return null;
+    } finally {
+      doc?.destroy();
+    }
   }
 
   /** Y1c T26 三轮 F-1：装载缝前缀报告（DR loadDocument→gateway 转发——doc 装载时已应用的 PG 前缀；

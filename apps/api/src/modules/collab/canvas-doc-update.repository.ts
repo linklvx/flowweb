@@ -447,7 +447,10 @@ export class CanvasDocUpdateRepository {
           select: { projectId: true, generation: true, seq: true },
         });
         if (liveRows.length !== expectedRowCount) {
-          throw Object.assign(new Error('vacuum 增量行集在锁内漂移（读后有并发写——中止重试）'), { vacuumRowsDrifted: true });
+          // T27 收口 M-1(quality)：drift throw 附锁内实读 dbGeneration（消费方 roll-forward 判据真值——
+          // 修前恒由 catch 侧回填 sourceGeneration=恒假死分支）
+          const driftHead = await tx.canvasDoc.findUnique({ where: { projectId }, select: { generation: true } });
+          throw Object.assign(new Error('vacuum 增量行集在锁内漂移（读后有并发写——中止重试）'), { vacuumRowsDrifted: true, dbGeneration: driftHead?.generation ?? expectedGeneration });
         }
         const liveDoc = await tx.canvasDoc.findUnique({ where: { projectId }, select: { generation: true, schemaVersion: true, vacuumEpoch: true, currentSnapshotRev: true } });
         // I1.2：锁内 generation 复核——≠expectedGeneration（调用方 ④ 装载读行值）⇒ aborted 档（先于任何写=DB 零变更）

@@ -122,6 +122,13 @@ async function main() {
   const client = new Client({ connectionString: loadDatabaseUrl() });
   await client.connect();
   try {
+    // --status 只读面先行（T27 收口 M-3 quality：诊断读不被租约 verdict 挡——运维在 api 活动期需看态）
+    if (args.includes('--status')) {
+      const ops = await q1(client, 'SELECT "maintenanceId", stage, status, attempt, "sourceGeneration", "targetGeneration", error, "createdAt" FROM "MaintenanceOperation" WHERE "projectId" = $1 ORDER BY "createdAt" DESC LIMIT 5', [projectId]);
+      console.log(JSON.stringify(ops, (k, v) => (typeof v === 'bigint' ? String(v) : v), 2));
+      return;
+    }
+
     // ── 红② 租约前置：无租约直写被拒（持有者在=api 在写——零 DB 写退出）──
     const verdict = decideLeaseVerdict(await readLeaseRow(client), Date.now());
     if (!verdict.ok) {
@@ -129,12 +136,6 @@ async function main() {
       process.exit(1);
     }
     console.log(`lease verdict: ${verdict.reason}${verdict.holder ? `（前持有者 ${verdict.holder}——已过期）` : ''}`);
-
-    if (args.includes('--status')) {
-      const ops = await q1(client, 'SELECT "maintenanceId", stage, status, attempt, "sourceGeneration", "targetGeneration", error, "createdAt" FROM "MaintenanceOperation" WHERE "projectId" = $1 ORDER BY "createdAt" DESC LIMIT 5', [projectId]);
-      console.log(JSON.stringify(ops, (k, v) => (typeof v === 'bigint' ? String(v) : v), 2));
-      return;
-    }
 
     const leaseOwner = `cli-rebuild-${randomUUID().slice(0, 8)}`;
     let maintenanceId = null;
@@ -147,11 +148,26 @@ async function main() {
       const id = `mt-${randomUUID()}`;
       await client.query('BEGIN');
       try {
-        const gated = await q1(client, 'UPDATE "CanvasDoc" SET "maintenanceId" = $2, "updatedAt" = now() WHERE "projectId" = $1 AND "maintenanceId" IS NULL RETURNING "maintenanceId", generation, "pgSeq", "schemaVersion"', [projectId, id]);
+        let gated = await q1(client, 'UPDATE "CanvasDoc" SET "maintenanceId" = $2, "updatedAt" = now() WHERE "projectId" = $1 AND "maintenanceId" IS NULL RETURNING "maintenanceId", generation, "pgSeq", "schemaVersion"', [projectId, id]);
         if (gated.length === 0) {
-          const head = await q1(client, 'SELECT "maintenanceId" FROM "CanvasDoc" WHERE "projectId" = $1', [projectId]);
+          const head = await q1(client, 'SELECT "maintenanceId", generation FROM "CanvasDoc" WHERE "projectId" = $1', [projectId]);
           if (head.length === 0) throw new Error('CANVAS_DOC_MISSING（懒建档项目——无 doc 态可维护）');
-          throw new Error(`MAINTENANCE_ACTIVE（maintenanceId=${head[0].maintenanceId}——头行关闸在）`);
+          const prevId = head[0].maintenanceId;
+          const prevOp = (await q1(client, 'SELECT stage, status, "targetGeneration" FROM "MaintenanceOperation" WHERE "maintenanceId" = $1', [prevId]))[0];
+          // T27 收口 I-1：pre-SWITCHING FAILED=接管（旧行 SUPERSEDED+闸换新 id 同事务——单点修 REST/CLI/vacuum 三路）
+          if (prevOp && prevOp.stage === 'FAILED' && prevOp.status !== 'SUPERSEDED') {
+            if (Number(head[0].generation) >= Number(prevOp.targetGeneration)) {
+              throw new Error(`FAILED_RESUME_REQUIRED（post-SWITCHING FAILED maintenanceId=${prevId}——经 --resume 面或 REST resume roll-forward）`);
+            }
+            await client.query(`UPDATE "MaintenanceOperation" SET status = 'SUPERSEDED' WHERE "maintenanceId" = $1`, [prevId]);
+            await client.query('UPDATE "CanvasDoc" SET "maintenanceId" = $2, "updatedAt" = now() WHERE "projectId" = $1 AND "maintenanceId" = $3', [projectId, id, prevId]);
+            gated = await q1(client, 'SELECT "maintenanceId", generation, "pgSeq", "schemaVersion" FROM "CanvasDoc" WHERE "projectId" = $1', [projectId]);
+            console.log(`takeover: ${prevId}（FAILED→SUPERSEDED——新行 ${id} 接管）`);
+          } else if (prevOp && prevOp.stage === 'FAILED') {
+            throw new Error(`MAINTENANCE_ACTIVE（maintenanceId=${prevId} 已被接管〔SUPERSEDED〕——接管行承载）`);
+          } else {
+            throw new Error(`MAINTENANCE_ACTIVE（maintenanceId=${prevId}——头行关闸在）`);
+          }
         }
         const generation = Number(gated[0].generation);
         await client.query(
@@ -258,7 +274,9 @@ async function main() {
                VALUES ($1, $2, $3, $4, now()) ON CONFLICT ("projectId") DO UPDATE SET generation = $2, "vacuumEpoch" = $4, "currentSnapshotRev" = 0, "purgeBelowSeq" = NULL, "updatedAt" = now()`,
               [projectId, targetGeneration, schemaVersion, vacuumEpoch],
             );
-            await client.query('DELETE FROM "CanvasDocUpdate" WHERE "projectId" = $1', [projectId]);
+            // T27 收口 I-2(quality)：seq<=maxSeq 上界（锁内读后窗内并发新行幸免——下轮 drift 中止收口；
+            // 修前 WHERE projectId 整删=换代后静默丢帧，tripwire 不覆盖外部删形态）
+            await client.query('DELETE FROM "CanvasDocUpdate" WHERE "projectId" = $1 AND seq <= $2', [projectId, maxSeq.toString()]);
             await client.query(`UPDATE "MaintenanceOperation" SET stage = 'SWITCHING', attempt = attempt + 1, "updatedAt" = now() WHERE "maintenanceId" = $1 AND stage = 'REBUILDING'`, [maintenanceId]);
             await client.query('COMMIT');
           } catch (e) { await client.query('ROLLBACK'); throw e; }

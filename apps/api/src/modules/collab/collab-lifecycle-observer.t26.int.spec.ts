@@ -16,6 +16,10 @@ import { CollabSpoolService } from './collab-spool.service';
 import { CollabPersistenceService } from './collab-persistence.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
+import { writeFile, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { CollabSpoolService as CollabSpoolServiceBase, encodeWalSegmentBytes, walSegmentFileName } from './collab-spool.service';
+void CollabSpoolServiceBase;
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import type { Logger } from '@nestjs/common';
 
@@ -487,5 +491,75 @@ describe('Y1c T26 收口批（真 PG）', () => {
     expect(await observer.deliveryFenceCheck(PID_A, 'nLagH')).toMatchObject({ allow: true });   // 重载后重对齐复活
     const lagVerdict = await observer.deliveryFenceCheck(PID_A, 'nLagD');
     expect(lagVerdict.allow).toBe(false);   // 已删节点恒拒（absent 不复活——PG 真值面）
+  }, 30_000);
+
+  // ═══ Y1c T27 收口批 I-3(spec)：replay 回灌帧前缀重 derive effects（恢复链终态）═══
+  it('红（T27 I-3）：replayAll 回灌帙经帧前缀重 derive——恢复链终态=lifecycle/义务/fence 与首次 apply 等价（红=现行机械回灌：删除帙落 PG 而三表零行+fenceSeq=0 stale 面）', async () => {
+    const pid = `t27-replay-${Date.now()}`;
+    await ensureProjectFixture(prisma, pid);
+    try {
+      await seedDocRow(pid);
+      await wipeLifecycleRows(pid);
+      // —— 基线：PG 已提交前缀（seq=1 建 n1 帧行——直插形态）+lifecycle 基线（n1 ACTIVE 行+fence 对齐：
+      // 模拟建帙当时已派生——derive 的 DB 基线态面）——
+      const fm = makeFrames();
+      const createFrame = fm.create('nR1');
+      await prisma.$executeRaw`INSERT INTO "CanvasDocUpdate" ("projectId", generation, seq, "firstWalSeq", "frameCount", "updateHash", update, "createdAt")
+        VALUES (${pid}::text, 1::int, 1::bigint, 1::bigint, 1::int, ${'r' + '1'.padEnd(63, '0')}::char(64), ${Buffer.from(createFrame)}, now())`;
+      await prisma.canvasDoc.update({ where: { projectId: pid }, data: { pgSeq: 1n, walCheckpointSeq: 1n } });
+      await prisma.nodeLifecycle.create({ data: { projectId: pid, nodeId: 'nR1', lifecycleSeq: 1n, isCurrent: true, state: 'ACTIVE', walSeq: 1n } });
+      await prisma.deliveryFence.create({ data: { projectId: pid, nodeId: 'nR1', fenceSeq: 1n, state: 'ACTIVE' } as never });
+      // —— 残留 WAL：段文件含 walSeq=2 帧=删 n1 diff（崩溃未 confirm 形态——删除帙只落 WAL 不落 PG）——
+      const delFrame = fm.del('nR1');
+      const hist = await prisma.systemHistory.findUnique({ where: { id: 1 } });
+      const segBytes = encodeWalSegmentBytes(
+        { projectId: pid, generation: 1, historyId: hist!.historyId, createdAtMs: Date.now(), lastWriteAtMs: Date.now() },
+        [{ walSeq: 2n, generation: 1, payload: delFrame }],
+      );
+      const segDir = await makeSpoolDir('y1c-t27-replay-');
+      try {
+        await mkdir(join(segDir.dir, 't27-replay-owner'), { recursive: true });
+        await writeFile(join(segDir.dir, 't27-replay-owner', walSegmentFileName(pid, 1, 0)), segBytes);
+        // 重启形态：新 spool 实例（同目录）+recoverScan+replayAll（derive 回调注入=actor 派生面）
+        const spool2 = new CollabSpoolService(segDir.dir);
+        spool2.setOwner('t27-replay-owner');
+        spool2.setProjectGeneration(pid, 1);
+        await spool2.recoverScan({ systemHistory: { historyId: hist!.historyId, epochStartedAtMs: hist!.epochStartedAt.getTime() }, pgSeq: () => 1n });
+        const observer2 = new CollabLifecycleObserverService(prisma as never);
+        const actor2 = new CollabProjectActorService(spool2, repo, undefined, observer2);
+        // derive 回调=actor 公法（红=方法缺席/回调被忽略——as any 传键：现行 opts 无此面）
+        const derive = (target: string, frames: Array<{ walSeq: bigint; payload: Uint8Array }>) =>
+          (actor2 as unknown as { deriveLifecycleFramesForReplay?: (p: string, f: Array<{ walSeq: bigint; payload: Uint8Array }>) => Promise<unknown> })
+            .deriveLifecycleFramesForReplay?.(target, frames) ?? null;
+        const r = await spool2.replayAll(repo, {
+          projectIds: [pid],
+          lifecycleObserver: observer2,
+          deriveLifecycleFrames: derive,
+          lifecyclePersist: (tx: import('@prisma/client').Prisma.TransactionClient, pid2: string, frames: never) => observer2.persistFramesInTx(tx, pid2, frames),
+        } as never);
+        expect(r.replayed).toBe(1);
+        // 帧行落 PG（回灌本体）+pgSeq 推进
+        const head = await prisma.canvasDoc.findUnique({ where: { projectId: pid }, select: { pgSeq: true } });
+        expect(head?.pgSeq).toBe(2n);
+        // ★ 恢复链终态（等价断言——T26 首 apply 语义）：DELETED 当前行（翻 ACTIVE 历史行）
+        const rows = await prisma.nodeLifecycle.findMany({ where: { projectId: pid, nodeId: 'nR1' }, orderBy: { lifecycleSeq: 'asc' } });
+        expect(rows.length, 'lifecycle 行在（红=现行回灌零行）').toBeGreaterThanOrEqual(2);
+        expect(rows[0].state).toBe('ACTIVE');
+        expect(rows[0].isCurrent).toBe(false);
+        expect(rows[rows.length - 1].state).toBe('DELETED');
+        expect(rows[rows.length - 1].isCurrent).toBe(true);
+        // fence 对齐（红=现行 fenceSeq=0 stale 面）
+        const fence = await prisma.deliveryFence.findUnique({ where: { projectId_nodeId: { projectId: pid, nodeId: 'nR1' } } });
+        expect(fence?.state).toBe('DELETED');
+        expect(fence?.fenceSeq).toBe(rows[rows.length - 1].lifecycleSeq);
+        // 三义务（NODE_DELETED→[FEED_TOMBSTONE,NODE_DELETED,EXEC_FINALIZE]——帧↔义务原子）
+        const obligations = await prisma.lifecycleObligation.findMany({ where: { projectId: pid, nodeId: 'nR1' }, orderBy: { kind: 'asc' } });
+        expect(obligations.map((o) => o.kind)).toEqual(['EXEC_FINALIZE', 'FEED_TOMBSTONE', 'NODE_DELETED']);
+        expect(obligations.every((o) => o.walSeq === 2n)).toBe(true);
+      } finally { await segDir.cleanup(); }
+    } finally {
+      await wipeLifecycleRows(pid);
+      await cleanupProjectFixture(prisma, pid);
+    }
   }, 30_000);
 });

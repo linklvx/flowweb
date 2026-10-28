@@ -38,8 +38,16 @@
   间歇红——T25b 终验轮单文件隔离态亦间歇（2 红 3 绿）；1caaaf6f 池轮同爆、与 T25b 三 commit 零代码
   交叠=先置时序/负载 flake 非回归。处置=隔离重跑绿即过（禁以环境态调阈值——与 soak 族同款口径）。
 
-- 2026-10-28（Y1c T27 首跑批登记）：web canvasCollabRuntime.t25.spec **文件级顺序敏感间歇红**——单文件跑
-  closeout-1/closeout-2c/mr1-2/b1-1/b4-1 五例中 1-4 例间歇红（逐例 -t 隔离恒绿；同日全 web 池两轮
+- 2026-10-28（Y1c T27 首跑批登记；双评审 M-4(spec) 收口并入 mr4-1 枚举）：web canvasCollabRuntime.t25.spec
+  **文件级顺序敏感间歇红**——单文件跑 closeout-1/closeout-2c/mr1-2/mr4-1/b1-1/b4-1 六例（mr4-1=T25b 批
+  既有预算放宽族成员——本批观察并入同族枚举）中 1-4 例间歇红（逐例 -t 隔离恒绿；同日全 web 池两轮
   4168/4168 全绿）；**stash A/B 实证 HEAD（无 T27 改动+dist 同步重建）同形态复现**=先置状态非本批回归
-  （怀疑面=fake timers+模块级 runtime 状态跨用例泄漏的时序窗口——与 mr1-2 已登记的 60s 预算自愈带宽
-  同族）。处置=隔离重跑绿即过；根修（文件内用例间状态隔离）归 T28 出口复核窗呈报 Controller 裁定。
+  （怀疑面=fake timers+模块级 runtime 状态跨用例泄漏的时序窗口）。处置=隔离重跑绿即过；根修（文件内
+  用例间状态隔离）归 T28 出口复核窗呈报 Controller 裁定。
+
+- 2026-10-28（Y1c T27 双评审 M-6(quality) 两新观察例登记）：
+  ① collab.gateway.persist-status 批3-4 族用例在高载池轮下间歇超时（负载放大真协议透传窗——与
+    auth-reason T24 终验行同款口径）；
+  ② collab-quota-gate「编码成本⑤」用例（真空编码全根重建段）满载并行下偶超（重编码 8MiB 级源 doc
+    的 CPU 窗被并发池放大——隔离跑绿）。两例处置均=隔离重跑绿即过（禁以环境态调阈值——Y7/soak 同款）。
+

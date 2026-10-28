@@ -1737,6 +1737,17 @@ export class CollabSpoolService {
       budgetMs?: number; retryDelayMs?: number; maxAttempts?: number; projectIds?: string[];
       /** 结构面（spool 不 import service）：stale 与回灌帙同事务。 */
       lifecycleObserver?: { staleProjectFencesInTx(tx: import('@prisma/client').Prisma.TransactionClient, projectId: string): Promise<number> };
+      /** **Y1c T27 收口 I-3(spec)**：帧前缀 effects 派生回调（gateway 接线=actor.deriveLifecycleFramesForReplay
+       *  ——T9 collector 单源无第二解析器）。在场且 lifecyclePersist 在场时回灌帙与重派生
+       *  obligations/lifecycle 行同事务（恢复链终态=与首次 apply 等价——T26 plan 锚落地）；返回 null
+       *  =派生失败保守回退 stale-only（回灌本体不阻塞）。
+       *  单写者论证：回灌=boot listen 前串行（actor 临界区未接管）——两调用面时序不相交；lifecycleSeq
+       *  分配单点=persistFramesInTx 事务内 per-project MAX+1（无并发分配窗——T26 M-3 选型不变）。
+       *  actorRanges 注记（T27 附言②裁定落痕）：回灌行 actorRanges 恒 NULL=「恢复纪元非认领写」语义
+       *  非数据缺失——**消费者须显式判 NULL（fail-closed）**，要求非 NULL 的未来消费点不得静默容缺。 */
+      deriveLifecycleFrames?: (projectId: string, frames: ReadonlyArray<{ walSeq: bigint; payload: Uint8Array }>) => Promise<ReadonlyArray<{ walSeq: bigint; effects: readonly import('@flowweb/shared').FrameEffect[] }> | null>;
+      /** observer persist 面（与 deriveLifecycleFrames 配对消费——结构内联同 stale 面先例）。 */
+      lifecyclePersist?: (tx: import('@prisma/client').Prisma.TransactionClient, projectId: string, frames: ReadonlyArray<{ walSeq: bigint; effects: readonly import('@flowweb/shared').FrameEffect[] }>) => Promise<unknown>;
     },
   ): Promise<{ replayed: number; failed: number; discarded: number }> {
     const deadline = Date.now() + (opts?.budgetMs ?? CollabSpoolService.REPLAY_BUDGET_MS);
@@ -1759,6 +1770,19 @@ export class CollabSpoolService {
         if (frames.length === 0) break;
         const totalBytes = frames.reduce((s, f) => s + f.payload.byteLength, 0);
         if (totalBytes > CollabSpoolService.REPLAY_MERGE_MAX_BYTES) frames.length = this.truncateByBytes(frames, CollabSpoolService.REPLAY_MERGE_MAX_BYTES);
+        // Y1c T27 收口 I-3：帧前缀重派生（轮内帧集）——null/失败=保守回退 stale-only（回灌本体不阻塞）
+        let derivedFrames: ReadonlyArray<{ walSeq: bigint; effects: readonly import('@flowweb/shared').FrameEffect[] }> | null = null;
+        if (opts?.deriveLifecycleFrames && opts?.lifecyclePersist) {
+          try {
+            derivedFrames = (await opts.deriveLifecycleFrames(projectId, frames)) ?? null;
+          } catch { derivedFrames = null; }
+        }
+        const persistInTx = derivedFrames && opts?.lifecyclePersist && staleInTx
+          ? async (tx: import('@prisma/client').Prisma.TransactionClient) => {
+              await staleInTx(tx);                                        // 先项目级 stale 打点（T26 R-1①——fence 先失配）
+              await opts!.lifecyclePersist!(tx, projectId, derivedFrames!);   // 后重派生行+fence 对齐覆写（触达节点）
+            }
+          : staleInTx;   // 无派生面=现行 stale-only（T26 最小正确）
         let roundAppended = false;
         try {
           const lastWalSeq = frames.reduce((m, f) => (f.walSeq > m ? f.walSeq : m), 0n);
@@ -1767,7 +1791,7 @@ export class CollabSpoolService {
           //（恢复=从 pgSeq 重放——T13 编排，本处机械推进）。
           const r = await repo.appendBatch(projectId, frames.map((f) => CanvasDocUpdateRepository.singleFrameRow({
             generation: genOf(projectId), walSeq: f.walSeq, frameHash: frameHashOf(f.payload), update: f.payload,
-          })), { expectedPgSeq: null, newPgSeq: lastWalSeq, walCheckpointSeq: lastWalSeq }, staleInTx);
+          })), { expectedPgSeq: null, newPgSeq: lastWalSeq, walCheckpointSeq: lastWalSeq }, persistInTx ?? staleInTx);
           if (!r.ok) throw new Error(`appendBatch fenced (${r.reason})`);
           await this.confirm(projectId, frames.map((f) => f.frameId));
           if (staledThisTx > 0) lifecycleFencesStaledTotal.inc(staledThisTx);

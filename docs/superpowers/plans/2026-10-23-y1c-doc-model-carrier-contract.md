@@ -358,6 +358,21 @@ model MaintenanceOperation { maintenanceId String @id  projectId String
 - [x] 每 stage kill -9 演练+G9 继承组绿→Commit。（T27 落地批注：kill -9=collab-t27-kill9.process.int.spec 真子进程 spawn+SIGKILL〔T13 kill9 先例〕×REQUESTED/FREEZING/DRAINING/DRAINED/EXPORTING/REBUILDING/SWITCHING/VERIFYING 八断点+重跑续至 COMPLETED〔SWITCHING 后崩溃窗 roll-forward 不重切〕+真租约行子进程 exit 1 零写；G9 继承组=shrink 26/26+quota-gate 18/18+t12-vacuum 4/4——委托形态适配：quiesce 判据 pendingQueues→in-flight 五面/terminal close 4410@启动→4413@freeze/serving 门→帧准入执法/事务纪律 drift=generation-drift 净 abort 档）
 - [x] T26 收口批锚（spec I——恢复链终态）：replay 路径经 collector/帧前缀重 derive effects（persistFramesInTx 幂等可直接复用——现 replayAll 为最小正确 stale 面〔fenceSeq=0 fail-closed+presence 重对齐〕）；若引入第二写者同步补 lifecycleSeq 分配串行化。三轮 F-1 补锚：**doc-lag 窗禁重对齐至重载**（boot replayAll 预算耗尽→reconciler 回灌窗=PG 越过 doc 已应用前缀——presence 捕获被 loadPgSeq 门槛禁、fence 维持 stale 拒至 doc 重载；恢复链终态须含本窗收口确认）。（T27 落地批注：本卡零第二写者引入——维护执行经 actor 临界区外纯 DB 面+既有 vacuumReplace 咨询锁，lifecycleSeq 分配串行化面不动；F-1 doc-lag 窗收口确认=freeze 期新连接帧全拒 4413+维护帧照常落 PG〔红①〕+boot resumeActiveOnBoot listen 前重 freeze——reconciler 回灌不越 freeze 面）
 
+
+**T27 双评审收口批（Controller 裁定 2026-10-28——spec=3I+6M/quality=2I+6M；红先行→绿）**：
+- [x] **I-1（双员收敛）pre-SWITCHING FAILED 恢复出口**：request() 关闸守卫扩展——gate 0 行时读关联 op：pre-SWITCHING FAILED（DB generation<target）=**同事务接管**（旧行 status=SUPERSEDED〔stage 恒 FAILED——11 值转移表冻结〕+闸换新 id+新 op 建行；单点修 REST/CLI/vacuum 三路；CLI 离线同款）；post-SWITCHING FAILED=拒 **FAILED_RESUME_REQUIRED**（准确指引 resume roll-forward——修前 PROJECT_NOT_FOUND 误报=受理永久 503 唯手工 SQL）；resume() 增 SUPERSEDED 守卫。红=FAILED 后 request 新行 404 误报→绿=接管+旧行 SUPERSEDED+新行跑到 COMPLETED。
+- [x] **I-2(spec) FAILED 只读维持跨重启**：resumeActiveOnBoot 纳入 FAILED 行**重 freeze（只维持只读不续跑）**+SUPERSEDED 排除（freeze/run 归接管行）——修前排除 FAILED=重启后 frozen 进程面空+doc 帧写静默恢复（违「不自动恢复写」）。红=FAILED 行重启后帧写受理→绿=4413 只读维持+stage 恒 FAILED（无续跑）。
+- [x] **I-3(spec) T26 锚 replay 重 derive effects 落地（默认落地不降级）**：spool.replayAll 增 deriveLifecycleFrames/lifecyclePersist 双回调（gateway boot 接线）——actor 新公法 deriveLifecycleFramesForReplay（loadForHydration 建基线 doc→**T9 FrameEffectsCollector 单源**逐帧 begin/apply/take；L1/DENY/L2 不跑〔回灌帧=崩溃前已过准入帧〕；派生失败=null 保守回退 stale-only 不阻塞回灌）→回灌帙与重派生 obligations/lifecycle 行同事务（persistFramesInTx 幂等复用）。**单写者论证**：回灌=boot listen 前串行（actor 临界区未接管）两调用面时序不相交；lifecycleSeq 分配单点 persistFramesInTx 事务内 MAX+1 不变（无并发分配窗）。红=残留 WAL 删除帙回灌后 lifecycle/义务零行+fenceSeq=0 stale→绿=DELETED 当前行+三义务〔FEED_TOMBSTONE/NODE_DELETED/EXEC_FINALIZE〕+fence 对齐=与首次 apply 等价。
+- [x] **I-2(quality) CLI SWITCHING 删除上界**：DELETE 增 `AND seq<=maxSeq`（锁内读后窗内并发新行幸免→下轮 drift 中止收口；修前 WHERE projectId 整删=换代后静默丢帧——tripwire 不覆盖外部删形态）。红=CLI 源词法面无上界+DB 并发仿真整删→绿=上界删除+并发行幸存。
+- [x] 随批五小件：①M-1(quality) vacuumReplace drift throw 附锁内实读 **dbGeneration**（switchingStage catch 透传——修前恒回填 sourceGeneration=恒假死分支）；②M-3(quality) CLI --status 只读移租约 verdict 前（诊断读不被挡）；③M-3(spec) actorRanges NULL=fail-closed 裁定头注落 spool.replayAll（回灌行 NULL=恢复纪元非认领写语义——消费者须显式判 NULL）；④M-5(spec) roll-forward 4410 载荷 generation 改 **DB 真值**（spec R3 口径——aborted 接管分支同律）；⑤M-2 两登记见下残留节。
+
+**T27 残留登记（M-6(spec) 集中——双评审登记不修归档）**：
+- VERIFYING SV 对比+smoke 缺席——语义级 records hash 等价论证可接受（schemaVersion 断言在位）。
+- 懒建档 CANVAS_DOC_MISSING 拒档（空画布保头升代=头行在即升代——懒建档无 doc 态可维护）；CLI 与在线互斥 advisory 双保险 boot 竞态中段窗已知；REST dev fail-open（COLLAB_ADMIN_TOKEN 未设——生产置令牌）；withDoc 写通道（writeBatch）freeze 期未拦=census until=T32 既有登记（执法面=WS 帧 4413+执行受理行级门+recovery-import 门）。
+- **M-2(quality)** vacuum 委托后 REST error 档 `{result:'error'}` 200 返回（旧链 throw→REST 500）——语义变化=中止明细进 body 非 5xx；消费面=前端 toast 已按 result 分档（登录容错路径不受 5xx 假设影响）——可接受登记。
+- **M-2(spec)** 归档=一份 PG dump 回滚：生产大库全量 dump 不现实——软化口径=**SWITCHING 前 pg_dump --table 载体族**（CanvasDoc/CanvasDocUpdate/CanvasDocSnapshot/MaintenanceOperation 四表）+PITR 常规备份兜底（T29 charter 承载）；审计 payload 操作说明已随行。
+- **M-4(quality)** CLI 换代不调 spool.switchGeneration（旧段清理/quarantine sidecar/去重族清理无人执行——api 重启后 spool 面按 PG 真值重建可自洽但旧段文件滞留）→**T30b 切换演练前置确认项**。
+- **M-5(quality)** beginVacuumEra/setVacuuming/abortVacuumRepairStore 等零调用方残留（setVacuuming 仍由 gateway isVacuuming 族测试消费）→**T32 删码清单核销**（§6.7）。
 ### Task 28: P3 出口
 - [ ] G4/G5 证据汇编+增量投影（YEvent path[0] observeDeep——单节点 patch 断言）+verify 全绿→**用户确认点④**→Commit。
 

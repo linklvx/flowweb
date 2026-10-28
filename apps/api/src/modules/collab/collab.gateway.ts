@@ -967,7 +967,13 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         }
         // Y1c T26 I-1 收口：回灌帙与项目级 fence stale 同事务（observer 经 actor 结构面透出——
         // DI 单例接线；直构自建路径无 observer=不 stale〔恢复窗交付面由 T22 权威切换前置确认辖〕）。
-        const replay = await this.spool.replayAll(this.repo, { lifecycleObserver: this.projectActor.lifecycleObserverFace });
+        // Y1c T27 收口 I-3(spec)：回灌帙经帧前缀重 derive effects（恢复链终态=与首次 apply 等价——
+        // T26 plan 锚落地；派生=actor collector 单源；listen 前串行=单写者论证见 spool.replayAll 头注）
+        const replay = await this.spool.replayAll(this.repo, {
+          lifecycleObserver: this.projectActor.lifecycleObserverFace,
+          deriveLifecycleFrames: (pid, frames) => this.projectActor.deriveLifecycleFramesForReplay(pid, frames),
+          lifecyclePersist: (tx, pid, frames) => this.projectActor.lifecycleObserverFace?.persistFramesInTx(tx, pid, frames) ?? Promise.resolve(null),
+        });
         if (replay.failed > 0) {
           this.logger.error(JSON.stringify({ event: 'spool_startup_selfcheck', replayFailed: replay.failed, replayed: replay.replayed, discarded: replay.discarded }));
         }

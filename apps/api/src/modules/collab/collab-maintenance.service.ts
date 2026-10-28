@@ -103,7 +103,7 @@ export type BuildRebuildPayload = (ctx: { hydrate: HydrationRow; sourceGeneratio
 
 export type MaintenanceRequestOutcome =
   | { ok: true; maintenanceId: string; stage: MaintenanceStage }
-  | { ok: false; code: 'PROJECT_NOT_FOUND' | 'CANVAS_DOC_MISSING' | 'MAINTENANCE_ACTIVE' | 'IN_FLIGHT_EXECUTIONS' | 'IDEMPOTENCY_KEY_MISMATCH'; maintenanceId?: string };
+  | { ok: false; code: 'PROJECT_NOT_FOUND' | 'CANVAS_DOC_MISSING' | 'MAINTENANCE_ACTIVE' | 'IN_FLIGHT_EXECUTIONS' | 'IDEMPOTENCY_KEY_MISMATCH' | 'FAILED_RESUME_REQUIRED'; maintenanceId?: string };   // FAILED_RESUME_REQUIRED=T27 收口 I-1：post-SWITCHING FAILED 准确指引（resume roll-forward）
 
 export type MaintenanceRunResult =
   | { result: 'completed'; generation: number }
@@ -223,9 +223,34 @@ export class CollabMaintenanceService {
       if (gated.length === 0) {
         const head = await readCanvasDocHead(tx, opts.projectId);
         if (head.status === 'missing') return { ok: false as const, code: 'CANVAS_DOC_MISSING' as const };
-        const active = await tx.maintenanceOperation.findFirst({ where: { projectId: opts.projectId, stage: { notIn: ['COMPLETED', 'FAILED', 'ABORTED'] } } });
-        if (active == null) return { ok: false as const, code: 'PROJECT_NOT_FOUND' as const };
-        return { ok: false as const, code: 'MAINTENANCE_ACTIVE' as const, maintenanceId: active.maintenanceId };
+        const prevId = head.row.maintenanceId!;
+        const prevOp = await tx.maintenanceOperation.findUnique({ where: { maintenanceId: prevId } });
+        if (prevOp != null && prevOp.stage === 'FAILED') {
+          // Y1c T27 收口 I-1（双员收敛）：FAILED 恢复出口——pre-SWITCHING FAILED=新 op 接管
+          //（旧行 status=SUPERSEDED+闸换新 id，同事务原子——单点修 REST/CLI/vacuum 三路；修前
+          // PROJECT_NOT_FOUND 误报=项目受理永久 503 唯手工 SQL）；post-SWITCHING FAILED=拒+准确指引
+          //（resume roll-forward——禁新行跳过 VERIFYING）。
+          if (head.row.generation >= prevOp.targetGeneration) {
+            return { ok: false as const, code: 'FAILED_RESUME_REQUIRED' as const, maintenanceId: prevId };
+          }
+          await tx.maintenanceOperation.update({ where: { maintenanceId: prevId }, data: { status: 'SUPERSEDED' } });   // stage 恒 FAILED（11 值转移表冻结——终态无出边；SUPERSEDED=被接管标记，status 自由域）
+          await tx.canvasDoc.updateMany({ where: { projectId: opts.projectId, maintenanceId: prevId }, data: { maintenanceId, updatedAt: new Date() } });
+          await tx.maintenanceOperation.create({ data: {
+            maintenanceId, projectId: opts.projectId, stage: 'REQUESTED', status: 'ACTIVE', attempt: 0,
+            sourceGeneration: head.row.generation, targetGeneration: head.row.generation + 1,
+            schemaVersion: head.row.schemaVersion ?? CANVAS_DOC_SCHEMA_VERSION, cutoffPgSeq: head.row.pgSeq,
+            idempotencyKey: opts.idempotencyKey, leaseOwner: opts.leaseOwner ?? null,
+          } });
+          await audit(tx, opts.projectId, maintenanceId, opts.requestedBy, {
+            stage: 'REQUESTED', source: opts.source, takeoverOf: prevId,
+            sourceGeneration: head.row.generation, targetGeneration: head.row.generation + 1,
+            cutoffPgSeq: String(head.row.pgSeq), note: 'FAILED 接管（I-1 收口——旧行 SUPERSEDED）',
+          });
+          return { ok: true as const, maintenanceId, generation: head.row.generation };
+        }
+        if (prevOp == null) return { ok: false as const, code: 'PROJECT_NOT_FOUND' as const };   // 孤儿闸（maintenanceId 指向不存在 op——数据损坏态保守拒；处置=人工核对）
+        if (['COMPLETED', 'ABORTED'].includes(prevOp.stage)) return { ok: false as const, code: 'MAINTENANCE_ACTIVE' as const, maintenanceId: prevId };   // 终态行+闸在=终态清闸事务被绕过的损坏态——按关闸在拒
+        return { ok: false as const, code: 'MAINTENANCE_ACTIVE' as const, maintenanceId: prevOp.maintenanceId };
       }
       const { generation, pgSeq, schemaVersion } = gated[0]!;
       await tx.maintenanceOperation.create({ data: {
@@ -367,20 +392,23 @@ export class CollabMaintenanceService {
     const live = await readCanvasDocHead(this.prisma, pid);
     if (live.status === 'found' && live.row.generation >= targetGeneration) {
       // 前次 SWITCHING 已提交（崩溃窗 roll-forward）——只补事务后动作
-      await this.postSwitchActions(pid, targetGeneration);
+      // T27 收口 M-5(spec)：4410 载荷 generation=DB 真值（spec R3 口径——非 target 投影；并发更高代时载荷如实）
+      await this.postSwitchActions(pid, live.row.generation);
       return { ok: true };
     }
     const replaced = await this.repo.vacuumReplace(pid, payload.state, payload.updateRowCount, sourceGeneration, async (tx) => {
       // 同事务 stage 写（SWITCHING=唯一不可回退点在档——崩溃后重启 roll-forward 判据）
       await tx.maintenanceOperation.updateMany({ where: { maintenanceId, stage: 'REBUILDING' }, data: { stage: 'SWITCHING', status: 'ACTIVE', attempt: { increment: 1 } } });
-    }).catch((err: { vacuumRowsDrifted?: boolean }) => {
-      if (err?.vacuumRowsDrifted) return { aborted: 'rows-drifted' as const, dbGeneration: sourceGeneration };
+    }).catch((err: { vacuumRowsDrifted?: boolean; dbGeneration?: number }) => {
+      // T27 收口 M-1(quality)：透传 drift throw 附着的锁内实读 dbGeneration（roll-forward 判据真值——
+      // 修前回填 sourceGeneration=恒假死分支）
+      if (err?.vacuumRowsDrifted) return { aborted: 'rows-drifted' as const, dbGeneration: err.dbGeneration ?? sourceGeneration };
       throw err;
     });
     if ('aborted' in replaced) {
       // 锁内 generation 复核漂移（跨进程 CLI 换代竞态窗）——pre-SWITCHING 净 abort 档
       if (replaced.dbGeneration >= targetGeneration) {
-        await this.postSwitchActions(pid, targetGeneration);
+        await this.postSwitchActions(pid, replaced.dbGeneration);   // M-5(spec)：4410 载荷=DB 真值
         return { ok: true };
       }
       return { ok: false, reason: 'generation-drift' };
@@ -602,9 +630,10 @@ export class CollabMaintenanceService {
 
   /** 人工显式 resume（FAILED 出口——操作面动作非转移表边）：post-SWITCHING FAILED（已过提交点）=
    *  roll-forward 重开（FAILED→VERIFYING 重跑）；pre-SWITCHING FAILED=新 operation 行（返回指引）。 */
-  async resume(maintenanceId: string): Promise<{ ok: true } | { ok: false; code: 'NOT_FOUND' | 'NEW_OPERATION_REQUIRED' }> {
+  async resume(maintenanceId: string): Promise<{ ok: true } | { ok: false; code: 'NOT_FOUND' | 'NEW_OPERATION_REQUIRED' | 'SUPERSEDED' }> {
     const op = await this.prisma.maintenanceOperation.findUnique({ where: { maintenanceId } });
     if (!op) return { ok: false, code: 'NOT_FOUND' };
+    if (op.status === 'SUPERSEDED') return { ok: false, code: 'SUPERSEDED' };   // 被接管旧行（I-1——接管行承载续跑，旧行无面）
     if (op.stage !== 'FAILED') return { ok: false, code: 'NEW_OPERATION_REQUIRED' };   // 非 FAILED 无 resume 面（运行中/终态）
     const live = await readCanvasDocHead(this.prisma, op.projectId);
     if (live.status === 'found' && live.row.generation >= op.targetGeneration) {
@@ -626,18 +655,23 @@ export class CollabMaintenanceService {
     };
   }
 
-  /** boot 恢复（gateway startCollabAfterLease init 消费——**重启从 PG stage 继续**）：ACTIVE 行重 freeze
-   *  +续跑（listen 前置位=freeze 窗口新帧 4413——重启空窗不放进新写）。 */
+  /** boot 恢复（gateway startCollabAfterLease init 消费——**重启从 PG stage 继续**）：非终态行重 freeze
+   *  +续跑（listen 前置位=freeze 窗口新帧 4413——重启空窗不放进新写）。
+   *  Y1c T27 收口 I-2(spec)：**FAILED 行纳入重 freeze（只维持只读不续跑）**——修前排除 FAILED=重启后
+   *  frozen 进程面空+doc 帧写静默恢复（违 spec「不自动恢复写」）；FAILED 终态无续跑面（等人工接管：
+   *  request 新行〔I-1 出口——接管时 frozen 键随新 op 重置〕∨ resume roll-forward）。SUPERSEDED 行
+   *  （被接管旧 FAILED）排除——freeze/run 均归接管行。 */
   async resumeActiveOnBoot(): Promise<number> {
-    const active = await this.prisma.maintenanceOperation.findMany({
-      where: { stage: { notIn: ['COMPLETED', 'FAILED', 'ABORTED'] } },
-      select: { maintenanceId: true, projectId: true },
+    const pending = await this.prisma.maintenanceOperation.findMany({
+      where: { stage: { notIn: ['COMPLETED', 'ABORTED'] }, status: { not: 'SUPERSEDED' } },
+      select: { maintenanceId: true, projectId: true, stage: true },
     });
-    for (const op of active) {
+    for (const op of pending) {
       this.frozen.set(op.projectId, { maintenanceId: op.maintenanceId, retryAfterMs: MAINTENANCE_FREEZE_RETRY_AFTER_MS });
+      if (op.stage === 'FAILED') continue;   // 只读维持不续跑（无自动恢复写）
       void this.run(op.maintenanceId).catch((e) => this.logger.error(`boot resume failed for ${op.projectId}: ${(e as Error).message}`));
     }
-    return active.length;
+    return pending.length;
   }
 
   /** 测试面：freeze 台账清（beforeEach 布景复位）。 */

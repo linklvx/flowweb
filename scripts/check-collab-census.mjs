@@ -896,7 +896,7 @@ if (isMain()) {
     // Y1c T9（2026-10-24）：spool-first 写管线核心两新文件入闭包（经 gateway 引入）——applyUpdate=gate
     // 档生产调用点（㉜ 同批登记）；frame-gate hocuspocus import=beforeSyncPayload type-only 行。
     'apps/api/src/modules/collab/collab-project-actor.service.ts': {
-      applyUpdate: { n: 1, until: '片D' },               // actor pre-apply（准入链 ⑤——apply 归属换代的唯一显式调用）
+      applyUpdate: { n: 4, until: '片D' },               // T9 actor pre-apply ⑤+T27 收口 I-3 replay 重派生（基线装载×2+逐帙 apply——load 档语义）
     },
     // Y1c T21（G4 门）：ExecutionService 冻结路径引入闭包——applyUpdate=PG 前缀重建候选 doc 装载
     // （load 档语义同 repository compact scratch；㉜ 同批登记）。
@@ -1530,7 +1530,7 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-integrity-probe.ts': 2,
     // Y1c T9（2026-10-24）gate 档落地：actor pre-apply 调用点 1（准入链 ⑤——origin=GateApplyOrigin）；
     // 白名单 14+1=15 点/9 文件（gate 档从注释升级为登记条目——Y1c T9 写入方换代）
-    'apps/api/src/modules/collab/collab-project-actor.service.ts': 1,   // actor pre-apply（drain 批逐帧——spool 先于 apply）
+    'apps/api/src/modules/collab/collab-project-actor.service.ts': 4,   // T9 pre-apply ⑤+T27 收口 I-3 deriveLifecycleFramesForReplay（基线装载×2+逐帙 apply——replay 重派生 load 档）
     // Y1c T25（写入方换代）：recovery import 档三点——候选 clone 快照 apply（§3.2 唯一 clone 场所）/
     // temp typed 内容并入候选/commit diff 以 origin='import' 直写 live（全量校验后受控生命周期操作）
     'apps/api/src/modules/collab/collab-recovery-import.service.ts': 3,
