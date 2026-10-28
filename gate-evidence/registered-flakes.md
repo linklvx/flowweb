@@ -29,6 +29,8 @@
 - 2026-10-27（Y1c T24 终验微批）：collab.gateway.auth-reason「session-expired 真协议透传」在 verify full
   背靠背满载轮下 10s 用例超时（用例含完整 onModuleInit 启动链——负载放大启动窗）；隔离 3/3 绿+同码
   冷却后 verify full 30/30 PASS（口径同 Y7 行——环境负载态非回归，禁以环境态调阈值）。
+  **T28 复击中（2026-10-28）**：T28 出口 verify full 首轮〔四池跑完背靠背〕同例 10s 超时——隔离
+  12/12 绿+冷却重跑 verify full PASS（同款处置；本行为族时间序列第三击，非回归）。
 
 - 2026-10-28（Y1c T25b 双评审收口 spec M-2 登记）：collab-soak-t19.heavy.spec.ts 负载敏感 flake——本机高载态
   （多全池并行/宿主后台高 CPU）时间歇红，隔离/净载跑绿；baseline 高载同爆实证已录（T25b 批全池并行验证期）。
@@ -52,4 +54,16 @@
     auth-reason T24 终验行同款口径）；
   ② collab-quota-gate「编码成本⑤」用例（真空编码全根重建段）满载并行下偶超（重编码 8MiB 级源 doc
     的 CPU 窗被并发池放大——隔离跑绿）。两例处置均=隔离重跑绿即过（禁以环境态调阈值——Y7/soak 同款）。
+
+- 2026-10-28（Y1c T28 出口复核登记——T27 spec 复核移交 web 超时族入册）：web 池 admin/team 页测试族
+  高载池轮超时（admin/TeamPage·TeamBillingPage·TeamSidebar·AdminLayout 四 .test.tsx——T27 spec 复核
+  观察移交）。隔离绿证据=T28 出口 HEAD 单跑四文件 29/29 绿；零代码交叠=两目录 Y1c 全程零 commit
+  （admin 末触 2026-10-13 3f327eec/team 末触 2026-09-19 a2f3b292——均先置）。处置=负载敏感族隔离重跑
+  绿即过（与 soak/Y7 同款口径，禁以环境态调阈值）。
+
+- 2026-10-28（Y1c T28 出口复核新观察例）：collab.gateway.spec「绿9：队列身份恒定——软阈跨点闩锁
+  flush」满载池轮单红（T28 四池轮 api 3061/3062 唯一失败）；定向 -t 隔离 2/2 绿+全文件隔离 92/92 绿。
+  零代码交叠=夹具为 plain-object 节点值（无 data 信封/媒体字段——T28 collect 媒体引用差分根修分支
+  结构性不可达）；断言面=队列身份/闩锁 flush（无 effects 消费）。处置=隔离重跑绿即过（Y7/persist-status
+  同款负载族口径——禁以环境态调阈值）。
 

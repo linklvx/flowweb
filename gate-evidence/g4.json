@@ -1,10 +1,10 @@
 {
   "gate": "G4",
-  "commit": "49b6d722",
+  "commit": "ba96b052",
   "env": {
-    "date": "2026-10-26（二轮收口重认证——a7f79271/d9aad7ab 作废链）",
+    "date": "2026-10-28（T28 P3 出口全量重认证——认证对象 49b6d722 滞后 HEAD 33 commit〔T23-T27 各批+微批〕，按确认点②先例 G2 重跑 e93a0c91 形态全量用例在最终代码树重跑；零适配=14 cases 断言/命令原样全绿，同文件用例数演进〔t21-g4 7→9/t21-c1 12→17〕=T21 二轮收口+T23-T27 合法用例演进非本批改动）；前序=2026-10-26 二轮收口重认证（a7f79271/d9aad7ab 作废链）",
     "runtime": "windows 10.0.26300（Git Bash）+ Node vitest 2.1.9；int 池=真 PostgreSQL（localhost:5432/flowweb，vitest.int.config）；迁移二=20261025120000_y1c_t21_execution_business（prisma migrate deploy 已 apply——DB≡schema diff 空）",
-    "suite": "T21 面=execution-request.t21-g4.int.spec（真 PG 7）+execution-frozen.t21-c1.int.spec（真 PG 12：C1 三态/I2 settle 失败不吞/I1 交错 ab/I-3 配额/幂等域+P2002/requestId 界/M-4 SKIPPED/M-3 dedup/I4 SQL≡纯函数真值表）+collab-project-actor.t21-freeze.spec（⑥ 3+I-1 换代作废 1）+web canvasCollabRuntime.t21-barrier.spec（9：回执四则+四触发+Durable 判据/旧回执负控）+canvas-doc-update.repository.spec（R2）",
+    "suite": "T21 面=execution-request.t21-g4.int.spec（真 PG 9=T21 主体 7+二轮收口 2）+execution-frozen.t21-c1.int.spec（真 PG 17=C1 三态/I2 settle 失败不吞/I1 交错 ab/I-3 配额/幂等域终裁四态+P2002/requestId 界/M-4 SKIPPED/M-3 dedup/I4 SQL≡纯函数真值表——二轮幂等域+收口批合法演进至 17）+collab-project-actor.t21-freeze.spec（4=⑥ 3+I-1 换代作废 1）+web canvasCollabRuntime.t21-barrier.spec（9：回执四则+四触发+Durable 判据/旧回执负控）+canvas-doc-update.repository.spec（30——R2 单 preimage describe 在册）",
     "scope": "spec §9.1 G4 行：受理输入与文档前缀一致；重放不改已冻结输入；受理后改 prompt/拓扑/model/上游/删节点不影响计划（plan v1.7 Task 21）",
     "redEvidence": "首轮七红留证（g4 主体批）+收口批红：C1 付费态=FundsInvariantError 全回滚红（settleInTx settled:false+凭据不成立）/I2=资金悬挂红（settle 吞错 498≠496）/I1(b)=void 无 CAS 抢占红（EXECUTING 资金被释放）/幂等序=集合比对忽略序红（异序 200 非 409）/P2002=500 ADMIPTION_FAILED 红/requestId 界缺失红/SKIPPED=remaining 卡 EXECUTING 红/dedup=正文 N 份红——逐项转绿；诚实登记：I-1 换代检查为实现先行（其测试红=竞态窗未覆盖形态非实现缺失红）；web 四触发为绿证补齐（红性不可补——收口批前实现已在）；二轮收口红：幂等域①序≠拓扑序重放恒 409（有序比对证伪）+边信封 Y.Map 暗坑（拓扑退化请求序）+R-M-1 计数死分支（413 不触发）+R1 stale 重装双扣+R3 COMPLETED 复烧外呼/FAILED 落穿——逐项转绿"
   },
@@ -149,6 +149,6 @@
     }
   ],
   "skipped": 0,
-  "notes": "二轮收口（最新 commit）：幂等域终裁 R-I-1（集比对+docSeq 出域）+边信封 Y.Map 读键暗坑根修（拓扑退化）+R-M-1/R2 引用图计数真源+R1 settle 金额守卫（守卫优于改判 void——注记在码）+R3 终态重执行门+装饰项（unused import 删/registered-flakes 端口竞态登记/plan T22 幂等语义更新）。登记不修码维持：#4 残留两处冻结注释（T22 窗口）+客户端受理接线（T22 派发——幂等语义已按 R-I-1 更新入 plan）；PITR→T31/maintenance→T27/sweeper 常驻→T29/video durationId→T23。",
+  "notes": "二轮收口（最新 commit）：幂等域终裁 R-I-1（集比对+docSeq 出域）+边信封 Y.Map 读键暗坑根修（拓扑退化）+R-M-1/R2 引用图计数真源+R1 settle 金额守卫（守卫优于改判 void——注记在码）+R3 终态重执行门+装饰项（unused import 删/registered-flakes 端口竞态登记/plan T22 幂等语义更新）。登记不修码维持：#4 残留两处冻结注释（T22 窗口）+客户端受理接线（T22 派发——幂等语义已按 R-I-1 更新入 plan）；PITR→T31/maintenance→T27/sweeper 常驻→T29/video durationId→T23。 T28 P3 出口重认证（2026-10-28）：全量 14 cases 在最终代码树全绿零适配——execution-request.t21-g4.int 9/9+execution-frozen.t21-c1.int 17/17+collab-project-actor.t21-freeze 4/4+canvas-doc-update.repository.spec 30/30+web canvasCollabRuntime.t21-barrier 9/9（全文件调用形态=T22 G5 末轮选型 a 承袭——-t 过滤均为文件内子集，全文件绿即用例绿）；四池基线=shared 787/787+api 3061/3062（collab.gateway 绿9 软阈闩锁在册 flake 隔离 92/92 绿——registered-flakes T28 行）+api-int 491/491+web 4168/4168+verify:fast 16 PASS+verify:full 30/30 PASS+census 33/33+8/8。",
   "verdict": "go"
 }

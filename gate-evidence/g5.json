@@ -1,8 +1,8 @@
 {
   "gate": "G5",
-  "commit": "c29ff6c3",
+  "commit": "ba96b052",
   "env": {
-    "date": "2026-10-26（T22 G5 末轮小收口批——①五条认证命令可复现性根修〔-t 定向改全文件调用〕+②C-3 命中窗确定性化〔外持 RuntimeFeedCursor 表锁+pg_sleep——红对照 gate-evidence/t22-c3-red-deterministic.txt〕；前序链=双评审收口批 f3abe9a7+三扫尾 d8620d8f/4e3b2112/3a0a61f9 至 cbec3fc5）",
+    "date": "2026-10-28（T28 P3 出口全量重认证——认证对象 c29ff6c3 滞后 HEAD 18 commit〔T23-T27 各批+微批〕，按确认点②先例 G2 重跑 e93a0c91 形态全量用例在最终代码树重跑；零适配=原 17 cases 断言/命令原样全绿〔全文件调用形态=末轮选型 a 承袭〕+新增量投影用例 C18〔T28 卡内点名——真红根修〕）；前序链=f3abe9a7→三扫尾→cbec3fc5→末轮小收口 c29ff6c3",
     "runtime": "windows 10.0.26300（Git Bash）+ Node vitest 2.1.9；int 池=真 PostgreSQL（localhost:5432/flowweb，vitest.int.config）；零新迁移",
     "suite": "T22 收口面=runtime-feed.t22-g5.int（16：主体 13+收口 C-3 快照竞态〔RR+先 cursor 后 events+≤lastSeq 过滤——末轮确定性命中窗=外持 RuntimeFeedCursor 表锁+pg_sleep〕/I-5 租约重派崩溃窗/I-9 跨项目同 nodeId 串扰）+runtime-feed.t22-closeout.spec（M-15 lastKnown 提交后写+M-16 after 畸形 400）+collab-t22-delivery-switch.int（7：主体 5+M-10 并发幂等〔fence 锁外持确定性 TOCTOU〕+I-8 payload 契约键）+web runtimeFeedWiring.spec（2：C-1 生产接线+心跳同形）+web runtimeArtifactOverlay.spec（2：C-2 overlay 红→绿+legacy 兜底序）+runtimeStore.t22.spec（15：主体 12+I-7 gap 两档+M-2 historyId）+主体批全部既有面（poller int 15/harness 6/exec-map 7/execView 21）",
     "scope": "spec §9.1 G5 行+双评审收口定性「同切片切交付只完成了删除半边」——客户端半链生产接线（C-1）/产物渲染 overlay（C-2）/snapshotEnvelope 竞态（C-3）+I-4..I-9+M-2/3/5/10/11/13..18",
@@ -71,7 +71,9 @@
       "status": "pass",
       "expect": "首连快照 {snapshot,cursor 三元,minRetainedSeq,historyId} 折叠槽位正确+C-3 竞态不变量（确定性命中窗——racer 事务持 RuntimeFeedCursor 表 ACCESS EXCLUSIVE 锁+pg_sleep 卡「cursor 已 bump、事件已插、未提交」窗）：凡 feedSeq≤cursor 的事件必已折叠（RR+先 cursor 后 events+≤lastSeq 过滤——父版本 RC 先 events 后 cursor 读窗跨提交=cursor 领先折叠事件必红，红对照 3/3 复现留档 artifacts）",
       "detail": "换代必须全量 snapshot 服务端半链（#10）；historyId 不匹配→客户端清投影重建；末轮改全文件调用（原 -t '快照|C-3' 依赖兄弟用例播种 n1/n-lock/n-ob 事件=独立执行结构性假红；C-3 例末轮已自播种基线可独立跑）",
-      "artifacts": ["gate-evidence/t22-c3-red-deterministic.txt"]
+      "artifacts": [
+        "gate-evidence/t22-c3-red-deterministic.txt"
+      ]
     },
     {
       "id": "G5-C9-retention",
@@ -144,6 +146,14 @@
       "expect": "M-15 appendEventTransaction lastKnown 提交后写（$transaction resolve 前采样 null——修前 append 闭包内已写红）；M-16 after 畸形（'12x'/'-1'/''）=400 BadRequestException+合法值原样传 service",
       "detail": "心跳快照不抢跑未提交序（幽灵水位根修）；游标损坏 fail-fast 以 snapshot 自愈",
       "artifacts": []
+    },
+    {
+      "id": "G5-C18-incremental-projection-path0",
+      "command": "cd apps/api && npx vitest run src/modules/collab/collab-project-actor.spec.ts -t 'T28'",
+      "status": "pass",
+      "expect": "T28 卡内点名形态：observeDeep 事件 path[0] 定位单节点+单字段 patch 的增量投影——帧级 effects 恰一 FIELD_CHANGED{nodeId=path[0],key}（邻节点零 effect）+媒体引用字段单点换绑=恰一 MEDIA_REF ADDED/REMOVED 对（olds=ch.oldValue↔news 现值逐 id 差分）+ProjectDocIndex 增量 apply≡rebuild(doc) 全量重建等值对拍（邻节点投影不动）",
+      "detail": "T28 真红根修：修前 collect 媒体引用字段 update 档只发 MEDIA_REF_ADDED（旧 mediaId 无 REMOVED）⇒换绑后旧引用永驻 mediaRefsByNode 增量投影（与 rebuild 漂移+T26 MediaBinding reconcile 增量镜像读陈旧引用）——红锚=帧3 effects 断言+增量≡重建对拍双红→根修（差分序 ADDED 先 REMOVED 后=data 整键分支同款）转绿；帧构造=事务 update 采集（on(update) 生产形态——full-state 再编把被覆写旧项重发 ContentDeleted=L1 value-type 执法拒之属预期）；同文件 22/22；域归属=runtime projection/feed（FrameEffects→义务→RuntimeEvent feed 链+docIndex 增量投影——G5 域）",
+      "artifacts": []
     }
   ],
   "invariants": [
@@ -201,6 +211,6 @@
     }
   ],
   "skipped": 0,
-  "notes": "T22 收口批落地面：客户端半链生产接线（C-1 collabApi 两 fetcher+armSession 注入+心跳同形放宽）+产物渲染 overlay 四节点（C-2——MultiImage 选型=stacked 主图位）+snapshotEnvelope RR 竞态收口（C-3——probe 转迭代用例）+I-7 gap→全量快照+I-8 词表根修（exec.status 扩 intentId/rearmable——spec §7 v5.4⑭ 行+修订行 39 同步+shared 契约锁+面板 EXHAUSTED 判据可达）+I-5/I-9 sweeper 租约重派与跨项目域过滤+M-10 幂等前置迁 fence 锁后+M-15/M-16/M-18。census ㉝ deliverArtifact until=T22 登记转绿核销（writeExecStatus/writeBatch until=T32 保留复核）；lint 白名单登记 runtimeStore（I-4——mediaFactsRuntime 先例）；measured-readers 棘轮行号同步（C-2 注释位移）。登记与移交：M-11 docSeq 应用门=注释勘正（buffered 恒 0 未实现真 buffer——真接线需 doc 通道 pgSeq 单源联动，plan T22 卡登记）；M-5 NodeExecution 零写者→plan T23 登记行（不修码）；EXEC_FINALIZE 消费=留 T23（sweeper 不 claim 维持）；M-14 C13 命令修正（-t 'FEED_TOMBSTONE|NODE_DELETED|租约|跨项目' 真选中四例）。存量环境失败维持：media-content/media-probe（MinIO 环境——T26 批起登记的 HEAD 既有）。验证基线：shared 753/753+api unit 2972/2972+web 4104/4104+api int 418 passed/16 skipped（2 fail=上述 MinIO 既有）+lint-gate 全绿+census 33/33+verify:fast 16 PASS+verify:full 30/30 PASS（日志行 verify-chain: PASS〔30 步，tier=full〕）。commit 链：主体收口=f3abe9a7（本 manifest 全部认证面的行为代码）+三扫尾=d8620d8f（spec §10 metric-names 补登记 collab_lifecycle 三计数——T26 漏册）/4e3b2112（module-size 锚表五文件补账——T26/T22 批漏登锚）/3a0a61f9（t21-c1 spec 两机械 lint 违例——均门禁台账/机械面零行为变化，认证 commit 取最终代码态）。末轮小收口（2026-10-26，认证 commit 追 c29ff6c3）：①五条认证命令可复现性根修=选型 a 全文件调用（quality 复核唯一 I 级「照抄即红」收口——C4/C5/C6/C8/C9 原 -t 定向跳过同文件播种用例〔feedSeq=1 genesis/cursor 行/n1·n-lock·n-ob 事件由兄弟用例播种；beforeAll 每次建新 PID 无跨 run 残留〕=独立执行结构性假红；改全文件后五命令逐条实跑全绿〔C5=static 1/1+int 16/16；C4/C6/C8/C9 各 16/16〕；未选 b 五用例自播种=期望值〔[1..9]/>9n/minRow 基线等〕编码文件时序叙事、逐例改写=大面测试变更且弱化叙事设计，C-3 例本批已顺带自播种基线可独立跑）；②C-3 命中窗确定性化（spec 复核 M-A「八轮迭代对已知坏代码不红」根修——外持 RuntimeFeedCursor 表锁+pg_sleep；红对照=父版本 73c87a6a service 3/3 必红+现码 4/4 恒绿，留档 gate-evidence/t22-c3-red-deterministic.txt；测试变更⇒本 manifest 重认证 commit 追新终态 c29ff6c3——两段式纪律维持）；③plan 登记：MultiImageNode overlay 反应性→T32 前置登记行（selector 集缺投影订阅——定价启用前需补；选型落 T32 非 T23 注明）+T22 观察级 snapshotEnvelope currentHistoryId 事务外读（跨 vacuum 窗混纪元信封；自愈面=客户端 historyId 不匹配→快照+4410 兜底）；census ㉝ writeExecStatus 登记注释勘正（T22 主体批已切 PG 事件零 doc 写——until=T32 维持、措辞改实，33/33 PASS）；④registered-flakes 补两行（web 池 stale-transform-cache/soak heavy echo p95 环境敏感——A/B 判定 9d3ada45 同机同败=环境态非回归）。验证基线：pre-commit verify:fast skip-db 12 步 PASS+check-collab-census 33/33+check-plan-census 8/8+verify:fast 16 步（见收尾日志）。",
+  "notes": "T22 收口批落地面：客户端半链生产接线（C-1 collabApi 两 fetcher+armSession 注入+心跳同形放宽）+产物渲染 overlay 四节点（C-2——MultiImage 选型=stacked 主图位）+snapshotEnvelope RR 竞态收口（C-3——probe 转迭代用例）+I-7 gap→全量快照+I-8 词表根修（exec.status 扩 intentId/rearmable——spec §7 v5.4⑭ 行+修订行 39 同步+shared 契约锁+面板 EXHAUSTED 判据可达）+I-5/I-9 sweeper 租约重派与跨项目域过滤+M-10 幂等前置迁 fence 锁后+M-15/M-16/M-18。census ㉝ deliverArtifact until=T22 登记转绿核销（writeExecStatus/writeBatch until=T32 保留复核）；lint 白名单登记 runtimeStore（I-4——mediaFactsRuntime 先例）；measured-readers 棘轮行号同步（C-2 注释位移）。登记与移交：M-11 docSeq 应用门=注释勘正（buffered 恒 0 未实现真 buffer——真接线需 doc 通道 pgSeq 单源联动，plan T22 卡登记）；M-5 NodeExecution 零写者→plan T23 登记行（不修码）；EXEC_FINALIZE 消费=留 T23（sweeper 不 claim 维持）；M-14 C13 命令修正（-t 'FEED_TOMBSTONE|NODE_DELETED|租约|跨项目' 真选中四例）。存量环境失败维持：media-content/media-probe（MinIO 环境——T26 批起登记的 HEAD 既有）。验证基线：shared 753/753+api unit 2972/2972+web 4104/4104+api int 418 passed/16 skipped（2 fail=上述 MinIO 既有）+lint-gate 全绿+census 33/33+verify:fast 16 PASS+verify:full 30/30 PASS（日志行 verify-chain: PASS〔30 步，tier=full〕）。commit 链：主体收口=f3abe9a7（本 manifest 全部认证面的行为代码）+三扫尾=d8620d8f（spec §10 metric-names 补登记 collab_lifecycle 三计数——T26 漏册）/4e3b2112（module-size 锚表五文件补账——T26/T22 批漏登锚）/3a0a61f9（t21-c1 spec 两机械 lint 违例——均门禁台账/机械面零行为变化，认证 commit 取最终代码态）。末轮小收口（2026-10-26，认证 commit 追 c29ff6c3）：①五条认证命令可复现性根修=选型 a 全文件调用（quality 复核唯一 I 级「照抄即红」收口——C4/C5/C6/C8/C9 原 -t 定向跳过同文件播种用例〔feedSeq=1 genesis/cursor 行/n1·n-lock·n-ob 事件由兄弟用例播种；beforeAll 每次建新 PID 无跨 run 残留〕=独立执行结构性假红；改全文件后五命令逐条实跑全绿〔C5=static 1/1+int 16/16；C4/C6/C8/C9 各 16/16〕；未选 b 五用例自播种=期望值〔[1..9]/>9n/minRow 基线等〕编码文件时序叙事、逐例改写=大面测试变更且弱化叙事设计，C-3 例本批已顺带自播种基线可独立跑）；②C-3 命中窗确定性化（spec 复核 M-A「八轮迭代对已知坏代码不红」根修——外持 RuntimeFeedCursor 表锁+pg_sleep；红对照=父版本 73c87a6a service 3/3 必红+现码 4/4 恒绿，留档 gate-evidence/t22-c3-red-deterministic.txt；测试变更⇒本 manifest 重认证 commit 追新终态 c29ff6c3——两段式纪律维持）；③plan 登记：MultiImageNode overlay 反应性→T32 前置登记行（selector 集缺投影订阅——定价启用前需补；选型落 T32 非 T23 注明）+T22 观察级 snapshotEnvelope currentHistoryId 事务外读（跨 vacuum 窗混纪元信封；自愈面=客户端 historyId 不匹配→快照+4410 兜底）；census ㉝ writeExecStatus 登记注释勘正（T22 主体批已切 PG 事件零 doc 写——until=T32 维持、措辞改实，33/33 PASS）；④registered-flakes 补两行（web 池 stale-transform-cache/soak heavy echo p95 环境敏感——A/B 判定 9d3ada45 同机同败=环境态非回归）。验证基线：pre-commit verify:fast skip-db 12 步 PASS+check-collab-census 33/33+check-plan-census 8/8+verify:fast 16 步（见收尾日志）。 T28 P3 出口重认证（2026-10-28）：原 17 cases 全绿零适配（全文件调用——delivery-switch 7/7+runtime-feed.t22-g5 16/16+poller 15/15+provider-convergence 6/6+static 1/1+closeout 3/3+shared runtime-event 17/17+web runtimeStore 15/15+execView 18/18+wiring 2/2+overlay 2/2；execView 21→18=T23-T27 同文件合法用例演进）+新增 C18 增量投影用例（真红根修：collect 媒体引用字段 update 档差分缺口——collab-project-actor.service collect 分支olds/news 差分根修+22/22 全文件绿）；四池基线=shared 787/787+api 3061/3062（gateway 绿9 在册 flake 隔离绿）+api-int 491/491+web 4168/4168+verify:fast 16+verify:full 30/30 PASS+census 33/33+8/8。",
   "verdict": "go"
 }

@@ -214,7 +214,8 @@
     "T24 边界维持登记（T16 切片注记承袭+增量）：L2（apply 后 changed-subtree walk+per-connection 毒帧速率限制）+全类型矩阵运行时准入+URL hostname-only/非 http(s) scheme/深链三条（T16 双评审 Q-M-3/M-4）+Q-I-3 残余（同 textarea 双端聚焦并发仍本地基线）+T17 D-1（并发 replace 瞬态重复 id=known limit）+T17 复核 D-3（api 写原语域键守卫不对称→T24 统一收口）+T19 Q-M-6（toPublicReadModel 字段级浅 sanitize 理论缺口）均归 T24；T16 切片「单 manager 收口形态归 T18」注记已由 C13-C15 兑现撤销。",
     "质量出口挂账（确认点②裁定承袭）：一次 verify:full 30/30 全绿=P2 出口/T34 硬门（推荐 CI 存档——master 领先 origin/master 76 commit 未 push，push 后跑）；本门 verify:fast 16/16 已在最终 HEAD 实跑留证。",
     "观测发现登记（Controller 台账——零代码变更纪律下不动）：api eslint 存量 3 错（2 处 P1 期引入+1 处=T19 收口 fc6a4d68 引入的 spec 标题字符串 no-useless-escape）+verify-manifest api-eslint 步 glob 含 test/** 而 apps/api/test 目录不存在（模式不匹配即步红）——两项均在 api 面、不在 verify:fast 16 步内；verify:full（30 步）含 api-eslint 与 web-lint——CI 存档前收口候选，随确认点③呈报。",
-    "红证据承袭注记：T16 三轴（web 5 红/双端 LWW 红/api 11 红）=T16 卡实跑；T15/T17/T18/T19 各卡红轴（拒写半落/数组整串替换/栈积压+双 tab LWW/读者差异表+Q-I-1 时序）在各卡 commit message「红先行」节与 gate-evidence/t19-review-q-i-1-red.txt 留档——本全量版为收口后全绿复跑（数字见 notes④），红相不重演。"
+    "红证据承袭注记：T16 三轴（web 5 红/双端 LWW 红/api 11 红）=T16 卡实跑；T15/T17/T18/T19 各卡红轴（拒写半落/数组整串替换/栈积压+双 tab LWW/读者差异表+Q-I-1 时序）在各卡 commit message「红先行」节与 gate-evidence/t19-review-q-i-1-red.txt 留档——本全量版为收口后全绿复跑（数字见 notes④），红相不重演。",
+    "T28 HEAD delta 状态行（2026-10-28——确认点③裁定「T34 前补 delta 状态」兑现）：认证对象 fc6a4d68（T19 双评审收口=P2 出口态）滞后 T28 终态 45 commit（fc6a4d68..2dcfffaf=43+T28 两段式 2——P3 全程 T21-T27 各批+微批）；G3 面 HEAD 态证据=T28 P3 出口四池全绿（web 4168/4168+api 3061/3062 唯一失败=collab.gateway 绿9 在册负载 flake 隔离 92/92 绿+api-int 491/491+shared 787/787——G3 19 cases 对应套件〔T15-T19 面〕全在默认池内）+verify:fast 16+verify:full 30/30 PASS；本行=delta 状态注记非重认证（G3 manifest 完整重认证〔commit==HEAD 硬门〕归 T34 发布门——届时 G1-G6a 全 manifest 机器判定）。落 T28 而非留 T34 的理由：确认点③裁定要求 T34 前、T28=P3 出口最早可落点且四池证据同批在产，避免状态跨 P4 五卡再滞留。"
   ],
   "go": true
 }
