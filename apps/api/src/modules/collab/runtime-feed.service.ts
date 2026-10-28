@@ -256,11 +256,19 @@ export class RuntimeFeedService {
    * 客户端 `seq<=cursorSeq` 去重+`h<=cursor` 忽略=永久漏事件。修=RepeatableRead（语句单快照）
    * +语句序先 cursor 后 events（cursor 读锚定快照——events 只见 ≤快照态）+过滤 feedSeq≤lastSeq
    * （belt-and-braces：即便时点差也被谓词收死——cursor 恒 ≥ 折叠尾）。
+   * Y1c T27 附言③裁定（T22 观察级登记收口）：historyId 读**入事务内**（首语句——原事务外读在
+   * vacuum 换代窗/bump 窗可产混纪元信封〔cursor.historyId 与事件流纪元不一致〕；自愈面=客户端
+   * historyId 不匹配→全量快照+4410 兜底仍承载）。成本论证：SystemHistory id=1 单行 PK 点读，
+   * RR 快照锚从 cursor 语句改为 historyId 语句——零额外锁面（plain SELECT 非 FOR UPDATE）零额外
+   * 往返（同事务语句），bump 事务（单行 UPDATE）与本读的相交窗=仅 bump 提交瞬间的快照选择差
+   * ——语义恰好收口（全旧或全新，无混态）。
    */
   async snapshotEnvelope(projectId: string): Promise<RuntimeFeedSnapshotEnvelope> {
-    const historyId = await this.currentHistoryId();
     return this.prisma.$transaction(async (tx) => {
-      const cursorRow = await tx.runtimeFeedCursor.findUnique({ where: { projectId } });   // ①先 cursor（RR 快照锚）
+      const historyRow = await tx.systemHistory.findUnique({ where: { id: 1 }, select: { historyId: true } });   // ⓪先 historyId（RR 快照锚——T27 附言③：与 cursor/events/docRows 同快照）
+      if (!historyRow) throw new Error('SYSTEM_HISTORY_MISSING: SystemHistory 权威行缺失（feed 快照 fail-closed）');
+      const historyId = historyRow.historyId;
+      const cursorRow = await tx.runtimeFeedCursor.findUnique({ where: { projectId } });   // ①先 cursor（C-3：events 只见 ≤快照态）
       const lastSeq = cursorRow?.lastSeq ?? 0n;
       const events = await tx.runtimeEvent.findMany({   // ②后 events+≤lastSeq 过滤（C-3）
         where: { projectId, feedSeq: { lte: lastSeq } },

@@ -86,7 +86,7 @@ export const RELEASE_TIMEOUT_MS = 5_000;
 
 /** T17 统一释放入口动机（Z129 字面+两特批档）：drain/self-isolate/vacuum/reaper=常规档
  *  （Z141 两前置准入——批在途即拒）；force-evict/shutdown=允许带批档（spool 交接先行）。 */
-export type TryReleaseMotive = 'drain' | 'self-isolate' | 'vacuum' | 'reaper' | 'force-evict' | 'shutdown';
+export type TryReleaseMotive = 'drain' | 'self-isolate' | 'vacuum' | 'reaper' | 'force-evict' | 'shutdown' | 'maintenance';   // Y1c T27：maintenance=维护 DRAINING 段常驻释放（常规档——旧代 doc 不跨换代窗）
 
 /** tryRelease 结果四态（Z129/Z143+T18）：released=已释放（含幂等复调/无条目）/rejected-pending=常规档
  *  Z141 两前置或 refCount 在用拒绝/rejected-handoff=带批档 spool 交接失败拒绝（条目保留 hold）/

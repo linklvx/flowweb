@@ -115,6 +115,10 @@ export interface CollabProjectActorHost {
   /** Y1c T10：维护/冻结窗口判定（barrier maintenance 拒绝语义——gateway 接线=DR.isVacuuming∨维护态；
    *  缺省 false=无维护窗口〔直构/测试〕；T27 维护状态机扩展同缝）。 */
   isMaintenanceBlocked?(pid: string): boolean;
+  /** Y1c T27：维护 freeze 面（准入链 ⓪ 最先——**仅 connection 帧**：4413 maintenance-freeze 完整
+   *  close 投递+拒帧；维护帧〔item.conn==null〕豁免=drain 通道 freeze 期照常落 PG〔红①〕）。
+   *  gateway 接线=CollabMaintenanceService.freezeInfo；缺省 undefined=无 freeze〔直构/测试〕。 */
+  maintenanceFreezeOf?(pid: string): { maintenanceId: string; retryAfterMs: number } | undefined;
 }
 
 /** Y1c T16：L1 扫描 URL allowlist（真源住调用方——xml-schema XML_URL_ALLOWLIST_CONTRACT）：
@@ -933,6 +937,20 @@ export class CollabProjectActorService {
     for (const item of batch) {
       if (item.kind === 'maintenance') { admitted.push(item); continue; }   // 维护帧：已生效字节——只走 WAL+PG
       try {
+        // ⓪‴ Y1c T27 维护 freeze（仅 connection 帧——维护帧上方 continue 已豁免=drain 通道 freeze 期
+        //    照常落 PG〔红①〕；submit 时未拒的预冻帧在此拒=从未 ACK 零耐久损失）：4413 maintenance-freeze
+        //    **完整 close 投递**（附言①：stateless 载荷 retryAfterMs+hardClose 两段——禁半投递）。
+        const freeze = this.host.maintenanceFreezeOf?.(pid);
+        if (freeze && item.conn) {
+          actorFrameOutcomeTotal.inc({ outcome: 'rejected' });
+          try {
+            item.conn.sendStateless?.(JSON.stringify({ code: CollabCloseCode.MAINTENANCE_FREEZE, reason: 'maintenance-freeze', retryAfterMs: freeze.retryAfterMs }));
+          } catch { /* 已断——close 权威投递仍在 */ }
+          this.host.hardClose(item.conn, CollabCloseCode.MAINTENANCE_FREEZE, 'maintenance-freeze');
+          this.rejectItem(item, new FrameRejectError(CollabCloseCode.MAINTENANCE_FREEZE, 'maintenance-freeze'));
+          this.clearDedup(pid, item.hashHex);
+          continue;
+        }
         // ⓪ readOnly/writeFreeze/quota 短路最先（防 VIEWER 帧先入 doc——F-5）
         if (item.conn) {
           if (item.conn.readOnly) {

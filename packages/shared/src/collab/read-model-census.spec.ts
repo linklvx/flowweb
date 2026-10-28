@@ -24,7 +24,7 @@ describe('Y1c T5c 契约冻结：T19 census 形态类型', () => {
   });
   it('census 文件名+fixture 计数冻结：read-model-census.json / 27 fixture（T19 填充）', () => {
     expect(READ_MODEL_CENSUS_FILENAME).toBe('read-model-census.json');
-    expect(READ_MODEL_CENSUS_FIXTURE_COUNT).toBe(28);   // T25b 微批 C-1：+1（api-canvas-read-user-face——B 场景裁定 current 侧用户面读端点）
+    expect(READ_MODEL_CENSUS_FIXTURE_COUNT).toBe(29);   // T25b 微批 C-1：+1（api-canvas-read-user-face）→Y1c T27：+1（api-maintenance-export——维护 EXPORTING/VERIFYING records 真值读面）
   });
 });
 

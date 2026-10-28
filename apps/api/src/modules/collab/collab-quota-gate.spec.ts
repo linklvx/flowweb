@@ -13,6 +13,7 @@ import { pollUntil } from '../../test-utils/poll-until';
 import { makeFrame as frame } from '../../test-utils/frame-encoder';   // T6 外审 M1：varint 手编单源
 import type { CollabGateway } from './collab.gateway';   // W3a（承接账④）：freezeDoc 参数改型——I-3④ 参数别名逃逸面闭合
 import { CollabShrinkService } from './collab-shrink.service';
+import { CollabMaintenanceService } from './collab-maintenance.service';   // Y1c T27：vacuum 委托单换代入口
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, isCollabDocStatusPayload, isCollabConnStatusPayload } from '@flowweb/shared';
 
@@ -419,14 +420,88 @@ describe('Y0b-4 T5 connected 双补推+beginDraining 并轨 doc-status（rev 生
 
 // ===== Y0b-4 T9a（Q-U v6）：SV 代际门+terminal close+serving 门（真连形态） =====
 
-/** vacuum service 直构（真连 kit 上）：repo mock（④ 装载读+⑥ 代际替换——契约 1/10 单源） */
+/** maintenance harness prisma mock（Y1c T27 真连 kit 委托面——collab-shrink.spec buildMaintenancePrisma
+ *  同款最小面：maintenanceOperation 行存储+行级关闸/countInFlight 双 $queryRaw+审计行存储）。 */
+function buildMaintenancePrisma() {
+  const ops: Array<Record<string, any>> = [];
+  const audits: Array<Record<string, any>> = [];
+  const applyData = (row: Record<string, any>, data: Record<string, any>) => {
+    for (const [k, v] of Object.entries(data)) {
+      if (v != null && typeof v === 'object' && 'increment' in (v as Record<string, unknown>)) row[k] = (row[k] ?? 0) + (v as { increment: number }).increment;
+      else if (k === 'drainedAt') row[k] = new Date();
+      else row[k] = v;
+    }
+  };
+  const prisma: any = {
+    maintenanceOperation: {
+      findUnique: vi.fn(async ({ where }: any) => {
+        if (where.idempotencyKey != null) return ops.find((o) => o.idempotencyKey === where.idempotencyKey) ?? null;
+        return ops.find((o) => o.maintenanceId === where.maintenanceId) ?? null;
+      }),
+      findFirst: vi.fn(async ({ where }: any) => ops.find((o) => o.projectId === where.projectId) ?? null),
+      findMany: vi.fn(async () => []),
+      create: vi.fn(async ({ data }: any) => { ops.push({ ...data }); return data; }),
+      update: vi.fn(async ({ where, data }: any) => { const r = ops.find((o) => o.maintenanceId === where.maintenanceId); if (r) applyData(r, data); return r; }),
+      updateMany: vi.fn(async ({ where, data }: any) => {
+        let count = 0;
+        for (const o of ops) {
+          if (o.maintenanceId !== where.maintenanceId) continue;
+          if (where.stage != null) {
+            const w = where.stage as { in?: string[] } | string;
+            if (typeof w === 'string' ? o.stage !== w : !(w.in ?? []).includes(o.stage)) continue;
+          }
+          applyData(o, data); count += 1;
+        }
+        return { count };
+      }),
+    },
+    canvasDoc: {
+      findUnique: vi.fn(async () => ({ generation: 0 })),
+      updateMany: vi.fn(async () => ({ count: 1 })),
+    },
+    docAuditEvent: {
+      create: vi.fn(async ({ data }: any) => { audits.push({ ...data }); return data; }),
+      findFirst: vi.fn(async ({ where }: any) => [...audits].reverse().find((a) => a.requestId === where.requestId) ?? null),
+    },
+    $transaction: null as unknown,
+    $queryRaw: vi.fn(async (...args: unknown[]) => {
+      const sql = String(args[0]);
+      if (sql.includes('UPDATE "CanvasDoc"')) return [{ generation: 0, pgSeq: 0n, schemaVersion: 3 }];
+      if (sql.includes('COUNT(*)')) return [{ n: 0 }];
+      return [];
+    }),
+  };
+  prisma.$transaction = vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma));
+  return { prisma, ops };
+}
+
+/** vacuum service 直构（真连 kit 上）：repo mock（④ 装载读+⑥ 代际替换——契约 1/10 单源）+
+ *  Y1c T27 maintenance 委托面（gateway 生产接线形态 adapter——freeze 4413/SWITCHING 后 4410 投递）。 */
 function buildVacuumSvc(kit: DualClientKit, repo: any) {
   const perm = { assertEditorWithTeam: vi.fn(async () => ({ role: 'PROJECT_EDITOR', teamId: 't1' })) };
   const docs = {
     withDoc: vi.fn(),
     invalidateSnapshotCache: vi.fn(),
   };
-  return new CollabShrinkService(perm as any, docs as any, kit.gateway, {} as any, {} as any, repo);
+  const m = buildMaintenancePrisma();
+  const maintenance = new CollabMaintenanceService(m.prisma as any, repo as any, null, null, null);
+  const gw = kit.gateway;   // 型化访问（façade 门禁：禁 as any 别名——公有面直读+façade 单点缝）
+  // gateway 生产接线形态复刻（kit 直构不注 maintenance 尾参——actor freeze 面经 façade 后置接线缝；
+  // 生产=gateway bindHost 时闭包引 maintenanceService.freezeInfo，同源）
+  gatewayFacade(gw).bindActorMaintenanceFreeze(maintenance);
+  maintenance.bindHost({
+    logger: { log: () => {}, warn: () => {}, error: () => {}, debug: () => {}, verbose: () => {}, fatal: () => {} } as never,
+    docConnections: (pid: string) => [...(gw.server.hocuspocus.documents.get(gw.docRegistry.liveDocName(pid))?.connections.keys() ?? [])],
+    hardClose: (conn, code, reason) => gw.sessionGuard.hardClose(conn as never, code, reason),
+    thawQuotaAndWait: async (pid: string) => { if (gw.docRegistry.isQuotaFrozen(pid)) gw.docRegistry.thawQuota(pid); },
+    isQuotaFrozen: (pid: string) => gw.docRegistry.isQuotaFrozen(pid),
+    releaseResidentDoc: async (pid: string) => {
+      await gw.docRegistry.tryReleaseResidentSession(pid, 'maintenance').catch(() => {});
+      gw.docRegistry.purgeDocState(pid);
+    },
+    switchWalGeneration: (pid: string, generation: number) => gw.switchWalGeneration(pid, generation),
+  });
+  return new CollabShrinkService(perm as any, docs as any, kit.gateway, {} as any, {} as any, repo, maintenance);
 }
 
 /** 挂起式 repo（④ loadForHydration 挂起——vacuum 停在④前的 serving 门窗口保持）+释放后 ⑥ 直透 */
@@ -448,7 +523,7 @@ function makeHangingVacuumRepo(kit: DualClientKit, pid: string) {
 }
 
 describe('Y0b-4 T9a vacuum——SV 代际门三向/terminal close/serving 门（Q-U v6）', () => {
-  it('terminal close：vacuum 启动时存量连接收 close 4410 doc-vacuuming（裸 ws 观测）——provider 1s 重连被 terminal 档停由客户端 T11 承载', async () => {
+  it('freeze close（T27 委托形态）：vacuum=维护状态机 FREEZING——存量连接收 close 4413 maintenance-freeze（附言①完整投递：stateless retryAfterMs 载荷+码权威 close；4410 doc-vacuuming 归 SWITCHING 提交后）——完成后新连接正常（新代）', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
     try {
       const A = connectWithCloseSpy(kit, 'project:vt1');
@@ -458,13 +533,12 @@ describe('Y0b-4 T9a vacuum——SV 代际门三向/terminal close/serving 门（
       const hang = makeHangingVacuumRepo(kit, 'vt1');
       const svc = buildVacuumSvc(kit, hang.repo);
       const vac = svc.vacuum('vt1', 'u1');
-      await pollUntil(() => A.closeInfo() !== null, 5_000);   // ① 全连接 terminal close（裸 ws 观测）
-      expect(A.closeInfo()).toEqual({ code: 4410, reason: 'doc-vacuuming' });
+      await pollUntil(() => A.closeInfo() !== null, 5_000);   // FREEZING 段全连接 4413 完整 close（裸 ws 观测）
+      expect(A.closeInfo()).toEqual({ code: 4413, reason: 'maintenance-freeze' });
       await A.provider.destroy(); kit.forget(A.provider);
-      hang.release();                                          // ④ 放行 → ⑥ → ok
+      hang.release();                                          // EXPORTING/REBUILDING 放行 → SWITCHING → ok
       const r = await vac;
       expect(r.result).toBe('ok');
-      await pollUntil(() => (kit.gateway as any).isVacuuming('vt1') === false, 2_000);
       const C = kit.connect('project:vt1');                    // 完成后解除——新连接正常（新代）
       await C.synced;
       setNode(C.ydoc, 'after', 'ok');
@@ -472,7 +546,7 @@ describe('Y0b-4 T9a vacuum——SV 代际门三向/terminal close/serving 门（
     } finally { await kit.dispose(); }
   }, 30_000);
 
-  it('serving 门：vacuum 进行中——新 WS 连接 close 4410 doc-vacuuming（形态裁定：WS 层无 503——4410 terminal close 语义=稍后重连成功；REST withDoc 路径真 503）；完成后解除', async () => {
+  it('freeze 执法面（T27 委托形态——旧 vacuumingDocs 装载 serving 门随单换代入口退役）：维护窗口新连接可 synced（读面开放——doc 稳态）但**写帧 4413 完整 close**（执法=actor 准入链 freeze 检查非装载门）；完成后写恢复', async () => {
     const kit = await startDualClientServer({}, 300, undefined, undefined, QUOTA_SMALL);
     try {
       const A = connectWithCloseSpy(kit, 'project:vg1');
@@ -480,29 +554,27 @@ describe('Y0b-4 T9a vacuum——SV 代际门三向/terminal close/serving 门（
       const hang = makeHangingVacuumRepo(kit, 'vg1');
       const svc = buildVacuumSvc(kit, hang.repo);
       const vac = svc.vacuum('vg1', 'u1');
-      await pollUntil(() => A.closeInfo() !== null, 5_000);
+      await pollUntil(() => A.closeInfo() !== null, 5_000);   // FREEZING 4413（存量连接）
       await A.provider.destroy(); kit.forget(A.provider);
-      await pollUntil(() => (kit.gateway as any).isVacuuming('vg1') === true, 2_000);   // 真空窗口（④ 挂起）
-      // 新 WS 连接：窗口内不可用——doc 已卸载 ⇒ 新连接触发装载 ⇒ loadDocument serving 门拒 ⇒
-      // 连接永不 synced（503 语义在 WS 面折为装载失败；connected→4410 close 形态由 terminal close
-      // 用例〔存量连接路径——doc 常驻无装载歧义〕承载——新连接的 close code 随库对装载错误的
-      // 处理形态不在此断言，形态裁定注释见 collab.gateway connected 钩子）
+      await sleep(300);                                        // 维护窗口（EXPORTING 挂起中）
+      // 新 WS 连接：读面开放——synced 达成（装载照常；freeze 执法归帧准入非装载门）
       const B = connectWithCloseSpy(kit, 'project:vg1');
-      let bSynced = false;
-      B.provider.on('synced', () => { bSynced = true; });
-      await sleep(1_500);
-      expect(bSynced).toBe(false);                        // 窗口内新连接不可 synced（装载被 serving 门拒）
-      expect(serverDoc(kit.gateway as any, 'vg1')).toBeUndefined();
+      await B.synced;
+      // 写帧：freeze 执法——4413 完整 close（红① 同款：新连接帧拒+码权威投递）
+      setNode(B.ydoc, 'frozen-write', 'x'.repeat(50));
+      await pollUntil(() => B.closeInfo() !== null, 5_000);
+      expect(B.closeInfo()).toEqual({ code: 4413, reason: 'maintenance-freeze' });
       await B.provider.destroy(); kit.forget(B.provider);
-      // REST withDoc 同门：503（COLLAB_NOT_SERVING 族——filter 附 Retry-After）
-      await expect(kit.docService.withDoc('vg1', () => 1)).rejects.toMatchObject({ status: 503 });
+      // REST withDoc 读面维持（freeze 不拦读——旧 503 serving 门语义随 vacuumingDocs 退役）
+      await expect(kit.docService.withDoc('vg1', () => 'read-ok')).resolves.toBe('read-ok');
       hang.release();
       const r = await vac;
       expect(r.result).toBe('ok');
-      // 完成后解除：withDoc 恢复+新连接 synced
-      await expect(kit.docService.withDoc('vg1', () => 'rw-ok')).resolves.toBe('rw-ok');
+      // 完成后写恢复：新连接 setNode 落地（freeze 解除）
       const C = kit.connect('project:vg1');
       await C.synced;
+      setNode(C.ydoc, 'after', 'ok');
+      await pollUntil(() => serverDoc(kit.gateway as any, 'vg1').getMap('nodes').has('after'), 3_000);
     } finally { await kit.dispose(); }
   }, 30_000);
 

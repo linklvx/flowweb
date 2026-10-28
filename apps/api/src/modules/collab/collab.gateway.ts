@@ -15,6 +15,8 @@ import { CollabDocRegistryService, type QuotaConfig } from './collab-doc-registr
 import { CollabSessionGuardService } from './collab-session-guard.service';
 import { CollabProjectActorService } from './collab-project-actor.service';   // Y1c T9：spool-first 写管线核心（偏离 38③）
 import { CollabFrameGateService } from './collab-frame-gate.service';   // Y1c T9：guardSyncFrame 收编重写（偏离 38①③）
+import { CollabMaintenanceService } from './collab-maintenance.service';   // Y1c T27：维护窗口+世代切换状态机（单换代入口）
+import { VACUUM_QUIESCE_POLL_MS, VACUUM_THAW_SETTLE_MS } from './collab-doc-registry.service';   // Y1c T27：维护 thaw settle 段（beginVacuumEra ⓪ 同参）
 import { requireSystemHistory } from './canvas-doc-head';   // Y1c T9（T8 接线）：真 historyId 自 SystemHistory（复用读面禁重抄——Controller 裁定 2）
 import { createCollabServer } from './collab-server.factory';   // B3 手段①：Server 构造 options 块单源工厂（canvas-doc.factory 同址先例）
 import { wireCollabMetricsReaders } from './collab-observability-wiring';   // B3 手段②：metrics reader 注册块单源（unregister×9 关停面留本体）
@@ -118,6 +120,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** Y1c T9（偏离 38①③）：FrameGate——guardSyncFrame 收编重写（gate 提交 actor 并 await；
    *  配额判定/冻结族经 DR 单源）。公有面=hooks.beforeSync 接线背后的本体+测试直调族。 */
   readonly frameGate: CollabFrameGateService;
+  /** Y1c T27：维护状态机（9 主段+2 终态——单换代入口；freeze 4413/行级关闸/SWITCHING 事务后 close）。
+   *  DI 注入单例；直构缺省 null=无维护面（测试形态——maintenanceFreezeOf 缺省 undefined 同界）。 */
+  private readonly maintenanceService: CollabMaintenanceService | null;
   /** Y0b-5 T16：PG 熔断器（准入+store 短路——spec §5.9 E57；直构测试不注入时自建） */
   private readonly pgBreaker: CollabPgBreakerService;
   /** SV7/W 状态机（单枚举消灭布尔组合态）：ready reason 与三入口门 1:1 派生（P6）。
@@ -292,6 +297,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     // Y1c T9：actor/gate 尾参注入（直构自建传同 repo/spool 实例——W3a 同款双兼容）。
     @Optional() projectActor?: CollabProjectActorService,
     @Optional() frameGate?: CollabFrameGateService,
+    // Y1c T27：维护状态机尾参注入（DI 单例；直构缺省 undefined=无维护面〔测试形态〕）。
+    @Optional() maintenance?: CollabMaintenanceService,
   ) {
     // W3b：sessionSvc 所有权迁 SG（原 this.sessionSvc 字段退役——局部构造后直通 SG 构造器；gateway
     // 不再直持〔authenticateInner/recheckConnection 消费面随域迁 SG〕）。批3-3：手写 findUnique 收口语义不变。
@@ -390,8 +397,36 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       generationOf: (pid) => this.docRegistry.generationOf(pid),
       noteReadOnlyDrop: (conn, pid, bytes) => this.docRegistry.noteReadOnlyDrop(conn, pid, bytes),
       onFencedByWrite: () => this.selfIsolate('fenced-by-write'),   // RC4 承接（actor PG 腿 fenced→隔离链）
-      isMaintenanceBlocked: (pid) => this.docRegistry.isVacuuming(pid),   // Y1c T10：barrier maintenance 拒绝语义（T27 维护状态机扩同缝）
+      isMaintenanceBlocked: (pid) => this.docRegistry.isVacuuming(pid) || (this.maintenanceService?.isFrozen(pid) ?? false),   // Y1c T10：barrier maintenance 拒绝语义（T27 维护 freeze 扩同缝——vacuum 窗∨维护 freeze 窗）
+      maintenanceFreezeOf: (pid) => this.maintenanceService?.freezeInfo(pid),   // Y1c T27：准入链 ⓪‴ 4413 freeze 面（维护帧豁免=drain 通道照常）
     });
+    // Y1c T27：维护状态机 host 接线（DR/SG 能力 1 行转发族——thaw 段=beginVacuumEra ⓪ 同语义内联）
+    this.maintenanceService = maintenance ?? null;
+    if (this.maintenanceService) {
+      this.maintenanceService.bindHost({
+        logger: this.logger,
+        docConnections: (pid) => {
+          const doc = this.server.hocuspocus.documents.get(this.docRegistry.liveDocName(pid));
+          if (!doc) return [];
+          return [...doc.connections.keys()];
+        },
+        hardClose: (conn, code, reason) => this.sessionGuard.hardClose(conn as CollabConnection | undefined | null, code, reason),
+        thawQuotaAndWait: async (pid) => {
+          if (!this.docRegistry.isQuotaFrozen(pid)) return;
+          this.docRegistry.thawQuota(pid);   // U-5 保命：冻结期客户端编辑 SyncStep1 回灌（beginVacuumEra ⓪ 同语义）
+          const deadline = Date.now() + VACUUM_THAW_SETTLE_MS;
+          while (!this.persistence.writesSettled(pid) && Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, VACUUM_QUIESCE_POLL_MS));
+          }
+        },
+        isQuotaFrozen: (pid) => this.docRegistry.isQuotaFrozen(pid),
+        releaseResidentDoc: async (pid) => {
+          await this.docRegistry.tryReleaseResidentSession(pid, 'maintenance').catch(() => {});
+          this.docRegistry.purgeDocState(pid);   // 进程态普查表（旧代记账不跨换代窗）
+        },
+        switchWalGeneration: (pid, generation) => this.spool.switchGeneration(pid, generation),
+      });
+    }
     this.frameGate = frameGate ?? new CollabFrameGateService(this.docRegistry, this.projectActor);
     this.frameGate.bindHost({
       logger: this.logger,
@@ -939,6 +974,12 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         // 审查 I-1（X5 必修漏落）：回灌失败残帧必须落梯——listen 前调用=先备恢复路径后受理。
         // 幂等安全：schedulePersistRetry 对已有 timer return。
         this.persistence.rearmQueues();
+        // Y1c T27（**重启从 PG stage 继续**——spec §6.6）：活跃维护行重 freeze（listen 前置位=freeze 窗口
+        // 新帧 4413，重启空窗不放进新写）+续跑状态机（fire-and-forget——run 内部逐段幂等+失败 FAILED 持久化）。
+        if (this.maintenanceService) {
+          const resumed = await this.maintenanceService.resumeActiveOnBoot();
+          if (resumed > 0) this.logger.log(JSON.stringify({ event: 'maintenance_boot_resume', operations: resumed }));
+        }
         this.initDone = true;   // V9：四步全成才置位
       }
       await this.listenCollab();

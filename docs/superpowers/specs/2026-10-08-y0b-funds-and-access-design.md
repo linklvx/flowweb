@@ -1022,6 +1022,9 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_lifecycle_obligations_created_total
 - collab_lifecycle_rows_created_total
 - collab_load_rejected_total
+- collab_maintenance_close_total
+- collab_maintenance_requested_total
+- collab_maintenance_stage_advance_total
 - collab_msg_rate_exceeded_total
 - collab_order_pathology_total
 - collab_outbound_budget_close_total

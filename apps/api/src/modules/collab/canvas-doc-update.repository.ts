@@ -434,6 +434,9 @@ export class CanvasDocUpdateRepository {
     state: Buffer,
     expectedRowCount: number,
     expectedGeneration: number,
+    /** Y1c T27：同事务钩（SWITCHING stage 写与换代 DB 族同生共死——appendBatch inTx 先例；
+     *  消费方=CollabMaintenanceService.switchingStage）。 */
+    inTx?: (tx: Prisma.TransactionClient) => Promise<void>,
   ): Promise<{ generation: number } | { aborted: 'generation-drift'; dbGeneration: number }> {
     return this.prisma.$transaction(
       async (tx) => {
@@ -481,6 +484,7 @@ export class CanvasDocUpdateRepository {
         });
         // 锁内实读=该项目全部增量行（append-only+compact 排队）——按 projectId 整删（行集=被删集等价）
         await tx.canvasDocUpdate.deleteMany({ where: { projectId } });
+        if (inTx) await inTx(tx);
         return { generation };
       },
       { timeout: 10_000, maxWait: 2_000 },

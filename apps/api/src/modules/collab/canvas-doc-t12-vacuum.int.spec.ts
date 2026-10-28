@@ -19,6 +19,7 @@ import * as Y from 'yjs';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabGateway } from './collab.gateway';
 import { CollabShrinkService } from './collab-shrink.service';
+import { CollabMaintenanceService } from './collab-maintenance.service';   // Y1c T27：vacuum 委托单换代入口
 import { CollabSpoolService } from './collab-spool.service';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';
@@ -177,12 +178,25 @@ maybe('Y1c T12 复核残留 I1.2：era 定格 DB 真值化+expectedGeneration �
       undefined, undefined, undefined, spool,
     );
     gatewayFacade(gateway).forceCollabState('serving');
+    // Y1c T27：vacuum 委托维护状态机（单换代入口）——真 CollabMaintenanceService over 真 PG
+    // （actor 缺席=drain 走 spool 水面/在飞计数面；host=gateway 生产接线形态最小 adapter）
+    const maintenance = new CollabMaintenanceService(prisma as never, repo, null, spool);
+    maintenance.bindHost({
+      logger: { log: () => {}, warn: () => {}, error: () => {}, debug: () => {}, verbose: () => {}, fatal: () => {} } as never,
+      docConnections: () => [],
+      hardClose: () => {},
+      thawQuotaAndWait: async () => {},
+      isQuotaFrozen: () => false,
+      releaseResidentDoc: async () => {},
+      switchWalGeneration: async () => {},
+    });
     const svc = new CollabShrinkService(
       { assertEditorWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }) } as any,
       { invalidateSnapshotCache: vi.fn() } as any,
       gateway,
       {} as any, {} as any,
       repo,
+      maintenance,
     );
     return { gateway, svc };
   }

@@ -30,6 +30,7 @@ import { isExecutableNode } from './is-executable-node';
 import { TeamCreditService } from '../team/team-credit.service';
 import { CollabProjectActorService } from '../collab/collab-project-actor.service';
 import { CanvasDocUpdateRepository } from '../collab/canvas-doc-update.repository';
+import { rejectIfMaintenanceActiveInTx } from '../collab/collab-maintenance.service';   // Y1c T27：行级关闸事务内复核（非 check-then-act）
 import { createCanvasDoc } from '../collab/canvas-doc.factory';   // census ⑯ 裸 Y.Doc 收编工厂
 
 export interface AdmitExecutionCommand {
@@ -431,6 +432,9 @@ export class ExecutionRequestService {
     // ⑧单事务落库：request+plans+input+audit+per-item 资金预留（任一失败整体回滚=零半行）
     try {
       await this.prisma.$transaction(async (tx) => {
+        // Y1c T27 行级关闸事务内复核（非 check-then-act——③ 快径读后 REQUESTED 提交窗收口：FOR SHARE
+        // 行锁与 REQUESTED 的 UPDATE 同行互斥先到先得；maintenanceId 在=typed throw→503 不落行）
+        await rejectIfMaintenanceActiveInTx(tx, projectId);
         await tx.executionRequest.create({ data: {
           id, requestId, projectId, generation, historyId: history.historyId,
           docSeq: cmd.docSeq, frozenDocSeq, userId, teamId, kind, state: REQ_STATE.ADMITTED,
@@ -475,6 +479,10 @@ export class ExecutionRequestService {
       }
       const reason = (err as { reason?: string }).reason;
       if (reason === 'QUOTA_EXCEEDED') return { ok: false, status: 429, code: 'QUOTA_EXCEEDED', detail: '月度配额超限（execreq 在飞预留计入——稍后重试或缩减范围）' };
+      // Y1c T27：行级关闸事务内复核命中（③ 快径读后 REQUESTED 提交窗）→ 503 MAINTENANCE_ACTIVE
+      if ((err as { maintenanceActive?: boolean }).maintenanceActive) {
+        return { ok: false, status: 503, code: 'MAINTENANCE_ACTIVE', detail: (err as Error).message };
+      }
       return { ok: false, status: reason === 'CREDIT_INSUFFICIENT' ? 402 : 500, code: reason ?? 'ADMISSION_FAILED', detail: '受理事务失败（幂等键同键重试安全——CREDIT_INSUFFICIENT 余额不足外均为瞬态）' };
     }
     return { ok: true, id, requestId, frozenDocSeq, planHash, inputHash: contentHash, reservedCredit: totalCredit, totalCredit, replayed: false };

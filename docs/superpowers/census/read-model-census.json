@@ -2,8 +2,8 @@
  "meta": {
   "card": "Y1c T19（plan v1.7）：读者改道 census 索引——所有 readCanvas/readRecordsFromMaps（含 toReadModel/readCanvasFromDoc/readCanvasSnapshotCached 后继面）调用点登记；未分类新增即红（check-collab-census ㉟）。",
   "frozenContract": "packages/shared/src/collab/read-model-census.ts（CONTRACT-FREEZE——本 json 为数据面）",
-  "entryCount": 28,
-  "fixtureTotal": 28,
+  "entryCount": 29,
+  "fixtureTotal": 29,
   "keyFormat": "shapeHash=sha256hex(canonicalReadModelShapePayload({id,file,fields,testAnchor}))——fields 排序归一 JSON 元组",
   "coverageModel": "词法面（readCanvas|readCanvasFromDoc|readCanvasSnapshotCached|toReadModel|readRecordsFromMaps 的 stripped 出现计数）由门内 READ_MODEL_READER_LEXICAL 冻结表对账；本表=语义条目面（def+body/delegate 合并一 reader 一条目——合并注记见门注释）。执法=两面对账（json 门 + 词法门）只增不减。",
   "writerDiscipline": "D9：写者零触碰——data.fileId/result/status 写者与 execAligned fallback 保留至 T22/T32；服务端字段组读者（fileId 等）经读模型暂读至 T22 切投影。"
@@ -402,6 +402,19 @@
    "shapeHash": "097d3c8ee300eb43e6bacb20dc3d15c84f9847ca4225a78e09ef8fd6e8fd24ff",
    "fixtures": [
     "fixture-28-01"
+   ]
+  },
+  {
+   "id": "api-maintenance-export",
+   "file": "apps/api/src/modules/collab/collab-maintenance.service.ts",
+   "fields": [
+    "edges",
+    "nodes"
+   ],
+   "testAnchor": "apps/api/src/modules/collab/collab-maintenance.t27.int.spec.ts",
+   "shapeHash": "fc679aaabc647816308255cc7fdf87e8c061401459450b97cd79f4de8b1f5467",
+   "fixtures": [
+    "fixture-29-01"
    ]
   }
  ]

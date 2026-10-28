@@ -922,6 +922,14 @@ export class GatewayTestFacade {
   residentSessionsProbeCount(): number {
     return docRegistryOf(this.gw).residentSessionsProbe?.() ?? 0;
   }
+
+  /** Y1c T27：actor 准入链 freeze 面后置接线（受控 cast 点⑦——kit 直构 gateway 不注 maintenance
+   *  尾参，spec 自建 CollabMaintenanceService 时经本缝桥接；生产=gateway bindHost 闭包引
+   *  maintenanceService.freezeInfo 同源——host ∈ actor 私有面单点收敛，sessionGuardOf 先例同款）。 */
+  bindActorMaintenanceFreeze(maintenance: { freezeInfo(pid: string): { maintenanceId: string; retryAfterMs: number } | undefined }): void {
+    (this.gw.projectActor as unknown as { host: { maintenanceFreezeOf?: (pid: string) => unknown } }).host.maintenanceFreezeOf =
+      (pid: string) => maintenance.freezeInfo(pid);
+  }
 }
 
 /** 工厂（spec 消费形态：const g = gatewayFacade(kit.gateway)） */

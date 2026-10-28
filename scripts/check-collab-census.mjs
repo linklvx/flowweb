@@ -600,6 +600,7 @@ const ENCODE_WHITELIST = {
   'apps/web/src/stores/canvasCollabRuntime.ts': 3,
   'apps/web/src/collab/canvas-local-backup.ts': 1,
   'apps/api/src/modules/collab/collab-recovery-import.service.ts': 3,   // Y1c T25：recovery import 候选 clone 快照/temp diff/commitDiff 三点（唯一 clone 场所——§3.2）
+  'apps/api/src/modules/collab/collab-maintenance.service.ts': 1,   // Y1c T27：维护 REBUILDING canonical 新代快照编码（fresh clientID rebuild payload——§6.6）
 };
 
 const results = [];
@@ -905,6 +906,9 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-frame-gate.service.ts': {
       'hocuspocus-server-import': { n: 1, until: '片D' },   // beforeSyncPayload type-only import（零运行时边）
     },
+    'apps/api/src/modules/collab/collab-maintenance.service.ts': {
+      applyUpdate: { n: 4, until: '片D' },                  // Y1c T27：EXPORTING/VERIFYING recordsOfHydration+REBUILDING canonical 重建——快照+增量尾装载重放（load 档语义同 repository compact scratch；㉜ 同批登记）
+    },
   };
   // 纯函数白名单（Z43 允许面——离线 yjs 纯函数；闭包内逐文件逐符号列名，漂移/越界即红）：
   const WORKER_PUREFN_WHITELIST = {
@@ -913,6 +917,7 @@ if (isMain()) {
     // Y1c T12：collab-frame-gate decodeStateVector 1→0 随 SV 代际门退役删除（偏离 27——条目同步移除）
     'apps/api/src/modules/collab/collab-project-actor.service.ts': { mergeUpdates: 1, decodeStateVector: 1 },   // Y1c T9：PG drain 批合并+批内 pending 预检 SV 基准（覆盖演进）——decode 随续作补登
     'apps/api/src/modules/collab/collab-persistence.service.ts': { mergeUpdates: 6 },   // T40 B1 8→6（Y1c T9：PG 腿/降级支换轨维护 sink——coalesce/handoff×2/force-spool/detached retry 四位残留）
+    'apps/api/src/modules/collab/collab-maintenance.service.ts': { encodeStateAsUpdate: 1 },   // Y1c T27：REBUILDING canonical 新代快照编码（④同源）
     // Y1c T9：spool mergeUpdates 条目撤销（replayAll 改 per-frame 批行——帧合并归 actor PG 腿）
   };
   {
@@ -1442,6 +1447,7 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-doc-registry.service.ts': 4,   // 装载病理观测/vacuum 重建×1+等价校验×2
     'apps/api/src/modules/collab/collab-document.service.ts': 2,       // readCanvas 出口+decodeSnapshot 投影
     'apps/api/src/modules/collab/collab-shrink.service.ts': 2,         // shrink 影子源+预演读
+    'apps/api/src/modules/collab/collab-maintenance.service.ts': 2,    // Y1c T27：EXPORTING/VERIFYING recordsOfHydration+REBUILDING canonical（§6.6 导出/复核真值读面）
     'apps/web/src/collab/ydocBuilder.ts': 1,                           // readCanvasFromDoc 薄委托（web 读单源）
     'apps/web/src/stores/canvasIntents.ts': 3,                         // 组帧 oracle/组记录/差分尾 order
   };
@@ -1513,6 +1519,7 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-doc-registry.service.ts': 1,     // loadDocument spool 帧重放
     'apps/api/src/modules/collab/collab-persistence.service.ts': 1,     // withReplaySuppressed 重放抑制窗
     'apps/api/src/modules/execution/execution-request.service.ts': 2,   // Y1c T21：PG 前缀重建候选 doc（freeze 回退档——snapshot+updates 装载重放，load 档语义；G4 受理冻结读面）
+    'apps/api/src/modules/collab/collab-maintenance.service.ts': 4,   // Y1c T27：EXPORTING/VERIFYING recordsOfHydration（快照+增量尾装载重放 ×2 处）+REBUILDING canonical 重建（load 档语义——§6.6 维护导出/复核/重建）
     'apps/web/src/stores/canvasCollabRuntime.ts': 2,                    // boot 缓存回放:1770+tmp 导出:689（离线 tmp——load 档邻位）
     // import 档（备份导入）
     'apps/web/src/collab/canvas-local-backup.ts': 1,                     // applyLocalBackup（origin=provider 抑制回发；:64 注释提及不计——census⑨ 同注）
@@ -1631,6 +1638,7 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-read.controller.ts': 2,        // readCanvas def+透传
     'apps/api/src/modules/collab/collab-canvas-read.controller.ts': 1, // T25b 微批 C-1：readCanvas 用户面透传（assertEditor 门——B 场景裁定 current 侧读径）
     'apps/api/src/modules/collab/collab-shrink.service.ts': 2,         // toReadModel×2（影子源/预演）
+    'apps/api/src/modules/collab/collab-maintenance.service.ts': 2,    // Y1c T27：toReadModel×2（EXPORTING/VERIFYING recordsOfHydration+REBUILDING canonical——api-maintenance-export 条目同批）
     'apps/api/src/modules/collab/collab-write.port.ts': 4,             // readCanvas abstract+Direct def/委托+Http def
     'apps/api/src/modules/execution/execution.service.ts': 1,          // readCanvas 计费读
     'apps/api/src/modules/video-project/video-project.service.ts': 1,  // readCanvas regenerate 读
@@ -1688,7 +1696,7 @@ if (isMain()) {
     const entryFiles = new Set(entries.map((e) => e.file));
     for (const f of entryFiles) if (!(f in READ_MODEL_READER_LEXICAL)) details.push(`census 条目文件 ${f} 不在词法命中面（stale 条目——reader 已消失需核销）`);
     for (const f of Object.keys(READ_MODEL_READER_LEXICAL)) if (!entryFiles.has(f)) details.push(`词法命中文件 ${f} 无 census 条目（未分类即红）`);
-    report('㉟', `read-model-census.json 索引门（T19——27 条目/27 fixture/shapeHash 复算+五 token 族词法对账 ${Object.values(READ_MODEL_READER_LEXICAL).reduce((a, b) => a + b, 0)} 点/${Object.keys(READ_MODEL_READER_LEXICAL).length} 文件；未分类新增即红）`, details.length === 0, details);
+    report('㉟', `read-model-census.json 索引门（T19——29 条目/29 fixture/shapeHash 复算+五 token 族词法对账 ${Object.values(READ_MODEL_READER_LEXICAL).reduce((a, b) => a + b, 0)} 点/${Object.keys(READ_MODEL_READER_LEXICAL).length} 文件；未分类新增即红）`, details.length === 0, details);
   }
 
   const failed = results.filter((r) => !r.pass);

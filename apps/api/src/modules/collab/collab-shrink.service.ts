@@ -11,8 +11,9 @@
 // Y0b-4 T9a（Q-U v6）：vacuum 文档代际替换——七步协议 try/finally（⓪thaw 回灌→①freeze+terminal
 // close→②serving 门→③quiesce 硬前置+清态→④离线全根真空→⑤等价断言→⑥lockProject 单事务）+
 // 零连接窄版自动（gateway recheckFrozenDocs 判据链经 setVacuumRunner 回调注入）。
-import { BadRequestException, HttpException, Injectable, Inject, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable, Inject, NotFoundException, ServiceUnavailableException, Optional } from '@nestjs/common';
 import * as Y from 'yjs';
+import { randomUUID } from 'node:crypto';
 import { QUOTA_DEFAULTS, toReadModel } from '@flowweb/shared';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasService } from '../canvas/canvas.service';
@@ -20,6 +21,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CollabDocumentService } from './collab-document.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabGateway, VACUUM_QUIESCE_POLL_MS, VACUUM_QUIESCE_TIMEOUT_MS } from './collab.gateway';
+import { CollabMaintenanceService } from './collab-maintenance.service';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { applyWriteOpsToDoc } from './collab-doc-writer.service';
 import { collabDocExportFreshTotal, collabDocShrinkDuration, collabDocShrinkTotal, collabDocVacuumTotal, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES } from './store.metrics';
@@ -54,11 +56,14 @@ export interface ExportFreshResult {
 }
 
 /** T9a vacuum 出口（Q-U v6）：generation=新代数（ok 时）；bytes=真空编码字节（ok 时）。
- *  中止四档（equivalence-failed/unsupported-root/quiesce-timeout/generation-drift〔T12 收口
- *  I1.2——⑥ 锁内实读≠④ 装载读行值=④→⑥ 间并发换代窗，DB 零变更〕）DB 零变更+状态全恢复；
- *  skip-low-residue=零连接自动路径残留不足跳过；error=意外（throw 前计数）。 */
+ *  中止档（equivalence-failed/unsupported-root/quiesce-timeout/generation-drift〔T12 收口
+ *  I1.2〕）DB 零变更+状态全恢复；skip-low-residue=零连接自动路径残留不足跳过；
+ *  **Y1c T27 委托档新增**：in-flight-executions（切代前置=无在飞执行——v5.4⑲）/maintenance-active
+ *  （维护状态机在跑——单换代入口互斥）/skip-no-doc（懒建档无 CanvasDoc 头——无真空面）；
+ *  error=意外（throw 前计数）。 */
 export interface VacuumResult {
-  result: 'ok' | 'skip-low-residue' | 'equivalence-failed' | 'unsupported-root' | 'quiesce-timeout' | 'generation-drift' | 'error';
+  result: 'ok' | 'skip-low-residue' | 'equivalence-failed' | 'unsupported-root' | 'quiesce-timeout' | 'generation-drift' | 'error'
+    | 'in-flight-executions' | 'maintenance-active' | 'skip-no-doc';
   generation?: number;
   bytes?: number;
 }
@@ -84,10 +89,14 @@ export class CollabShrinkService {
     @Inject(CanvasService) private readonly canvas: CanvasService,   // T9：副本创建（真实签名 create(name,folderId,userId,teamId?)）
     @Inject(PrismaService) private readonly prisma: PrismaService,   // T9：源项目元数据（name/teamId/folderId）
     @Inject(CanvasDocUpdateRepository) private readonly docRepo: CanvasDocUpdateRepository,   // T9a：vacuum ④ 装载读唯一入口+⑥ 代际替换事务（契约 1/10——repository 单源）
+    // Y1c T27：vacuum 委托维护状态机（单换代入口——T12 收口）。@Optional=直构旧形态兼容（零委托面）。
+    @Optional() @Inject(CollabMaintenanceService) private readonly maintenance?: CollabMaintenanceService | null,
   ) {
     // Y0b-4 T9a：零连接窄版自动 vacuum 回调注入（gateway↔service 循环依赖最小形态——service 单向
     // 持 gateway，gateway 经注入的 runner 反调；无 userId=绕过权限门〔触发判据在 recheck 判据链〕）
     this.gateway.setVacuumRunner((pid) => this.vacuumAuto(pid));
+    // Y1c T27：SnapshotDocCache 失效晚绑（maintenance 持 gateway 构造面成 DI 环——本构造器双面在手）
+    this.maintenance?.attachSnapshotInvalidator((pid) => this.docs.invalidateSnapshotCache(pid));
   }
 
   async shrink(projectId: string, userId: string, body: ShrinkBody): Promise<ShrinkResult> {
@@ -269,95 +278,66 @@ export class CollabShrinkService {
     return run;
   }
 
-  /** 七步协议体（plan Task 9a sketch——语义为准）：
-   *  ⓪ thaw 回灌〔gateway.beginVacuumEra——Y1c T12：4410 close 载荷 {generation, discardLocalCache:true}
-   *  stateless 先行〕→①freeze 全连接+terminal close 4410 'doc-vacuuming'
-   *  →②serving 门〔vacuumingDocs——WS connected close 4410/loadDocument+withDoc 503〕
-   *  →③quiesce 硬前置（Y0c T17 Z129/Z104+I-3/I-4：先判 isPersistedComplete 三态滞后度谓词〔pending 空
-   *  +spool 空+无在飞 store——doc 常驻不再等 documents.has 翻转，常驻下恒在=30s 注定活锁的根修〕，
-   *  三态空才 tryRelease(pid,'vacuum') 释放常驻会话〔拒绝=批在途/在用⇒计数+下轮重试；released 才
-   *  break——旧代不跨真空〕、三态非空不调〔计数不放大〕——**超时 30s
-   *  中止禁降级**：三态非空即读 PG=丢最近 debounce 窗编辑且等价断言恰好通过〔新旧同源〕）
-   *  +清进程态〔gateway.purgeDocState 普查表〕
-   *  +SnapshotDocCache 失效〔TTL 30s 否则真空后继续供旧代投影〕
-   *  →④离线全根真空（repo.loadForHydration 装载读唯一入口〔契约 1〕——不经 withDoc；
-   *  gateway.rebuildVacuumDoc 单源）
-   *  →⑤等价断言扩全根（gateway.vacuumEquivalent——不等中止 DB 零变更）
-   *  →⑥单事务代际替换（repo.vacuumReplace——T12 连续 seq 形态+首行同键咨询锁〔与 CLI renumber
-   *  互斥保险〕+被删增量行取号基准精确赋值〔禁 0/GREATEST——insert-ratchet 红线〕+generation 落列
-   *  +按实读行 id 删〔compact 同式〕+行集漂移守卫）→⑥′WAL 段 namespace 切代〔**事务提交后**
-   *  gateway.switchWalGeneration——I2 ③ 接线；T27 换代状态机 SWITCHING 后接管〕
-   *  →⑦解除（finally：vacuumingDocs.delete 无论成败+未提交恢复可写——v6 报告3 P1-2：中止路径
-   *  503 永久+全员只读=比不 vacuum 更糟）。
-   *  Y1c T12（偏离 27）：SV 代际门〔guardSyncFrame SyncStep1 preVacuumSv 分支〕**退役**——世代执法
-   *  改道 docName 段 auth/load 双校验（admitDocNameForGeneration）：换代后旧 #g/裸名重连=auth 直接
-   *  generation mismatch（不装载/不 SS1/不上行旧 structs）→DraftEnvelope 导出〔T25〕→清缓存→
-   *  新 name（canvasDocName(pid,g)）重连导入（导入前新 Schema/权限/图结构校验）。 */
+  /** 七步协议体（**Y1c T27 起委托维护状态机**——spec §6.6 单换代入口：vacuum 只做 rebuild payload；
+   *  REQUESTED 行级关闸+FREEZING 4413+DRAINING〔spoolHeadSeq==pgSeq+in-flight drain+常驻释放〕
+   *  +SWITCHING 单事务〔vacuumReplace DB 族+同事务 stage 写〕+事务后 close 4410/切 WAL+VERIFYING+COMPLETED
+   *  全在 CollabMaintenanceService——「无在飞执行」切代前置对 vacuum 同样生效〔v5.4⑲〕）。
+   *  中止映射：payload abort〔unsupported-root/equivalence-failed〕/drain 超时〔quiesce-timeout〕/
+   *  generation 漂移〔generation-drift〕=状态机 ABORTED（SWITCHING 前净 abort 解冻——P1-2 中止恢复
+   *  契约保持：禁 FAILED 只读滞留）；其余基础设施失败=error 档（FAILED 只读+人工 resume 归 REST 面）。 */
   private async vacuumCore(pid: string): Promise<VacuumResult> {
-    let committed = false;
     const done = (r: VacuumResult): VacuumResult => {
       if (r.result !== 'error') collabDocVacuumTotal.inc({ result: r.result });
       return r;
     };
-    try {
-      await this.gateway.beginVacuumEra(pid);   // ⓪①②（era 定格 DB 真值——4410 载荷与 target 投影源）
-      // ③ quiesce 硬前置（Y0c T17 Z129/Z104+I-3/I-4 重排）：循环先判三态滞后度谓词
-      // （isPersistedComplete——pending 空+spool 空+无在飞 store；doc 常驻不再是等待动因），三态空才
-      // 经统一入口释放常驻会话，并以 released（或 undefined=releaser 未注册〔直构无 residency〕——
-      // 「会话已不在」透传判据）为 break 条件——旧代常驻 doc 不跨 vacuumReplace（真空效果不被旧代
-      // merge 吸收）；三态非空不调 tryRelease（批恒在场景计数不放大——release_with_pending{vacuum}
-      // 不×轮数）；拒绝（批在途/在用）⇒下轮重试，deadline 兜底维持活锁不变量（在飞读持续到
-      // deadline⇒超时——正确：quiesce=等静默，禁降级继续）。
-      const deadline = Date.now() + VACUUM_QUIESCE_TIMEOUT_MS;
-      for (;;) {
-        if (this.gateway.isPersistedComplete(pid)) {
-          const outcome = await this.gateway.tryReleaseResidentSession(pid, 'vacuum');
-          if (outcome === 'released' || outcome === undefined) break;
-        }
-        if (Date.now() >= deadline) return done({ result: 'quiesce-timeout' });   // 禁降级继续
-        await new Promise((r) => setTimeout(r, VACUUM_QUIESCE_POLL_MS));
-      }
-      this.gateway.purgeDocState(pid);                     // 清进程态（普查表）
-      this.docs.invalidateSnapshotCache(pid);              // SnapshotDocCache 旧代投影条目
-      // ④ 离线全根真空：装载读唯一入口（契约 1——repo.loadForHydration；不经 withDoc）。
-      // 复核残留 I1.2 修：expectedGeneration=**④ 同一次 DB 读**的行值 generation（post-quiesce——
-      // ⑥ 复核窗口最小化到 ④→⑥；行缺失/桩缺省折 0=懒建档口径；④ 读后⑥ 前的 DB 推进才是真漂移窗
-      // ——锁内复核是权威防线）。era 定格值此后仅供 4410 载荷与 target 投影（purge ③ 后半窗不漂移）。
-      const { state: srcState, updates: srcUpdates, generation: expectedGeneration = 0 } = await this.docRepo.loadForHydration(pid);
-      const oldDoc = createCanvasDoc();
-      let newDoc: Y.Doc | null = null;
-      try {
-        if (srcState) Y.applyUpdate(oldDoc, new Uint8Array(srcState));
-        for (const u of srcUpdates) Y.applyUpdate(oldDoc, new Uint8Array(u));
-        newDoc = this.gateway.rebuildVacuumDoc(oldDoc);
-        if (newDoc === null) return done({ result: 'unsupported-root' });   // 非 Map 根——DB 零变更
-        if (!this.gateway.vacuumEquivalent(oldDoc, newDoc)) return done({ result: 'equivalence-failed' });   // 把信任 fillDoc 变成验证 fillDoc
-        const state = Buffer.from(Y.encodeStateAsUpdate(newDoc));
-        // ⑥ 单事务代际替换（repository.vacuumReplace——lockProject 同键咨询锁+被删行取号基准
-        //  精确赋值+同事务落列+按实读行 id 删+行集漂移守卫+**锁内 generation 复核**〔T12 收口 I1.2：
-        //  ≠④ 装载读行值=④→⑥ 间并发换代窗 ⇒ aborted 档整体中止 DB 零变更〕；T12 连续 seq 形态：
-        //  新代快照基线=旧代 maxSeq+pgSeq/walCheckpointSeq 不重置+preVacuumSv 列随 SV 代际门退役删除）
-        const replaced = await this.docRepo.vacuumReplace(pid, state, srcUpdates.length, expectedGeneration);
-        if ('aborted' in replaced) return done({ result: 'generation-drift' });   // 中止档（⑦ finally 恢复——equivalence-failed 同形态）
-        const { generation } = replaced;
-        committed = true;
-        // ⑥′ Y1c T12（I2 ③ 接线）：WAL 段 namespace 切代——**事务提交后**（事务内禁切：提交前切段=
-        // 新代帧落隔离旧段语义颠倒）。连续 seq 形态（计数器/水位保留）+旧代段清理滞留面收口
-        // （全提交段即删/含未提交帧段 sidecar 保全）——语义与消费面全注见 spool.switchGeneration。
-        await this.gateway.switchWalGeneration(pid, generation);
-        return done({ result: 'ok', generation, bytes: state.length });
-      } finally {
-        oldDoc.destroy();
-        newDoc?.destroy();
-      }
-    } catch (e) {
+    if (!this.maintenance) {
+      // 委托面缺席=结构性配置错误（生产 DI 恒注入；直构旧形态零委托面禁跑换代）
       collabDocVacuumTotal.inc({ result: 'error' });
-      throw e;
-    } finally {
-      // ⑦ 解除+中止恢复（v6 报告3 P1-2）：无论成败必须（否则 503 永久）；未提交恢复可写
-      this.gateway.setVacuuming(pid, false);
-      if (!committed) this.gateway.abortVacuumRestore(pid);
+      throw new Error('vacuum 委托面缺席（CollabMaintenanceService 未注入——单换代入口结构性要求，T27）');
     }
+    const req = await this.maintenance.request({
+      projectId: pid,
+      idempotencyKey: `vacuum-${pid}-${randomUUID()}`,
+      requestedBy: 'vacuum',
+      source: 'vacuum',
+      requireNoInFlight: true,   // 切代前置=无在飞执行（v5.4⑲——对 vacuum 同样生效）
+    });
+    if (!req.ok) {
+      if (req.code === 'IN_FLIGHT_EXECUTIONS') return done({ result: 'in-flight-executions' });
+      if (req.code === 'MAINTENANCE_ACTIVE') return done({ result: 'maintenance-active' });
+      if (req.code === 'CANVAS_DOC_MISSING') return done({ result: 'skip-no-doc' });   // 懒建档项目零 doc 态——无真空面（旧链 create 分支语义收窄）
+      return done({ result: 'error' });
+    }
+    let vacuumBytes = 0;
+    const run = await this.maintenance.run(req.maintenanceId, {
+      drainBudgetMs: VACUUM_QUIESCE_TIMEOUT_MS,
+      onDrainTimeout: 'abort',   // drain 超时=quiesce-timeout 净 abort（P1-2：禁 FAILED 只读滞留——vacuum 面中止恢复）
+      buildRebuildPayload: async ({ hydrate }) => {
+        // ④⑤ 段（vacuum 只做 rebuild payload）：离线全根真空+等价断言——rebuildVacuumDoc/vacuumEquivalent
+        // 单源仍在 DR（④ 装载读=状态机 EXPORTING 侧 hydrate 透传——loadForHydration 单源不重读）。
+        const oldDoc = createCanvasDoc();
+        try {
+          if (hydrate.state) Y.applyUpdate(oldDoc, new Uint8Array(hydrate.state));
+          for (const u of hydrate.updates) Y.applyUpdate(oldDoc, new Uint8Array(u));
+          const newDoc = this.gateway.rebuildVacuumDoc(oldDoc);
+          if (newDoc === null) return { ok: false as const, reason: 'unsupported-root' };   // 非 Map 根——DB 零变更
+          try {
+            if (!this.gateway.vacuumEquivalent(oldDoc, newDoc)) return { ok: false as const, reason: 'equivalence-failed' };   // 把信任 fillDoc 变成验证 fillDoc
+            const state = Buffer.from(Y.encodeStateAsUpdate(newDoc));
+            vacuumBytes = state.length;
+            return { ok: true as const, state, updateRowCount: hydrate.updates.length };
+          } finally { newDoc.destroy(); }
+        } finally { oldDoc.destroy(); }
+      },
+    });
+    if (run.result === 'completed') return done({ result: 'ok', generation: run.generation, bytes: vacuumBytes });
+    if (run.result === 'aborted') {
+      const detail = run.detail ?? 'generation-drift';
+      if (detail === 'drain-timeout') return done({ result: 'quiesce-timeout' });   // 禁降级继续（三态非空即中止——旧 ③ 段语义承袭）
+      if (detail === 'unsupported-root' || detail === 'equivalence-failed' || detail === 'generation-drift') return done({ result: detail });
+      return done({ result: 'error' });
+    }
+    return done({ result: 'error' });   // failed/not-found（基础设施失败——FAILED 只读面归 REST 维护操作者处置）
   }
 }
 
