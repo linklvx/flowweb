@@ -240,11 +240,14 @@ class FrameEffectsCollector {
           // 判定恒用 k）；媒体引用字段→MEDIA_REF_*；其余→FIELD_CHANGED（逐键粒度）
           for (const [k, ch] of ev.changes.keys) {
             if ((MEDIA_REF_TARGET_FIELDS as readonly string[]).includes(k)) {
-              for (const mid of mediaIdListOf(ch.action === 'delete' ? ch.oldValue : target?.get?.(k))) {
-                this.buffer.push(ch.action === 'delete'
-                  ? { kind: 'MEDIA_REF_REMOVED', nodeId, mediaId: mid, walSeq: this.walSeq }
-                  : { kind: 'MEDIA_REF_ADDED', nodeId, mediaId: mid, walSeq: this.walSeq });
-              }
+              // 媒体引用字段差分（Y1c T28 根修）：update=旧值→新值逐 id 差分（ch.oldValue）——修前
+              // update 档只发 ADDED ⇒ 换绑后旧 mediaId 永驻 mediaRefsByNode 增量投影（与 rebuild(doc)
+              // 漂移+T26 MediaBinding reconcile 面〔免周期全扫的增量镜像〕读到陈旧引用）；add=纯增/
+              // delete=纯删（target 键已失）。差分序=ADDED 先 REMOVED 后（下 data 整键分支同款约定）。
+              const olds = new Set(mediaIdListOf(ch.action === 'add' ? undefined : ch.oldValue));
+              const news = new Set(mediaIdListOf(ch.action === 'delete' ? undefined : target?.get?.(k)));
+              for (const mid of news) if (!olds.has(mid)) this.buffer.push({ kind: 'MEDIA_REF_ADDED', nodeId, mediaId: mid, walSeq: this.walSeq });
+              for (const mid of olds) if (!news.has(mid)) this.buffer.push({ kind: 'MEDIA_REF_REMOVED', nodeId, mediaId: mid, walSeq: this.walSeq });
             } else if (k === 'data') {
               // data map 整键变更（同事务新建/覆写——嵌套新建 map 不产独立事件）：新旧值媒体字段差分
               const readFields = (m: unknown) => {

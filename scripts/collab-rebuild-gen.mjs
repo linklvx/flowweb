@@ -157,7 +157,10 @@ async function main() {
           // T27 收口 I-1：pre-SWITCHING FAILED=接管（旧行 SUPERSEDED+闸换新 id 同事务——单点修 REST/CLI/vacuum 三路）
           if (prevOp && prevOp.stage === 'FAILED' && prevOp.status !== 'SUPERSEDED') {
             if (Number(head[0].generation) >= Number(prevOp.targetGeneration)) {
-              throw new Error(`FAILED_RESUME_REQUIRED（post-SWITCHING FAILED maintenanceId=${prevId}——经 --resume 面或 REST resume roll-forward）`);
+              // T28 spec 复核 M-B：CLI 无 --resume 旗标（勘正文案——本工具仅 REQUESTED 接管面）；
+              // post-SWITCHING FAILED 已过提交点=只许 roll-forward，出口=REST resume
+              // （POST /api/collab/maintenance/:projectId/resume——api 进程侧人工显式动作）。
+              throw new Error(`FAILED_RESUME_REQUIRED（post-SWITCHING FAILED maintenanceId=${prevId}——经 REST resume roll-forward：POST /api/collab/maintenance/${projectId}/resume；CLI 无 --resume 面）`);
             }
             await client.query(`UPDATE "MaintenanceOperation" SET status = 'SUPERSEDED' WHERE "maintenanceId" = $1`, [prevId]);
             await client.query('UPDATE "CanvasDoc" SET "maintenanceId" = $2, "updatedAt" = now() WHERE "projectId" = $1 AND "maintenanceId" = $3', [projectId, id, prevId]);

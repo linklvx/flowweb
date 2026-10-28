@@ -525,6 +525,92 @@ describe('Y1c T9 双评审收口（C1 detached 守卫/Q-I1 states 清理/Q-I2 �
   }, 30_000);
 });
 
+describe('Y1c T28 增量投影（P3 出口卡点名——YEvent path[0] observeDeep 单节点 patch 断言）', () => {
+  /** 增量帧构造（生产形态=事务 update 非 full-state 再编——后者把被覆写旧项重发为 ContentDeleted
+   *  struct，L1 value-type 执法对非生产形态拒之属预期；on('update') 采集=canvas-doc-update
+   *  repository.spec 同款装置）。 */
+  const incrementalFrame = (baseFrame: Uint8Array, mutate: (src: Y.Doc) => void): Uint8Array => {
+    const src = new Y.Doc();
+    Y.applyUpdate(src, baseFrame);
+    const ups: Uint8Array[] = [];
+    src.on('update', (u: Uint8Array) => { ups.push(u); });
+    mutate(src);
+    return Y.mergeUpdates(ups);
+  };
+
+  it('path[0] 单节点单字段 patch：FIELD_CHANGED 逐键粒度（nodeId=path[0] 定位+邻节点零 effect）+媒体引用字段增量换绑（MEDIA_REF 对+docIndex 增量≡全量重建）', async () => {
+    const spool = makeSpool();
+    const doc = new Y.Doc();
+    const { actor } = buildActor(spool, doc);
+    const mkNode = (type: string, data: Record<string, unknown>) => {
+      const n = new Y.Map();
+      n.set('type', type);
+      const d = new Y.Map();
+      for (const [k, v] of Object.entries(data)) d.set(k, v);
+      n.set('data', d);
+      return n;
+    };
+    // 帧1：两节点在册（path[0] 定位形态前提=节点先存在）——n1 imageGen{referenceImage media-a,model m1}
+    // /n2 textInput{model x}（键选型按 DOC_SCHEMA_V4：model=lww 标量/referenceImage=mediaLww——
+    // prompt=xml 容器、fileId=server-forbidden 均非单字段 patch 合法载体）
+    const base = new Y.Doc();
+    base.getMap('nodes').set('n1', mkNode('imageGen', { referenceImage: 'media-a', model: 'm1' }));
+    base.getMap('nodes').set('n2', mkNode('textInput', { model: 'x' }));
+    const frame1 = Y.encodeStateAsUpdate(base);
+    await actor.submit('p1', frame1, makeConn(), 'update');
+    const index = actor.docIndexOf('p1');
+    expect(index.nodeType('n1')).toBe('imageGen');
+    expect([...(index.mediaRefsByNode.get('n1') ?? [])]).toEqual(['media-a']);
+
+    // 帧2：单事务单节点单字段 patch——n1.data.model m1→m2（nodes 根 observeDeep 事件 path=['n1','data']，
+    // path[0]='n1' 定位分支：变更键 k='model' 非媒体引用字段→FIELD_CHANGED 逐键粒度）
+    const frame2 = incrementalFrame(frame1, (src) => {
+      (((src.getMap('nodes').get('n1') as Y.Map<unknown>).get('data') as Y.Map<unknown>)).set('model', 'm2');
+    });
+    await actor.submit('p1', frame2, makeConn(), 'update');
+
+    // 帧级 effects 增量投影断言（同一收集器单源——deriveLifecycleFramesForReplay 派生 seam 逐帧取走）
+    const derived2 = await actor.deriveLifecycleFramesForReplay('p1', [
+      { walSeq: 1n, payload: frame1 }, { walSeq: 2n, payload: frame2 },
+    ]);
+    expect(derived2, '派生 seam 返回非 null（mock repo 空 hydration→空基线逐帧重放）').not.toBeNull();
+    const frames2 = derived2 as ReadonlyArray<{ walSeq: bigint; effects: ReadonlyArray<{ kind: string; nodeId?: string; key?: string; mediaId?: string; walSeq: bigint }> }>;
+    expect(frames2[1].effects, 'path[0] 定位单节点单字段——恰一 FIELD_CHANGED{n1,model}，邻节点 n2 零 effect').toEqual([
+      { kind: 'FIELD_CHANGED', nodeId: 'n1', key: 'model', walSeq: 2n },
+    ]);
+
+    // 帧3：媒体引用字段单点换绑 referenceImage media-a→media-b（同 path[0] 形态——
+    // k∈MEDIA_REF_TARGET_FIELDS→MEDIA_REF_REMOVED/ADDED 对，nodeId 同由 path[0] 定位）
+    const frame2Applied = new Uint8Array(frame2);
+    const frame3 = incrementalFrame(Y.mergeUpdates([frame1, frame2Applied]), (src) => {
+      (((src.getMap('nodes').get('n1') as Y.Map<unknown>).get('data') as Y.Map<unknown>)).set('referenceImage', 'media-b');
+    });
+    await actor.submit('p1', frame3, makeConn(), 'update');
+    const derived3 = await actor.deriveLifecycleFramesForReplay('p1', [
+      { walSeq: 1n, payload: frame1 }, { walSeq: 2n, payload: frame2 }, { walSeq: 3n, payload: frame3 },
+    ]);
+    const frames3 = derived3 as ReadonlyArray<{ walSeq: bigint; effects: ReadonlyArray<{ kind: string; nodeId?: string; key?: string; mediaId?: string; walSeq: bigint }> }>;
+    expect(frames3[2].effects, '媒体引用字段单点换绑=恰一 ADDED/REMOVED 对（差分粒度——非整节点重建；T28 根修红锚：修前 update 档只发 ADDED、旧 mediaId 无 REMOVED）').toEqual([
+      { kind: 'MEDIA_REF_ADDED', nodeId: 'n1', mediaId: 'media-b', walSeq: 3n },
+      { kind: 'MEDIA_REF_REMOVED', nodeId: 'n1', mediaId: 'media-a', walSeq: 3n },
+    ]);
+
+    // 投影面（ProjectDocIndex——submit 路径逐帧增量 apply）断言+全量重建等价对拍
+    const snapshotOf = () => ({
+      t1: index.nodeType('n1'), t2: index.nodeType('n2'),
+      m1: [...(index.mediaRefsByNode.get('n1') ?? [])].sort(),
+      m2: [...(index.mediaRefsByNode.get('n2') ?? [])].sort(),
+    });
+    expect(snapshotOf(), '增量投影：n1 媒体引用换绑推进+邻节点 n2 投影不动+类型面不受字段 patch 扰动').toEqual({
+      t1: 'imageGen', t2: 'textInput', m1: ['media-b'], m2: [],
+    });
+    index.rebuild(doc);
+    expect(snapshotOf(), '增量 apply ≡ rebuild(doc) 全量重建（增量投影正确性对拍——帧3 后两形态等值）').toEqual({
+      t1: 'imageGen', t2: 'textInput', m1: ['media-b'], m2: [],
+    });
+  }, 20_000);
+});
+
 /** 大帧构造（入站上限用例——常量字节载荷，Wal 入账前已被闸拒不真写盘）。 */
 function makeBigFrame(bytes: number, seed: number): Uint8Array {
   const u = new Uint8Array(bytes);

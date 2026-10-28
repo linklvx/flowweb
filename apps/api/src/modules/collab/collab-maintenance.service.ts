@@ -19,8 +19,10 @@
 //   委托档 onDrainTimeout='abort'=SWITCHING 前显式 abort 解冻——中止恢复 P1-2 契约保持）+关空闲连接
 //   （4413）+常驻释放（unload）。
 // · EXPORTING=DocCodec canonical 导出（toReadModel records 真值）+exportRecordsHash 持久化
-//   （DocAuditEvent.requestId=maintenanceId——重启后 VERIFYING 复核基准）+归档=一份 PG dump 回滚（运维
-//   面操作说明落审计 payload）。
+//   （DocAuditEvent.requestId=maintenanceId——重启后 VERIFYING 复核基准）+归档=SWITCHING 前
+//   pg_dump --table 载体族（CanvasDoc/CanvasDocUpdate/CanvasDocSnapshot/MaintenanceOperation 四表
+//   ——T27 spec 复核 M-2 软化口径：生产大库全量 dump 不现实）+PITR 常规备份兜底（T29 charter
+//   承载；运维面操作说明落审计 payload）。
 // · REBUILDING=fresh doc（新 clientID）重放 rebuild payload——canonical 模式=toReadModel→fillDoc；
 //   vacuum 委托=调用方 buildRebuildPayload 回调（**T12 vacuumReplace 委托本状态机**：vacuum 只做 rebuild
 //   payload〔红⑥〕；payload abort〔unsupported-root/equivalence-failed〕=SWITCHING 前净 abort）。
@@ -262,7 +264,7 @@ export class CollabMaintenanceService {
       await audit(tx, opts.projectId, maintenanceId, opts.requestedBy, {
         stage: 'REQUESTED', source: opts.source, sourceGeneration: generation,
         targetGeneration: generation + 1, cutoffPgSeq: String(pgSeq),
-        note: '归档=一份 PG dump 回滚（运维面：SWITCHING 前 pg_dump——spec §6.6）',
+        note: '归档=SWITCHING 前 pg_dump --table 四表（CanvasDoc/CanvasDocUpdate/CanvasDocSnapshot/MaintenanceOperation）+PITR 兜底（T27 spec M-2 软化口径——运维面操作说明随审计）',
       });
       return { ok: true as const, maintenanceId, generation };
     }, { timeout: 10_000, maxWait: 5_000 });
