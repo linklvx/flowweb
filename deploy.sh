@@ -37,8 +37,8 @@ GIT_SHA=$(git rev-parse --short HEAD)
 # shell 不带 ecosystem env（COLLAB_SPOOL_DIR 唯一注入载体）——内嵌形态的 quarantine/verify 必假绿。
 # 破坏性 reset 唯一入口=runbook §16 人工序；本旗标=指引退出（不执行任何部署/DB 操作）。
 if [[ "$REBUILD_DB" == "1" ]]; then
-  echo "=== REBUILD_DB 已退役（Y1c T30 收口）：破坏性 reset 已移至 runbook §16 人工序：先停全部旧 DB 消费者→node scripts/reset-collab.mjs --rebuild-db --confirm→按 §16 步 4-7 起序（备份→reset→部署→起序） ==="
-  echo "（内嵌形态与 cutover 前提互斥〔reset 需消费者全停 vs cutover 需 api 在线〕——本旗标现在=指引退出，不触任何 DB/部署操作；详 §16）"
+  echo "=== REBUILD_DB 已退役（Y1c T30 收口）：维护关写+drain 后，先停全部旧 DB 消费者→按 runbook §16 步 ④-⑦ 起序（④备份→⑤reset-collab --rebuild-db --confirm→⑥部署新构建→⑦起序）——破坏性 reset 唯一入口=runbook §16 人工序 ==="
+  echo "（⑤命令：node scripts/reset-collab.mjs --rebuild-db --confirm；内嵌形态与 cutover 前提互斥〔reset 需消费者全停 vs cutover 需 api 在线〕——本旗标现在=指引退出，不触任何 DB/部署操作；详 §16）"
   exit 1
 fi
 

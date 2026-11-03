@@ -694,17 +694,29 @@ node scripts/reset-collab.mjs --status                             # 只读：�
    mc ls --recursive local/flowweb > ~/backups/pre-reset-minio-manifest-$(date +%Y%m%d%H%M%S).txt
    ```
 5. **reset**：`node scripts/reset-collab.mjs --rebuild-db --confirm`（服务器先 `export COLLAB_SPOOL_DIR=/home/ubuntu/flowweb-data/collab-spool`；七阶段内含 migrate/seed——M2 server rebuild 的人工序已收编）。
-6. **部署新构建到部署树**：服务器=deploy.sh 上传面形态（本地构建+scp/tar——`./deploy.sh web` 的前端原子切换可直接用；api 侧=deploy_api 的构建/上传段形态：本地 `pnpm --filter @flowweb/shared build && pnpm --filter @flowweb/api build`+dist.next/src/prisma tar 上传+`npx prisma generate`+条件 install——**完整 `./deploy.sh api` cutover 链不可用**〔①guard drain/③.5 前提=api 在线，已停〕；本地/演练=树内直跑无需上传）。MinIO 孤儿清理（scripts/cleanup-orphaned-media.ts）可在此步跑（对照步 ④ manifest）。
-7. **人工起序**（T30b 同构：worker 先起等 ready 再起 api）+就绪检查：
+6. **部署新构建到部署树**（上传→**新树 migrate**→**dist 原子切换**——deploy.sh cutover ③④ 同形态；**排除面只剩**：⓪Node 版检查〔可保留——无 api 在线依赖〕①guard〔drain 需 api 在线〕②备份〔步 ④ 已做〕③.5〔spool 迁移需 api pid〕⑤重启+⑥post〔步 ⑦ 起序替代〕）：
    ```bash
-   pm2 startOrReload ecosystem.config.cjs --only flowweb-worker --update-env
-   # 等 worker 引导（3002 监听/日志 ready 线）后：
-   pm2 startOrReload ecosystem.config.cjs --only flowweb-api --update-env && pm2 save
-   # 等 /api/ready 绿后：
+   # 6a 上传（deploy_api 构建/上传段形态——本地构建后 tar/scp）：
+   #    本地 pnpm --filter @flowweb/shared build && pnpm --filter @flowweb/api build
+   #    +dist.next/src/prisma 迁移树 tar 上传+条件 install+npx prisma generate；web 侧 ./deploy.sh web 可直用
+   # 6b 新树 migrate（cutover ③ 同形态——reset-collab 步 ⑤ 跑的是旧树迁移；新构建携带新迁移则此步增量）：
+   ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 "cd ~/flowweb/apps/api && npx prisma migrate deploy"
+   # 6c dist.next 原子切换（cutover ④ 同形态：sha256 先验后换+dist.prev 保留一代+shared 同窗切换）：
+   ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 'cd ~/flowweb/apps/api && test -f dist.next/main.js && echo "<本地 sha256sum dist/main.js>  dist.next/main.js" | sha256sum -c - && rm -rf dist.prev && { [ ! -d dist ] || mv dist dist.prev; } && mv dist.next dist && test -f dist/main.js'
+   ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 'cd ~/flowweb/packages/shared && rm -rf dist.prev && { [ ! -d dist ] || mv dist dist.prev; } && mv dist.next dist'
+   ```
+   本地/演练=树内直跑无需上传（工作树即新树——6b 可省略〔reset-collab 已按当前树跑过〕、6c 无 dist 切换面）。MinIO 孤儿清理（scripts/cleanup-orphaned-media.ts）可在此步跑（对照步 ④ manifest）。
+7. **人工起序**（**RB1 三步序——api 先起→ready 绿→worker→pm2 save**；代码真值=main-worker.ts:47-56 先门后装配〔worker 轮询 api ready 60s 超限 exit(1)、3002 监听在门后——api 停态下 worker 永远到不了 3002，必须 api 先起〕+deploy.sh 冻结序+Z9②）+就绪检查：
+   ```bash
+   pm2 startOrReload ecosystem.config.cjs --only flowweb-api --update-env
+   # wait ready（deploy.sh wait_api_ready 同形态——60s 循环）：
+   i=0; while [ $i -lt 60 ]; do i=$((i+1)); curl -s http://127.0.0.1:3000/api/ready | grep -q '"ready":true' && break; sleep 1; done
+   pm2 startOrReload ecosystem.config.cjs --only flowweb-worker --update-env && pm2 save
+   # 就绪检查：
    node scripts/gate-collab.mjs && pnpm --filter @flowweb/api exec node scripts/collab-smoke.mjs
    ```
 8. **开放写**（解除维护关写+公告解除）。
 
 **缓存清理口径**（诚实登记，工具无动作面）：**公开快照缓存**=进程内 TTL+LRU 单实例（snapshot-doc-cache 32 条）——消费者进程停+新进程起=天然清空；**本地缓存键（客户端 IDB）**=服务端无清客户端缓存能力（spec 偏离 38⑳ 口径）——唯一服务端动作=bump historyId 使客户端缓存键五元 (uid,pid,generation,schemaVersion,historyId) 自燃失效（4406/4410 客户端自清），由阶段 6 承载。
 
-**失败续跑**：任一阶段失败=状态文件在档（已完成阶段保真）；修复后**重跑同一命令**即自断点续跑（例：migrate 失败→修复迁移树→重跑自 migrate 起）。`.reset-collab-state.json` 损坏=fail-closed 拒续跑（人工核查或确认放弃后删除再全新重跑）。旧 `.quarantine-<ts>/` 目录=保留证据不删；`restore.lock` marker 若在位随整目录隔离，清除=bump 后人工删除（T13 口径）。
+**失败续跑**：任一阶段失败=状态文件在档（已完成阶段保真）；修复后**重跑同一命令**即自断点续跑（例：migrate 失败→修复迁移树→重跑自 migrate 起）。**续跑前提=消费者仍处停态（步 ③）——串行锁只互斥 reset-collab 跨实例，不拦消费者重启**；中途续跑前重验三查（连接/PID/租约——步 ③ 同款）。`.reset-collab-state.json` 损坏=fail-closed 拒续跑（人工核查或确认放弃后删除再全新重跑）。旧 `.quarantine-<ts>/` 目录=保留证据不删；`restore.lock` marker 若在位随整目录隔离，清除=bump 后人工删除（T13 口径）。

@@ -30,4 +30,5 @@ apps/api/int.json
 .installed-lock-sha
 # Y1c T30：reset-collab 阶段状态文件（破坏性 reset 中途续跑锚——DB 正被 drop 状态只能落盘，不入库）
 .reset-collab-state.json
+.reset-collab-state.json.tmp
 apps/api/dist-drill/

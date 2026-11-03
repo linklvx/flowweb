@@ -172,10 +172,10 @@ async function postPhase() {
   }
   console.log('deploy-guard: 迁移集合断言 OK（migrations 目录 ≡ sha256 基线 ∧ _prisma_migrations applied ⊆ 基线）');
   const epochPre = epochPreFromRaw(st.epochPre);   // 'unavailable'/null/损坏 → NaN → decidePost fail（B23）
-  // REBUILD_DB 豁免档（Y0b-1 重建部署实测盲区——Z34 补丁）：DROP SCHEMA 把 CollabLease.epoch 归零
-  // （种子 0），post 的"epoch 递增"断言在重建形态下结构性不可能。走 degraded 机制放行（N/A 显式打印），
-  // 接管证明=ready+own spool 归零+3001 监听；递增断言由下一次普通部署恢复。pre 段已有降级时不覆盖。
-  const degraded = st.degraded ?? (process.env.REBUILD_DB === '1' ? 'rebuild-db（epoch 随 DROP SCHEMA 归零——递增断言 N/A）' : null);
+  // degraded 来源唯一=st.degraded（pre 段显式降级交接——legacy/unreachable）。原 REBUILD_DB env 豁免档
+  // （Y0b-1 Z34 补丁）已随 T30 收口删除：其两个注入点（deploy.sh cutover ⑥/rollback）随 --rebuild-db
+  // 内嵌形态退役同批移除，env 档成无写入者死码+潜在 fail-open 面（spec M-2/quality Minor-1）。
+  const degraded = st.degraded ?? null;
   const deadline = Date.now() + 120_000;   // O-1：收养 60s+reconciler 30s+回灌余量
   let last = null, verdict = { verdict: 'wait', why: '未采样' };
   while (Date.now() < deadline) {

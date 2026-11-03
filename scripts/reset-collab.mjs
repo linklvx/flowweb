@@ -154,7 +154,6 @@ function loadDatabaseUrl() {
  * 服务器面由 deploy.sh 指引退出闭死，本地不红）。 */
 function resolveSpoolDir() {
   const fromEnvFile = readApiEnv().match(/^COLLAB_SPOOL_DIR=(.*)$/m);
-  const raw = process.env.COLLAB_SPOOL_DIR ?? (fromEnvFile ? fromEnvFile[1].trim().replace(/^"|"$/g, '') : undefined);
   if (process.env.COLLAB_SPOOL_DIR) return { dir: path.resolve(process.env.COLLAB_SPOOL_DIR), source: 'env' };
   if (fromEnvFile) return { dir: path.resolve(fromEnvFile[1].trim().replace(/^"|"$/g, '')), source: 'env-file' };
   return { dir: path.join(API_DIR, '.data', 'collab-spool'), source: 'default' };
