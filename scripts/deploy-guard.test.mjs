@@ -349,3 +349,22 @@ test('T30b 红⑤：装置源文本锚（三查①DB 连接口径同源/③pg_du
   assert.match(DRILL_SRC_30B, /4406/, '两向版本门实弹（旧 bundle+新服务端→4406；新 bundle+旧服务端→不可用）');
   assert.match(DRILL_SRC_30B, /不起 worker/, 'RB1 ready 超时失败分支（M-B 同款——60 轮空转无失败分支的形态不复存在）');
 });
+
+// ===== Y1c T30b 演练实弹发现：T24 sv 上行缺口——既有 smoke 装置 URL 对当前服务端 4406 恒拒 =====
+// 实弹证据：cutover 首跑预写 provider synced 超时，服务端 log=[onAuthenticate] client history/protocol
+// outdated（sv 缺失（旧 bundle））——collab-smoke/exec-smoke URL 止于 csv（T19 形态），T24 收口 M-1
+// 起 sv 为硬门三元（缺失=4406）——装置先于 T24 定型即破。红例先钉（文本锚=deploy.sh 契约测试同款）。
+const SMOKE_SRC_30B = (() => {
+  try {
+    return readFileSync(pathResolve(pathFileURLToPath(import.meta.url), '../../apps/api/scripts/collab-smoke.mjs'), 'utf8')
+      + '\n' + readFileSync(pathResolve(pathFileURLToPath(import.meta.url), '../../apps/api/scripts/exec-smoke.mjs'), 'utf8');
+  } catch { return ''; }
+})();
+
+test('T30b 红⑥：smoke 装置 URL 带 sv=CANVAS_DOC_SCHEMA_VERSION（T24 三元上行——collab-smoke/exec-smoke 单源读 shared，禁字面量）', () => {
+  assert.ok(SMOKE_SRC_30B, 'smoke 装置源须可读');
+  assert.match(SMOKE_SRC_30B, /CANVAS_DOC_SCHEMA_VERSION/, 'sv 单源=shared CANVAS_DOC_SCHEMA_VERSION（T19 CSV 单源根修同律）');
+  const urls = SMOKE_SRC_30B.match(/url: `[^`]*\$\{CSV\}[^`]*`/g) ?? [];
+  assert.ok(urls.length >= 2, `两 smoke 装置的 provider URL 须被锚到（实得 ${urls.length}）`);
+  for (const u of urls) assert.match(u, /sv=\$\{SV\}/, `URL 缺 sv 上行（${u}——当前服务端版本门 4406 恒拒）`);
+});

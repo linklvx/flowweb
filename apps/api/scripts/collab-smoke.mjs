@@ -32,7 +32,10 @@ const S = { user: `smoke-u-${ts}`, team: `smoke-t-${ts}`, member: `smoke-m-${ts}
 // Y0b-3 T5 版本门：URL 必带 csv=CLIENT_PROTOCOL_VERSION（缺 csv=client-version-missing 恒拒——冒烟必挂）。
 const WebSocket = req('ws');
 // T19（P1#1④根修）：CSV 从 shared dist 单源读（T18 bump=3 后字面量 2 恒拒——「bump 时随改」惯例退役）。
+// T30b 演练实弹补：sv=CANVAS_DOC_SCHEMA_VERSION 同源上行（T24 收口 M-1 三元硬门——缺失=4406 恒拒；
+// 本装置 URL 止于 csv=T19 形态，对 T24+ 服务端 synced 恒超时——单源同律禁字面量）。
 const CSV = req('@flowweb/shared').CLIENT_PROTOCOL_VERSION;
+const SV = req('@flowweb/shared').CANVAS_DOC_SCHEMA_VERSION;
 const WS_ORIGIN = process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0]?.trim()
   || new URL(process.env.BETTER_AUTH_URL ?? 'http://localhost:5173').origin;
 const makeHeaderWs = (headers) => class HeaderWs extends WebSocket {
@@ -59,7 +62,7 @@ async function main() {
     await prisma.session.create({ data: { id: `smoke-s-${ts}`, userId: S.user, token: S.token, expiresAt: new Date(Date.now() + 10 * 60_000) } });
 
     const mk = () => new HocuspocusProvider({
-      url: `${WS_URL}?csv=${CSV}&cb=smoke`, name: `project:${S.project}`, document: new Y.Doc(),   // CSV=shared dist 单源读（T19 根修——字面量惯例已退役）
+      url: `${WS_URL}?csv=${CSV}&sv=${SV}&cb=smoke`, name: `project:${S.project}`, document: new Y.Doc(),   // CSV/SV=shared dist 单源读（T19 根修+T30b sv 补）
       WebSocketPolyfill: makeHeaderWs({ origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.token}` }),
     });
     const A = mk(), B = mk();

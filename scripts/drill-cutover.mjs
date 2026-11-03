@@ -213,10 +213,12 @@ function loadClientLibs() {
   const WebSocket = requireApi('ws');
   const Y = requireApi('yjs');
   const { HocuspocusProvider } = requireApi('@hocuspocus/provider');
-  const CSV = requireApi('@flowweb/shared').CLIENT_PROTOCOL_VERSION;
+  const shared = requireApi('@flowweb/shared');
+  const CSV = shared.CLIENT_PROTOCOL_VERSION;
+  const SV = shared.CANVAS_DOC_SCHEMA_VERSION;   // T24 三元上行（缺失=4406——演练实弹发现面）
   const WS_ORIGIN = envOf('COLLAB_ALLOWED_ORIGINS').split(',')[0]?.trim()
     || new URL(envOf('BETTER_AUTH_URL', 'http://localhost:5173')).origin;
-  return { WebSocket, Y, HocuspocusProvider, CSV, WS_ORIGIN };
+  return { WebSocket, Y, HocuspocusProvider, CSV, SV, WS_ORIGIN };
 }
 async function makeFixtures(prefix) {
   const { PrismaClient } = requireApi('@prisma/client');
@@ -302,7 +304,7 @@ async function modeCutover() {
   const libs0 = loadClientLibs();
   const mkHeaderWs = (headers) => class HeaderWs extends libs0.WebSocket { constructor(url) { super(url, { headers }); } };
   const P = new libs0.HocuspocusProvider({
-    url: `${WS_URL}?csv=${libs0.CSV}&cb=drill`, name: `project:${pre.project}`, document: new libs0.Y.Doc(),
+    url: `${WS_URL}?csv=${libs0.CSV}&sv=${libs0.SV}&cb=drill`, name: `project:${pre.project}`, document: new libs0.Y.Doc(),
     WebSocketPolyfill: mkHeaderWs({ origin: libs0.WS_ORIGIN, cookie: `flowweb.session_token=${pre.token}` }),
   });
   await new Promise((res, rej) => { const t = setTimeout(() => rej(new Error('预写 provider synced 超时')), 15_000); P.on('synced', () => { clearTimeout(t); res(); }); });
@@ -435,10 +437,10 @@ async function modeCutover() {
 /** 卡文⑥点名补充断言（既有装置缺口面——collab-smoke 已覆盖双端建/改/广播/store 落 PG，exec-smoke 已覆盖执行）。 */
 async function smokeSupplement(preResetHistoryId, resetEraHistoryId) {
   const S = await makeFixtures('t30b-sm');
-  const { Y, HocuspocusProvider, WebSocket, CSV, WS_ORIGIN } = loadClientLibs();
+  const { Y, HocuspocusProvider, WebSocket, CSV, SV, WS_ORIGIN } = loadClientLibs();
   const mkHeaderWs = (headers) => class HeaderWs2 extends WebSocket { constructor(url) { super(url, { headers }); } };
   const mk = () => new HocuspocusProvider({
-    url: `${WS_URL}?csv=${CSV}&cb=drill`, name: `project:${S.project}`, document: new Y.Doc(),
+    url: `${WS_URL}?csv=${CSV}&sv=${SV}&cb=drill`, name: `project:${S.project}`, document: new Y.Doc(),
     WebSocketPolyfill: mkHeaderWs({ origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.token}` }),
   });
   const A = mk(), B = mk();
@@ -493,7 +495,7 @@ async function smokeSupplement(preResetHistoryId, resetEraHistoryId) {
     console.log('[drill] smoke 补充：查无 doc.exec 过（重放投影 exec map 零键）');
     // 版本门 A 向（旧 bundle+新服务端→4406）：csv=2 schema-outdated 档+hid=旧纪元档（客户端 IDB 五元自燃实证）
     const c1 = await rawWsExpectClose(`csv=2&sv=2&cb=drill`, CLOSE_CLIENT_OUTDATED);
-    const c2 = await rawWsExpectClose(`csv=${CSV}&sv=3&hid=${preResetHistoryId}&cb=drill`, CLOSE_CLIENT_OUTDATED);
+    const c2 = await rawWsExpectClose(`csv=${CSV}&sv=${SV}&hid=${preResetHistoryId}&cb=drill`, CLOSE_CLIENT_OUTDATED);
     console.log(`[drill] smoke 补充：版本门 A 向过（旧 bundle+新服务端→4406：${c1}；旧 hid〔${preResetHistoryId.slice(0, 8)}…〕→4406：${c2}）`);
   } finally {
     for (const p of [A, B]) { try { p.destroy(); } catch { /* 已断 */ } }
@@ -561,10 +563,10 @@ async function modeRollback() {
   });
 
   await timed('two-way-verify', async () => {
-    const { CSV } = loadClientLibs();
+    const { CSV, SV } = loadClientLibs();
     // B 向（新 bundle+旧服务端→不可用）：csv>current=server-outdated→terminal 4406；hid=reset 代（新客户端缓存）→4406
-    const c1 = await rawWsExpectClose(`csv=4&sv=3&cb=drill`, CLOSE_CLIENT_OUTDATED);
-    const c2 = await rawWsExpectClose(`csv=${CSV}&sv=3&hid=${D.resetEraHistoryId}&cb=drill`, CLOSE_CLIENT_OUTDATED);
+    const c1 = await rawWsExpectClose(`csv=4&sv=${SV}&cb=drill`, CLOSE_CLIENT_OUTDATED);
+    const c2 = await rawWsExpectClose(`csv=${CSV}&sv=${SV}&hid=${D.resetEraHistoryId}&cb=drill`, CLOSE_CLIENT_OUTDATED);
     // A 向复证（csv=2 旧 bundle 对恢复后服务端——4406 恒拒，防「旧服端放旧客户端」错觉）
     const c3 = await rawWsExpectClose(`csv=2&sv=2&cb=drill`, CLOSE_CLIENT_OUTDATED);
     console.log(`[drill] 两向实弹：B 向 csv=4→${c1}；B 向 hid=reset 代→${c2}；A 向 csv=2→${c3}`);

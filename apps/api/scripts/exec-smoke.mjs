@@ -58,6 +58,7 @@ const WS_URL = process.env.COLLAB_WS_URL ?? 'ws://127.0.0.1:3001';
 const P = 'smoke-y0b5-';                 // 哨兵 id 前缀（与 collab-smoke 的 smoke-* 命名空间隔离）
 const NT_KEY = 'smoke:y0b5:text';        // 哨兵 NodeType key（用户面选择器按已知 key 查询——永不被查）
 const CSV = req('@flowweb/shared').CLIENT_PROTOCOL_VERSION;    // 单源解析（T18 硬切 bump=3 漏改字面量——同 write-frozen-drill 根修，「字面量+bump 时随改」约定废弃）
+const SV = req('@flowweb/shared').CANVAS_DOC_SCHEMA_VERSION;   // T30b 演练实弹补：sv 上行（T24 收口 M-1 三元硬门——缺失=4406 恒拒；collab-smoke 同律）
 const SEED_CREDITS = 10;
 const ts = Date.now();
 const S = {
@@ -154,7 +155,7 @@ function makeHeaderWs(headers) {
 async function connectAndSeed() {
   const doc = new Y.Doc();
   const provider = new HocuspocusProvider({
-    url: `${WS_URL}?csv=${CSV}&cb=exec-smoke`, name: `project:${S.project}`, document: doc,
+    url: `${WS_URL}?csv=${CSV}&sv=${SV}&cb=exec-smoke`, name: `project:${S.project}`, document: doc,
     WebSocketPolyfill: makeHeaderWs({ origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.token}` }),
   });
   await new Promise((res, rej) => {
