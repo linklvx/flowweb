@@ -368,3 +368,9 @@ test('T30b 红⑥：smoke 装置 URL 带 sv=CANVAS_DOC_SCHEMA_VERSION（T24 三�
   assert.ok(urls.length >= 2, `两 smoke 装置的 provider URL 须被锚到（实得 ${urls.length}）`);
   for (const u of urls) assert.match(u, /sv=\$\{SV\}/, `URL 缺 sv 上行（${u}——当前服务端版本门 4406 恒拒）`);
 });
+
+test('T30b 红⑦：collab-smoke 哨兵节点=T9+ 节点信封（type+data 容器——fillDoc 同形；旧 kind 信封=frame-deny node-key 恒拒 4411）', () => {
+  const src = SMOKE_SRC_30B.slice(0, SMOKE_SRC_30B.indexOf('\n// apps/api/scripts/exec-smoke.mjs'));   // collab-smoke 段
+  assert.doesNotMatch(src, /\[\['kind', 'smoke'\]\]/, 'kind 信封=pre-T9 形态——frame-deny 节点信封键白名单外（node-key:kind→4411 恒拒，实弹复证面）');
+  assert.match(src, /set\('type', 'textInput'\)/, '哨兵节点须按 T9+ 信封（type 标量+data Map 容器——exec-smoke 播种同形）');
+});

@@ -62,6 +62,10 @@ function run(cmd, args, opts = {}) {
     ? spawnSync([cmd, ...args].join(' '), { encoding: 'utf8', ...opts, shell: true })
     : spawnSync(cmd, args, { encoding: 'utf8', ...opts });
 }
+/** 引号形态子进程（DSN 含 `&`〔Prisma query 参数〕——cmd.exe 裸拼会被命令分隔符截断；参数须预加引号）。 */
+function runQuoted(cmdString, opts = {}) {
+  return spawnSync(cmdString, { encoding: 'utf8', ...opts, shell: true });
+}
 
 // ── PG 工具链（G6a 先例：D:/programfiles/PostgreSQL/16/bin；env PG_BIN_DIR 可覆写，缺省回退 PATH） ──
 function resolvePgBin() {
@@ -118,26 +122,30 @@ async function getReadyFull() {
     .then((r) => r.json()).catch(() => null);
 }
 async function postDrain() {
+  // 全局 TransformInterceptor 包一层 {code,data,message}（drain=普通返回值端点；/api/ready=@Res() 直写不受包）
   const r = await fetch(`${API_URL}/api/drain`, { method: 'POST', headers: { 'x-prometheus-token': ADMIN_TOKEN } })
     .then((x) => x.json()).catch(() => null);
-  if (!r || r.draining !== true) throw new Error(`drain 未生效：${JSON.stringify(r)}`);
-  return r;
+  const d = r?.data ?? r;
+  if (!d || d.draining !== true) throw new Error(`drain 未生效：${JSON.stringify(r)}`);
+  return d;
 }
 
 // ── PG 面 ──
-async function withPg(fn) {
+async function withPg(fn, applicationName = 'drill-t30b') {
   const { Client } = requireApi('pg');
-  const client = new Client({ connectionString: loadDatabaseUrl() });
+  const client = new Client({ connectionString: loadDatabaseUrl(), application_name: applicationName });
   await client.connect();
   try { return await fn(client); } finally { await client.end().catch(() => {}); }
 }
-/** 三查①：同库活连接计数（backend_type='client backend' 过滤——reset-collab precheck 同源口径）。 */
+/** 三查①：同库活连接计数（backend_type='client backend' 过滤——reset-collab precheck 同源口径；
+ *  排除本装置探针自身（前一轮关闭中的 idle backend 会在 pg_stat_activity 短暂滞留=自污染假红）。 */
 async function dbClientBackends() {
   return withPg(async (client) => {
     const rows = (await client.query(`SELECT pid FROM pg_stat_activity
-      WHERE datname = current_database() AND pid <> pg_backend_pid() AND backend_type = 'client backend'`)).rows;
+      WHERE datname = current_database() AND pid <> pg_backend_pid() AND backend_type = 'client backend'
+      AND application_name <> 'drill-t30b'`)).rows;
     return rows.length;
-  });
+  }, 'drill-t30b-probe');
 }
 /** 三查③：租约行判定（无行/owner 空/已过期=无持有）。 */
 async function leaseVerdict() {
@@ -243,6 +251,15 @@ async function cleanupFixtures(S) {
   for (const del of order) await del().catch((e) => console.log(`[drill] SMOKE-WARN 哨兵清理失败: ${e.message}`));
   await S.prisma.$disconnect();
 }
+/** T9+ 节点信封（type 标量+data Map 容器——exec-smoke 播种同形；旧 kind 信封=frame-deny node-key 4411 恒拒）。 */
+function mkNode(Y, id, content) {
+  const data = new Y.Map();
+  data.set('content', content ?? `drill-${id}`);
+  const m = new Y.Map();
+  m.set('type', 'textInput');
+  m.set('data', data);
+  return m;
+}
 /** 原始 WS 连接并断言版本门 terminal close 码（两向实弹——T24 close 帧先例的裸 ws 形态）。 */
 function rawWsExpectClose(query, expectCode, timeoutMs = 15_000) {
   const { WebSocket, WS_ORIGIN } = loadClientLibs();
@@ -308,8 +325,9 @@ async function modeCutover() {
     WebSocketPolyfill: mkHeaderWs({ origin: libs0.WS_ORIGIN, cookie: `flowweb.session_token=${pre.token}` }),
   });
   await new Promise((res, rej) => { const t = setTimeout(() => rej(new Error('预写 provider synced 超时')), 15_000); P.on('synced', () => { clearTimeout(t); res(); }); });
-  P.document.transact(() => P.document.getMap('nodes').set('drill-pre-marker', new libs0.Y.Map([['kind', 'drill']])));
+  P.document.transact(() => P.document.getMap('nodes').set('drill-pre-marker', mkNode(libs0.Y, 'pre-marker')));
   const preHistory = await systemHistory();
+  await pre.prisma.$disconnect();   // 三查①卫生：预写 fixture 连接池在停消费者前撤（否则活连接恒 1=假红）
   console.log(`[drill] 预写完成（活跃连接在位）；pre-reset historyId=${preHistory.historyId}`);
 
   // ── RTO 计时窗起算（①公告维护+freeze）──
@@ -333,11 +351,12 @@ async function modeCutover() {
     if (!(final?.pending && final.pending.projects === 0 && final.pending.batches === 0)) {
       throw new Error(`pending 未排空（spoolHeadSeq≠pgSeq）：${JSON.stringify(final?.pending)}`);
     }
-    // 活跃连接 0（客户端断开；兜底=drain 60s 自动解除时服务端 1012 强断——「或强制 1012」档）
+    // 活跃连接 0（客户端断开；兜底=drain 60s 自动解除时服务端 1012 强断——「或强制 1012」档。
+    // 口径：connections=pending 的兄弟字段（ready service 冻结形状——禁进 pending 对象）
     try { P.destroy(); } catch { /* 已断 */ }
     await waitFor(async () => {
       const r = await getReadyFull();
-      return r?.pending && r.pending.connections === 0 ? 'done' : r?.pending?.connections ?? 'no-ready';
+      return r && r.connections === 0 ? 'done' : r?.connections ?? 'no-ready';
     }, 75_000, '活跃连接归零（含 60s 自动解除 1012 强断兜底窗）');
     return 'spoolHeadSeq==pgSeq（projects/batches=0）+活跃连接 0';
   });
@@ -350,9 +369,11 @@ async function modeCutover() {
     await stopService('old-api');
     const conns = await waitFor(() => dbClientBackends().then((n) => n === 0 ? 'done' : n), 15_000, '三查① DB 连接归零');
     const pid = 'worker/api 子进程退出事件已收（stopService 等待面）';
-    const lease = await leaseVerdict();
-    console.log(`[drill] 三查：①DB client-backend 连接=0 ✓（${conns}）②PID=${pid} ✓ ③租约=${lease} ${lease.startsWith('HELD') ? '✗' : '✓（无持有/已过期）'}`);
-    if (lease.startsWith('HELD')) throw new Error(`三查③红：租约仍持有（${lease}）`);
+    // 三查③：taskkill=SIGKILL 等价不释放租约行——等 TTL 过期（缺省 10s——runbook ③「等 TTL 过期再 reset」同款）
+    let leaseFinal = '';
+    await waitFor(async () => leaseVerdict().then((v) => { if (v.startsWith('HELD')) return false; leaseFinal = v; return 'done'; }), 30_000, '三查③ 租约 TTL 过期');
+    const lease = leaseFinal;
+    console.log(`[drill] 三查：①DB client-backend 连接=0 ✓（${conns}）②PID=${pid} ✓ ③租约=${lease} ✓（TTL 过期）`);
     return `三查过（连接 0/PID 退出/租约=${lease}）`;
   });
 
@@ -361,7 +382,7 @@ async function modeCutover() {
   const manifestPath = path.join(BACKUP_DIR, `t30b-pre-reset-minio-manifest-${stamp}.txt`);
   await timed('snapshot', async () => {
     mkdirSync(BACKUP_DIR, { recursive: true });
-    const d = run(pgDump(), ['-Fc', loadDatabaseUrl(), '-f', dumpPath], { cwd: ROOT, timeout: 300_000 });
+    const d = runQuoted(`"${pgDump()}" -Fc -f "${dumpPath}" "${loadDatabaseUrl()}"`, { cwd: ROOT, timeout: 300_000 });   // 选项须先于位置参数 dbname（PG CLI 解析序）
     if (d.status !== 0) throw new Error(`pg_dump 失败：${(d.stderr ?? '').slice(-400)}`);
     // 对象存储 manifest（本地无 mc——SDK ListObjectsV2 生成 mc ls --recursive 同构文本；形态偏差登记）
     const { S3Client, ListObjectsV2Command } = requireApi('@aws-sdk/client-s3');
@@ -430,7 +451,6 @@ async function modeCutover() {
   writeFileSync(path.join(BACKUP_DIR, 't30b-drill-state.json'), JSON.stringify({
     dumpPath, manifestPath, preResetHistoryId: preHistory.historyId, resetEraHistoryId: resetEraHistory.historyId, snapshotHistoryIdProbe: resetEraHistoryProbe.historyId, cutoverSummary: summary,
   }, null, 2));
-  await cleanupFixtures(pre).catch((e) => console.log(`[drill] SMOKE-WARN 预写哨兵清理失败: ${e.message}`));
   console.log('[drill] cutover 完成——新栈保持在线（⑧开放写态）；回滚演练接续：node scripts/drill-cutover.mjs --rollback --confirm（其步 1 停新）');
 }
 
@@ -448,7 +468,7 @@ async function smokeSupplement(preResetHistoryId, resetEraHistoryId) {
   try {
     await Promise.all([synced(A), synced(B)]);
     // undo：A 建→B 见→A undo→B 见消失（undo origin 单元在客户端）
-    A.document.transact(() => A.document.getMap('nodes').set('drill-undo-node', new Y.Map([['kind', 'drill']])));
+    A.document.transact(() => A.document.getMap('nodes').set('drill-undo-node', mkNode(Y, 'undo-node')));
     await new Promise((res, rej) => {
       const t = setTimeout(() => rej(new Error('undo 前置：B 10s 未见 drill-undo-node')), 10_000);
       const c = () => { if (B.document.getMap('nodes').has('drill-undo-node')) { clearTimeout(t); res(); } };
@@ -463,7 +483,7 @@ async function smokeSupplement(preResetHistoryId, resetEraHistoryId) {
     });
     console.log('[drill] smoke 补充：undo 过（A undo→B 收敛移除）');
     // 保存（barrier Durable）：stateless {nonce,clientSeq}→回执 committedSeq 无 error
-    A.document.transact(() => A.document.getMap('nodes').set('drill-barrier-node', new Y.Map([['kind', 'drill']])));
+    A.document.transact(() => A.document.getMap('nodes').set('drill-barrier-node', mkNode(Y, 'barrier-node')));
     const nonce = `drill-${randomUUID()}`;
     const receipt = await new Promise((res, rej) => {
       const t = setTimeout(() => rej(new Error('barrier 回执 10s 未达（Durable 未证）')), 10_000);
@@ -474,10 +494,10 @@ async function smokeSupplement(preResetHistoryId, resetEraHistoryId) {
     });
     if (receipt.error || typeof receipt.committedSeq !== 'string') throw new Error(`barrier 回执非 Durable 档：${JSON.stringify(receipt)}`);
     console.log(`[drill] smoke 补充：save barrier Durable 过（committedSeq=${receipt.committedSeq}）`);
-    // feed 追平：HTTP 游标可从 0 枚举至 cursor（事件链覆盖水位）
+    // feed 追平：HTTP 游标可从 0 枚举至 cursor（事件链覆盖水位）——端点受全局 TransformInterceptor 包裹取 .data
     const cookie = { cookie: `flowweb.session_token=${S.token}` };
-    const snap = await fetch(`${API_URL}/api/collab/runtime-feed/${S.project}/snapshot`, { headers: cookie }).then((r) => r.json());
-    const ev = await fetch(`${API_URL}/api/collab/runtime-feed/${S.project}/events?after=0&limit=200`, { headers: cookie }).then((r) => r.json());
+    const snap = (await fetch(`${API_URL}/api/collab/runtime-feed/${S.project}/snapshot`, { headers: cookie }).then((r) => r.json())).data;
+    const ev = (await fetch(`${API_URL}/api/collab/runtime-feed/${S.project}/events?after=0&limit=200`, { headers: cookie }).then((r) => r.json())).data;
     const evCount = Array.isArray(ev.events) ? ev.events.length : 0;
     const cursor = snap.cursor?.feedSeq;
     if (!cursor || cursor === '0' || evCount === 0) throw new Error(`feed 未追平：cursor=${cursor} events=${evCount}（响应 ${JSON.stringify(snap).slice(0, 200)}/${JSON.stringify(ev).slice(0, 200)}）`);
@@ -520,7 +540,7 @@ async function modeRollback() {
   await timed('restore-snapshot', async () => {
     // 整库恢复=DROP schema 后 pg_restore（确定性形态——-c 依赖 dump 内 DROP 序）
     await withPg(async (client) => { await client.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;'); });
-    const r = run(pgRestore(), ['--no-owner', '--no-privileges', '-d', loadDatabaseUrl(), D.dumpPath], { cwd: ROOT, timeout: 300_000 });
+    const r = runQuoted(`"${pgRestore()}" --no-owner --no-privileges -d "${loadDatabaseUrl()}" "${D.dumpPath}"`, { cwd: ROOT, timeout: 300_000 });
     if (r.status !== 0) throw new Error(`pg_restore 失败：${(r.stderr ?? '').slice(-600)}`);
     const h = await systemHistory();
     if (h.historyId !== D.preResetHistoryId) throw new Error(`恢复后 historyId=${h.historyId} ≠ 快照纪元 ${D.preResetHistoryId}（恢复失真）`);

@@ -65,6 +65,16 @@ async function main() {
       url: `${WS_URL}?csv=${CSV}&sv=${SV}&cb=smoke`, name: `project:${S.project}`, document: new Y.Doc(),   // CSV/SV=shared dist 单源读（T19 根修+T30b sv 补）
       WebSocketPolyfill: makeHeaderWs({ origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.token}` }),
     });
+    // T30b 演练实弹补：哨兵节点=T9+ 节点信封（type 标量+data Map 容器——exec-smoke 播种/fillDoc 同形；
+    // 旧 kind 信封=frame-deny 节点信封白名单外（node-key:kind）→4411 恒拒，广播链断）
+    const mkMarker = (id) => {
+      const data = new Y.Map();
+      data.set('content', `smoke-marker-${id}`);
+      const m = new Y.Map();
+      m.set('type', 'textInput');
+      m.set('data', data);
+      return m;
+    };
     const A = mk(), B = mk();
     const synced = (p) => new Promise((res, rej) => {
       const t = setTimeout(() => rej(new Error('provider synced 超时 10s——3001 未监听/鉴权拒/装载失败')), 10_000);
@@ -72,8 +82,8 @@ async function main() {
     });
     try {
       await Promise.all([synced(A), synced(B)]);
-      A.document.transact(() => A.document.getMap('nodes').set(MARKERS[0], new Y.Map([['kind', 'smoke']])));
-      B.document.transact(() => B.document.getMap('nodes').set(MARKERS[1], new Y.Map([['kind', 'smoke']])));
+      A.document.transact(() => A.document.getMap('nodes').set(MARKERS[0], mkMarker(MARKERS[0])));
+      B.document.transact(() => B.document.getMap('nodes').set(MARKERS[1], mkMarker(MARKERS[1])));
       // 双客户端断言①：广播链——A 侧收敛出 B 的 marker（10s）
       await new Promise((res, rej) => {
         const t = setTimeout(() => rej(new Error('广播链断：A 10s 未见 marker-b（doc 装载/广播异常——单客户端冒烟测不出的面）')), 10_000);
