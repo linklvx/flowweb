@@ -21,17 +21,20 @@
 // 固定模型 id 注册后删除会被缓存行放行（缓存击穿）；本脚本所有 AIModel id 带 per-run ts 后缀；
 // 负例 ghost id = 从未注册过的名字（禁复用刚删哨兵名——同理）。
 //
-// ── 四阶段 ──
+// ── 四阶段（环1/环2b 期望随 Y1c T23 UNKNOWN 纪律勘正——T30b 实弹发现：Y0b-5 旧「传输失败降级
+//    =EXECUTION_FAILED/5xx=退款」语义已被 spec §6.3 偏离 36-④ 取代） ──
 // ① 哨兵建立：幂等预扫清 smoke:y0b5:* 遗留 → fixture（user/team/member/project/session/TeamBalance 10 积分）
 //    + NodeType（key=smoke:y0b5:text）+ 三 AIModel（econn=apiUrl http://127.0.0.1:1 / ok / fail=本地 stub
 //    端口；全部 provider='moonshot'+apiKey='smoke-dummy'）+ PricingRule（econn creditCost:0、ok/fail
 //    creditCost:1）+ WS provider 播种 4 个 textInput 节点（econn/ok/fail/ghost 各 data.model=对应 id）。
 // ② 正例双环：
-//    环1 econn（cost:0）：ECONNREFUSED→error→intent 终态 FAILED+台账零行+balanceDelta 0+reservedCredits 0。
+//    环1 econn（cost:0）：ECONNREFUSED→TEXT_PROVIDER_UNKNOWN→intent 终态 UNKNOWN+台账零行
+//      +balanceDelta 0+reservedCredits 0。
 //    环2a ok（cost:1+stub 200）：true settle 全链——reserve(-1,+1)+settle(0,-1,reversesId 配对) 行形态
 //      +intent SUCCEEDED/creditsConsumed=1+TeamBalance credits -1。
-//    环2b fail（cost:1+stub 5xx）：失败退款环——reserve+release(+1,-1,reversesId) 冻结释放归零
-//      +intent FAILED+余额复原；stub 恰收 2 请求（Authorization=Bearer smoke-dummy——行级密钥路径自证）。
+//    环2b fail（cost:1+stub 5xx）：T23 UNKNOWN 停驻环——reserve(-1,+1) 冻结保留（无 release 行=禁
+//      自动退款/自动重呼，人工对账面）+intent UNKNOWN/reservedCredits=1+余额冻结 1；stub 恰收 2 请求
+//      （Authorization=Bearer smoke-dummy——行级密钥路径自证）。
 // ③ 负例：ghost modelId → HTTP 2xx + body.success=false + MODEL_NOT_AVAILABLE 形态（validation 预检
 //    请求级返回体非 4xx——plan"4xx"不精确，按实测响应形态断言）+ 零 intent 行 + 零外呼（stub 计数不变）。
 // ④ finally 清理：模型+规则+NodeType+项目+intent+TeamBalance/Transaction 哨兵行全删（幂等谓词同预扫）
@@ -255,13 +258,15 @@ async function main() {
     const leaked = pubModels.filter((m) => [S.mEconn, S.mOk, S.mFail].includes(m.id));
     if (leaked.length > 0) fail(`公开选择器泄漏哨兵模型：${leaked.map((m) => m.id).join(',')}`);
 
-    // ── ② 环1：ECONNREFUSED（cost:0——零冻结零流水真值表档） ──
+    // ── ② 环1：ECONNREFUSED（cost:0——T23 UNKNOWN 纪律〔spec §6.3 偏离 36-④——T30b 实弹勘正：Y0b-5
+    //    旧「传输失败降级=EXECUTION_FAILED」已被取代：text 链 fetch 失败/超时/5xx=外呼结果不明≠确定失败，
+    //    markUnknown 停驻+reserve 保留；cost:0 ⇒ 零资金行面维持） ──
     const r1 = await executeNode(S.nEconn, provider);
     if (r1.success !== false) fail(`环1 应失败：${JSON.stringify(r1.errors ?? r1)}`);
-    if (r1.errors?.[0]?.errorCode !== 'EXECUTION_FAILED') fail(`环1 errorCode 应为 EXECUTION_FAILED（传输失败降级档）：${JSON.stringify(r1.errors?.[0])}`);
+    if (r1.errors?.[0]?.errorCode !== 'TEXT_PROVIDER_UNKNOWN') fail(`环1 errorCode 应为 TEXT_PROVIDER_UNKNOWN（T23 UNKNOWN 纪律）：${JSON.stringify(r1.errors?.[0])}`);
     const i1 = await prisma.generationIntent.findFirst({ where: { projectId: S.project, nodeId: S.nEconn } });
     if (!i1) fail('环1 零 intent 行（claim 应建行——cost:0 也建）');
-    if (i1.status !== 'FAILED' || i1.creditCost !== 0 || i1.reservedCredits !== 0 || i1.creditsConsumed !== 0)
+    if (i1.status !== 'UNKNOWN' || i1.creditCost !== 0 || i1.reservedCredits !== 0 || i1.creditsConsumed !== 0)
       fail(`环1 intent 形态异常：status=${i1.status} creditCost=${i1.creditCost} reserved=${i1.reservedCredits} consumed=${i1.creditsConsumed}`);
     if (i1.pricingRuleId !== S.rEconn) fail(`环1 定价快照漂移：pricingRuleId=${i1.pricingRuleId}`);
     const ledger1 = await prisma.teamCreditTransaction.count({ where: { teamId: S.team, referenceId: { startsWith: 'intent:' } } });
@@ -286,19 +291,21 @@ async function main() {
     const bal2 = await prisma.teamBalance.findUnique({ where: { teamId: S.team } });
     if (bal2.credits !== SEED_CREDITS - 1) fail(`环2a 余额应 ${SEED_CREDITS - 1}：${bal2.credits}`);
 
-    // ── ② 环2b：stub 5xx（cost:1——失败退款环，冻结释放归零） ──
+    // ── ② 环2b：stub 5xx（cost:1——T23 UNKNOWN 纪律〔T30b 实弹勘正：Y0b-5 旧「5xx=失败退款」已被
+    //    取代：5xx=外呼结果不明，markUnknown 停驻+reserve 保留〔冻结不解〕——确认成功才 settle、
+    //    取消/重试才 void，禁自动重呼；人工对账面 text_unknown_total〕 ──
     const r3 = await executeNode(S.nFail, provider);
     if (r3.success !== false) fail(`环2b 应失败：${JSON.stringify(r3.errors ?? r3)}`);
+    if (r3.errors?.[0]?.errorCode !== 'TEXT_PROVIDER_UNKNOWN') fail(`环2b errorCode 应为 TEXT_PROVIDER_UNKNOWN（T23 UNKNOWN 纪律）：${JSON.stringify(r3.errors?.[0])}`);
     const i3 = await prisma.generationIntent.findFirst({ where: { projectId: S.project, nodeId: S.nFail } });
-    if (!i3 || i3.status !== 'FAILED' || i3.reservedCredits !== 0 || i3.creditsConsumed !== 0)
-      fail(`环2b intent 形态异常（终态 FAILED+冻结释放归零）：${i3 ? `status=${i3.status} reserved=${i3.reservedCredits} consumed=${i3.creditsConsumed}` : '零行'}`);
+    if (!i3 || i3.status !== 'UNKNOWN' || i3.reservedCredits !== 1 || i3.creditsConsumed !== 0)
+      fail(`环2b intent 形态异常（UNKNOWN+reserve 保留）：${i3 ? `status=${i3.status} reserved=${i3.reservedCredits} consumed=${i3.creditsConsumed}` : '零行'}`);
     const l3 = await ledgerOf(prisma, i3.id);
-    if (l3.length !== 2) fail(`环2b 台账应恰 2 行（reserve+release），实得 ${l3.length}`);
+    if (l3.length !== 1) fail(`环2b 台账应恰 1 行（reserve 保留——无 release/settle），实得 ${l3.length}`);
     if (l3[0].type !== 'reserve' || l3[0].balanceDelta !== -1 || l3[0].frozenDelta !== 1) fail(`环2b reserve 行形态异常：${JSON.stringify(l3[0])}`);
-    if (l3[1].type !== 'release' || l3[1].balanceDelta !== 1 || l3[1].frozenDelta !== -1 || l3[1].reversesId !== l3[0].id)
-      fail(`环2b release 行形态/配对异常：${JSON.stringify(l3[1])}`);
     const bal3 = await prisma.teamBalance.findUnique({ where: { teamId: S.team } });
-    if (bal3.credits !== SEED_CREDITS - 1) fail(`环2b 余额应复原为 ${SEED_CREDITS - 1}：${bal3.credits}`);
+    if (bal3.credits !== SEED_CREDITS - 2) fail(`环2b 余额应 ${SEED_CREDITS - 2}（ok 结算 -1+fail 冻结 -1）：${bal3.credits}`);
+    if (bal3.frozen !== 1) fail(`环2b 冻结应 1（UNKNOWN 停驻保留）：${bal3.frozen}`);
     // stub 收面自证：恰 2 请求（环2a+环2b）+行级密钥路径（Bearer smoke-dummy=AIModel.apiKey 非 env seed）
     if (stub.received.length !== 2) fail(`stub 应恰收 2 请求（econn=拒连/ghost=预检拦——均零外呼），实得 ${stub.received.length}: ${JSON.stringify(stub.received)}`);
     for (const q of stub.received) if (q.authorization !== 'Bearer smoke-dummy') fail(`stub 收到非行级密钥请求：${JSON.stringify(q)}`);
@@ -312,12 +319,12 @@ async function main() {
     if (i4 !== 0) fail(`负例应零 intent 行（预检在 claim 前），实得 ${i4}`);
     if (stub.received.length !== stubBefore) fail(`负例应零外呼（stub 计数 ${stub.received.length}≠${stubBefore}）`);
 
-    // 全环台账终账（intent 域）：环1 零行+环2a 2 行+环2b 2 行 = 4（register_grant 播种行不计）
+    // 全环台账终账（intent 域）：环1 零行+环2a 2 行+环2b 1 行（T23：reserve 保留无 release） = 3（register_grant 播种行不计）
     const ledgerFinal = await prisma.teamCreditTransaction.count({ where: { teamId: S.team, referenceId: { startsWith: 'intent:' } } });
-    if (ledgerFinal !== 4) fail(`全环台账终账应 4 行，实得 ${ledgerFinal}`);
+    if (ledgerFinal !== 3) fail(`全环台账终账应 3 行，实得 ${ledgerFinal}`);
     console.log(JSON.stringify({
       smoke: 'OK', project: S.project, ledgerRows: ledgerFinal,
-      chain: '哨兵(provider=moonshot+NodeType smoke:y0b5:text 零可见)→环1 ECONNREFUSED 零扣费→环2a stub200 settle 全链→环2b stub5xx 退款归零→负例 MODEL_NOT_AVAILABLE 零 intent→清理残留 0',
+      chain: '哨兵(provider=moonshot+NodeType smoke:y0b5:text 零可见)→环1 ECONNREFUSED UNKNOWN 零扣费→环2a stub200 settle 全链→环2b stub5xx UNKNOWN 冻结保留(T23)→负例 MODEL_NOT_AVAILABLE 零 intent→清理残留 0',
     }));
   } finally {
     // ── ④ finally 级清理（失败=fail deploy）：先拆 WS（doc 卸载 flush 不复活已删行）再 purge+残留断言 ──

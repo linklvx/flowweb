@@ -375,3 +375,10 @@ test('T30b 红⑦：collab-smoke 哨兵节点=T9+ 节点信封（type+data 容�
   assert.match(src, /set\('type', 'textInput'\)/, '哨兵节点须按 T9+ 信封（type 标量+data Map 容器——exec-smoke 播种同形）');
   assert.doesNotMatch(src, /set\('content', /, 'data.content string 写=xml 域容器违规（textInput.content=XmlFragment〔T16〕——container-replacement 4411，实弹复证面；哨兵走 lww 键 model）');
 });
+
+test('T30b 红⑧：exec-smoke 环1/环2b 按 T23 UNKNOWN 纪律断言（超时/网络中断/5xx=外呼结果不明≠确定失败——reserve 保留禁自动退款；Y0b-5 T17 旧 EXECUTION_FAILED/退款环语义已被 spec §6.3 偏离 36-④ 取代）', () => {
+  const execSrc = SMOKE_SRC_30B.slice(SMOKE_SRC_30B.indexOf('// apps/api/scripts/exec-smoke.mjs'));
+  assert.match(execSrc, /TEXT_PROVIDER_UNKNOWN/, '环1/环2b 期望码=T23 TEXT_PROVIDER_UNKNOWN（api-caller text 链 fetch 失败/5xx 统一档）');
+  assert.doesNotMatch(execSrc, /errorCode 应为 EXECUTION_FAILED/, '旧「传输失败降级档=EXECUTION_FAILED」期望=pre-T23 语义（实弹复证：现档=TEXT_PROVIDER_UNKNOWN）');
+  assert.match(execSrc, /UNKNOWN 纪律/, '环断言处注记 T23 语义来源（spec §6.3/偏离 36-④——reserve 保留+人工对账面）');
+});
