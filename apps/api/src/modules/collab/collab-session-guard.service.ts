@@ -379,6 +379,15 @@ export class CollabSessionGuardService {
       // 实例；版本门 4406 terminal close 经此反查原始 socket：库 onAuthenticate throw 只发 PermissionDenied
       // 消息**不关连接**〔esm:938-942〕——旧 bundle 客户端无从得知终态=重试无限循环撞同一硬门）。
       this.upgradeSockets.set(request, socket);
+      // T30b P-2：sec-websocket-key 键控补登记（live auth 期 NodeReqProxy 身份断链的反查面）+陈旧清扫
+      {
+        const wsKey = CollabSessionGuardService.headerOf(request, 'sec-websocket-key');
+        if (wsKey) {
+          const now = Date.now();
+          for (const [k, v] of this.upgradeSocketsByKey) if (now - v.at > CollabSessionGuardService.UPGRADE_KEY_TTL_MS) this.upgradeSocketsByKey.delete(k);
+          this.upgradeSocketsByKey.set(wsKey, { socket: socket as never, at: now });
+        }
+      }
       const origin = request.headers.origin;
       const originAllowed = typeof origin === 'string' && this.allowedOrigins().includes(origin);
       // 惰性：仅 originAllowed 才 clientIpOf+consume（原短路 return 语义——桶不空转，:620）
@@ -407,6 +416,23 @@ export class CollabSessionGuardService {
   /** Y1c T24：升级 socket 台账（WeakMap request 键控——随连接消亡；onAuthenticate 反查面）。 */
   private readonly upgradeSockets = new WeakMap<object, unknown>();
 
+  /** T30b 演练实弹发现 P-2：live 路径 request 身份断链台账——hocuspocus 4.6.0/crossws 0.4.4 实测
+   *  onUpgrade 收裸 node IncomingMessage 而 onAuthenticate 收 NodeReqProxy（StubRequest 包装，不留
+   *  raw 引用）⇒ WeakMap request 键控恒 miss=4406 close 帧静默不投递（旧 bundle 循环撞门复活）。
+   *  唯一双端稳定键=sec-websocket-key（升级握手头，auth 期 NodeReqProxy.headers 同值）。项带时戳：
+   *  插入时清扫 >60s 陈旧项（握手→认证窗秒级；有界防泄漏）。命中即删（单次投递语义）。 */
+  private readonly upgradeSocketsByKey = new Map<string, { socket: { write?: (b: Buffer) => void; end?: () => void }; at: number }>();
+  private static readonly UPGRADE_KEY_TTL_MS = 60_000;
+
+  /** request 头读取双形态（裸 req=plain object / NodeReqProxy=Headers 实例）。 */
+  private static headerOf(req: unknown, name: string): string | null {
+    const h = (req as { headers?: unknown } | null)?.headers;
+    if (h == null) return null;
+    if (typeof (h as Headers).get === 'function') return (h as Headers).get(name);
+    const v = (h as Record<string, unknown>)[name];
+    return typeof v === 'string' ? v : null;
+  }
+
   /**
    * Y1c T24：版本门 terminal close 投递（4406 client-outdated——spec §3.2 v5.4⑧/偏离 37⑰）。
    * 库行为（4.6.0 esm:938-942）：onAuthenticate throw → writePermissionDenied 消息+簿记清理，
@@ -416,9 +442,17 @@ export class CollabSessionGuardService {
    * server→client 帧不掩码）后 end。throw 照旧（库簿记清理面保持）；close 已先行抵达。
    */
   private closeUpgradeTerminal(request: unknown, code: number, reason: string): void {
-    const socket = (request != null ? this.upgradeSockets.get(request as object) : undefined) as
+    // 反查双轨：同对象（直构测试/同引用形态）→sec-websocket-key（live NodeReqProxy 身份断链形态——T30b P-2）
+    let socket = (request != null ? this.upgradeSockets.get(request as object) : undefined) as
       | { write?: (b: Buffer) => void; end?: () => void }
       | undefined;
+    if (socket == null) {
+      const wsKey = CollabSessionGuardService.headerOf(request, 'sec-websocket-key');
+      if (wsKey != null) {
+        const hit = this.upgradeSocketsByKey.get(wsKey);
+        if (hit) { socket = hit.socket; this.upgradeSocketsByKey.delete(wsKey); }   // 命中即删（单次投递）
+      }
+    }
     if (socket == null) return;   // 未登记（直构测试/非升级路径）——denyAuth throw 面兜底
     try {
       const reasonBuf = Buffer.from(reason, 'utf8').subarray(0, 123);

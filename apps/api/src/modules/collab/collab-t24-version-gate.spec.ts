@@ -98,8 +98,7 @@ describe('Y1c T24 红③：版本门 4406 terminal close（旧 bundle DENY 无�
     gateway.sessionGuard.setServerHistory({ historyId: 't24-history' });   // listenCollab 接线等价（t9-ownership-switch.spec 同款）
     const fs = fakeSocket();
     const req = { headers: { origin: 'http://localhost:5173' }, url: `/collab?csv=${CLIENT_PROTOCOL_VERSION}&hid=stale-history` };
-    await gateway.hooks.onUpgrade({ request: req as never, socket: fs.socket as never, head: null, instance: undefined } as never);
-    await expect(gateway.hooks.onAuthenticate({
+    await gateway.hooks.onUpgrade({ request: req as never, socket: fs.socket as never, head: null, instance: undefined } as never);    await expect(gateway.hooks.onAuthenticate({
       requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),
       requestParameters: new URLSearchParams(`csv=${CLIENT_PROTOCOL_VERSION}&hid=stale-history`),
       socketId: 'sock-t24-2',
@@ -113,5 +112,31 @@ describe('Y1c T24 红③：版本门 4406 terminal close（旧 bundle DENY 无�
 
   it('resolveCloseAction(4406)=terminal（客户端停止重连+强刷——循环阻断的客户端半链；build hash 不进门=遥测）', () => {
     expect(resolveCloseAction(4406, 'client-outdated')).toMatchObject({ kind: 'terminal', terminalReason: 'client-outdated' });
+  });
+
+  // ── T30b 切换演练实弹发现 P-2（2026-11-03，两向版本门验证红）：live 路径 request 身份断链 ──
+  // hocuspocus 4.6.0/crossws 0.4.4 实测：onUpgrade 收裸 node IncomingMessage，onAuthenticate 收
+  // NodeReqProxy（StubRequest 包装——new StubRequest(url,{headers}) 不留 raw 引用）——WeakMap
+  // request 键控恒 miss=4406 close 帧静默不投递（生产形态旧 bundle 仍循环撞门，T24 目标落空）。
+  // 唯一双端稳定键=sec-websocket-key（升级握手头，auth 期 NodeReqProxy.headers 同值可读）。
+  it('T30b P-2：live 形态 request 身份断链（upgrade=裸 req/auth=proxy 异对象+同 sec-websocket-key）→ close 4406 仍投递（修前=静默 miss 循环门复活）', async () => {
+    const { gateway } = buildGateway();
+    const fs = fakeSocket();
+    const wsKey = 'c29tZS1zZWMtd2Vic29ja2V0LWtleQ==';   // 任意握手键值——双端同值即判据
+    const upgradeReq = { headers: { origin: 'http://localhost:5173', 'sec-websocket-key': wsKey }, url: '/collab?csv=2' };
+    await gateway.hooks.onUpgrade({ request: upgradeReq as never, socket: fs.socket as never, head: null, instance: undefined } as never);
+    const proxyRequest = { headers: new Headers({ 'sec-websocket-key': wsKey }) } as never;   // NodeReqProxy 形态（异对象+Headers 载体）
+    await expect(gateway.hooks.onAuthenticate({
+      requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok', 'sec-websocket-key': wsKey }),
+      requestParameters: new URLSearchParams('csv=2'),
+      socketId: 'sock-t30b-proxy',
+      documentName: 'project:vg',
+      connectionConfig: { readOnly: false, isAuthenticated: false },
+      request: proxyRequest,
+    } as never)).rejects.toMatchObject({ reason: 'schema-outdated' });
+    // ★ 红相（T30b 实弹复现）：修前 WeakMap 按 proxy 对象反查 miss=零 write（live 实测 hit=false）
+    expect(fs.writes.length).toBeGreaterThan(0);
+    expect(parseCloseFrame(fs.writes[0]!)?.code).toBe(CollabCloseCode.CLIENT_OUTDATED);
+    expect(fs.socket.end).toHaveBeenCalled();
   });
 });
