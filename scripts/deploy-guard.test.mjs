@@ -383,8 +383,11 @@ test('T30b 红⑧：exec-smoke 环1/环2b 按 T23 UNKNOWN 纪律断言（超时/
   assert.match(execSrc, /UNKNOWN 纪律/, '环断言处注记 T23 语义来源（spec §6.3/偏离 36-④——reserve 保留+人工对账面）');
 });
 
-test('T30b 红⑨：exec-smoke 断言 feed 追平（卡文⑥「执行/feed 追平」——exec.status 事件经 HTTP 游标可枚举至 cursor；RuntimeEvent 只源于 writeExecStatus/deliverArtifact〔T22〕，节点写不产 feed 事件=断言须落在执行项目上）', () => {
+test('T30b 红⑨：feed 追平断言归 drill 装置（node.deleted〔FEED_TOMBSTONE〕确定性事件经 HTTP 游标枚举——卡文⑥「feed 追平」；两进程形态注记：worker 终态 exec 投影走 write-batch 旧通道〔doc.exec——T32 删除在列〕，exec.status feed 面归 T32 后形态）', () => {
+  assert.ok(drillCutover, '装置须在档');
+  assert.match(DRILL_SRC_30B, /runtime-feed/, 'drill 须打 /api/collab/runtime-feed 端点（snapshot cursor+events 枚举——追平判据）');
+  assert.match(DRILL_SRC_30B, /node\.deleted/, '追平判据事件=node.deleted（删除墓碑——lifecycle observer 与帧前缀同事务落 feed）');
+  assert.match(DRILL_SRC_30B, /feed 追平/, '断言处注记语义（cursor 非零+事件可枚举）');
   const execSrc = SMOKE_SRC_30B.slice(SMOKE_SRC_30B.indexOf('// apps/api/scripts/exec-smoke.mjs'));
-  assert.match(execSrc, /runtime-feed/, 'exec-smoke 须打 /api/collab/runtime-feed 端点（snapshot cursor+events 枚举——追平判据）');
-  assert.match(execSrc, /feed 追平/, '断言处注记语义（cursor 非零+事件可枚举——执行后投影可达）');
+  assert.doesNotMatch(execSrc, /events\?after=0/, 'exec-smoke 不承载 feed 枚举断言（两进程形态 worker 终态走 doc.exec 旧通道——run17 实弹裁定）');
 });

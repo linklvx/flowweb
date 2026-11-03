@@ -175,7 +175,14 @@ function spawnService(name, script, role) {
   const logFile = path.join(logDir, `${timing.mode}-${name}.log`);
   const child = spawn(process.execPath, [script], {
     cwd: API_DIR,
-    env: { ...process.env, COLLAB_ROLE: role },
+    // WORKER_WRITE_TOKEN：本地 .env 缺失（production 必设/dev 可选）——不注入则 worker→api
+    // writeExecStatus 通道 401 恒拒、exec.status feed 投影静默丢（collab_write_http_outcome 计数面）
+    // ——按服务器形态两进程同值注入（run17 实弹发现）
+    env: {
+      ...process.env,
+      COLLAB_ROLE: role,
+      WORKER_WRITE_TOKEN: process.env.WORKER_WRITE_TOKEN ?? envOf('WORKER_WRITE_TOKEN') ?? 't30b-drill-worker-write',
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const stream = createWriteStream(logFile, { flags: 'a' });
@@ -495,9 +502,36 @@ async function smokeSupplement(preResetHistoryId, resetEraHistoryId) {
     });
     if (receipt.error || typeof receipt.committedSeq !== 'string') throw new Error(`barrier 回执非 Durable 档：${JSON.stringify(receipt)}`);
     console.log(`[drill] smoke 补充：save barrier Durable 过（committedSeq=${receipt.committedSeq}）`);
-    // feed 追平面：不在本装置断言——RuntimeEvent 只源于 writeExecStatus/deliverArtifact（T22 切交付），
-    // 节点建/改不产 feed 事件；「执行/feed 追平」断言归 exec-smoke（执行项目上 exec.status 经 HTTP
-    // 游标枚举至 cursor——deploy-guard 红⑨锚）。
+    // feed 追平（卡文⑥）：删除节点→lifecycle observer FEED_TOMBSTONE（node.deleted）与帧前缀同事务
+    // 落 RuntimeEvent——feed cursor 推进且事件可自 0 枚举（HTTP 游标端点=TransformInterceptor 信封取 .data）。
+    // 两进程形态注记：worker 终态 exec 投影走 write-batch 旧通道（doc.exec——T32 删除在列），故
+    // feed 追平用 node.deleted 确定性事件承载（exec.status feed 面归 T32 后形态）。
+    A.document.transact(() => A.document.getMap('nodes').set('drill-feed-node', mkNode(Y, 'feed-node')));
+    await new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('feed 前置：B 10s 未见 drill-feed-node')), 10_000);
+      const c = () => { if (B.document.getMap('nodes').has('drill-feed-node')) { clearTimeout(t); res(); } };
+      B.document.on('update', c); c();
+    });
+    A.document.transact(() => A.document.getMap('nodes').delete('drill-feed-node'));
+    await new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('feed 前置：B 10s 仍见 drill-feed-node（删除未广播）')), 10_000);
+      const c = () => { if (!B.document.getMap('nodes').has('drill-feed-node')) { clearTimeout(t); res(); } };
+      B.document.on('update', c); c();
+    });
+    const cookie = { cookie: `flowweb.session_token=${S.token}` };
+    let feedCursor = '';
+    let feedEvents = [];
+    for (let i = 0; i < 20; i++) {
+      const snapF = (await fetch(`${API_URL}/api/collab/runtime-feed/${S.project}/snapshot`, { headers: cookie }).then((r) => r.json()).catch(() => null))?.data;
+      const evF = (await fetch(`${API_URL}/api/collab/runtime-feed/${S.project}/events?after=0&limit=200`, { headers: cookie }).then((r) => r.json()).catch(() => null))?.data;
+      feedCursor = snapF?.cursor?.feedSeq ?? '';
+      feedEvents = Array.isArray(evF?.events) ? evF.events : [];
+      if (feedCursor !== '0' && feedEvents.some((e) => e.kind === 'node.deleted' && e.payload?.nodeId === 'drill-feed-node')) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    if (feedCursor === '0' || !feedEvents.some((e) => e.kind === 'node.deleted' && e.payload?.nodeId === 'drill-feed-node'))
+      throw new Error(`feed 未追平：cursor=${feedCursor} events=${JSON.stringify(feedEvents.map((e) => e.kind)).slice(0, 120)}（删除墓碑事件应可枚举）`);
+    console.log(`[drill] smoke 补充：feed 追平过（cursor=${feedCursor} events=${feedEvents.length}——node.deleted@drill-feed-node 可枚举）`);
     // 查无 doc.exec：重放投影断言（readSnapshotOnly→probe doc）——exec 面零键（T32 删除清单的前向断言）
     await new Promise((r) => setTimeout(r, 2500));   // 批落 PG 等待（collab-smoke 轮询同窗）
     const { CanvasDocUpdateRepository } = requireApi('./dist/modules/collab/canvas-doc-update.repository.js');
