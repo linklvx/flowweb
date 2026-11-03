@@ -304,3 +304,48 @@ test('收口 quality I-3（微批 M-3/Minor-2 强化）：串行锁被占=第二
     await holder.end().catch(() => {});
   }
 });
+
+// ===== Y1c T30b：旧版一次性切换演练装置（drill-cutover——§16 八步序本地实弹）红组 =====
+// 先红裁定（Controller）：①装置红=§16 演练序列落成可重复执行脚本（scripts/ 下 drill 装置），
+// 其缺失/断言缺失时测试红；②顺序断言红=装置内嵌「旧消费者在线即 reset=红」实弹步骤
+// （对 T30 precheck 的真实环境复证，非仅单测）。绿相=scripts/drill-cutover.mjs 落地（三模式：
+// --cutover §16 ①-⑦ 计时全序 / --rollback ⑦ 一次性硬切回滚+两向 4406 / --final-reset 空库终态链）。
+const drillCutover = await import('./drill-cutover.mjs').catch(() => null);
+const DRILL_PATH_30B = pathResolve(pathFileURLToPath(import.meta.url), '../drill-cutover.mjs');
+const DRILL_SRC_30B = drillCutover ? readFileSync(DRILL_PATH_30B, 'utf8') : '';
+
+test('T30b 红①：演练装置在档可 import（scripts/drill-cutover.mjs——§16 八步序的本地实弹装置，装置缺失=红）', () => {
+  assert.ok(drillCutover, 'scripts/drill-cutover.mjs 须存在且零副作用可 import（import 容错不炸整文件——resetCollab 同款形态）');
+});
+
+test('T30b 红②：DRILL_STEPS 顺序断言（§16 八步序：freeze→drain→〔红③ probe 在消费者在线窗〕停消费者→快照→reset→部署新树→RB1 起序→smoke——乱序=破坏性）', () => {
+  assert.ok(drillCutover, '装置须在档');
+  assert.deepEqual(drillCutover.DRILL_STEPS, ['freeze', 'drain-wait', 'reset-refusal-probe', 'stop-consumers', 'snapshot', 'reset', 'deploy-new', 'rb1-start', 'smoke']);
+  const idx = (n) => drillCutover.DRILL_STEPS.indexOf(n);
+  assert.ok(idx('reset-refusal-probe') < idx('stop-consumers'), '红③ probe 必须在停消费者之前（消费者在线窗——停了之后 probe 无实弹意义）');
+  assert.ok(idx('stop-consumers') < idx('snapshot') && idx('snapshot') < idx('reset'), '②停消费者→③快照→④reset 顺序（快照=回退锚必先于 reset）');
+  assert.ok(idx('reset') < idx('deploy-new') && idx('deploy-new') < idx('rb1-start') && idx('rb1-start') < idx('smoke'), '④reset→⑤部署新树→⑥RB1 起序→⑦smoke 顺序');
+});
+
+test('T30b 红③：旧消费者在线即 reset=红 的实弹步骤在装置内（resetRefusalProbeLive——对 T30 precheck 的真实环境复证，非仅单测）', () => {
+  assert.ok(drillCutover, '装置须在档');
+  assert.equal(typeof drillCutover.resetRefusalProbeLive, 'function', 'probe 须为可独立调用的实弹步骤（驱动真实 reset CLI）');
+  assert.match(DRILL_SRC_30B, /'--rebuild-db',\s*'--confirm'/, 'probe 驱动真实 reset-collab CLI（spawn 实弹形态——非 mock 判据）');
+  assert.match(DRILL_SRC_30B, /消费者在线/, 'probe 断言判据=decideResetGuard 消费者在线红文案（真实环境复证面）');
+});
+
+test('T30b 红④：装置破坏性守卫（--confirm 缺失=exit 非 0+refusal 文案——reset-collab --confirm 同律）', () => {
+  assert.ok(existsSync(DRILL_PATH_30B), 'scripts/drill-cutover.mjs 须在档');
+  const r = spawnSync(process.execPath, [DRILL_PATH_30B, '--cutover'], { encoding: 'utf8', timeout: 30_000 });
+  assert.notEqual(r.status, 0, '缺 --confirm 须 exit 非 0');
+  assert.match((r.stderr ?? '') + (r.stdout ?? ''), /confirm|破坏性/);
+});
+
+test('T30b 红⑤：装置源文本锚（三查①DB 连接口径同源/③pg_dump+⑦pg_restore 快照回退锚/两向 4406/RB1 ready 超时失败分支）', () => {
+  assert.ok(drillCutover, '装置须在档');
+  assert.match(DRILL_SRC_30B, /backend_type = 'client backend'/, '三查① DB 连接口径=client backend 过滤（reset-collab precheck 同源——autovacuum 不计）');
+  assert.match(DRILL_SRC_30B, /pg_dump/, '③DB 快照（pg_dump -Fc——回退锚）');
+  assert.match(DRILL_SRC_30B, /pg_restore/, '⑦回滚=快照恢复（pg_restore 实弹——一次性硬切语义）');
+  assert.match(DRILL_SRC_30B, /4406/, '两向版本门实弹（旧 bundle+新服务端→4406；新 bundle+旧服务端→不可用）');
+  assert.match(DRILL_SRC_30B, /不起 worker/, 'RB1 ready 超时失败分支（M-B 同款——60 轮空转无失败分支的形态不复存在）');
+});
