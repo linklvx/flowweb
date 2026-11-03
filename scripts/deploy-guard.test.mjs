@@ -265,7 +265,7 @@ test('收口 quality M-1 源文本：writeState 原子化=tmp+renameSync（kill 
   assert.match(SRC_30, /renameSync\(\s*tmp,\s*STATE_PATH\s*\)/, 'tmp 原子 rename 落档');
 });
 
-test('收口 quality I-3：串行锁被占=第二实例红不排队（全链形态——precheck 已过的续跑态在取锁点显式红，pg_try 不排队；kill -9 会话锁随连接断释放=先例已证）', async (t) => {
+test('收口 quality I-3（微批 M-3/Minor-2 强化）：串行锁被占=第二实例红不排队+位置锚（红点在取锁点先于 drop——防锁回缩 migrate-only 退化盲区）', async (t) => {
   assert.ok(resetCollab);
   // DB 可达性探测：无本地 PG（如 CI 无服务容器）=skip 非红（int 池 skip-on-no-DB 同先例）
   const requireApi = createRequire(pathResolve(pathFileURLToPath(import.meta.url), '../../apps/api/package.json'));
@@ -277,18 +277,30 @@ test('收口 quality I-3：串行锁被占=第二实例红不排队（全链形�
   if (!dsn) return t.skip('无 DATABASE_URL（apps/api/.env 或环境变量）');
   const holder = new pg.Client({ connectionString: dsn, connectionTimeoutMillis: 2_000 });
   try { await holder.connect(); await holder.query('SELECT 1'); } catch { return t.skip(`本地 PG 不可达（${dsn.replace(/:\/\/([^:/@]+):[^@]*@/, '://$1:***@')}）——全链锁例降级 skip`); }
-  let stateWritten = false;
+  // 测试卫生（微批 spec M-3）：快照仓根状态文件——在档则记内容 finally 还原，禁盲写盲删（防摧毁真实中断态）
+  const hadState = existsSync(STATE_PATH_30);
+  const stateSnapshot = hadState ? readFileSync(STATE_PATH_30, 'utf8') : null;
+  const fabricate = (stages) => writeFileSync(STATE_PATH_30, JSON.stringify({ v: 1, startedAt: new Date().toISOString(), mode: 'rebuild-db', stages }));
   try {
     const locked = await holder.query(`SELECT pg_try_advisory_lock(hashtext('flowweb:reset-collab:migrate')::bigint) AS ok`);
     assert.equal(locked.rows[0].ok, true, '前置：探测连接须取得串行锁（否则测试装置自矛盾）');
-    // 续跑态状态文件（precheck+drop-recreate 已完成）——第二实例 SKIP 前两阶段后在取锁点（首个破坏性阶段前）显式红
-    writeFileSync(STATE_PATH_30, JSON.stringify({ v: 1, startedAt: new Date().toISOString(), mode: 'rebuild-db', stages: { precheck: { done: true, at: new Date().toISOString() }, 'drop-recreate': { done: true, at: new Date().toISOString() } } }));
-    stateWritten = true;
-    const r = spawnSync(process.execPath, [SCRIPT_PATH_30, '--rebuild-db', '--confirm'], { encoding: 'utf8', timeout: 60_000 });
-    assert.equal(r.status, 1, '锁被占须 exit 1');
-    assert.match((r.stderr ?? '') + (r.stdout ?? ''), /串行锁/, '红因=串行锁未取得（非排队等待/非其他错因）');
+    // 场景一（位置锚 quality Minor-2）：仅 precheck 完成的续跑态+锁被占——红点必须在取锁点（先于 drop-recreate）：
+    // 断言输出不含 schema rebuilt（锁若回缩 migrate-only，此场景会先执行 DROP 再在 migrate 红——退化即抓）
+    fabricate({ precheck: { done: true, at: new Date().toISOString() } });
+    const r1 = spawnSync(process.execPath, [SCRIPT_PATH_30, '--rebuild-db', '--confirm'], { encoding: 'utf8', timeout: 60_000 });
+    const out1 = (r1.stderr ?? '') + (r1.stdout ?? '');
+    assert.equal(r1.status, 1, '场景一：锁被占须 exit 1');
+    assert.match(out1, /串行锁/, '场景一：红因=串行锁未取得（非排队等待/非其他错因）');
+    assert.ok(!out1.includes('schema rebuilt'), '位置锚：DROP 未执行（取锁点先于 drop-recreate——锁回缩 migrate-only 即红）');
+    assert.ok(!out1.includes('STAGE drop-recreate done'), '位置锚：drop-recreate 未落盘');
+    // 场景二（跨实例续跑态——原形态）：precheck+drop-recreate 已完成→SKIP×2 后同样红在取锁点
+    fabricate({ precheck: { done: true, at: new Date().toISOString() }, 'drop-recreate': { done: true, at: new Date().toISOString() } });
+    const r2 = spawnSync(process.execPath, [SCRIPT_PATH_30, '--rebuild-db', '--confirm'], { encoding: 'utf8', timeout: 60_000 });
+    assert.equal(r2.status, 1, '场景二：锁被占须 exit 1');
+    assert.match((r2.stderr ?? '') + (r2.stdout ?? ''), /串行锁/, '场景二：红因=串行锁未取得');
   } finally {
-    if (stateWritten) rmSync(STATE_PATH_30, { force: true });
+    if (hadState) writeFileSync(STATE_PATH_30, stateSnapshot);   // 还原快照（真实中断态保真）
+    else rmSync(STATE_PATH_30, { force: true });
     await holder.end().catch(() => {});
   }
 });

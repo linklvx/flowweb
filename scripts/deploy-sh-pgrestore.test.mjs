@@ -21,7 +21,10 @@ test('T30 收口①：--rebuild-db=指引退出——打印 §16 人工序+reset
   assert.match(SH, /REBUILD_DB 已退役/, '退役声明在档');
   assert.match(SH, /runbook §16 人工序/, '指向 §16 人工序（唯一权威入口）');
   assert.match(SH, /node scripts\/reset-collab\.mjs --rebuild-db --confirm/, '指引含 reset-collab 命令（文本面）');
-  assert.match(SH, /按 §16 步 4-7 起序/, '起序指引（备份→reset→部署→起序）');
+  // 微批 spec M-1：箭头序与 §16 步号对拍——「维护关写+drain 后」前提不漏（①freeze/②drain），
+  // 步序=④备份→⑤reset→⑥部署新构建→⑦起序（消除旧文本「先 reset→按步 4-7」与括注 ④ 在 ⑤ 前的自相矛盾）
+  assert.match(SH, /维护关写\+drain 后/, '指引首句含 ①维护关写+②drain 前提（不漏前提直跳停消费者）');
+  assert.match(SH, /按 runbook §16 步 ④-⑦ 起序（④备份→⑤reset-collab --rebuild-db --confirm→⑥部署新构建→⑦起序）/, '箭头序与 §16 步号一一对应');
   // 指引后 exit 1（旗标=硬退出非警告——不落入后续 preflight/build/upload/cutover）
   const guidance = SH.match(/REBUILD_DB 已退役[\s\S]{0,600}?exit 1/);
   assert.ok(guidance, '指引块内含 exit 1');
