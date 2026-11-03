@@ -79,8 +79,9 @@ test('T12-0a：_prisma_migrations「库有仓无」applied 行→红；applied �
 
 // ===== Y1c T29：生产前置批 charter 判据（spec 偏离 35 D10+偏离 38⑳——任一未过不得开放生产流量） =====
 import * as gateDecisionNs from './lib/gate-decision.mjs';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { resolve as pathResolve } from 'node:path';
 import { fileURLToPath as pathFileURLToPath } from 'node:url';
 
@@ -220,4 +221,74 @@ test('T30：--confirm 缺失=拒（exit 非 0+refusal 文案+零副作用——�
   assert.notEqual(r.status, 0, '缺 --confirm 须 exit 非 0');
   assert.match((r.stderr ?? '') + (r.stdout ?? ''), /confirm|破坏性/);
   assert.equal(existsSync(statePath), before, '拒执行零副作用——不落状态文件');
+});
+
+// ===== Y1c T30 收口批（评审 spec 1C+2I+4M / quality 3I+5M——9 必修红例） =====
+// 判别性优先：行为例（quarantine 两态注记/--hold-after 缺值/串行锁全链红）+ 源文本契约例
+// （backend_type 过滤/writeState 原子化——.mjs 脚本无导出面，锚形态=deploy.sh 契约测试同款文本锚）。
+const SCRIPT_PATH_30 = pathResolve(pathFileURLToPath(import.meta.url), '../reset-collab.mjs');
+const STATE_PATH_30 = pathResolve(pathFileURLToPath(import.meta.url), '../../.reset-collab-state.json');
+const SRC_30 = resetCollab ? readFileSync(SCRIPT_PATH_30, 'utf8') : '';
+
+test('收口 spec I2（quality M-2 邻面）：quarantineNote 两态——「目录不存在」态+本链非零 DROP 前计数=显式注记（不强红）；「quarantine 保证据」态/全零计数/缺 detail=null', () => {
+  assert.ok(resetCollab, 'reset-collab.mjs 须在档');
+  const quarantine态 = 'quarantine=/x/.quarantine-2026-11-03T00-00-00（保证据）';
+  const 不存在态 = 'spool-目录不存在（/x/collab-spool）=已完成语义';
+  const 非零丢弃面 = '丢弃面 GenerationIntent=3 CanvasDocUpdate=7';
+  const 零丢弃面 = '丢弃面 GenerationIntent=0 CanvasDocUpdate=0';
+  const note = resetCollab.quarantineNote(不存在态, 非零丢弃面);
+  assert.ok(typeof note === 'string' && /注记/.test(note), '不存在态+非零计数=注记行');
+  assert.match(note, /GenerationIntent=3/);
+  assert.equal(resetCollab.quarantineNote(不存在态, 零丢弃面), null);        // 全零=空库 reset 合法无注记
+  assert.equal(resetCollab.quarantineNote(quarantine态, 非零丢弃面), null);  // 保证据在档=无需注记
+  assert.equal(resetCollab.quarantineNote(null, 非零丢弃面), null);          // 缺 detail（旧版状态文件）=不注记
+});
+
+test('收口 quality I-1：--hold-after 缺值=exit 2+refusal（旗标在场独立于值判空——现形态缺值=等价无 hold 直跑破坏性全链，评审实弹复现面）', () => {
+  const before = existsSync(STATE_PATH_30);
+  const r = spawnSync(process.execPath, [SCRIPT_PATH_30, '--rebuild-db', '--confirm', '--hold-after'], { encoding: 'utf8', timeout: 150_000 });
+  assert.equal(r.status, 2, '--hold-after 缺值须 exit 2（非 0 非 1——与确认拒/运行错分档）');
+  assert.match((r.stderr ?? '') + (r.stdout ?? ''), /缺值|未知阶段/);
+  assert.equal(existsSync(STATE_PATH_30), before, '缺值拒在 DSN 读/状态写之前——零副作用');
+});
+
+test('收口 quality I-2/spec M3 源文本：消费者计数查询过滤 backend_type=\'client backend\'（autovacuum worker 假红）且判据消费过滤后计数；明细全量保留透出 backend_type', () => {
+  assert.ok(resetCollab);
+  assert.match(SRC_30, /AND backend_type = 'client backend'/, '计数查询须过滤 client backend（autovacuum/walsender 不计消费者）');
+  assert.match(SRC_30, /activeConnections: clientRows\.length/, 'decideResetGuard 消费过滤后计数（非全量 detailRows.length）');
+  assert.match(SRC_30, /backend_type,/, '明细行透出 backend_type 供人判读（全量保留非过滤面）');
+});
+
+test('收口 quality M-1 源文本：writeState 原子化=tmp+renameSync（kill 落在 truncate-then-write 窗口=断点全丢、重跑必再 DROP）', () => {
+  assert.ok(resetCollab);
+  assert.match(SRC_30, /writeFileSync\(\s*tmp/, '写须经 .tmp 中转');
+  assert.match(SRC_30, /renameSync\(\s*tmp,\s*STATE_PATH\s*\)/, 'tmp 原子 rename 落档');
+});
+
+test('收口 quality I-3：串行锁被占=第二实例红不排队（全链形态——precheck 已过的续跑态在取锁点显式红，pg_try 不排队；kill -9 会话锁随连接断释放=先例已证）', async (t) => {
+  assert.ok(resetCollab);
+  // DB 可达性探测：无本地 PG（如 CI 无服务容器）=skip 非红（int 池 skip-on-no-DB 同先例）
+  const requireApi = createRequire(pathResolve(pathFileURLToPath(import.meta.url), '../../apps/api/package.json'));
+  let pg; try { pg = requireApi('pg'); } catch { return t.skip('apps/api pg 不可解析'); }
+  let dsn = process.env.DATABASE_URL;
+  if (!dsn) {
+    try { dsn = readFileSync(pathResolve(pathFileURLToPath(import.meta.url), '../../apps/api/.env'), 'utf8').match(/^DATABASE_URL=(.*)$/m)[1].trim().replace(/^"|"$/g, ''); } catch { /* 无 DSN=skip */ }
+  }
+  if (!dsn) return t.skip('无 DATABASE_URL（apps/api/.env 或环境变量）');
+  const holder = new pg.Client({ connectionString: dsn, connectionTimeoutMillis: 2_000 });
+  try { await holder.connect(); await holder.query('SELECT 1'); } catch { return t.skip(`本地 PG 不可达（${dsn.replace(/:\/\/([^:/@]+):[^@]*@/, '://$1:***@')}）——全链锁例降级 skip`); }
+  let stateWritten = false;
+  try {
+    const locked = await holder.query(`SELECT pg_try_advisory_lock(hashtext('flowweb:reset-collab:migrate')::bigint) AS ok`);
+    assert.equal(locked.rows[0].ok, true, '前置：探测连接须取得串行锁（否则测试装置自矛盾）');
+    // 续跑态状态文件（precheck+drop-recreate 已完成）——第二实例 SKIP 前两阶段后在取锁点（首个破坏性阶段前）显式红
+    writeFileSync(STATE_PATH_30, JSON.stringify({ v: 1, startedAt: new Date().toISOString(), mode: 'rebuild-db', stages: { precheck: { done: true, at: new Date().toISOString() }, 'drop-recreate': { done: true, at: new Date().toISOString() } } }));
+    stateWritten = true;
+    const r = spawnSync(process.execPath, [SCRIPT_PATH_30, '--rebuild-db', '--confirm'], { encoding: 'utf8', timeout: 60_000 });
+    assert.equal(r.status, 1, '锁被占须 exit 1');
+    assert.match((r.stderr ?? '') + (r.stdout ?? ''), /串行锁/, '红因=串行锁未取得（非排队等待/非其他错因）');
+  } finally {
+    if (stateWritten) rmSync(STATE_PATH_30, { force: true });
+    await holder.end().catch(() => {});
+  }
 });
