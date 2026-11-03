@@ -468,14 +468,14 @@ async function smokeSupplement(preResetHistoryId, resetEraHistoryId) {
   const synced = (p) => new Promise((res, rej) => { const t = setTimeout(() => rej(new Error('synced 超时 10s')), 10_000); p.on('synced', () => { clearTimeout(t); res(); }); });
   try {
     await Promise.all([synced(A), synced(B)]);
-    // undo：A 建→B 见→A undo→B 见消失（undo origin 单元在客户端）
+    // undo：A 建→B 见→A undo→B 见消失（UndoManager 须先于写创建——后建=空栈 undo no-op）
+    const um = new Y.UndoManager(A.document.getMap('nodes'));
     A.document.transact(() => A.document.getMap('nodes').set('drill-undo-node', mkNode(Y, 'undo-node')));
     await new Promise((res, rej) => {
       const t = setTimeout(() => rej(new Error('undo 前置：B 10s 未见 drill-undo-node')), 10_000);
       const c = () => { if (B.document.getMap('nodes').has('drill-undo-node')) { clearTimeout(t); res(); } };
       B.document.on('update', c); c();
     });
-    const um = new Y.UndoManager(A.document.getMap('nodes'));
     um.undo();
     await new Promise((res, rej) => {
       const t = setTimeout(() => rej(new Error('undo 断言：B 10s 仍见 drill-undo-node（undo 未生效/未广播）')), 10_000);
@@ -495,14 +495,9 @@ async function smokeSupplement(preResetHistoryId, resetEraHistoryId) {
     });
     if (receipt.error || typeof receipt.committedSeq !== 'string') throw new Error(`barrier 回执非 Durable 档：${JSON.stringify(receipt)}`);
     console.log(`[drill] smoke 补充：save barrier Durable 过（committedSeq=${receipt.committedSeq}）`);
-    // feed 追平：HTTP 游标可从 0 枚举至 cursor（事件链覆盖水位）——端点受全局 TransformInterceptor 包裹取 .data
-    const cookie = { cookie: `flowweb.session_token=${S.token}` };
-    const snap = (await fetch(`${API_URL}/api/collab/runtime-feed/${S.project}/snapshot`, { headers: cookie }).then((r) => r.json())).data;
-    const ev = (await fetch(`${API_URL}/api/collab/runtime-feed/${S.project}/events?after=0&limit=200`, { headers: cookie }).then((r) => r.json())).data;
-    const evCount = Array.isArray(ev.events) ? ev.events.length : 0;
-    const cursor = snap.cursor?.feedSeq;
-    if (!cursor || cursor === '0' || evCount === 0) throw new Error(`feed 未追平：cursor=${cursor} events=${evCount}（响应 ${JSON.stringify(snap).slice(0, 200)}/${JSON.stringify(ev).slice(0, 200)}）`);
-    console.log(`[drill] smoke 补充：feed 追平过（cursor=${cursor} events=${evCount} latestFeedSeq=${ev.latestFeedSeq ?? '-'}）`);
+    // feed 追平面：不在本装置断言——RuntimeEvent 只源于 writeExecStatus/deliverArtifact（T22 切交付），
+    // 节点建/改不产 feed 事件；「执行/feed 追平」断言归 exec-smoke（执行项目上 exec.status 经 HTTP
+    // 游标枚举至 cursor——deploy-guard 红⑨锚）。
     // 查无 doc.exec：重放投影断言（readSnapshotOnly→probe doc）——exec 面零键（T32 删除清单的前向断言）
     await new Promise((r) => setTimeout(r, 2500));   // 批落 PG 等待（collab-smoke 轮询同窗）
     const { CanvasDocUpdateRepository } = requireApi('./dist/modules/collab/canvas-doc-update.repository.js');

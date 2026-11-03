@@ -305,7 +305,8 @@ async function main() {
     if (l3[0].type !== 'reserve' || l3[0].balanceDelta !== -1 || l3[0].frozenDelta !== 1) fail(`环2b reserve 行形态异常：${JSON.stringify(l3[0])}`);
     const bal3 = await prisma.teamBalance.findUnique({ where: { teamId: S.team } });
     if (bal3.credits !== SEED_CREDITS - 2) fail(`环2b 余额应 ${SEED_CREDITS - 2}（ok 结算 -1+fail 冻结 -1）：${bal3.credits}`);
-    if (bal3.frozen !== 1) fail(`环2b 冻结应 1（UNKNOWN 停驻保留）：${bal3.frozen}`);
+    // 冻结保留证据=台账形态（TeamBalance 无 frozen 列——冻结态由 ledger frozenDelta 派生：
+    // l3 恰 1 行 reserve〔frozenDelta +1〕且无 settle/release 反转行=停驻保留在上）
     // stub 收面自证：恰 2 请求（环2a+环2b）+行级密钥路径（Bearer smoke-dummy=AIModel.apiKey 非 env seed）
     if (stub.received.length !== 2) fail(`stub 应恰收 2 请求（econn=拒连/ghost=预检拦——均零外呼），实得 ${stub.received.length}: ${JSON.stringify(stub.received)}`);
     for (const q of stub.received) if (q.authorization !== 'Bearer smoke-dummy') fail(`stub 收到非行级密钥请求：${JSON.stringify(q)}`);
@@ -318,6 +319,25 @@ async function main() {
     const i4 = await prisma.generationIntent.count({ where: { projectId: S.project, nodeId: S.nGhost } });
     if (i4 !== 0) fail(`负例应零 intent 行（预检在 claim 前），实得 ${i4}`);
     if (stub.received.length !== stubBefore) fail(`负例应零外呼（stub 计数 ${stub.received.length}≠${stubBefore}）`);
+
+    // feed 追平（卡文⑥「执行/feed 追平」——T30b 补）：exec.status 事件经 HTTP 游标可枚举至 cursor
+    // （RuntimeEvent 只源于 writeExecStatus/deliverArtifact〔T22 切交付〕——断言落在本执行项目上；
+    // TransformInterceptor 信封取 .data）。feed-hint 通知=节流 ≤1/s 异步——有界轮询等待追平。
+    const feedCookie = { cookie: `flowweb.session_token=${S.token}` };
+    let feedCursor = '';
+    let feedEvents = [];
+    for (let i = 0; i < 20 && feedEvents.length === 0; i++) {
+      const snapF = (await fetch(`${API}/api/collab/runtime-feed/${S.project}/snapshot`, { headers: feedCookie, signal: AbortSignal.timeout(10_000) }).then((r) => r.json()).catch(() => null))?.data;
+      const evF = (await fetch(`${API}/api/collab/runtime-feed/${S.project}/events?after=0&limit=200`, { headers: feedCookie, signal: AbortSignal.timeout(10_000) }).then((r) => r.json()).catch(() => null))?.data;
+      feedCursor = snapF?.cursor?.feedSeq ?? '';
+      feedEvents = Array.isArray(evF?.events) ? evF.events : [];
+      if (feedCursor !== '0' && feedEvents.length > 0) break;
+      await sleep(500);
+    }
+    if (feedCursor === '0' || feedEvents.length === 0) fail(`feed 未追平：cursor=${feedCursor} events=${feedEvents.length}（执行后 exec.status 投影应可枚举）`);
+    if (!feedEvents.some((e) => e.kind === 'exec.status' && e.nodeId === S.nOk))
+      fail(`feed 事件缺环2a exec.status（smoke-node-ok）：${JSON.stringify(feedEvents.map((e) => ({ k: e.kind, n: e.nodeId })))}`);
+    console.log(`feed 追平过（cursor=${feedCursor} events=${feedEvents.length}——含 exec.status@${S.nOk}）`);
 
     // 全环台账终账（intent 域）：环1 零行+环2a 2 行+环2b 1 行（T23：reserve 保留无 release） = 3（register_grant 播种行不计）
     const ledgerFinal = await prisma.teamCreditTransaction.count({ where: { teamId: S.team, referenceId: { startsWith: 'intent:' } } });

@@ -382,3 +382,9 @@ test('T30b 红⑧：exec-smoke 环1/环2b 按 T23 UNKNOWN 纪律断言（超时/
   assert.doesNotMatch(execSrc, /errorCode 应为 EXECUTION_FAILED/, '旧「传输失败降级档=EXECUTION_FAILED」期望=pre-T23 语义（实弹复证：现档=TEXT_PROVIDER_UNKNOWN）');
   assert.match(execSrc, /UNKNOWN 纪律/, '环断言处注记 T23 语义来源（spec §6.3/偏离 36-④——reserve 保留+人工对账面）');
 });
+
+test('T30b 红⑨：exec-smoke 断言 feed 追平（卡文⑥「执行/feed 追平」——exec.status 事件经 HTTP 游标可枚举至 cursor；RuntimeEvent 只源于 writeExecStatus/deliverArtifact〔T22〕，节点写不产 feed 事件=断言须落在执行项目上）', () => {
+  const execSrc = SMOKE_SRC_30B.slice(SMOKE_SRC_30B.indexOf('// apps/api/scripts/exec-smoke.mjs'));
+  assert.match(execSrc, /runtime-feed/, 'exec-smoke 须打 /api/collab/runtime-feed 端点（snapshot cursor+events 枚举——追平判据）');
+  assert.match(execSrc, /feed 追平/, '断言处注记语义（cursor 非零+事件可枚举——执行后投影可达）');
+});
