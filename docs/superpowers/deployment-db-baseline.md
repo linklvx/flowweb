@@ -32,6 +32,8 @@ pnpm exec tsx prisma/seed.ts
 
 ## 三、服务器库重建（T8 人工执行——REBUILD_DB 分支）
 
+> **⚠ 本节时序已被 runbook §16（Y1c T30 破坏性发布流程）取代——历史档**（2026-11-03 收口：deploy.sh `--rebuild-db` 旗标退役为指引退出；破坏性 reset 唯一入口=`scripts/reset-collab.mjs` 七阶段全链，先停全部旧 DB 消费者）。
+
 **重建而非基线标记**：drop & recreate（`DROP SCHEMA public CASCADE; CREATE SCHEMA public`）后 `migrate deploy` 重放 init。不做 `_prisma_migrations` re-mark——旧链目录已从仓内消失，re-mark 无对象可标。
 
 ```bash

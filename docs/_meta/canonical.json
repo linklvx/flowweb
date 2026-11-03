@@ -16,6 +16,11 @@
       "criteria": "C1",
       "evidence": [
         {
+          "src": "apps/api/scripts/rebuild-db.mjs",
+          "line": 8,
+          "text": "//   historyId/spool quarantine 收尾契约（T13/T29 恢复契约）；破坏性 reset 唯一入口=collab-ops-runbook"
+        },
+        {
           "src": "scripts/check-collab-health.test.mjs",
           "line": 180,
           "text": "const runbook = fs.readFileSync(path.join(ROOT, 'docs/superpowers/collab-ops-runbook.md'), 'utf8');"
@@ -24,11 +29,6 @@
           "src": "scripts/check-production-charter.mjs",
           "line": 3,
           "text": "// 人读面/操作序=docs/superpowers/collab-ops-runbook.md §15。"
-        },
-        {
-          "src": "scripts/production-charter.json",
-          "line": 3,
-          "text": "\"charter\": \"Y1c T29 生产前置批 charter（spec 偏离 35 D10 + 偏离 38⑳——实体化非占位；数据单源=本文件，人读面=docs/superpowers/collab-ops-runbook.md §1"
         }
       ]
     },
@@ -47,11 +47,6 @@
       "criteria": "C1",
       "evidence": [
         {
-          "src": "scripts/deploy-sh-pgrestore.test.mjs",
-          "line": 5,
-          "text": "//     恢复语义权威 full-stack-backup.md §3，此处只产命令不复刻语义）；"
-        },
-        {
           "src": "scripts/production-charter.json",
           "line": 18,
           "text": "\"evidence\": \"现状=daily pg_dump 03:17 cron（runbook §13）——无 WAL 归档；PITR 模板挂 Y7 门槛项（docs/superpowers/full-stack-backup.md）\""
@@ -60,6 +55,11 @@
           "src": "scripts/production-charter.json",
           "line": 34,
           "text": "\"evidence\": \"版本化缺口=Y7 门槛项（docs/superpowers/full-stack-backup.md）\""
+        },
+        {
+          "src": "scripts/reset-collab.mjs",
+          "line": 11,
+          "text": "//   （恢复语义权威=full-stack-backup.md §3）。"
         }
       ]
     },

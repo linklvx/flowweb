@@ -2,6 +2,11 @@
 // Y0b-1 T1a（四轮 Z34）：REBUILD_DB 分支清库脚本（deploy.sh 上传段随 apps/api/scripts tar 上服务器）——
 // owner 只读核查（P2-5）+DROP 前计数留档+DROP/CREATE SCHEMA。
 // 不设"空表断言"门：pm2 不停（应用在线）窗口断言无意义；不可逆操作的回退锚=cutover ②已落的 pg_dump。
+//
+// ⚠ Y1c T30（2026-11-03）起由 scripts/reset-collab.mjs 取代（deploy.sh 不再调用本脚本——REBUILD_DB
+//   旗标已退役为指引退出）：**禁直接调用**——本脚本绕过消费者在线断言/串行锁/阶段状态续跑/bump
+//   historyId/spool quarantine 收尾契约（T13/T29 恢复契约）；破坏性 reset 唯一入口=collab-ops-runbook
+//   §16 人工序。T32 删除候选。
 import { Client } from 'pg';
 
 // argv 守卫：无 DSN 时 pg 回退 PGHOST/PGUSER 等环境默认——本地误跑可能 DROP 掉 dev 库，必须 fail-closed

@@ -32,6 +32,16 @@ for arg in "${@:2}"; do
 done
 GIT_SHA=$(git rev-parse --short HEAD)
 
+# Y1c T30 收口（评审 spec C1/I1）：REBUILD_DB 内嵌形态整体退役——reset-collab 前提=消费者全停与
+# cutover 链前提=api 在线（①guard drain/③.5 spool 迁移均要求 api 在线）结构性互斥；且 ssh 非交互
+# shell 不带 ecosystem env（COLLAB_SPOOL_DIR 唯一注入载体）——内嵌形态的 quarantine/verify 必假绿。
+# 破坏性 reset 唯一入口=runbook §16 人工序；本旗标=指引退出（不执行任何部署/DB 操作）。
+if [[ "$REBUILD_DB" == "1" ]]; then
+  echo "=== REBUILD_DB 已退役（Y1c T30 收口）：破坏性 reset 已移至 runbook §16 人工序：先停全部旧 DB 消费者→node scripts/reset-collab.mjs --rebuild-db --confirm→按 §16 步 4-7 起序（备份→reset→部署→起序） ==="
+  echo "（内嵌形态与 cutover 前提互斥〔reset 需消费者全停 vs cutover 需 api 在线〕——本旗标现在=指引退出，不触任何 DB/部署操作；详 §16）"
+  exit 1
+fi
+
 set -eo pipefail   # pipefail：上传管道（tar | ssh tar）tar 侧失败不被末位命令退 0 吞掉
 
 # D3：trap 分阶段——SWITCH_BEGUN=进入切换（dist 可能已 mv 走）；SWITCHED=切换完整落地
@@ -132,16 +142,6 @@ cutover_api() {
   echo "=== ②迁移前备份（D6：migrate=链上唯一不可逆操作。pg_dump 走 libpq——DSN 去引号+剥 Prisma 参数；保留 5 份） ==="
   ssh -i "$KEY" "$SERVER" 'DSN=$(grep -m1 "^DATABASE_URL=" '"$REMOTE_DIR"'/apps/api/.env | cut -d= -f2- | tr -d "\"" | sed "s/?.*$//"); mkdir -p ~/backups && pg_dump -Fc "$DSN" -f ~/backups/pre-migrate-$(date +%Y%m%d%H%M%S).dump && ls -t ~/backups/pre-migrate-*.dump | tail -n +6 | xargs -r rm'
 
-  if [[ "$REBUILD_DB" == "1" ]]; then
-    echo "=== REBUILD_DB：reset-collab 全链（Y1c T30：precheck→drop-recreate→migrate[advisory lock 串行]→seed→quarantine-spool→bump historyId→verify 七阶段+状态文件 .reset-collab-state.json 续跑）。⚠ 旧消费者在线=红（顺序断言：同库活连接>0 或 CollabLease 持有中即中止——先按 runbook §16 停全部旧 DB 消费者再重跑；owner 核查/DROP 前计数已收编 precheck/drop-recreate 阶段） ==="
-    # T18（v11.2 ②）：破坏性迁移失败回滚=restore 脚本化——DROP 前置 fail-fast（②最新 pre-migrate
-    # dump 缺失=不可逆操作无回退锚⇒中止）+打印**可直接复制执行**的 pg_restore 回滚命令（失败
-    # 窗口的操作指引非事后翻文档；恢复语义权威=docs/superpowers/full-stack-backup.md §3
-    # 〔collab 三表整库覆盖禁挑拣/恢复后 bump generation〕——此处只产命令不复刻语义）。
-    ssh -i "$KEY" "$SERVER" 'DSN=$(grep -m1 "^DATABASE_URL=" '"$REMOTE_DIR"'/apps/api/.env | cut -d= -f2- | tr -d "\"" | sed "s/?.*$//"); DUMP=$(ls -t ~/backups/pre-migrate-*.dump 2>/dev/null | head -1); if [ -z "$DUMP" ]; then echo "REBUILD_DB FAIL-FAST: ②pre-migrate dump 缺失（不可逆 DROP 无回退锚）——中止（排查②pg_dump 步后重跑部署）"; exit 1; fi; echo "REBUILD_DB 回退锚就绪：$DUMP"; echo "失败回滚=restore（复制执行；\$DSN=apps/api/.env 的 DATABASE_URL——不打印全文防口令入日志）：pg_restore -d \"\$DSN\" -c --if-exists $DUMP"'
-    ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && node scripts/reset-collab.mjs --rebuild-db --confirm"
-  fi
-
   echo "=== ③additive+immutability 双检+迁移（drain 只冻结 collab 写路径，HTTP 面继续打库——安全性由 additive 锚承担非由顺序承担；T12-0b 服务器档：迁移树 tamper 在 migrate 前红——单进 verify 本地载体可被 --skip-preflight 绕过） ==="
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && node scripts/check-migration-immutability.mjs && node scripts/check-migration-additive.mjs && cd apps/api && npx prisma migrate deploy"
 
@@ -170,7 +170,7 @@ cutover_api() {
   # 2 核机秒~十秒级）——先等监听再归属断言，60s 未达 fail-closed（崩溃循环面交 pm2 logs 诊断）。
   echo "=== ⑥.b 双进程端口归属+cwd 一致断言（RB2/Z9③：3000/3001→api ∧ 3002→worker ∧ worker 名下无 3000/3001） ==="
   ssh -i "$KEY" "$SERVER" 'f(){ echo "双进程归属断言 FAIL: $1"; exit 1; }; command -v ss >/dev/null || f "ss 缺失（iproute2）——断言形态不满足（降级形态须人工裁决，禁静默跳过）"; API_PID=$(pm2 pid flowweb-api); WORKER_PID=$(pm2 pid flowweb-worker); case "$API_PID" in ""|*[!0-9]*) f "api pid=[$API_PID]（空/多值/非数）";; esac; case "$WORKER_PID" in ""|*[!0-9]*) f "worker pid=[$WORKER_PID]（空/多值/非数——worker 未起？）";; esac; W=0; while ! ss -tln | grep -q ":3002 "; do W=$((W+1)); [ "$W" -ge 60 ] && f "3002 60s 未监听（worker 引导未完成/崩溃循环——pm2 logs flowweb-worker）"; sleep 1; done; [ "$W" -gt 0 ] && echo "3002 监听等待 ${W}s"; SS=$(ss -tlnp 2>/dev/null); for P in 3000 3001; do echo "$SS" | grep ":$P " | grep -q "pid=$API_PID," || f "$P listener pid ≠ api($API_PID)：[$(echo "$SS" | grep ":$P ")]"; done; echo "$SS" | grep ":3002 " | grep -q "pid=$WORKER_PID," || f "3002 listener pid ≠ worker($WORKER_PID)：[$(echo "$SS" | grep ":3002 ")]"; echo "$SS" | grep "pid=$WORKER_PID," | grep -qE ":(3000|3001) " && f "worker($WORKER_PID) 监听 3000/3001（Z98：worker 零 HTTP/WS 面）"; API_CWD=$(sudo readlink "/proc/$API_PID/cwd") || f "api cwd readlink 失败"; WORKER_CWD=$(sudo readlink "/proc/$WORKER_PID/cwd") || f "worker cwd readlink 失败"; [ "$API_CWD" = "$WORKER_CWD" ] || f "cwd 不一致：api=$API_CWD worker=$WORKER_CWD（双进程必须同部署树）"; echo "双进程归属断言 OK：3000/3001→api($API_PID) 3002→worker($WORKER_PID) cwd=$API_CWD"'
-  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && GIT_SHA=$GIT_SHA $([[ $REBUILD_DB == 1 ]] && echo REBUILD_DB=1) node scripts/deploy-guard.mjs --post-restart"
+  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && GIT_SHA=$GIT_SHA node scripts/deploy-guard.mjs --post-restart"
   verify_nginx
   if [[ $SKIP_SMOKE == 1 ]]; then
     echo "=== 冒烟已跳过（--skip-smoke）——本次部署不构成完整判据 ==="
@@ -196,7 +196,7 @@ rollback_api() {
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && export GIT_COMMIT_HASH=\$(node -e \"console.log(require('./apps/api/dist/build-info.json').git)\" 2>/dev/null || echo unknown) && pm2 startOrReload ecosystem.config.cjs --only flowweb-api --update-env"
   wait_api_ready "回滚三步序"
   ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && pm2 startOrReload ecosystem.config.cjs --only flowweb-worker --update-env && pm2 save"
-  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && GIT_SHA=$GIT_SHA $([[ $REBUILD_DB == 1 ]] && echo REBUILD_DB=1) node scripts/deploy-guard.mjs --post-restart"
+  ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && GIT_SHA=$GIT_SHA node scripts/deploy-guard.mjs --post-restart"
   echo "=== 回滚完成（上一代 dist 已上线，pm2_env.GIT_COMMIT_HASH=上一代构建 SHA）——回滚不构成判据；修复后正式部署仍需完整链 ==="
 }
 
