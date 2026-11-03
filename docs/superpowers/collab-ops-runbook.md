@@ -620,3 +620,26 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 - **save barrier**（onStateless）：回执 `{nonce,clientSeq,committedSeq}`；触发=800ms idle/5s 上限/pagehide/执行前；服务端 flush 节流 ≤250ms；durable watermark 广播 ≤1 次/秒仅辅助。拒帧连接屏障不可成功；maintenance 期回错误回执 `{nonce,error:'maintenance',committedSeq}`（BarrierErrorReceipt 冻结线形——nonce 回显供幂等匹配，不产生 Durable）。
 - **版本硬门**=protocolVersion+schemaVersion+historyId 三元（4406 client-outdated 强刷）；build hash 仅遥测。**onAuthenticate 先比 historyId 再比 generation**（同代 PITR 的 SS2 复活形态）→server-restored 只读 recovery。
 - **帧闸**（单源派生见代码）：普通帧=2×maxTxBytes=512KB；SS2 帧=maxDocBytes+包装余量≈8.06MiB；WS maxPayload=9MiB（T9 翻转 collab-limits 单源改引）；认证后入站排队上限=2×SS2 帧闸超限 1009；SS2 并发信号量 per-project 1+全局预算 4×SS2≈32MiB（工程值，T33 观测后调）。**HTTP seed 端点废止**——重开触发条件 cold p95>3s 或 loop block>50ms（T29 挂 gate，重开即新评审）。
+
+---
+
+## §15 T29 生产前置批 charter（2026-11-03 落档——spec 偏离 35 D10+偏离 38⑳）
+
+**数据单一真源=`scripts/production-charter.json`**（13 项：id/requirement/owner/date/status/trigger/evidence 全字段——缺任一即「空挂」红）。**判据单一真源=`scripts/lib/gate-decision.mjs` decideCharter**（node:test 消费=`scripts/deploy-guard.test.mjs`）。**发布自动化挂载=`deploy.sh` preflight**（`node scripts/check-production-charter.mjs`——production 档任一项未过即中止部署）。本节只登记语义与操作序，不复刻数据避免双源。
+
+**档位语义**（`trafficTier` 是 charter 单源字段，改档经 git 留痕）：
+- `dev-test`（当前）：单机开发/测试——诚实登记放行，未开放生产流量（Spooled≠已保存；单机机损 RPO=PG 批延迟）。
+- `beta`：公测受控用户面——诚实登记放行。
+- `production`：开放生产流量——任一项 `pending`/`armed`、或 `waived` 缺实测证据，即 FAIL 不得发布（不可 force——「任一未过不得开放生产流量」）。
+
+**状态语义**：`pending`=生产流量开放前必过（未实施）；`armed`=触发条件待实测裁决（production 前须裁为 waived[实测未超标+数据]或 passed[已实施]；`frame-audit` 特例=合规需求确认→na[确认记录]或 passed）；`passed`=达标有证据；`waived`=实测豁免（必须有 evidence）；`na`=不适用（须确认记录）。
+
+**项状态快照（2026-11-03，以 JSON 为准）**：passed×1（ha-decision=单机无 HA 诚实口径）；pending×8（pitr/pg-sync-commit/minio-versioning/restore-drill/replay-canary/slo/doc-append-gap-alert/project-erasure/retention-worker 中除 armed 外）；armed×3（http-seed/exec-input-bundle/frame-audit）。
+
+**开放生产流量操作序**（本批=P4 交付线出口，实际操作时点由用户指令）：
+1. 逐项裁决 13 项：pending→passed（实施+证据落 evidence）；armed→waived（实测数据）或 passed；frame-audit→na（合规确认记录）或 passed。
+2. `slo`/`doc-append-gap-alert` 数值定案（建议锚已登记 JSON：月可用性≥99.5%+save barrier p95≤2s+RTO≤30min；increase(doc_append_gap_total[5m])>0）——发布前不得有 TBD（T33 口径）。
+3. 改 `trafficTier`=`production` 并 commit（显式改档留痕）。
+4. 部署——`deploy.sh` preflight charter 门机器判定，FAIL 即中止；PASS 后 charter 判定行随部署记录留档。
+
+**与后续卡的联动**（evidence 供给线，避免空挂）：`restore-drill` 两用例证据可由 T31 故障演练矩阵产出（本地实弹形态——pg_dump 恢复→bump historyId→旧 WAL 段 quarantine 不复活+忘 bump 时间戳栅栏拦截；同代恢复 SS2 拦截）；`http-seed`/`exec-input-bundle` 实测裁决由 T33 负载基准产出（cold p95/loop block/input 表规模实测）；`slo` 数值与 T33 硬门同源（save barrier p95≤2s）。备份/恢复现状基线见 §13（daily pg_dump 03:17，无 PITR——Y7 门槛项）。

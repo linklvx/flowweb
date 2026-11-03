@@ -76,3 +76,54 @@ test('T12-0a：_prisma_migrations「库有仓无」applied 行→红；applied �
   const ok = diffAppliedMigrations(['20261009140100_y0b2_init'], ['20261009140100_y0b2_init', '20261011180000_y0b4_vacuum_generation']);
   assert.equal(ok.ok, true);   // 仓未应用（部署中点）不是本断言对象——migrate deploy 负责补齐
 });
+
+// ===== Y1c T29：生产前置批 charter 判据（spec 偏离 35 D10+偏离 38⑳——任一未过不得开放生产流量） =====
+import * as gateDecisionNs from './lib/gate-decision.mjs';
+import { readFileSync } from 'node:fs';
+import { resolve as pathResolve } from 'node:path';
+import { fileURLToPath as pathFileURLToPath } from 'node:url';
+
+const decideCharter = (c) => gateDecisionNs.decideCharter(c);
+
+const item = (over = {}) => ({ id: 'pitr', requirement: 'PITR RPO≤5min/RTO≤30min', owner: 'FlowWeb Dev', date: '2026-11-03', status: 'pending', ...over });
+
+test('T29：production 档 pending/armed 项=fail（任一未过不得开放生产流量——armed 须先裁决为 passed[已实施]或 waived[实测豁免]）', () => {
+  assert.equal(decideCharter({ trafficTier: 'production', items: [item()] }).verdict, 'fail');
+  assert.match(decideCharter({ trafficTier: 'production', items: [item()] }).why, /pitr/);
+  assert.equal(decideCharter({ trafficTier: 'production', items: [item({ status: 'armed' })] }).verdict, 'fail');
+});
+
+test('T29：production 档 passed/waived/na 全过=pass；waived 缺 evidence=fail（豁免须实测证据——空豁免=空挂）', () => {
+  assert.equal(decideCharter({ trafficTier: 'production', items: [item({ status: 'passed', evidence: 'drill 记录 2026-11-03' })] }).verdict, 'pass');
+  assert.equal(decideCharter({ trafficTier: 'production', items: [item({ status: 'waived', evidence: 'cold p95=1.2s 实测未超标' })] }).verdict, 'pass');
+  assert.equal(decideCharter({ trafficTier: 'production', items: [item({ status: 'na' })] }).verdict, 'pass');
+  assert.equal(decideCharter({ trafficTier: 'production', items: [item({ status: 'waived' })] }).verdict, 'fail');
+});
+
+test('T29：dev-test/beta 档=pass+诚实登记（pending/armed 计数+未开放生产流量限制句）；未知档=fail-closed', () => {
+  const r = decideCharter({ trafficTier: 'dev-test', items: [item(), item({ id: 'slo', status: 'armed' }), item({ id: 'ha', status: 'passed' })] });
+  assert.equal(r.verdict, 'pass');
+  assert.match(r.why, /dev-test/);
+  assert.match(r.why, /2/);   // pending+armed 计数透出
+  const b = decideCharter({ trafficTier: 'beta', items: [item()] });
+  assert.equal(b.verdict, 'pass');
+  assert.equal(decideCharter({ trafficTier: 'staging', items: [] }).verdict, 'fail');
+});
+
+test('T29：空挂检测（偏离 38⑳「空挂=没闭环」机器化）——项缺 id/owner/date/requirement/status 任一，或 items 空，任何档均 fail', () => {
+  assert.equal(decideCharter({ trafficTier: 'dev-test', items: [] }).verdict, 'fail');
+  for (const miss of ['id', 'owner', 'date', 'requirement', 'status']) {
+    const broken = { ...item() }; delete broken[miss];
+    const r = decideCharter({ trafficTier: 'dev-test', items: [broken] });
+    assert.equal(r.verdict, 'fail', `缺 ${miss} 字段应 fail`);
+    assert.match(r.why, /空挂|owner|date|requirement|status|id/);
+  }
+});
+
+test('T29：真实 charter 数据回归——scripts/production-charter.json 判据通过（dev-test 档）且 13 项全登记', () => {
+  const charterPath = pathResolve(pathFileURLToPath(import.meta.url), '../production-charter.json');
+  const charter = JSON.parse(readFileSync(charterPath, 'utf8'));
+  const r = decideCharter(charter);
+  assert.equal(r.verdict, 'pass', `真实 charter 须在当前档通过：${r.why ?? ''}`);
+  assert.equal(charter.items.length, 13);
+});

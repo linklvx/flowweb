@@ -71,6 +71,7 @@ preflight() {
     node scripts/check-migration-immutability.mjs   # Y0b-5 T12-0b：sha256 棘轮双载体本地档（服务器档=cutover ③）
     touch ".preflight-${SHA}.ok"   # 收据（gitignored）
   fi
+  [[ "$SKIP_PREFLIGHT" == "1" ]] || node scripts/check-production-charter.mjs   # T29 生产前置 charter 门（秒级静态——production 档任一项未过即中止；spec 偏离 35）
   [[ "$SKIP_PREFLIGHT" == "1" ]] || node scripts/gate-collab.mjs
 }
 

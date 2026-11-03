@@ -34,3 +34,29 @@ export function decidePost(body, epochPre, degraded = null) {
     : `ready+own spool 归零+epoch 递增（新实例已接管）`;
   return { verdict: 'pass', why: `${base}${strandedFiles > 0 ? `；WARNING stranded=${strandedFiles}files 收养窗异步消化（60s+30s，不阻部署判据）` : ''}` };
 }
+
+// T29 生产前置批 charter（spec 偏离 35 D10+偏离 38⑳）：任一未过不得开放生产流量；
+// dev-test/beta 档=诚实登记放行；空挂（项缺 id/owner/date/requirement/status）任何档均 fail。
+const CHARTER_TIERS = ['dev-test', 'beta', 'production'];
+const CHARTER_REQUIRED_FIELDS = ['id', 'owner', 'date', 'requirement', 'status'];
+
+export function decideCharter(charter) {
+  const tier = charter?.trafficTier;
+  if (!CHARTER_TIERS.includes(tier)) return { verdict: 'fail', why: `trafficTier=${JSON.stringify(tier)} 未知（合法=${CHARTER_TIERS.join('/')}）——fail-closed` };
+  const items = Array.isArray(charter.items) ? charter.items : [];
+  if (!items.length) return { verdict: 'fail', why: 'charter items 空——空挂=没闭环（偏离 38⑳）' };
+  const hollow = items
+    .map((it) => ({ it, missing: CHARTER_REQUIRED_FIELDS.filter((f) => !it?.[f]) }))
+    .filter((h) => h.missing.length);
+  if (hollow.length) return { verdict: 'fail', why: `charter 项空挂（偏离 38⑳「空挂=没闭环」——${CHARTER_REQUIRED_FIELDS.join('/')} 任一缺失即红）: ${hollow.map((h) => `${h.it?.id ?? '(无 id)'} 缺 ${h.missing.join('+')}`).join('; ')}` };
+  const open = items.filter((it) => it.status === 'pending' || it.status === 'armed');
+  if (tier !== 'production') {
+    return { verdict: 'pass', why: `${tier} 档诚实登记：${open.length} 项 pending/armed（${open.map((it) => it.id).join(', ')}）未达标——未开放生产流量（Spooled≠已保存；单机机损 RPO=PG 批延迟）` };
+  }
+  const bareWaived = items.filter((it) => it.status === 'waived' && !it.evidence);
+  const parts = [];
+  if (open.length) parts.push(`未过项: ${open.map((it) => `${it.id}(${it.status})`).join(', ')}`);
+  if (bareWaived.length) parts.push(`waived 缺实测证据: ${bareWaived.map((it) => it.id).join(', ')}`);
+  if (parts.length) return { verdict: 'fail', why: `${parts.join('；')}——任一未过不得开放生产流量（spec 偏离 35）` };
+  return { verdict: 'pass', why: `production 档全 ${items.length} 项过（passed/waived[有实测证据]/na）` };
+}

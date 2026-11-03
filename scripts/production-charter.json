@@ -1,0 +1,131 @@
+{
+  "v": 1,
+  "charter": "Y1c T29 生产前置批 charter（spec 偏离 35 D10 + 偏离 38⑳——实体化非占位；数据单源=本文件，人读面=docs/superpowers/collab-ops-runbook.md §15）",
+  "trafficTier": "dev-test",
+  "registeredAt": "2026-11-03",
+  "tierSemantics": {
+    "dev-test": "单机开发/测试——诚实登记放行，未开放生产流量（Spooled≠已保存；单机机损 RPO=PG 批延迟）",
+    "beta": "公测受控用户面——诚实登记放行，未开放生产流量",
+    "production": "开放生产流量——任一项 pending/armed、或 waived 缺实测证据，即 fail 不得发布"
+  },
+  "items": [
+    {
+      "id": "pitr",
+      "requirement": "PITR（WAL 归档+基础备份）RPO≤5min / RTO≤30min",
+      "owner": "FlowWeb Dev",
+      "date": "2026-11-03",
+      "status": "pending",
+      "evidence": "现状=daily pg_dump 03:17 cron（runbook §13）——无 WAL 归档；PITR 模板挂 Y7 门槛项（docs/superpowers/full-stack-backup.md）"
+    },
+    {
+      "id": "pg-sync-commit",
+      "requirement": "synchronous_commit=on + 有备库则同步复制验证；单机 Durable=「主库本地提交」诚实口径",
+      "owner": "FlowWeb Dev",
+      "date": "2026-11-03",
+      "status": "pending",
+      "evidence": "待服务器 PG 配置核实（SHOW synchronous_commit）+配置与验证记录"
+    },
+    {
+      "id": "minio-versioning",
+      "requirement": "MinIO 对象存储版本化 RPO≤15min",
+      "owner": "FlowWeb Dev",
+      "date": "2026-11-03",
+      "status": "pending",
+      "evidence": "版本化缺口=Y7 门槛项（docs/superpowers/full-stack-backup.md）"
+    },
+    {
+      "id": "restore-drill",
+      "requirement": "季度 restore drill，必含两用例：①PITR/pg_dump 恢复后 WAL 不复活（bump historyId→旧段 quarantine→fail-closed→换代再开放写）+忘 bump 时间戳栅栏拦截；②主备切换后 Durable 不丢（单机档=主库本地提交口径的恢复验证）",
+      "owner": "FlowWeb Dev",
+      "date": "2026-11-03",
+      "status": "pending",
+      "evidence": "首次 drill 未执行（production 前必过）"
+    },
+    {
+      "id": "replay-canary",
+      "requirement": "每小时 replay canary：snapshot+updates 重放 fresh doc，semanticEqual/SV 对比，不一致告警并冻结 compact",
+      "owner": "FlowWeb Dev",
+      "date": "2026-11-03",
+      "status": "pending",
+      "evidence": "canary 未实装"
+    },
+    {
+      "id": "ha-decision",
+      "requirement": "HA 决策显式登记",
+      "owner": "FlowWeb Dev",
+      "date": "2026-11-03",
+      "status": "passed",
+      "evidence": "决策=单机无 HA（本批交付线诚实口径：单实例+pm2 autorestart；RTO 由备份恢复承载，目标≤30min 与 pitr 项同源）——依据 spec §10 交付线+偏离 35"
+    },
+    {
+      "id": "slo",
+      "requirement": "SLO 数值定案并登记（建议锚：月可用性≥99.5%（单机无 HA 诚实目标）+ 编辑保存 Durable（save barrier）p95≤2s（T33 硬门同值）+ 恢复 RTO≤30min）",
+      "owner": "FlowWeb Dev",
+      "date": "2026-11-03",
+      "status": "pending",
+      "evidence": "建议数值待用户裁定后定案（production 前必过；发布前不得有 TBD——T33 口径）"
+    },
+    {
+      "id": "doc-append-gap-alert",
+      "requirement": "doc_append_gap_total 告警规则在告警链常驻（建议规则：increase(doc_append_gap_total[5m])>0 告警）",
+      "owner": "FlowWeb Dev",
+      "date": "2026-11-03",
+      "status": "pending",
+      "evidence": "告警链未实装（runbook §6 现状=日志轮转/磁盘水位/swap 水位/开机自检四项，无 Prometheus 告警通道）；阈值建议待用户裁定"
+    },
+    {
+      "id": "http-seed",
+      "requirement": "HTTP seed 端点维持废止态；重开须新评审",
+      "owner": "FlowWeb Dev",
+      "date": "2026-11-03",
+      "status": "armed",
+      "trigger": {
+        "coldP95Ms": 3000,
+        "loopBlockMs": 50,
+        "note": "cold p95>3s 或 loop block>50ms 实测超标→重开评审（runbook §14 尾注）"
+      },
+      "evidence": "production 前须 T33 基准实测裁决：未超标→waived+实测数据；超标→passed（实施）"
+    },
+    {
+      "id": "exec-input-bundle",
+      "requirement": "ExecutionInput 迁对象存储 bundle（触发达标才须实施）",
+      "owner": "FlowWeb Dev",
+      "date": "2026-11-03",
+      "status": "armed",
+      "trigger": {
+        "inputTableGt": "20GB",
+        "over2MiBRatioGt": "5%",
+        "note": "input 表>20GB 或 >2MiB 占比>5%→须实施"
+      },
+      "evidence": "production 前须实测裁决：未达标→waived+实测数据；达标→passed（实施）"
+    },
+    {
+      "id": "frame-audit",
+      "requirement": "逐帧审计表（DocAuditEvent 全帧落表）——合规需求确认驱动",
+      "owner": "FlowWeb Dev",
+      "date": "2026-11-03",
+      "status": "armed",
+      "trigger": {
+        "complianceNeed": "owner 确认有无逐帧审计合规需求",
+        "note": "无合规需求→na+确认记录；有→passed（实施）"
+      },
+      "evidence": "合规需求待 owner 确认（production 前必裁）"
+    },
+    {
+      "id": "project-erasure",
+      "requirement": "ProjectErasure 跨介质擦除状态机（介质清单：WAL 段/Snapshot/RuntimeEvent/ExecutionInput/DocAuditEvent/对象前缀/IDB/备份 tombstone）",
+      "owner": "FlowWeb Dev",
+      "date": "2026-11-03",
+      "status": "pending",
+      "evidence": "未实装（production 前必过）"
+    },
+    {
+      "id": "retention-worker",
+      "requirement": "清理 worker 常驻：ExecutionInput 30d + RuntimeEvent 7d/100k",
+      "owner": "FlowWeb Dev",
+      "date": "2026-11-03",
+      "status": "pending",
+      "evidence": "未实装（production 前必过）"
+    }
+  ]
+}
