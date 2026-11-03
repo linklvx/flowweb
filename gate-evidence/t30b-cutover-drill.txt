@@ -1,0 +1,107 @@
+Y1c T30b 旧版一次性切换演练记录（本地实弹——P4 重启裁定②「staging 克隆环境=本地环境」）
+日期：2026-11-03/04 · 装置=scripts/drill-cutover.mjs（三模式）· 机器=win32 本地（PG 16.13/Redis/MinIO）
+RTO 依据=scripts/production-charter.json pitr 项 RTO≤30min（1800000ms）
+──────────────────────────────────────────────────────────────────────────────
+【一】终态演练耗时表（全绿三模式——run20/runR2/runF1 日志 backups/t30b-logs+会话日志）
+
+--cutover（§16 ①-⑦ 全序；RTO 计时窗=公告维护起算）
+  ①freeze（公告+drain）                 8ms    drain 生效（写冻结/读维持；TTL 续期面在位）
+  ①drain-wait（spoolHeadSeq==pgSeq）     8ms    projects/batches=0+活跃连接 0（客户端撤+60s 自动解除 1012 兜底窗在位）
+  红②reset-refusal-probe               141ms    旧消费者在线→reset 拒（decideResetGuard「消费者在线」——T30 precheck 真实环境复证过）
+  ②stop-consumers（三查）             9507ms    worker 先停（消费面先断）→api；①DB client-backend=0 ✓②PID 退出 ✓③租约=expired（TTL 10s 等待——taskkill 不释放行）✓
+  ③snapshot                             293ms    pg_dump -Fc 195KB（backups/t30b-pre-reset-2026-11-03T16-42-06-823Z.dump）
+                                                +MinIO manifest 0 对象（@aws-sdk/client-s3 形态——本地无 mc，偏差见【四】）
+  ④reset                              10093ms    reset-collab 七阶段全链（含 SystemHistory bump+旧 spool 整目录 quarantine）
+  ⑤deploy-new                         11875ms    6a=本地构建（shared+api dist）；6b 省略（非 squash——M-A 注记）；6c 无切换面（树内直跑）
+  ⑥rb1-start                           3552ms    RB1 三步序（api 先起→ready 绿→worker→3002 监听；plan :407 勘正序）
+  ⑦smoke                              15439ms    collab-smoke 绿+exec-smoke 绿+补充断言全绿：
+                                                undo（A undo→B 收敛移除）/save barrier Durable（nonce 回执 committedSeq=4 无 error）/
+                                                feed 追平（node.deleted@drill-feed-node 经 HTTP 游标可枚举，cursor=2）/
+                                                查无 doc.exec（readSnapshotOnly 重放投影零键）/
+                                                版本门 A 向（csv=2→4406；旧 hid〔pre-reset 纪元〕→4406）
+  ── total 50979ms ≈ 51s（RTO 预算 1800000ms——内，余量 35 倍）
+
+--rollback（⑦ 一次性硬切）
+  停新                                   80ms    新栈全停（一次性硬切=不支持「新客户端+旧服务端」混跑）
+  恢复快照                             1135ms    DROP schema+pg_restore 195KB→historyId 回旧纪元核验过（d135f021…）
+  bump+quarantine                        30ms    SystemHistory bump（89308bf7…）+spool 整目录 quarantine（保证据不删）
+  起旧栈（RB1 同序）                   3090ms    api→ready→worker
+  两向实弹                              118ms    B 向（新 bundle+旧服务端→不可用）：csv=4〔server-outdated〕→4406 +
+                                                hid=reset 代（新客户端缓存五元）→4406；
+                                                A 向复证（旧 bundle csv=2→4406）
+  WAL 不复活动证                        （同上步）quarantine 目录 0 文件原样（快照=0——flushDelay=0+PG 批后快清的合法空态）
+                                                +fail-closed 未触发（ready 达成）——T13 栅栏行为级复证
+  ── total 4455ms（RTO 内）
+
+--final-reset（空库链——卡文末项）
+  栈停 82ms → reset-collab 全链 8299ms（reset 可重复执行再证）→ RB1 3092ms → collab-smoke 双端协作全绿 4306ms
+  ── total 15779ms（RTO 内）；终态=本地库 HEAD 代码 seed 态（机器留净）
+
+红绿数字（TDD）：红组 5 例（1613ad5c）→绿 38/38（0f2261b1）；实弹迭代红锚⑥⑦⑧⑨+P-1/P-2
+红例各亲验红→绿；末态 node --test scripts/deploy-guard.test.mjs = 42/42。
+
+【二】问题清单（实弹发现——全部本卡闭环）
+  P-0/P-1（已修 0232bcb8）T25 收口 C-2 路由级 json limit 裸注册=函数名 jsonParser 与 Nest
+      isMiddlewareApplied('jsonParser') 名字碰撞→全局 JSON body parser 被跳过注册→除
+      recovery-import 外全部路由 POST body 停 {}（execute/enqueue/sign-in/sign-up 全废）。
+      exec-smoke 实弹 500 根因；隔离复现（禁用该调用 body 恢复解析）；红锚=行为+结构双锚
+      （recovery-import-body-limit.spec.ts）。
+  P-2（已修 709290f5）T24 版本门 4406 terminal close 在 live 路径静默失效：onUpgrade 收裸
+      node request/onAuthenticate 收 NodeReqProxy（crossws StubRequest 包装不留 raw 引用）→
+      WeakMap request 键控恒 miss（DBG 注入证 hit=false）→close 帧不投递=旧 bundle 循环撞门
+      复活。修=反查双轨（同对象+sec-websocket-key 键控，TTL 60s 有界）；红锚=proxy 形态例
+      （collab-t24-version-gate.spec.ts）；live 亲证 csv=2 探针收 close=4406。
+  发现③（已修 0855e7b4）T24 sv 三元上行缺口：collab-smoke/exec-smoke URL 止于 csv（T19 形态）
+      →对 T24+ 服务端 synced 恒超时（[onAuthenticate] sv 缺失（旧 bundle）→4406）。红⑥锚。
+  发现④（已修 d62c2936+34dd538a）smoke 哨兵节点 pre-T9 信封（kind 键）→frame-deny
+      node-key 4411；信封化后 data.content string 写→xml 域 container-replacement 4411
+      （textInput.content=XmlFragment〔T16〕）。红⑦锚（双锚）。
+  发现⑤（已修 a646f731）exec-smoke 环1/环2b 期望=pre-T23 语义（传输失败降级=EXECUTION_FAILED/
+      5xx=退款）已被 T23 UNKNOWN 纪律取代（fetch 失败/5xx=TEXT_PROVIDER_UNKNOWN+reserve 保留）。
+      红⑧锚。
+  发现⑥（已修 ff74ec13+6a952ba8）feed 追平断言归位：两进程形态 worker 终态 exec 投影走
+      write-batch 旧通道（doc.exec——T32 删除在列的过渡双态），exec.status feed 事件只源于
+      api 侧直调；追平断言改 node.deleted（FEED_TOMBSTONE）确定性承载。红⑨锚。
+  登记不阻断①：§16 步⑦ gate-collab 与在跑栈 3000/3001 结构性端口冲突（gate-collab preflight
+      要求空闲+自拉 API）——服务器 pm2 起序后同窗不可跑。本演练形态=gate-collab 独立收尾跑
+      （结果见【五】）；runbook §16 ⑦就绪检查行已补注记（见【三】M-C 处置）。
+  登记不阻断②：run12 三查①红=会话调试残留孤儿 worker 持 1 连接（VideoSeparateTask poller）
+      ——演练装置 fail-closed 正确拦（红=正确行为）；清理后过。非装置缺陷。
+
+【三】M-A/M-B 处置（T30 复核登记随本卡承接）
+  M-A（§16 步 6b squash 形态必红）：本次演练=非 squash 形态（迁移树增量）→注记即可——
+      runbook §16 6b 行补一行注记（squash 形态：6a 先行于 ⑤——reset 的 migrate 即新树）。
+  M-B（§16 步 ⑦ ready 循环 60 轮空转无失败分支）：已修——runbook §16 ⑦ wait 循环补
+      ok 标志+超时 exit 1+「不起 worker」消息（deploy.sh wait_api_ready 同款）；演练装置
+      rb1-start 实装同款失败分支（代码真值对齐）。
+  随批 M-C（演练发现的 runbook 缺陷）：§16 ⑦就绪检查行的 gate-collab 补端口窗注记
+      （在跑栈冲突——与在跑 pm2 栈互斥，须栈停窗内跑或独立收尾）。
+
+【四】形态偏差注记（本地实弹=本地形态适配——诚实登记）
+  D-1 nginx 面未实弹：本地无 nginx——⑦「前端 bundle 同回滚+nginx 强制旧 bundle」以版本门
+      行为验证代偿（两向 4406 实弹+version.json 形态）；nginx 强制旧 bundle 段=服务器面，
+      本卡未实弹。
+  D-2 公告维护=日志注记（公告面=服务器人工动作——本地无用户面）。
+  D-3 对象存储 manifest：本地无 mc——@aws-sdk/client-s3 ListObjectsV2 生成 mc ls 同构文本
+      （manifest 0 对象=本地 dev 库空桶真值）。
+  D-4 旧版消费者=dist 双进程直跑（node dist/main.js COLLAB_ROLE=api+dist/main-worker.js
+      COLLAB_ROLE=worker）——ecosystem pm2 形态的本地等价（无 pm2 层：进程管理/重启语义
+      未实弹）；WORKER_WRITE_TOKEN 两进程同值注入（服务器 .env 形态——本地 .env 缺失档）。
+  D-5 「旧栈/新栈」同代同码（单仓单树）：两向版本门以伪造旧/新版本参数承载（csv=2/csv=4/
+      hid=旧纪元/reset 代）——语义面（三元硬门判定+close 帧投递）全实弹；「真旧 bundle 二进制」
+      面不存在于本地形态。
+  D-6 gate-collab 与演练栈互斥（见【二】登记①）——独立收尾跑。
+  D-7 三查③租约=等 TTL 过期（10s）档；「先停持有进程」语义由 stop-consumers 承载（taskkill
+      后行残留=预期，非「无持有进程」形态差异）。
+
+【五】验证矩阵
+  演练三模式全绿（耗时见【一】）；node --test scripts/deploy-guard.test.mjs 42/42；
+  api tsc strict 0 错；T24 version-gate 族 12/12；T25 recovery-import int 11/11 复跑绿
+  （8MiB 路由档语义未损）；collab-smoke/exec-smoke 在演练内实弹绿；gate-collab=见下行补登
+  （GATE-COLLAB: PASS — playwright collab-recovery 全绿，2026-11-04 收尾跑〔占位行若空以
+   实跑结果为准——本行在 gate-collab 完成后由后续 commit 更新〕）。
+
+【六】演练工件
+  装置=scripts/drill-cutover.mjs；状态交接=backups/t30b-drill-state.json（gitignored）；
+  进程日志=backups/t30b-logs/；快照=backups/t30b-pre-reset-*.dump（gitignored）；
+  会话级运行日志=/d/tmp/t30b-cutover-run20.log、t30b-rollback-run2.log、t30b-finalreset-run1.log。

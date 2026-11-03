@@ -268,15 +268,34 @@ function mkNode(Y, id) {
   m.set('data', data);
   return m;
 }
-/** 原始 WS 连接并断言版本门 terminal close 码（两向实弹——T24 close 帧先例的裸 ws 形态）。 */
+/** 版本门 close 帧断言（两向实弹——T24 close 帧先例的 provider 形态：裸 ws 不发认证协议，
+ *  onAuthenticate 不触发=永无 close；provider 全握手→版本门 deny→服务端 4406 terminal close 帧
+ *  →底层 socket close 事件携码）。 */
 function rawWsExpectClose(query, expectCode, timeoutMs = 15_000) {
-  const { WebSocket, WS_ORIGIN } = loadClientLibs();
+  const { Y, HocuspocusProvider, WebSocket, WS_ORIGIN } = loadClientLibs();
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${WS_URL}/?${query}`, { headers: { origin: WS_ORIGIN } });
-    const t = setTimeout(() => { try { ws.close(); } catch { /* noop */ } reject(new Error(`版本门 close 等待超时（${query}——期望 ${expectCode}）`)); }, timeoutMs);
-    ws.on('close', (code) => { clearTimeout(t); code === expectCode ? resolve(`close=${code}`) : reject(new Error(`close 码不符（${query}——期望 ${expectCode} 实得 ${code}）`)); });
-    ws.on('error', (e) => { clearTimeout(t); reject(new Error(`WS 错误（${query}）：${e.message}`)); });
-    ws.on('open', () => { /* 认证后 close 帧——等待 close */ });
+    let wsInstance = null;
+    const HeaderWs = class extends WebSocket {
+      constructor(url) { super(url, { headers: { origin: WS_ORIGIN } }); wsInstance = this; }
+    };
+    let provider = null;
+    const done = (fn) => { clearTimeout(t); try { provider?.destroy(); } catch { /* 已闭 */ } fn(); };
+    const t = setTimeout(() => done(() => reject(new Error(`版本门 close 等待超时（${query}——期望 ${expectCode}）`))), timeoutMs);
+    try {
+      provider = new HocuspocusProvider({
+        url: `${WS_URL}/?${query}`, name: 'project:drill-version-probe', document: new Y.Doc(),
+        WebSocketPolyfill: HeaderWs,
+      });
+    } catch (e) { done(() => reject(e)); return; }
+    const wire = () => {
+      if (!wsInstance) return false;
+      wsInstance.on('close', (code) => {
+        done(() => (code === expectCode ? resolve(`close=${code}`) : reject(new Error(`close 码不符（${query}——期望 ${expectCode} 实得 ${code}）`))));
+      });
+      wsInstance.on('error', (e) => done(() => reject(new Error(`WS 错误（${query}）：${e.message}`))));
+      return true;
+    };
+    if (!wire()) setTimeout(wire, 100);   // polyfill 懒构造兜底
   });
 }
 
@@ -578,6 +597,7 @@ async function modeRollback() {
   });
 
   let quarantineDir = '';
+  let quarantinedFilesAtSnapshot = -1;
   await timed('bump-and-quarantine', async () => {
     // restore 契约收尾（spec §4.4）：bump historyId（单事务）→旧 spool/WAL 整目录 quarantine（T13 栅栏）
     const h = await withPg(async (client) => {
@@ -586,13 +606,12 @@ async function modeRollback() {
       return r.rows[0].historyId;
     });
     const spool = path.join(API_DIR, '.data', 'collab-spool');
-    let quarantinedFiles = 0;
     if (existsSync(spool)) {
       quarantineDir = path.join(path.dirname(spool), `.quarantine-rollback-${new Date().toISOString().replace(/[:.]/g, '-')}`);
       renameSync(spool, quarantineDir);
-      quarantinedFiles = readdirSync(quarantineDir).length;
+      quarantinedFilesAtSnapshot = readdirSync(quarantineDir).length;
     }
-    return `bump=${h.slice(0, 8)}…+spool quarantine=${quarantinedFiles} 文件（保证据不删——boot 栅栏双保险）`;
+    return `bump=${h.slice(0, 8)}…+spool quarantine=${quarantinedFilesAtSnapshot} 文件（保证据不删——boot 栅栏双保险）`;
   });
 
   await timed('rollback-start', async () => {
@@ -620,12 +639,14 @@ async function modeRollback() {
     // A 向复证（csv=2 旧 bundle 对恢复后服务端——4406 恒拒，防「旧服端放旧客户端」错觉）
     const c3 = await rawWsExpectClose(`csv=2&sv=2&cb=drill`, CLOSE_CLIENT_OUTDATED);
     console.log(`[drill] 两向实弹：B 向 csv=4→${c1}；B 向 hid=reset 代→${c2}；A 向 csv=2→${c3}`);
-    // WAL 不复活动证（T13 栅栏行为级复证）：quarantine 目录在 boot 后原样+fail-closed 未触发（ready 已达）
+    // WAL 不复活动证（T13 栅栏行为级复证）：quarantine 目录 boot 后原样（文件数不变=零收养零清空）
+    // +fail-closed 未触发（ready 达成）。快照期 0 文件=合法空态（flushDelay=0+PG 批后 purgeBelowSeq
+    // 快清——段生命周期秒级），复活判据=目录消失或计数变化，非绝对计数。
     if (quarantineDir) {
       if (!existsSync(quarantineDir)) throw new Error('quarantine 目录消失（复活面！）');
       const n = readdirSync(quarantineDir).length;
-      if (n === 0) throw new Error('quarantine 目录空（boot 收养/清空=复活面！）');
-      console.log(`[drill] WAL 不复活动证：quarantine 目录 ${n} 文件原样（boot 未收养）+fail-closed 未触发（ready 达成）`);
+      if (n !== quarantinedFilesAtSnapshot) throw new Error(`quarantine 目录文件数变化（快照 ${quarantinedFilesAtSnapshot}→${n}——boot 收养/清空=复活面！）`);
+      console.log(`[drill] WAL 不复活动证：quarantine 目录 ${n} 文件原样（快照=${quarantinedFilesAtSnapshot}——boot 未收养）+fail-closed 未触发（ready 达成）`);
     } else {
       console.log('[drill] WAL 不复活动证：quarantine 时 spool 目录不存在（空态——无旧段可复活，注记）');
     }

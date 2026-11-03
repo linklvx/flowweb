@@ -648,6 +648,8 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 
 ## §16 Y1c T30 破坏性发布流程（reset-collab 工具——2026-11-03 落档+收口批重排；spec §4.4 恢复+偏离 35/38⑳）
 
+**T30b 切换演练（2026-11-03 实弹——本节八步序的本地实弹验证+演练装置）**：装置=`scripts/drill-cutover.mjs`（三模式）；演练记录（耗时表+问题清单+形态偏差+M-A/M-B 处置）=`gate-evidence/t30b-cutover-drill.txt`；实弹发现 P-1（T25 路由 json limit 名字碰撞压制全局 body parser）/P-2（T24 4406 close 帧 live 投递断链）两生产级缺陷已随演练批修复。
+
 **工具单一真源=`scripts/reset-collab.mjs`**（判据单一真源=`scripts/lib/gate-decision.mjs` decideResetGuard；测试载体=`scripts/deploy-guard.test.mjs` T30 组）。收编 §3.3「服务器 rebuild」人工序（rebuild-db.mjs DROP+人工 tsx seed+gate-seed）为单命令七阶段机器流程。**T30 收口裁定（评审 spec C1/I1）：`deploy.sh --rebuild-db` 内嵌形态整体退役**——reset 前提=消费者全停 vs deploy.sh cutover 链前提=api 在线（①guard drain/③.5 spool 迁移均要求 api 在线）**结构性互斥**，且 ssh 非交互 shell 不带 ecosystem env（COLLAB_SPOOL_DIR 唯一注入载体）——内嵌形态的 quarantine/verify 必假绿；该旗标现=**指引退出**（打印本节人工序后 exit 1，不触任何部署/DB 操作）。破坏性 reset 唯一入口=本节人工序。
 
 **用法**：
@@ -699,7 +701,10 @@ node scripts/reset-collab.mjs --status                             # 只读：�
    # 6a 上传（deploy_api 构建/上传段形态——本地构建后 tar/scp）：
    #    本地 pnpm --filter @flowweb/shared build && pnpm --filter @flowweb/api build
    #    +dist.next/src/prisma 迁移树 tar 上传+条件 install+npx prisma generate；web 侧 ./deploy.sh web 可直用
-   # 6b 新树 migrate（cutover ③ 同形态——reset-collab 步 ⑤ 跑的是旧树迁移；新构建携带新迁移则此步增量）：
+   # 6b 新树 migrate（cutover ③ 同形态——reset-collab 步 ⑤ 跑的是旧树迁移；新构建携带新迁移则此步增量。
+   #     ⚠ squash/基线重构形态必红：新 init 名视 pending 在既有 schema 上 CREATE TABLE SQL 红——
+   #     squash 形态下 6a 先行于步 ⑤（reset 的 migrate 即新树迁移；T30 复核 M-A 注记，2026-11-03 T30b 演练批）：
+   #     先上传新树→reset-collab 的 migrate 阶段按新树跑→6b 省略）：
    ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 "cd ~/flowweb/apps/api && npx prisma migrate deploy"
    # 6c dist.next 原子切换（cutover ④ 同形态：sha256 先验后换+dist.prev 保留一代+shared 同窗切换）：
    ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 'cd ~/flowweb/apps/api && test -f dist.next/main.js && echo "<本地 sha256sum dist/main.js>  dist.next/main.js" | sha256sum -c - && rm -rf dist.prev && { [ ! -d dist ] || mv dist dist.prev; } && mv dist.next dist && test -f dist/main.js'
@@ -709,12 +714,16 @@ node scripts/reset-collab.mjs --status                             # 只读：�
 7. **人工起序**（**RB1 三步序——api 先起→ready 绿→worker→pm2 save**；代码真值=main-worker.ts:47-56 先门后装配〔worker 轮询 api ready 60s 超限 exit(1)、3002 监听在门后——api 停态下 worker 永远到不了 3002，必须 api 先起〕+deploy.sh 冻结序+Z9②）+就绪检查：
    ```bash
    pm2 startOrReload ecosystem.config.cjs --only flowweb-api --update-env
-   # wait ready（deploy.sh wait_api_ready 同形态——60s 循环）：
-   i=0; while [ $i -lt 60 ]; do i=$((i+1)); curl -s http://127.0.0.1:3000/api/ready | grep -q '"ready":true' && break; sleep 1; done
+   # wait ready（deploy.sh wait_api_ready 同形态——60s 循环**带失败分支**〔T30 复核 M-B 修，2026-11-03
+   # T30b 演练批：60 轮空转无失败分支=超时后仍起 worker 的顺序门破洞——超限必须 exit 1 不起 worker）：
+   i=0; ok=""; while [ $i -lt 60 ]; do i=$((i+1)); curl -s http://127.0.0.1:3000/api/ready | grep -q '"ready":true' && { ok=1; break; }; sleep 1; done; [ -n "$ok" ] || { echo "api ready 60s 未达——不起 worker（RB1 三步序；查 pm2 logs flowweb-api）"; exit 1; }
    pm2 startOrReload ecosystem.config.cjs --only flowweb-worker --update-env && pm2 save
-   # 就绪检查：
+   # 就绪检查（⚠ gate-collab 与在跑栈 3000/3001 结构性端口冲突〔preflight 要求空闲+自拉 API〕——
+   # pm2 栈在跑窗内不可跑：栈停窗内跑或作为独立收尾步〔T30b 演练发现——演练记录 gate-evidence/t30b-cutover-drill.txt〕；
+   # 在跑栈的就绪检查=collab-smoke+exec-smoke〔本演练形态〕）：
    node scripts/gate-collab.mjs && pnpm --filter @flowweb/api exec node scripts/collab-smoke.mjs
    ```
+   本地实弹演练形态=scripts/drill-cutover.mjs 三模式（--cutover §16 ①-⑦ 计时全序 / --rollback ⑦ 一次性硬切+两向 4406 / --final-reset 空库链）——2026-11-03 实弹记录见 gate-evidence/t30b-cutover-drill.txt（总耗时 51s/4.5s/16s，RTO 30min 内）。
 8. **开放写**（解除维护关写+公告解除）。
 
 **缓存清理口径**（诚实登记，工具无动作面）：**公开快照缓存**=进程内 TTL+LRU 单实例（snapshot-doc-cache 32 条）——消费者进程停+新进程起=天然清空；**本地缓存键（客户端 IDB）**=服务端无清客户端缓存能力（spec 偏离 38⑳ 口径）——唯一服务端动作=bump historyId 使客户端缓存键五元 (uid,pid,generation,schemaVersion,historyId) 自燃失效（4406/4410 客户端自清），由阶段 6 承载。
