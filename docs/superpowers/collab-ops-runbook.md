@@ -146,7 +146,7 @@ journalctl -u flowweb-pm2 -n 50 --no-pager
 | `./deploy.sh api` | 仅后端：preflight → 本地构建 → 上传 → 条件 install → cutover 全链 |
 | `./deploy.sh api --rollback` | 快回滚（§5），30s，跳过 preflight |
 
-旗标：`--force-restart` 两类合法用法（drain 后未排空、目标机器不可达）——**每次使用留部署记录**；`--allow-legacy` 豁免 guard 的 legacy 进程形态检查；`--skip-smoke`/`--skip-preflight` = 本次部署**不构成判据**（强制留痕，禁用于常规发布）；`--rebuild-db` = 服务器库重建（DROP SCHEMA+重放 init，破坏性——回退锚=cutover ② pg_dump，唯一权威流程与执行时序清单=`deployment-db-baseline.md` §3，禁用于常规发布）。**unobservable 档不可 force**：ready 无 pending（token 视图缺失）/drain 401/403（凭据失配）均属无账可算——放行即 at-risk 语义谎言；遇 guard 403 的唯一出路是核对令牌（§0/§1），不是 force。
+旗标：`--force-restart` 两类合法用法（drain 后未排空、目标机器不可达）——**每次使用留部署记录**；`--allow-legacy` 豁免 guard 的 legacy 进程形态检查；`--skip-smoke`/`--skip-preflight` = 本次部署**不构成判据**（强制留痕，禁用于常规发布）；`--rebuild-db` = 服务器库重建（Y1c T30 起 cutover ② 调 `scripts/reset-collab.mjs --rebuild-db --confirm` 七阶段全链，**旧 DB 消费者在线即红**〔顺序断言〕——先按 §16 停全部旧消费者；破坏性——回退锚=cutover ② pg_dump，禁用于常规发布）。**unobservable 档不可 force**：ready 无 pending（token 视图缺失）/drain 401/403（凭据失配）均属无账可算——放行即 at-risk 语义谎言；遇 guard 403 的唯一出路是核对令牌（§0/§1），不是 force。
 
 cutover ① 的**拒重启三步**（scripts/deploy-guard.mjs）：drain（20s 续期轮询 r.ok）→ own 四零核验（own spool/stranded 帧，预算 90s，P40）→ 放行（写 `.deploy-guard-state.json` 交接 epoch）。guard 拒绝时 dist 未动、旧构建继续跑。drain 后部署中止的冻结由 **60s 自动解除**（SV12）兜底，可安全重试。重启后 post 段预算另账 120s（P35：收养窗 60s+reconciler 30s+回灌余量）。
 
@@ -168,7 +168,7 @@ spool 账本目录在**部署树外** `/home/ubuntu/flowweb-data/collab-spool`�
 
 - **additive 双检**：本地（preflight 内）+ 服务器（cutover ③）各跑一次 `check-migration-additive.mjs`；BASELINE='20261009140100_y0b2_init'（Y0b-2 T1 squash，2026-10-10 第三次重置）之后的迁移必须 additive（expand/contract）；收缩步骤（DROP 等）的豁免 = 同 commit 内抬高 BASELINE 常量并留注释。
 - **migrate diff 棘轮（Y0b-2 T1）**：verify 链含 `check-migrate-diff.mjs`——prisma migrate diff（from-migrations vs schema datamodel）漂移行只许收窄禁新增，金标=`apps/api/prisma/migrate-diff-allowlist.txt`（逐字归一化行；唯一永久豁免=pricing_rule_natural_key——NULLS NOT DISTINCT 语义 Prisma 不可表达）。
-- **服务器 rebuild（Y0b-2 squash）**：deploy.sh api --rebuild-db + 人工 tsx prisma/seed.ts + gate-seed + MinIO 孤儿清理 scripts/cleanup-orphaned-media.ts；数据=确认丢弃；服务器 .env 需人工补三枚 PROVIDER_MOONSHOT_API_KEY/PROVIDER_TENCENT_API_KEY/DASHSCOPE_API_KEY 密钥（deploy.sh 不传 .env——缺失=启动断言拒启）。
+- **服务器 rebuild（Y0b-2 squash）**：deploy.sh api --rebuild-db + 人工 tsx prisma/seed.ts + gate-seed + MinIO 孤儿清理 scripts/cleanup-orphaned-media.ts；数据=确认丢弃；服务器 .env 需人工补三枚 PROVIDER_MOONSHOT_API_KEY/PROVIDER_TENCENT_API_KEY/DASHSCOPE_API_KEY 密钥（deploy.sh 不传 .env——缺失=启动断言拒启）。**Y1c T30 起 DROP+migrate+seed+gate-seed 人工序已收编为 `scripts/reset-collab.mjs` 单命令全链（§16——含 spool quarantine+historyId bump 收尾）；MinIO 孤儿清理仍为独立人工步骤**。
 - **preflight 收据**：`.preflight-<SHA>.ok` 同 SHA 幂等复用（verify/int/migrate/additive 不重跑）；**gate-collab 不进收据**（有状态，每次部署都跑）。**收据的 CI 等价证据形态**（Y0a-4 run#1 实测登记）：本地全量 preflight 对偶 flaky（同 SHA 三轮各挂不同测试——persist-status/managed-redis/auth-reason，单跑全绿+CI 同 SHA 绿）时，收据可以"**CI 同 SHA 全绿**"为等价证据落（本例 CI run #25）——诚实登记，不复跑凑绿。
 - **pm2 溯源口径（Y0a-4 T12 实测）**：pm2 8.0.0 剔除 GIT_* 前缀 shell env——显式 export+startOrReload --update-env 后 pm2_env 与 /proc environ 均无 GIT_COMMIT_HASH，P34 的 pm2_env 口径不成立；溯源以**产物口径**满足（dist/build-info.json≡本地 HEAD+cutover ④ sha256 锚绑定）；main.ts:68 Sentry release 保持 unknown（Sentry 未激活零实害；Y0.5 改名注入 FLOWWEB_GIT_SHA 或 ecosystem 承载）。
 - **git 断言**：工作树不干净拒部署；HEAD 不在 origin/master 上（未经 CI）拒部署。
@@ -643,3 +643,45 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 4. 部署——`deploy.sh` preflight charter 门机器判定，FAIL 即中止；PASS 后 charter 判定行随部署记录留档。
 
 **与后续卡的联动**（evidence 供给线，避免空挂）：`restore-drill` 两用例证据可由 T31 故障演练矩阵产出（本地实弹形态——pg_dump 恢复→bump historyId→旧 WAL 段 quarantine 不复活+忘 bump 时间戳栅栏拦截；同代恢复 SS2 拦截）；`http-seed`/`exec-input-bundle` 实测裁决由 T33 负载基准产出（cold p95/loop block/input 表规模实测）；`slo` 数值与 T33 硬门同源（save barrier p95≤2s）。备份/恢复现状基线见 §13（daily pg_dump 03:17，无 PITR——Y7 门槛项）。
+
+---
+
+## §16 Y1c T30 破坏性发布流程（reset-collab 工具——2026-11-03 落档；spec §4.4 恢复+偏离 35/38⑳）
+
+**工具单一真源=`scripts/reset-collab.mjs`**（判据单一真源=`scripts/lib/gate-decision.mjs` decideResetGuard；测试载体=`scripts/deploy-guard.test.mjs` T30 组）。收编 §3.3「服务器 rebuild」人工序（rebuild-db.mjs DROP+人工 tsx seed+gate-seed）为单命令七阶段机器流程；`deploy.sh api --rebuild-db` cutover ② 已改调本工具（`node scripts/reset-collab.mjs --rebuild-db --confirm`）。
+
+**用法**：
+
+```bash
+node scripts/reset-collab.mjs --rebuild-db --confirm              # 破坏性全链（--confirm 缺失=拒，exit 非 0 零副作用）
+node scripts/reset-collab.mjs --rebuild-db --confirm --hold-after migrate   # 中断演练锚（该阶段落盘后挂起，kill -9 后重跑续感知）
+node scripts/reset-collab.mjs --status                             # 只读：在档阶段/剩余阶段
+```
+
+**七阶段表**（每阶段完成即落盘仓根 `.reset-collab-state.json`〔gitignored——DB 正被 drop，状态不能存 PG〕；重跑跳过已完成阶段——中途失败重跑感知已完成阶段，不依赖人工判断；全链成功后状态文件删除=下次全新全链，reset 可重复执行）：
+
+| # | 阶段 | 内容 |
+|---|------|------|
+| 1 | precheck | DSN 可得+owner 核查（防连错库两合法形态）+**消费者在线断言**（pg_stat_activity 同库活连接>0=红，打印连接明细）+租约判定（CollabLease held=红）+inflight/stranded 判据（decideResetGuard——pending 可观测时阻断） |
+| 2 | drop-recreate | DROP 前计数留档（GenerationIntent/CanvasDocUpdate）+`DROP SCHEMA public CASCADE; CREATE SCHEMA public` |
+| 3 | migrate | `prisma migrate deploy`（apps/api cwd）+**advisory lock 串行守卫**（固定键围全程——禁并行同 schema 状态，并行第二者显式红不排队） |
+| 4 | seed | `tsx prisma/seed.ts`+`tsx prisma/gate-seed.ts`（§3.3 人工序收编） |
+| 5 | quarantine-spool | 旧 spool/WAL **整目录**挪 `.quarantine-<ts>/` 兄弟目录（保证据不删；目录不存在=已完成语义幂等） |
+| 6 | bump-history | `UPDATE SystemHistory SET historyId=gen_random_uuid(), epochStartedAt=now() WHERE id=1`（T13/T29 恢复契约收尾步：bump 后旧 WAL 段 historyId 不匹配=boot 不收养，时间戳栅栏对新一代恒假） |
+| 7 | verify | SystemHistory id=1 非零非空+核心 collab 表 4/4（CanvasDoc/CanvasDocUpdate/CanvasDocSnapshot/SystemHistory）+spool 目录净 |
+
+**判据语义（decideResetGuard，比 deploy-guard decidePre 严——reset=破坏性最后一步）**：①同库活连接>0=fail（「停全部旧 DB 消费者之前 reset 必红」——`deploy.sh api --rebuild-db` 在旧 pm2 在线时运行即在此红）；②租约持有=fail；③inflight>0（/api/ready pending 口径 projects+batches）=fail；④**stranded>0=fail**（reset 语境外来段=未决数据阻断；pre 档同输入仅 WARNING）。pending 不可观测（消费者已停常态）=放行+显式注记——inflight 观测责任=流程前置的维护关写/drain 步；连接/PID/租约三查全量接线归 T30b 演练卡。
+
+**破坏性发布流程（破坏性代际切换/灾难性 schema 变更的操作序）**：
+
+1. **公告维护+维护关写**（gate freeze——写路径拒绝，读路径维持）。
+2. **drain**：等 `spoolHeadSeq==pgSeq`（或与用户裁定后强制 1012 断连）——inflight 归零的证据在此步产出。
+3. **按序停全部旧 DB 消费者**：feed→execution→compact（poller/worker/api/WS 全停）——本卡机器化=连接+租约两查（reset-collab precheck）；PID 查归 T30b 三查。
+4. **reset**：`node scripts/reset-collab.mjs --rebuild-db --confirm`（全链七阶段；或经 `./deploy.sh api --rebuild-db` cutover ② 调用——回退锚=② pre-migrate pg_dump，缺失即 fail-fast）。
+5. **部署**（`./deploy.sh api` 全链：guard→备份→migrate→切换→重启→post+冒烟）。
+6. **就绪检查**：`/api/ready` 绿+gate-collab+冒烟（collab-smoke/exec-smoke）。
+7. **开放写**（解除维护关写）。
+
+**缓存清理口径**（诚实登记，工具无动作面）：**公开快照缓存**=进程内 TTL+LRU 单实例（snapshot-doc-cache 32 条）——消费者进程停+新进程起=天然清空；**本地缓存键（客户端 IDB）**=服务端无清客户端缓存能力（spec 偏离 38⑳ 口径）——唯一服务端动作=bump historyId 使客户端缓存键五元 (uid,pid,generation,schemaVersion,historyId) 自燃失效（4406/4410 客户端自清），由阶段 6 承载。
+
+**失败续跑**：任一阶段失败=状态文件在档（已完成阶段保真）；修复后**重跑同一命令**即自断点续跑（例：migrate 失败→修复迁移树→重跑自 migrate 起）。`.reset-collab-state.json` 损坏=fail-closed 拒续跑（人工核查或确认放弃后删除再全新重跑）。旧 `.quarantine-<ts>/` 目录=保留证据不删；`restore.lock` marker 若在位随整目录隔离，清除=bump 后人工删除（T13 口径）。

@@ -60,3 +60,29 @@ export function decideCharter(charter) {
   if (parts.length) return { verdict: 'fail', why: `${parts.join('；')}——任一未过不得开放生产流量（spec 偏离 35）` };
   return { verdict: 'pass', why: `production 档全 ${items.length} 项过（passed/waived[有实测证据]/na）` };
 }
+
+// T30 reset-collab 破坏性 reset 判据（spec §4.4 恢复 + plan Task 30）：reset=破坏性最后一步，判据比
+// decidePre 严——stranded 在 reset 语境=未决数据阻断（pre 档仅 WARNING）。四阻断：①同库活连接>0
+// （旧 DB 消费者在线——「停全部旧消费者之前 reset 必红」的机器化）；②CollabLease scope=primary 持有
+// 中（与 collab-rebuild-gen.mjs decideLeaseVerdict 同形态——本文件零 import 纪律，语义等价由
+// deploy-guard.test.mjs 对拍钉死）；③inflight>0（/api/ready pending 口径 projects+batches）；④
+// strandedFiles>0。pending=null=不可观测放行（消费者已停常态——inflight 观测责任=维护关写/drain 步，
+// 三查全量接线归 T30b）。纯函数零 IO。
+function leaseVerdictSameShape(leaseRow, nowMs) {
+  if (leaseRow == null) return { ok: true, reason: 'no-lease-row' };
+  if (leaseRow.owner == null || leaseRow.owner === '') return { ok: true, reason: 'no-holder' };
+  if (leaseRow.expiresAtMs != null && leaseRow.expiresAtMs <= nowMs) return { ok: true, reason: 'expired', holder: leaseRow.owner };
+  return { ok: false, reason: 'held', holder: leaseRow.owner };
+}
+
+export function decideResetGuard({ activeConnections = 0, leaseRow = null, nowMs, pending = null } = {}) {
+  const now = nowMs ?? Date.now();
+  if (activeConnections > 0) return { verdict: 'fail', why: `消费者在线（activeConnections=${activeConnections}——同库活连接>0：破坏性 reset 前必须停全部旧 DB 消费者〔api/worker/执行链 poller〕，deploy --rebuild-db 顺序断言在此红）` };
+  const lease = leaseVerdictSameShape(leaseRow, now);
+  if (!lease.ok) return { verdict: 'fail', why: `租约持有中（holder=${lease.holder}——CollabLease scope=primary 在写；先停持有进程或等 TTL 过期再 reset）` };
+  if (pending == null) return { verdict: 'pass', why: '连接/租约零；pending 未观测（消费者已停常态——inflight/stranded 阻断在可观测时生效；观测责任=维护关写/drain 步〔runbook §16〕）' };
+  const inflight = (pending.projects ?? 0) + (pending.batches ?? 0);
+  if (inflight > 0) return { verdict: 'fail', why: `inflight 未清（projects=${pending.projects ?? 0} batches=${pending.batches ?? 0}——/api/ready pending 口径；在飞帧=未决数据，reset 前必须排空）` };
+  if ((pending.strandedFiles ?? 0) > 0) return { verdict: 'fail', why: `stranded=${pending.strandedFiles}files（外来段=未决数据——reset 语境阻断，比 decidePre 严：pre 档同输入仅 WARNING）` };
+  return { verdict: 'pass', why: '全零（连接/租约/inflight/stranded——破坏性 reset 判据过）' };
+}

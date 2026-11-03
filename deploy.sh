@@ -133,13 +133,13 @@ cutover_api() {
   ssh -i "$KEY" "$SERVER" 'DSN=$(grep -m1 "^DATABASE_URL=" '"$REMOTE_DIR"'/apps/api/.env | cut -d= -f2- | tr -d "\"" | sed "s/?.*$//"); mkdir -p ~/backups && pg_dump -Fc "$DSN" -f ~/backups/pre-migrate-$(date +%Y%m%d%H%M%S).dump && ls -t ~/backups/pre-migrate-*.dump | tail -n +6 | xargs -r rm'
 
   if [[ "$REBUILD_DB" == "1" ]]; then
-    echo "=== REBUILD_DB：DROP SCHEMA 重建（回退锚=下方② dump 解析；owner 前置核查；DROP 前计数仅日志留档——应用在线窗口断言无意义） ==="
+    echo "=== REBUILD_DB：reset-collab 全链（Y1c T30：precheck→drop-recreate→migrate[advisory lock 串行]→seed→quarantine-spool→bump historyId→verify 七阶段+状态文件 .reset-collab-state.json 续跑）。⚠ 旧消费者在线=红（顺序断言：同库活连接>0 或 CollabLease 持有中即中止——先按 runbook §16 停全部旧 DB 消费者再重跑；owner 核查/DROP 前计数已收编 precheck/drop-recreate 阶段） ==="
     # T18（v11.2 ②）：破坏性迁移失败回滚=restore 脚本化——DROP 前置 fail-fast（②最新 pre-migrate
     # dump 缺失=不可逆操作无回退锚⇒中止）+打印**可直接复制执行**的 pg_restore 回滚命令（失败
     # 窗口的操作指引非事后翻文档；恢复语义权威=docs/superpowers/full-stack-backup.md §3
     # 〔collab 三表整库覆盖禁挑拣/恢复后 bump generation〕——此处只产命令不复刻语义）。
     ssh -i "$KEY" "$SERVER" 'DSN=$(grep -m1 "^DATABASE_URL=" '"$REMOTE_DIR"'/apps/api/.env | cut -d= -f2- | tr -d "\"" | sed "s/?.*$//"); DUMP=$(ls -t ~/backups/pre-migrate-*.dump 2>/dev/null | head -1); if [ -z "$DUMP" ]; then echo "REBUILD_DB FAIL-FAST: ②pre-migrate dump 缺失（不可逆 DROP 无回退锚）——中止（排查②pg_dump 步后重跑部署）"; exit 1; fi; echo "REBUILD_DB 回退锚就绪：$DUMP"; echo "失败回滚=restore（复制执行；\$DSN=apps/api/.env 的 DATABASE_URL——不打印全文防口令入日志）：pg_restore -d \"\$DSN\" -c --if-exists $DUMP"'
-    ssh -i "$KEY" "$SERVER" 'DSN=$(grep -m1 "^DATABASE_URL=" '"$REMOTE_DIR"'/apps/api/.env | cut -d= -f2- | tr -d "\"" | sed "s/?.*$//") && node '"$REMOTE_DIR"'/apps/api/scripts/rebuild-db.mjs "$DSN"'
+    ssh -i "$KEY" "$SERVER" "cd $REMOTE_DIR && node scripts/reset-collab.mjs --rebuild-db --confirm"
   fi
 
   echo "=== ③additive+immutability 双检+迁移（drain 只冻结 collab 写路径，HTTP 面继续打库——安全性由 additive 锚承担非由顺序承担；T12-0b 服务器档：迁移树 tamper 在 migrate 前红——单进 verify 本地载体可被 --skip-preflight 绕过） ==="
