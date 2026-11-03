@@ -373,4 +373,5 @@ test('T30b 红⑦：collab-smoke 哨兵节点=T9+ 节点信封（type+data 容�
   const src = SMOKE_SRC_30B.slice(0, SMOKE_SRC_30B.indexOf('\n// apps/api/scripts/exec-smoke.mjs'));   // collab-smoke 段
   assert.doesNotMatch(src, /\[\['kind', 'smoke'\]\]/, 'kind 信封=pre-T9 形态——frame-deny 节点信封键白名单外（node-key:kind→4411 恒拒，实弹复证面）');
   assert.match(src, /set\('type', 'textInput'\)/, '哨兵节点须按 T9+ 信封（type 标量+data Map 容器——exec-smoke 播种同形）');
+  assert.doesNotMatch(src, /set\('content', /, 'data.content string 写=xml 域容器违规（textInput.content=XmlFragment〔T16〕——container-replacement 4411，实弹复证面；哨兵走 lww 键 model）');
 });

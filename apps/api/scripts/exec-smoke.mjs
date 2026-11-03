@@ -162,12 +162,13 @@ async function connectAndSeed() {
     const t = setTimeout(() => { provider.destroy(); rej(new Error('provider synced 超时 10s——3001 未监听/鉴权拒/装载失败')); }, 10_000);   // 先 destroy 再 rej——Hocuspocus v4 重连定时器不拆会让事件循环不死（deploy ssh 无限挂起）
     provider.on('synced', () => { clearTimeout(t); res(); });
   });
-  // 4 个 textInput 节点（shape 对齐 shared fillDoc：type+data.model；无 edges ⇒ 单节点 scope 无上游）
+  // 4 个 textInput 节点（shape 对齐 shared fillDoc：type+data.model；无 edges ⇒ 单节点 scope 无上游。
+  // T30b 实弹修正：data.content string 写=container-replacement 4411〔content=XmlFragment 域 T16〕
+  // ——text 链执行读点=resolvePromptText（data.prompt.text）/validation 只需 model，content 非必需）
   doc.transact(() => {
     const mk = (nodeId, model) => {
       const data = new Y.Map();
       data.set('model', model);
-      data.set('content', `exec-smoke ${nodeId}`);
       const m = new Y.Map();
       m.set('type', 'textInput');
       m.set('data', data);

@@ -65,11 +65,11 @@ async function main() {
       url: `${WS_URL}?csv=${CSV}&sv=${SV}&cb=smoke`, name: `project:${S.project}`, document: new Y.Doc(),   // CSV/SV=shared dist 单源读（T19 根修+T30b sv 补）
       WebSocketPolyfill: makeHeaderWs({ origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.token}` }),
     });
-    // T30b 演练实弹补：哨兵节点=T9+ 节点信封（type 标量+data Map 容器——exec-smoke 播种/fillDoc 同形；
-    // 旧 kind 信封=frame-deny 节点信封白名单外（node-key:kind）→4411 恒拒，广播链断）
+    // T30b 演练实弹补：哨兵节点=T9+ 节点信封（type 标量+data Map 容器——exec-smoke 播种/fillDoc 同形）；
+    // data 键走 lww 标量键 model（content/prompt=xml/map 域容器——string 直写=container-replacement 4411）
     const mkMarker = (id) => {
       const data = new Y.Map();
-      data.set('content', `smoke-marker-${id}`);
+      data.set('model', `smoke-marker-${id}`);
       const m = new Y.Map();
       m.set('type', 'textInput');
       m.set('data', data);

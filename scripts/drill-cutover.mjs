@@ -251,10 +251,11 @@ async function cleanupFixtures(S) {
   for (const del of order) await del().catch((e) => console.log(`[drill] SMOKE-WARN 哨兵清理失败: ${e.message}`));
   await S.prisma.$disconnect();
 }
-/** T9+ 节点信封（type 标量+data Map 容器——exec-smoke 播种同形；旧 kind 信封=frame-deny node-key 4411 恒拒）。 */
-function mkNode(Y, id, content) {
+/** T9+ 节点信封（type 标量+data Map 容器；data 键走 lww 标量 model——content/prompt=xml/map 域容器，
+ *  string 直写=container-replacement 4411〔textInput.content=XmlFragment，T16 迁移〕）。 */
+function mkNode(Y, id) {
   const data = new Y.Map();
-  data.set('content', content ?? `drill-${id}`);
+  data.set('model', `drill-${id}`);
   const m = new Y.Map();
   m.set('type', 'textInput');
   m.set('data', data);
