@@ -3,6 +3,10 @@ Y1c T30b 旧版一次性切换演练记录（本地实弹——P4 重启裁定�
 RTO 依据=scripts/production-charter.json pitr 项 RTO≤30min（1800000ms）
 ──────────────────────────────────────────────────────────────────────────────
 【一】终态演练耗时表（全绿三模式——run20/runR2/runF1 日志 backups/t30b-logs+会话日志）
+  （步序映射注记〔T30b 双评审 spec P2-1 补，2026-11-04〕：本表步序号沿用 plan 卡文七步序〔freeze+drain
+    合标①〕；与 runbook §16 八步序映射=表①→§16 ①②、红②probe+②→§16 ③、③→§16 ④、④→§16 ⑤、
+    ⑤→§16 ⑥、⑥⑦→§16 ⑦。§16 ⑧「开放写」本地形态无独立断言行——freeze 态随旧进程消失无解除面，
+    开放写终态由⑦smoke 全绿+新栈在线承载；服务器形态须⑧显式解除维护+公告。）
 
 --cutover（§16 ①-⑦ 全序；RTO 计时窗=公告维护起算）
   ①freeze（公告+drain）                 8ms    drain 生效（写冻结/读维持；TTL 续期面在位）
@@ -98,6 +102,10 @@ RTO 依据=scripts/production-charter.json pitr 项 RTO≤30min（1800000ms）
   演练三模式全绿（耗时见【一】）；node --test scripts/deploy-guard.test.mjs 42/42；
   api tsc strict 0 错；T24 version-gate 族 12/12；T25 recovery-import int 11/11 复跑绿
   （8MiB 路由档语义未损）；collab-smoke/exec-smoke 在演练内实弹绿。
+  （尺寸门口径注记〔双评审 quality P2-4 勘正，2026-11-04〕：887d7b0e commit message 记
+    「module-size 8/8」系口径笔误——实测=check-collab-module-size.test.mjs **9/9** 例全绿
+    （门 PASS 不受影响；七文件尺寸锚〔gateway 1161/session-guard 1405/persistence 1146 等〕
+    随 887d7b0e 落定）。）
   GATE-COLLAB 收尾跑（2026-11-04，独立跑 10.3min）：**23 passed / 0 failed / 7 skipped
   （EXIT=0）**——skip=geometry T1/T1b/T2c/T3/T4/T5a/T11 既有 skipIf 形态归位。
   收尾跑首战全红（21 failed——S1 起 appendBatch walSeq reset tripwire/actor fenced→

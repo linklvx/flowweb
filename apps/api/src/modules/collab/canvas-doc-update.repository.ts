@@ -141,17 +141,21 @@ export class CanvasDocUpdateRepository {
     return true;
   }
 
-  /** T30b 根修 B：cas-miss 分支的同内容幂等回查（**按 updateHash 任意 seq**——与 0-行两分桶同判据）。
+  /** T30b 根修 B：cas-miss 分支的同内容幂等回查（**按 (generation,updateHash) 任意 seq**——与 0-行
+   *  两分桶同判据）。
    *  盲区链（gate-collab S1 重连稳定红实弹）：进程重启后 spool 水位三元未重建 ⇒ actor 首刷
    *  expectedPgSeq=0 而 PG pgSeq>0 ⇒ CAS 恒 cas-miss；客户端重连同字节帧（空 SS2 更新〔空 doc
    *  SS2 差分恒 2 字节〕/幂等重试）以新 seq INSERT 被 @@updateHash 唯一吞行（inserted=0）⇒ PK
    *  回查（seq=新 seq）必缺行 → fenced → selfIsolate → 卸载拒绝/re-listen 死锁。行集 updateHash
-   *  全在档=同内容已落定（真 fenced/计数器重置纪产**新内容新 hash** 不在此档）——放行 adopt 重定基。 */
-  private async verifyRowsLandedByHash(projectId: string, rows: ReadonlyArray<{ updateHash: string }>): Promise<boolean> {
+   *  全在档=同内容已落定（真 fenced/计数器重置纪产**新内容新 hash** 不在此档）——放行 adopt 重定基。
+   *  双评审微批 B2（2026-11-04）：回查补 generation 谓词对齐约束域（@@unique([projectId,generation,
+   *  updateHash]）——「旧代行幸存」形态下跨代同 hash=异帙内容，禁误放行「并发收敛」档
+   *  （红锚=append int T30b-B2：现行 vacuumReplace/seed 整删使跨代不可达，布景钉判据域）。 */
+  private async verifyRowsLandedByHash(projectId: string, rows: ReadonlyArray<{ generation: number; updateHash: string }>): Promise<boolean> {
     for (const r of rows) {
       const exists = await this.prisma.$queryRaw<{ seq: bigint }[]>`
         SELECT seq FROM "CanvasDocUpdate"
-        WHERE "projectId" = ${projectId}::text AND "updateHash" = ${r.updateHash}::char(64) LIMIT 1`;
+        WHERE "projectId" = ${projectId}::text AND generation = ${r.generation}::int AND "updateHash" = ${r.updateHash}::char(64) LIMIT 1`;
       if (exists.length === 0) return false;
     }
     return true;

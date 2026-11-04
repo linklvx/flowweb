@@ -98,7 +98,8 @@ describe('Y1c T24 红③：版本门 4406 terminal close（旧 bundle DENY 无�
     gateway.sessionGuard.setServerHistory({ historyId: 't24-history' });   // listenCollab 接线等价（t9-ownership-switch.spec 同款）
     const fs = fakeSocket();
     const req = { headers: { origin: 'http://localhost:5173' }, url: `/collab?csv=${CLIENT_PROTOCOL_VERSION}&hid=stale-history` };
-    await gateway.hooks.onUpgrade({ request: req as never, socket: fs.socket as never, head: null, instance: undefined } as never);    await expect(gateway.hooks.onAuthenticate({
+    await gateway.hooks.onUpgrade({ request: req as never, socket: fs.socket as never, head: null, instance: undefined } as never);
+    await expect(gateway.hooks.onAuthenticate({
       requestHeaders: new Headers({ cookie: 'flowweb.session_token=tok' }),
       requestParameters: new URLSearchParams(`csv=${CLIENT_PROTOCOL_VERSION}&hid=stale-history`),
       socketId: 'sock-t24-2',
