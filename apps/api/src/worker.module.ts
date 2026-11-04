@@ -26,11 +26,10 @@ import { MediaProcessModule } from './modules/media-process/media-process.module
 import { REDIS_CLIENT, createManagedRedis } from './common/redis/managed-redis';
 import { validateEnv } from './config/env';
 import { QUEUE_NAMES } from './config/queue.constants';
-// 求值序锚（必须先于下方 processor/服务块）：既有文件环 team-subscription ↔ team-recharge
-// （team-subscription:5 回引 generateTeamOrderNo）——TeamRechargeService 的 @Inject(
-// TeamSubscriptionService) 装饰求值要求后者已完成；若消费链（如 MaterializeJob→
-// StorageQuotaService→TeamSubscriptionService）先触发 subscription 半边，环回时该绑定未初始化
-// ⇒Nest 装饰元数据 undefined（resolve "?"）。先 import recharge 半边即安全（函数声明提升）。
+// （Y1c T34 历史注记）既有文件环 team-subscription ↔ team-recharge（team-subscription:5 回引
+// generateTeamOrderNo）已于 T34 解环（generateTeamOrderNo 迁 team.constants——两消费方同源）；
+// 环期此处曾需「先 import recharge 半边」求值序锚（@Inject(TeamSubscriptionService) 装饰元数据
+// 依加载序 undefined 的 workaround）。import 保留（worker 装配本就消费 TeamRechargeService）。
 import { TeamRechargeService } from './modules/team/team-recharge.service';
 // ── execution 链（Core 平铺——模块本体闭包脏不可导入，偏离 30） ──
 import { ExecutionService } from './modules/execution/execution.service';

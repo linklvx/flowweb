@@ -1,8 +1,7 @@
 import { Injectable, Inject, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreditLedgerService } from './credit-ledger.service';
-import { TEAM_FREE_SEAT_LIMIT, TEAM_FREE_STORAGE_LIMIT_BYTES } from './team.constants';
-import { generateTeamOrderNo } from './team-recharge.service';
+import { TEAM_FREE_SEAT_LIMIT, TEAM_FREE_STORAGE_LIMIT_BYTES, generateTeamOrderNo } from './team.constants';
 import { AuditService } from '../../common/audit/audit.service';
 
 @Injectable()

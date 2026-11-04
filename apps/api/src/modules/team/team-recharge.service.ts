@@ -9,15 +9,11 @@ import type { IPaymentProvider } from '../recharge/providers/payment.provider.in
 import { PaymentGateway } from '../recharge/payment.gateway';
 import { TeamSubscriptionService } from './team-subscription.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { generateTeamOrderNo } from './team.constants';
 
 const TEAM_TIERS_FEN = [1000, 3000, 5000, 10000, 20000, 50000];
 const FEN_PER_CREDIT = 10; // 1 元 = 10 积分
 
-export function generateTeamOrderNo(): string {
-  const ts = Date.now().toString();
-  const random = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-  return `TEAM${ts}${random}`;
-}
 
 
 @Injectable()
