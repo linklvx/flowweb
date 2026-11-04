@@ -7,7 +7,7 @@
 // resolveStoryboardConfig 改 import shared 直连（utils/storyboardConfig.ts 具名 re-export 不再经手）。
 import { memo, useState, useEffect } from 'react';
 import type { GroupNodeData } from '@/types/group';
-import { resolveStoryboardConfig } from '@flowweb/shared';
+import { resolveStoryboardConfig, deriveStoryboardCells } from '@flowweb/shared';
 import { StoryboardCell, type CellNodeInfo } from './StoryboardCell';
 import { resolveGroupColor } from '@/utils/groupColor';
 
@@ -30,6 +30,12 @@ function StoryboardGroupRendererComponent({ id, data, cellNodes, onRemoveCell, o
   const borderColor = resolveGroupColor(data.color) ?? 'var(--canvas-group-border)';
   const total = cfg.gridRows * cfg.gridCols;
   const byId = new Map(cellNodes.map((c) => [c.id, c]));
+  // T30b gate 收尾根修（公开页通道格位派生）：T17/T18 起公开快照白名单剥组 data.cells（格位真源=
+  // 子 slot——snapshot-filter WHITELIST group 无 cells 键），主画布通道 data.cells 在场（store cs
+  // 派生缓存）短路；缺席时自 cellNodes 派生格位——deriveStoryboardCells 单源（主画布 store
+  // deriveStoryboardCellsPatch 同款：slot 真源+缺 slot 首空格自愈）。
+  const cellsOf = (data.cells as (string | null)[] | undefined)   // cs 派生缓存（T18 顺修②：cells 出 shape 后显式窄化——shape 只锚 doc/克隆契约键）
+    ?? deriveStoryboardCells(cellNodes.map((c) => ({ id: c.id, data: c.slot != null ? { slot: c.slot } : {} })), total).cells;
 
   // Delete key handler for cell deletion（O0c-2 参数化：onRemoveCell 缺席=公开页——零注册零热键）
   useEffect(() => {
@@ -64,7 +70,7 @@ function StoryboardGroupRendererComponent({ id, data, cellNodes, onRemoveCell, o
       padding: 5,
     }}>
       {Array.from({ length: total }, (_, i) => {
-        const nodeId = (data.cells as (string | null)[] | undefined)?.[i];   // cs 派生缓存（T18 顺修②：cells 出 shape 后显式窄化——shape 只锚 doc/克隆契约键）
+        const nodeId = cellsOf[i];
         const info = nodeId ? byId.get(nodeId) : undefined;
         return (
           <StoryboardCell key={i} index={i}

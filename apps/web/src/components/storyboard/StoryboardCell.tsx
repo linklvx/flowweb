@@ -3,10 +3,11 @@
 // components/storyboard/——防 videos→canvas 深层依赖架空"零 store 依赖"红线）。
 // CellNodeInfo 双通道（O0c-1/O0c-2）：主画布通道 fileId（经 useMediaUrl 现取 content 路径）/公开页通道
 // thumbnailUrl（deriveRenderCanvas cellNodes 载荷）——组件入参同形，两通道字段同构。
+// T30b：+slot（公开页格位派生通道——公开白名单剥组 data.cells 后格位真源=子 slot）。
 import { memo } from 'react';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 
-export interface CellNodeInfo { id: string; fileId?: string; status?: string; thumbnailUrl?: string }
+export interface CellNodeInfo { id: string; fileId?: string; status?: string; thumbnailUrl?: string; slot?: number }
 
 interface Props {
   index: number;

@@ -115,9 +115,12 @@ export function deriveRenderCanvas(input: {
       const data = { ...r.data };
       if (r.data.groupType === 'storyboard') {
         // 分镜子双通道载荷（公开页通道：thumbnailUrl 已由 api 注入；主画布通道 fileId 在 GroupNode 现算）
+        // T30b：+slot 透传（公开页格位派生通道——公开快照白名单剥组 data.cells 后格位真源=子 slot，
+        // 消费方 StoryboardGroupRenderer cellsOf 派生用）。
         data.cellNodes = (childrenByParent.get(r.id) ?? []).map((c) => ({
           id: c.id,
           ...(typeof c.data.thumbnailUrl === 'string' ? { thumbnailUrl: c.data.thumbnailUrl } : {}),
+          ...(typeof c.data.slot === 'number' && Number.isInteger(c.data.slot) && c.data.slot >= 0 ? { slot: c.data.slot } : {}),
         }));
       }
       return {

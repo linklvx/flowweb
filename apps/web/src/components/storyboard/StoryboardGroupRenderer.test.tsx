@@ -148,4 +148,35 @@ describe('StoryboardGroupRenderer（O0c-2 零 store 抽迁——两形态）', (
     fireEvent(window, new KeyboardEvent('keydown', { key: 'Delete' }));
     expect(onRemoveCell).toHaveBeenCalledWith(0);
   });
+
+  // ── T30b gate 收尾红锚（公开页通道格位派生）──
+  // 背景：T17/T18 起公开快照白名单剥组 data.cells（格位真源=子 slot——snapshot-filter WHITELIST
+  // group 无 cells）；旧实现读 data.cells 恒 undefined ⇒ 3 格全空（specb-public e2e「宫格有图」
+  // 0 img 实弹红——T17 后 gate-collab 均早夭于 S1 未及跑达，断链未被发现）。
+  // 修=cells 缺席时自 cellNodes 派生格位（deriveStoryboardCells 单源——主画布 store
+  // deriveStoryboardCellsPatch 同款：slot 真源+缺 slot 首空格自愈）；主画布通道 data.cells 在场
+  // （store cs 派生缓存）短路不派生。
+  it('公开页形态（data.cells 缺席——公开快照白名单剥键）：cellNodes 按 slot 派生格位（T30b 红锚）', () => {
+    render(<StoryboardGroupRenderer {...({
+      id: 'g1',
+      data: { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 3, showIndex: false, stitchResolution: '2K' } },
+      cellNodes: [{ id: 'b', thumbnailUrl: 'http://x/b.png', slot: 1 }, { id: 'a', thumbnailUrl: 'http://x/a.png', slot: 0 }],
+    } as any)} />);
+    const imgs = screen.getAllByRole('presentation').filter((el) => el.tagName === 'IMG');
+    expect(imgs).toHaveLength(2);
+    expect(imgs[0] as HTMLImageElement).toHaveProperty('src', expect.stringContaining('a.png'));   // slot 0 → 格 0
+    expect(imgs[1] as HTMLImageElement).toHaveProperty('src', expect.stringContaining('b.png'));   // slot 1 → 格 1
+  });
+
+  it('公开页形态无 slot 子：首空格自愈填序（deriveStoryboardCells invalid 档——specb fixture 形态）', () => {
+    render(<StoryboardGroupRenderer {...({
+      id: 'g1',
+      data: { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 3, showIndex: false, stitchResolution: '2K' } },
+      cellNodes: [{ id: 'a', thumbnailUrl: 'http://x/a.png' }, { id: 'b', thumbnailUrl: 'http://x/b.png' }],
+    } as any)} />);
+    const imgs = screen.getAllByRole('presentation').filter((el) => el.tagName === 'IMG');
+    expect(imgs).toHaveLength(2);
+    expect(imgs[0] as HTMLImageElement).toHaveProperty('src', expect.stringContaining('a.png'));
+    expect(imgs[1] as HTMLImageElement).toHaveProperty('src', expect.stringContaining('b.png'));
+  });
 });

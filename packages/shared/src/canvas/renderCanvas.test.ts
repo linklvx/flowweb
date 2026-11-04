@@ -125,6 +125,20 @@ describe('deriveRenderCanvas（O0c-2 第 4 渲染面——快照≡主画布）'
     ]);
   });
 
+  it('T30b：cellNodes 透传子 slot（公开页格位派生通道——公开白名单剥组 cells 后格位真源=子 slot；非法 slot 不透传）', () => {
+    const out2 = deriveRenderCanvas({ records: [
+      { id: 'g', type: 'group', data: { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 3, showIndex: false, stitchResolution: '2K' } } },
+      { id: 'a', type: 'imageGen', parentId: 'g', data: { thumbnailUrl: '/t/a', slot: 1 } },
+      { id: 'b', type: 'imageGen', parentId: 'g', data: { thumbnailUrl: '/t/b', slot: 0 } },
+      { id: 'c', type: 'imageGen', parentId: 'g', data: { thumbnailUrl: '/t/c', slot: -1 } },   // 非法 slot（负）——不透传
+    ] as never });
+    expect(out2.nodes[0]!.data.cellNodes).toEqual([
+      { id: 'a', thumbnailUrl: '/t/a', slot: 1 },
+      { id: 'b', thumbnailUrl: '/t/b', slot: 0 },
+      { id: 'c', thumbnailUrl: '/t/c' },
+    ]);
+  });
+
   it('从未 resize 图片节点：wh 无键原样透传（undefined=未测量——尺寸固化链外的真实形态，兜底归渲染层）', () => {
     expect(node('img2').width).toBeUndefined();
     expect(node('img2').height).toBeUndefined();
