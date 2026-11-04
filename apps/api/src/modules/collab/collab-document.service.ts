@@ -40,13 +40,17 @@ export class CollabDocumentService implements OnApplicationShutdown {
   private readonly residency: CollabResidencyService;
 
   /** Y1c T22（G5 同切片切交付）：RuntimeEvent feed 写面+T26 fence 权威——@Optional 供直构测试
-   *  （缺省时 writeExecStatus/deliverArtifact fail-closed throw 非静默回落 doc 写——不变量⑦）。 */
+   *  （缺省时 writeExecStatus/deliverArtifact fail-closed throw 非静默回落 doc 写——不变量⑦）。
+   *  T33 根修：feed/lifecycle 参数显式 @Inject token——`Type | null` 联合注解经 emitDecoratorMetadata
+   *  反射为 Object（无类 token 可解析），Nest 真装配恒注入 null ⇒ writeExecStatus/deliverArtifact
+   *  在生产进程恒 RUNTIME_FEED_NOT_CONFIGURED（int 测试 Test 装配显式 new 注入掩盖——T33 负载
+   *  装置 exec-status 探测实测发现）。 */
   constructor(
     @Inject(CollabGateway) private readonly gateway: CollabGateway,
     @Inject(CanvasDocUpdateRepository) private readonly repo: CanvasDocUpdateRepository,
     @Optional() residency?: CollabResidencyService,
-    @Optional() private readonly feed: RuntimeFeedService | null = null,
-    @Optional() private readonly lifecycle: CollabLifecycleObserverService | null = null,
+    @Optional() @Inject(RuntimeFeedService) private readonly feed?: RuntimeFeedService | null,
+    @Optional() @Inject(CollabLifecycleObserverService) private readonly lifecycle?: CollabLifecycleObserverService | null,
   ) {
     this.residency = residency ?? new CollabResidencyService(gateway);
     registerSnapshotCacheEntriesReader(() => this.snapshotCache.size);
