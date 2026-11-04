@@ -1,8 +1,8 @@
 {
   "gate": "G3",
-  "commit": "fc6a4d68",
+  "commit": "72fc45d258e6340d71e64e4b795d1e3f6eb6fd81",
   "env": {
-    "date": "2026-10-24",
+    "date": "2026-11-05（Y1c T34 发布门全量重认证——认证对象 fc6a4d68 滞后 HEAD 90 commit〔P3/P4 各批+微批〕，确认点②裁定「manifest==最终代码」兑现：19 cases 断言/命令原样在最终代码树（T34 代码批 72fc45d2+证据批工作树）重跑全绿）；前序=2026-10-24",
     "runtime": "windows 10.0.26300（Git Bash）+ Node vitest 2.1.9；web=jsdom（真 @tiptap/react 2.10.0 Editor 实例×双 Y.Doc 帧交换——非单 doc 模拟）+y-prosemirror 1.3.7 exact pin（S3 结论②）+yjs 13.6.32；int 池=真 PostgreSQL（localhost:5432/flowweb，vitest.int.config）",
     "suite": "T16 面=apps/web src/collab/t16-g3-dual-end.spec（真编辑器双端 6）+src/stores/canvasIntents.t16-xml-domains.spec（容器 seam 7）+src/collab/xmlSchemaParity.spec（6）+apps/api src/modules/collab/collab-t16-xml-l1.spec（L1 对抗语料 11）+packages/shared src/canvas/xml-schema.spec（单表契约 14）；T15 面=canvasIntents.t15-text-domains.spec（17）；T17 面=canvasIntents.t17-array-domains.spec（26）；T18 面=canvasUndo.test（9）+canvasUndo.nested-scope.spec（7）+canvasCollabRuntime.t18.spec（8）；T19 面=api read-model-census.fixtures.spec（29）+read-model-exit.t19.spec（3）+web read-model-census.fixtures.spec（4）+shared read-model-census.spec（6）",
     "scope": "P2 内容门全量形态（spec §9.1 G3 行+plan 门禁总览「G3=T16-T20 含 XML L1」+spec §10「P2 内容→G3 过→用户确认点③」）：Y.Text 三域（T15）/嵌套 XmlFragment+mention+双端并发+XML L1（T16）/媒体 Y.Array 相邻域（T17）/undo-redo 全形态含栈≤100 整栈 clear 收口+per-tab 缓存（T18）/读者面相邻收编（T19——归属注记见 C16）；L2/全类型矩阵=T24",
@@ -215,7 +215,8 @@
     "质量出口挂账（确认点②裁定承袭）：一次 verify:full 30/30 全绿=P2 出口/T34 硬门（推荐 CI 存档——master 领先 origin/master 76 commit 未 push，push 后跑）；本门 verify:fast 16/16 已在最终 HEAD 实跑留证。",
     "观测发现登记（Controller 台账——零代码变更纪律下不动）：api eslint 存量 3 错（2 处 P1 期引入+1 处=T19 收口 fc6a4d68 引入的 spec 标题字符串 no-useless-escape）+verify-manifest api-eslint 步 glob 含 test/** 而 apps/api/test 目录不存在（模式不匹配即步红）——两项均在 api 面、不在 verify:fast 16 步内；verify:full（30 步）含 api-eslint 与 web-lint——CI 存档前收口候选，随确认点③呈报。",
     "红证据承袭注记：T16 三轴（web 5 红/双端 LWW 红/api 11 红）=T16 卡实跑；T15/T17/T18/T19 各卡红轴（拒写半落/数组整串替换/栈积压+双 tab LWW/读者差异表+Q-I-1 时序）在各卡 commit message「红先行」节与 gate-evidence/t19-review-q-i-1-red.txt 留档——本全量版为收口后全绿复跑（数字见 notes④），红相不重演。",
-    "T28 HEAD delta 状态行（2026-10-28——确认点③裁定「T34 前补 delta 状态」兑现）：认证对象 fc6a4d68（T19 双评审收口=P2 出口态）滞后 T28 终态 45 commit（fc6a4d68..2dcfffaf=43+T28 两段式 2——P3 全程 T21-T27 各批+微批）；G3 面 HEAD 态证据=T28 P3 出口四池全绿（web 4168/4168+api 3061/3062 唯一失败=collab.gateway 绿9 在册负载 flake 隔离 92/92 绿+api-int 491/491+shared 787/787——G3 19 cases 对应套件〔T15-T19 面〕全在默认池内）+verify:fast 16+verify:full 30/30 PASS；本行=delta 状态注记非重认证（G3 manifest 完整重认证〔commit==HEAD 硬门〕归 T34 发布门——届时 G1-G6a 全 manifest 机器判定）。落 T28 而非留 T34 的理由：确认点③裁定要求 T34 前、T28=P3 出口最早可落点且四池证据同批在产，避免状态跨 P4 五卡再滞留。"
+    "T28 HEAD delta 状态行（2026-10-28——确认点③裁定「T34 前补 delta 状态」兑现）：认证对象 fc6a4d68（T19 双评审收口=P2 出口态）滞后 T28 终态 45 commit（fc6a4d68..2dcfffaf=43+T28 两段式 2——P3 全程 T21-T27 各批+微批）；G3 面 HEAD 态证据=T28 P3 出口四池全绿（web 4168/4168+api 3061/3062 唯一失败=collab.gateway 绿9 在册负载 flake 隔离 92/92 绿+api-int 491/491+shared 787/787——G3 19 cases 对应套件〔T15-T19 面〕全在默认池内）+verify:fast 16+verify:full 30/30 PASS；本行=delta 状态注记非重认证（G3 manifest 完整重认证〔commit==HEAD 硬门〕归 T34 发布门——届时 G1-G6a 全 manifest 机器判定）。落 T28 而非留 T34 的理由：确认点③裁定要求 T34 前、T28=P3 出口最早可落点且四池证据同批在产，避免状态跨 P4 五卡再滞留。",
+    "T34 发布门全量重认证（2026-11-05——确认点③裁定「G3 不能长期停在 fc6a4d68」与 plan :441「commit==HEAD 机器判定」兑现）：本 manifest fc6a4d68 → 72fc45d2（T34 代码批=di-smoke 文件环解环根修后的最终生产码）；G3（P2 内容门：T15-T19 内容域全形态——Y.Text/嵌套 XmlFragment/mention/Y.Array/undo 栈≤100 clear/读者面相邻收编 19 cases） 在 72fc45d2 树逐命令重跑全绿（按 case 命令目标文件归组整文件跑 ⊇ 逐 -t 定向——重跑日志 output/t34-recert/logs/ 本地留档；REG-full-pools 四池=verify:full 31 步终跑承载〔web/api/shared 全池〕+api int 池全量单独实跑 65 文件 492/492 全绿〔含 di-smoke.int 修后 3/3——修前 17bcf7d3 即红 3/3=T34 根修发现〕+GATES-static 六命令+web-lint/api-eslint verify:full 步承载）；机器判定载体=scripts/check-gate-evidence.mjs（release 门——六 manifest skipped=0/cases 全 pass/artifact 齐/commit 认证+生产码零漂移，缺证据 exit 非零=不发布）。"
   ],
   "go": true
 }

@@ -22,7 +22,8 @@ const { Client } = createRequire(join(API, 'package.json'))('pg');
 /** T5 冻结文件禁改——探针以源文本提取冻结 SQL（顺作漂移守卫：文本变化即提取失败/断言失败） */
 function extractFrozenUpsertSql() {
   const src = readFileSync(join(ROOT, 'packages/shared/src/collab/runtime-event.ts'), 'utf8');
-  const m = src.match(/export const RUNTIME_FEED_CURSOR_UPSERT_SQL =([\s\S]*?);\n/);
+  // T34 重认证根修：`;\n` 行尾敏感——autocrlf 工作树（CRLF）上永不匹配=结构性失效；`\r?` 兼容两态（index=LF 恒真源）
+  const m = src.match(/export const RUNTIME_FEED_CURSOR_UPSERT_SQL =([\s\S]*?);\r?\n/);
   if (!m) throw new Error('冻结文件提取失败：RUNTIME_FEED_CURSOR_UPSERT_SQL 未找到（T5 冻结文本漂移？）');
   const sql = new Function(`return (${m[1]})`)();
   if (typeof sql !== 'string' || !sql.includes('INSERT INTO "RuntimeFeedCursor"') || !sql.includes('ON CONFLICT ("projectId")')) {
@@ -127,7 +128,9 @@ try {
   await c.query(`INSERT INTO "User" ("id","name","email","emailVerified","createdAt","updatedAt") VALUES ('g1-probe-u','g1','g1-probe@local.test',true,now(),now()) ON CONFLICT DO NOTHING`);
   await c.query(`INSERT INTO "Team" ("id","name","ownerId","createdAt","updatedAt") VALUES ('g1-probe-t','g1t','g1-probe-u',now(),now()) ON CONFLICT DO NOTHING`);
   await c.query(`INSERT INTO "CanvasProject" ("id","name","teamId","createdAt","updatedAt") VALUES ($1,'g1-probe','g1-probe-t',now(),now())`, [PID]);
-  await c.query(`INSERT INTO "CanvasDoc" ("projectId","state","stateSeq","updatedAt") VALUES ($1, $2, 0, now())`, [PID, EMPTY_UPDATE]);
+  // T34 重认证适配：CanvasDoc.state/stateSeq 已随 T11 退役删除（快照权威=CanvasDocSnapshot+currentSnapshotRev 指针）
+  // ——建头只插 @id（余列全 default；探针锁/CAS 面用的 pgSeq/walCheckpointSeq 均在）
+  await c.query(`INSERT INTO "CanvasDoc" ("projectId","updatedAt") VALUES ($1, now())`, [PID]);
 
   // P1 行锁：tx1 FOR UPDATE 持锁期，tx2 同行 NOWAIT 必让（55P03=lock_not_available）
   const c2 = new Client({ connectionString: url });

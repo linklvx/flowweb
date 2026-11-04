@@ -1,10 +1,10 @@
 {
   "gate": "G1",
-  "commit": "e5a4e8e4",
+  "commit": "72fc45d258e6340d71e64e4b795d1e3f6eb6fd81",
   "env": {
     "pg": "PostgreSQL 16.13 (localhost:5432/flowweb)",
     "migration": "20261024120000_y1c_t7_carrier_genesis",
-    "date": "2026-10-24T11:14:51.786Z"
+    "date": "2026-11-04T21:41:11.818Z"
   },
   "cases": [
     {
@@ -135,10 +135,11 @@
   ],
   "skipped": 0,
   "notes": [
-    "commit 字段=证据认证对象=commit e5a4e8e4（探针修复代码落点）；本 g1.json 于其后的独立证据 commit 落盘（A=代码修复 → G1_COMMIT=<A hash> 重跑探针 → B=证据再生——消除 manifest 自引用循环）",
+    "commit 字段=证据认证对象=commit 72fc45d258e6340d71e64e4b795d1e3f6eb6fd81（探针修复代码落点）；本 g1.json 于其后的独立证据 commit 落盘（A=代码修复 → G1_COMMIT=<A hash> 重跑探针 → B=证据再生——消除 manifest 自引用循环）",
     "updateHash 去重 no-op 探针 deferred-to-T9（勘误方案 B：CanvasDocUpdate 表改形+帧协议归 T9 同切片——卡文 CanvasDocUpdate 块=T9 形态参考非本卡交付）",
     "快照发布事务的真实发布者=T11（本门只证 PG 事务形态：行锁授权+条件指针更新+跨表不变量事务内成立）",
     "CanvasDoc.state/stateSeq/preVacuumSv/schemaVersion@default(3) 与 CanvasDocUpdate 旧形态过渡保留（勘误：T9/T10/T11 各自同可编译切片拆除）",
-    "负控清单=N1(SystemHistory 单行 CHECK)/N2(水位同行 CHECK)/N3(Snapshot 16MiB CHECK)/N4(活跃维护 partial unique)+V1-V3(prisma validate 三形态机判——空 model/单侧 relation/缺 opposite，临时 schema 副本真跑 CLI：exit≠0+P1012 对应错误文本)——七负控全红=门有效（spec §9.1）"
+    "负控清单=N1(SystemHistory 单行 CHECK)/N2(水位同行 CHECK)/N3(Snapshot 16MiB CHECK)/N4(活跃维护 partial unique)+V1-V3(prisma validate 三形态机判——空 model/单侧 relation/缺 opposite，临时 schema 副本真跑 CLI：exit≠0+P1012 对应错误文本)——七负控全红=门有效（spec §9.1）",
+    "T34 发布门重认证（2026-11-05——plan :441「commit==HEAD 机器判定」兑现）：e5a4e8e4 → 72fc45d2（T34 代码批=di-smoke 文件环解环根修后的最终生产码）；探针两处装置适配随本批（①冻结 SQL 提取正则补 \r?——autocrlf 工作树 CRLF 行尾下结构性失效根修；②建头 INSERT 适配 CanvasDoc.state/stateSeq 列随 T11 退役——只插 @id+updatedAt）——均为探针装置面非生产码；11 cases 真 PG 实跑全绿（G1_COMMIT=72fc45d2 全 hash）；机器判定载体=scripts/check-gate-evidence.mjs（release 门——六 manifest skipped=0/cases 全 pass/artifact 齐/commit 认证+生产码零漂移，缺证据 exit 非零=不发布）。"
   ]
 }

@@ -1,0 +1,179 @@
+Y1c T34 发布门证据汇编（确认点⑤=全批终出口呈报包——plan :441 权威卡文逐字承载）
+日期：2026-11-05 · 呈报对象=用户（终出口裁定归用户——本卡只做证据汇编与机器门，不代签）
+机器=win11/x64 20C/32G（PG 16.13/Redis/MinIO 127.0.0.1:9000 在跑） · 认证对象 commit=72fc45d2（T34 代码批）
+──────────────────────────────────────────────────────────────────────────────
+
+【零】机器门判定（release 脚本——plan :441「gate-evidence manifest 校验……机器判定，缺证据=不发布」）
+
+  载体=scripts/check-gate-evidence.mjs（本卡新增——元测试 check-gate-evidence.test.mjs 7 例
+  已登记 verify 链 scripts-node-test 步防漂移；不进 PR 档链＝release 门与开发流分离〔T33
+  load-bench 两档先例同构〕，调用点=release 前）。实跑输出：
+
+  check-gate-evidence: PASS（release 门）——G1@72fc45d2(11c) G2@72fc45d2(15c) G3@72fc45d2(19c)
+  G4@72fc45d2(14c) G5@72fc45d2(18c) G6a@72fc45d2(18c)+证据文件 4 件在位；生产码零漂移
+
+  G1-G6a 全 manifest：skipped=0 / cases 全 pass（11+15+19+14+18+18=95 cases）/ invariant 全过
+  （7+7+8+4+6+6=38 条）/ artifact 齐 / commit==最终代码（六门统一认证 72fc45d2——自认证对象
+  起 apps/packages 生产码零漂移＝确认点②裁定「manifest==最终代码」机器化）。
+
+  再认证明细（确认点③裁定兑现——G3 不再停在 fc6a4d68）：
+  ┌──────┬──────────┬───────┬──────────────────────────────────────────────────┐
+  │ 门   │ 原认证   │ 滞后  │ 再认证动作                                       │
+  ├──────┼──────────┼───────┼──────────────────────────────────────────────────┤
+  │ G1   │ e5a4e8e4 │ —     │ 探针重跑再生（装置两处适配随批：①冻结 SQL 提取   │
+  │      │          │       │ 正则补 \r?——autocrlf CRLF 行尾结构性失效根修；    │
+  │      │          │       │ ②建头 INSERT 适配 CanvasDoc.state/stateSeq 列随    │
+  │      │          │       │ T11 退役）——11 cases 真 PG 全绿                   │
+  │ G2   │ ee958acc │ 105   │ 16 cases 命令原样重跑全绿（int 10+C1A/C1B+B1/U1+F7）│
+  │ G3   │ fc6a4d68 │  90   │ 全量重认证（非 delta 行——六门统一机器口径）：19    │
+  │      │          │       │ cases 定向面重跑+四池（见【一】verify:full 承载）   │
+  │ G4   │ ba96b052 │  46   │ 14 cases 命令原样重跑全绿                          │
+  │ G5   │ ba96b052 │  46   │ 18 cases 命令原样重跑全绿                          │
+  │ G6a  │ 32194478 │ 109   │ 18 cases 命令原样重跑全绿                          │
+  └──────┴──────────┴───────┴──────────────────────────────────────────────────┘
+  重跑口径=按 case 命令目标文件归组整文件跑（⊇ 逐 -t 定向——文件全绿数学蕴含每 -t 选集绿），
+  日志 output/t34-recert/logs/ 本地留档（43 组+int 全池+GATES 六命令，两轮：17bcf7d3 首轮+72fc45d2
+  终轮——生产码改动后全额重跑）。
+
+  registered red=0 复核（④ T21 归零维持）：check-plan-census 8/8 PASS。
+
+【一】verify:full 本地终跑（确认点③硬门——pre-commit 同链 tier=full 31 步）
+
+  第一跑（2026-11-05 晨）：24/31 步绿后在 [25/31] check-spec-consistency 红——
+  spec §10 块含已删指标（exec_orphan_blocked_total/exec_projection_dropped_total/
+  exec_seq_stale_rejected=T32 删 exec.metrics 三守卫计数族后文档遗留；T32 收口只跑 verify:fast
+  12 步〔该步在 fast 16 步外〕故未暴露——T34 full 终跑首次覆盖）。根修=官方写模式
+  `check-spec-consistency.mjs --write-metric-names` 落盘（code 为源——196 项重生成，删 3 行
+  已删指标；T32 doc-gate canonical 重生成同款先例，非手编辑）→复跑检查器 OK。
+
+  终跑（第四跑——单次连续全绿为准，确认点②裁定；2026-11-05 06:11-06:16 本地实跑）：
+
+  verify-chain: PASS（31 步，tier=full）——EXIT=0
+
+  池数字：shared 58 文件 783/783+web 382 文件 4157/4157+api 288 文件 3047/3047（默认池）+
+  api heavy 4 文件 12/12+bench-load-smoke 七场景（db 步）+web-lint/api-eslint+全静态门
+  （census 33/33+module-size+façade+exact-pins+plan-census 8/8+spec-consistency+ecosystem+
+  scripts-node-test 32 文件〔含本卡新增 check-gate-evidence.test.mjs〕+doc-gate+四 db 步）。
+
+  四跑实录（背靠背满载轮实录——诚实登记）：
+  - run1：24/31 绿后 [25/31] check-spec-consistency 红（已删指标文档遗留——见上根修）。
+  - run2：[19/31] web-test 1 failed=canvasCollabRuntime.t25.spec mr1-2（4156/4157）。
+  - run3：[19/31] web-test 1 failed=同文件 mr1-2（4156/4157）。
+  - run4（spec 指标重落盘+冷却后）：31/31 全绿（web 4157/4157——t25 族未复发）。
+
+  满载 flake 处置（registered-flakes.md 在册 t25 族——2026-10-28 T27 首跑批登记条+T30b
+  扩枚举条）：run2 红后隔离处置=单文件跑 24/25（mr4-1 间歇红=族内成员轮换形态）+逐例 -t
+  隔离 mr1-2 绿+mr4-1 绿（双绿=台账口径"逐例 -t 隔离恒绿"吻合，环境态定性成立）；run3 复红
+  同例（60s 真实钟超时——该两用例超时带宽历史两度放宽 5s→20s→60s 在案）；run4 冷却后全绿
+  （T24 终验/T28 复击"背靠背满载轮冷却后 PASS"同款先例）。根修（文件内用例间状态隔离）=
+  台账既定 Controller 裁定项（T28 出口复核窗呈报+T30b 批注"归后续复核窗"承袭——本卡不越权）。
+  另：api int 池全量（verify 链外补充面——G3-REG-full-pools int 轴）65 文件 492/492 全绿
+  （含 di-smoke.int 修后 3/3）。
+
+  附（T34 根修——重认证窗挖出的确定性红，两段式代码批 72fc45d2）：
+  di-smoke.int.spec 3/3 红（clean HEAD 17bcf7d3 隔离复现=非 flake）＝既有文件环
+  team-subscription ↔ team-recharge（generateTeamOrderNo 回引）在装饰器求值序下
+  @Inject(TeamSubscriptionService) 元数据 undefined（worker.module:28 求值序锚即同环
+  workaround——T33 后 int 全量首次覆盖该加载序形态即引爆）。根修=纯函数迁 team.constants.ts
+  解环；判别性亲证修前 3/3 红→修后 3/3 绿；受影响面=team 域默认池 15 文件 148/148+team 域 int
+  4 文件 25/25+api-tsc 0 错+census 33/33。
+
+【二】P4 六卡终态链与关键数字
+
+  T29 charter：b271dfec——production-charter.json 落档（trafficTier=dev-test；13 items）
+  +deploy-guard T29 族 44/44+restore-drill 埋点。
+  T30 reset+historyId bump：reset-collab 七阶段（含 SystemHistory bump+旧 spool 整目录
+  quarantine）+deploy-guard pgrestore 契约锚。
+  T30b 切换演练（P4 重启裁定②——T31 前实弹）：三模式全绿——--cutover 全序 RTO=50979ms≈51s
+  （预算 30min——余量 35 倍；步序=freeze/drain 8ms→stop-consumers 9.5s→snapshot 293ms→reset
+  10.1s→deploy 11.9s→rb1-start 3.6s→smoke 15.4s〔undo 双端收敛/save barrier Durable committedSeq=4/
+  feed 追平 cursor=2/查无 doc.exec/版本门 4406 双向〕）+--rollback 4455ms（pg_restore 回旧纪元）
+  +--finish 15779ms（机器留净）；演练记录=gate-evidence/t30b-cutover-drill.txt；根修链含 P-0/P-1
+  路由级 json limit 名字碰撞/P-2 T24 版本门 4406 live 静默失效（WeakMap 键控断链——sec-websocket-key
+  双轨补齐）等七件。
+  T31 故障演练七模式（EXIT=0×7）：kill9 51.8s（批提交窗+barrier flush 窗两形态——重放⊇12 键零
+  重复+Durable committedSeq=3）/infra 84.6s（PG failover=前置 TCP proxy+DSN 改写注入〔D-1〕
+  +网络分区〔B3 断网重连〕+磁盘满容量闸 fail-closed）/restore-bump 40.4s（I3 档 fail-closed+
+  零复活+§8.1 处置序全链）/restore-fence 43.1s（时间戳栅栏拦截——**P-1 根修**：epochStartedAt
+  时区漂移 8h 窗漏拦〔now() AT TIME ZONE 'utc' 单源化〕）/pitr-ss2 31.0s（旧 hid 4406 terminal
+  close+零复活）/client 54.4s（拒帧恢复 B 场景+vacuum 换代全链〔行级关闸 503+4413+auth
+  generation mismatch〕+FAILED resume roll-forward）/worker-crash 30.4s（外呼恰 1 次+幂等键恒同+
+  reserve/settle 各 1 行——零重复副作用）。记录=gate-evidence/t31-fault-drill.txt。
+  T32 删除清单（spec §6.7 D9 终点）：六批 commit 78bab6ef（红组 12 例）→4c746cb0（web 切片）→
+  2c7f7d56（api 切片——六 op 收四+exec-status 端点改道 RuntimeEvent feed）→bb59df28（工具与
+  通道——vacuum era 死码族+rebuild-db.mjs 退役）→bb086447（收尾）→ac3e7946（双评审收口）；
+  常驻 CI 三载体=t32-deletion.spec（grep 零锚 12 例）+census ㉛/㉞+t22 int doc 全量零变更例。
+  T33 负载基准（本地实弹 full——第五轮终局 verdict=pass 硬门六项全过）：WAL fsync p95=10ms≤20ms
+  （S4 升级序不触发）/save barrier p95=137ms≤2s/10k 冷加载 p95=441ms≤3s/恢复 RTO=9.96s≤5min/
+  feed lag p95=171ms≤30s/错误率 0（v1.7 口径——预期码 4412×39+4404×12+4408 单列不计入）；
+  出站扇出 43.8%＜96MiB+积压 62seq/20s 线性+慢项目隔离零交叉；软 warn 仅 1（零星超时 0.068%）。
+  记录=gate-evidence/t33-load-benchmark.txt（.jsonl+.bench.json 产物同目录）。
+  T34 本卡：代码批 72fc45d2（di-smoke 解环）+证据批（manifest 六门再认证+release 判定脚本+
+  本汇编）。
+
+【三】限制与诚实登记（呈报核心——tier 语义与机损 RPO）
+
+  当前档位=dev-test（scripts/production-charter.json——单机开发/测试）：**未开放生产流量**
+  （Spooled≠已保存；单机机损 RPO=PG 批延迟——无 PITR/WAL 归档，Y7 门槛项
+  docs/superpowers/full-stack-backup.md）；beta 档=公测受控用户面同未开放。
+
+  charter 13 items 现状（check-production-charter PASS〔dev-test 档诚实登记〕）：
+  - pending×9：pitr（无 WAL 归档）/pg-sync-commit（待服务器 SHOW synchronous_commit 核实）/
+    minio-versioning（版本化缺口=Y7 门槛项）/restore-drill（**首次 drill 已执行**〔2026-11-04
+    dev-test 形态两用例全绿+P-1 根修实录〕；**生产环境季度 drill 仍 pending——runbook §16 序，
+    本呈报=发布门前显式登记**，服务器形态复演归发布后运维窗）/replay-canary（未实装）/slo
+    （实测对照已落：barrier 137ms/RTO 9.96s 达标；**数值定案含月可用性≥99.5% 采纳否=用户裁定
+    待裁**）/doc-append-gap-alert/project-erasure/retention-worker
+  - armed×1：frame-audit
+  - passed×1：ha-decision（决策=单机无 HA——单实例+pm2 autorestart，RTO 由备份恢复承载）
+  - waived×2：http-seed（冷加载 441ms+loop block 0ms——触发条件未达）/exec-input-bundle
+    （44 行/13KB/0%＞2MiB——实测裁决数据在案）
+
+  待用户裁定点（T29 登记承袭）：①slo 数值定案（含月可用性目标——无实测可用性数据，需运行期
+  观测累计）②月可用性口径③开放生产流量改档裁决（production 档=任一 pending/armed 即 fail 不得
+  发布——当前 10 项未达标，**改档前置=逐项闭环**）。
+
+【四】push+CI 后续步骤（呈报后续——push 归用户决定，非本卡执行项）
+
+  1. push（用户裁定）：master 本地领先 origin/master 44+ commit（T34 批后 46——含 P3/P4 全程）。
+  2. push 后 CI：ci.yml test job 跑 `pnpm verify`（31 步 full 链——本卡已加
+     check-gate-evidence.test.mjs 进 scripts-node-test 步〔32 个元测试文件〕）+collab job
+     （gate-collab E2E）+gitleaks+doc-gate job。
+  3. release 档负载基准：ci.yml load-bench-hard workflow_dispatch 手动调度（固定 Linux runner=
+     ubuntu+PG16/Redis7 容器规格——**权威档首跑**：NTFS fsync≠Linux fsync〔runbook §17〕，
+     硬门绝对阈值生产裁定以该档为准；本地 win32 数字=开发基线）。
+  4. CI 全绿后：确认点⑤=全批终出口——用户裁定（本呈报包即呈报材料）。
+  5. 发布后运维窗：服务器形态 restore drill 复演（charter restore-drill 项闭环）+PG
+     synchronous_commit 核实（pg-sync-commit 项）。
+
+【五】F1/F2 及移交未决清单（开放项诚实登记——非阻断发布门）
+
+  T33 观测移交：
+  - F1 客户端追平缺口：断连重连最终一致面（服务端 PG 重放全过承载正确性——客户端增量追平
+    未实测；影响=重连后首帧时延非正确性）。
+  - F2 满载 isolated 观测：第四轮租约心跳饿死嫌疑（isolated 终局轮未复现；装置已加健康自愈；
+    lease_lost 负载相关性核实移交后续）。
+  - F3 feed DI 缺陷：已根修（8a65e096）非开放项。
+  T31 移交三项：
+  - 发现② clientID 单活跃真 WS 接管 close：434c457e 专项收口定案=yjs 13.6 自防轮换（真客户端
+    synced 形态构造不出同 clientID 并发帧；手搓帧执法已验证）——定案非缺口。
+  - 发现③ L2 毒帧×水位窗（pgSeq>appliedSeq）→walHealthy 全实例熔断：合法滞后形态假说登记
+    （T26 F-1 doc-lag/收养窗——不变量断言求值域×合法窗作用域错配）待专项定位；「永久不可用」
+    结构性不成立（实例级内存字段+新进程 recoverScan 重建——g6a K6 承载）。
+  - 发现④ maintenance 端点双凭据：runbook §14 已注记（admin token+session cookie）。
+  台账开放项（registered-flakes.md）：
+  - specb-perf reconcile≤5ms 热机超限：未定性（A/B 实证缺——若确定性复现须先定性再归档）。
+  - t25 族文件级顺序敏感间歇红（canvasCollabRuntime.t25.spec 六例轮换）：根修（文件内用例间
+    状态隔离）归后续复核窗。
+  - io 轴代理承载（load-bench 恒跳过——PG 批差分+spool 峰值代理）+sustained-disk 容量闸未触达
+    （行为面=T31 infra 磁盘满形态承载）：装置覆盖面注记。
+  spec §9.1 边界承袭：L2 毒帧速率限制/全类型矩阵运行时准入/URL 深链三条+Q-I-3 残余（同
+  textarea 双端聚焦并发本地基线）+T17 D-1（并发 replace 瞬态重复 id）+T24 D-3 已收口——归
+  T24 既有登记（Y1c 内闭环项，非跨批移交）。
+
+【六】结论（机器面）
+
+  发布门机器面全绿：verify:full 31 步单次连续全绿（见【一】终跑行）+六 manifest 机器判定 PASS
+  （commit==最终代码 72fc45d2+生产码零漂移）+registered red=0+charter dev-test 档诚实登记 PASS。
+  用户确认点⑤=全批终出口：以上证据汇编呈报用户裁定（单机/dev-test/beta 限制+机损 RPO=PG 批延迟
+  无 PITR+slo/月可用性待裁+开放生产流量改档前置 10 项闭环——**呈报停等，不代签**）。

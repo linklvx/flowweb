@@ -1,9 +1,9 @@
 {
   "gate": "G6a",
-  "commit": "32194478",
+  "commit": "72fc45d258e6340d71e64e4b795d1e3f6eb6fd81",
   "env": {
     "pg": "PostgreSQL 16.13（localhost:5432/flowweb——pg_dump 16.13 实弹工具链 D:/programfiles/PostgreSQL/16/bin）",
-    "date": "2026-10-25",
+    "date": "2026-11-05（Y1c T34 发布门全量重认证——认证对象 32194478 滞后 HEAD 109 commit〔P3/P4 各批+微批〕，确认点②裁定「manifest==最终代码」兑现：18 cases 断言/命令原样在最终代码树（T34 代码批 72fc45d2+证据批工作树）重跑全绿）；前序=2026-10-25",
     "suite": "collab-t13-g6a.spec（boot 接线 K1-K7+K2b/M4 收口单池）+collab-t13-kill9.process.spec（真子进程 spawn+SIGKILL P1-P3）+collab-t13-g6a.int.spec（真 PG 实弹 I1-I4——vitest.int 配置池，pg 工具探测平台化 win=.exe/unix 无后缀+缺工具 it.skip 显式化）+collab-spool-wal.spec M3/T13 收口 C1①②/I1/M1；kill -9=进程内 seam（NoConfirmSpool/FaultRepo——T8/T9/T10 先例）+真子进程物理形态双轨；「重启」=服务重实例化+boot 生产恢复路径（T13 接线——与 G2 套件直调函数形态的差异面）"
   },
   "cases": [
@@ -196,7 +196,8 @@
     "adoptSilentForeignSegments 收养面放宽（chain-stopped 外来段可收养）=boot recoverScan 接线的配套（recoverScan 对外来 fatal 段判 chain-stopped 档〔帧前缀可重放 I1〕——旧判定 segQuarantined!=null 全拒使 I4 reconciler 回收闭环断链）；其余隔离档不收养保持；T13 收口 C1 定形：收养 chain-stopped 段**保留链式裁定**（permissive 重算退役——非字节缺陷段〔gap/恶性 dup-seq/hash-mismatch〕链后未证帧不复活+walSeq 计数器按裁定前缀 maxSeq 上抬〔max 语义同 seedWalSeqFromPg〕+裁定前缀帧入去重索引〔ACK 铁律〕）",
     "T13 双评审收口登记（A'=32194478，红→绿两探针形态固化=collab-spool-wal.spec 尾组）：C1 收养保链式裁定+quarantineTruncatedFrames 链式裁定界（sidecar reason=chain-defect-tail——回收闭环闭合）；I1 外来 chain-stopped fatal 分支计入 doc_prefix_gap_total（「帧级致命缺陷」档——help 语义不缩水）；M1 wal_fsync_latency 成功路径观测（失败尾不进直方图——p95 观测源不污染）；M2 int 池 pg 工具探测平台化+缺工具 it.skip 显式化（本机工具在位 skipped=0 实然不变）；M4 启动自检收窄 fatal 维；ADR §5 信号②等价达成注记（倒挂由 §3.2 violation 维等价拦截——冻结契约 doc-protocol.ts 本体不动）；ready payload walRecoverySuspect/spoolQuarantined 端到端断言（INV5 收口半）",
     "全量：api vitest 262 文件/2887 用例+int 池 373（真 PG——364 pass+9 既有 MinIO 环境位 skip；本卡 4 实弹 4/4）+shared 692/692（本批未触碰——承 A/B 版实测口径）+三面 tsc 0 错+census 32/32+module-size（gateway 锚 1080→1082 净增面=M4 收窄注释锚，自测 SIZE_LIMITS 断言同批改）+⑲ façade 0 违规（执法面 107 spec 文件）+verify:fast 16/16",
-    "G6a go 判定=pass：恢复顺序生产接线（ADR-01 §3 全序机判）+fail-closed 双维（violation/suspect）+时间戳栅栏实弹拦截（忘 bump 形态）+真子进程 kill -9 物理形态+pg_dump 实弹工具链+8MiB SS2 恢复+多项目 S4 验证+ETag 真值+六指标落位——零 skipped"
+    "G6a go 判定=pass：恢复顺序生产接线（ADR-01 §3 全序机判）+fail-closed 双维（violation/suspect）+时间戳栅栏实弹拦截（忘 bump 形态）+真子进程 kill -9 物理形态+pg_dump 实弹工具链+8MiB SS2 恢复+多项目 S4 验证+ETag 真值+六指标落位——零 skipped",
+    "T34 发布门全量重认证（2026-11-05——plan :441「commit==HEAD 机器判定」兑现）：32194478 → 72fc45d2（T34 代码批=di-smoke 文件环解环根修后的最终生产码）；G6a（恢复门：boot 恢复序/fail-closed 三维/时间戳栅栏/kill -9 物理形态/pg_dump 实弹 18 cases）在 72fc45d2 树逐命令重跑全绿（按 case 命令目标文件归组整文件跑 ⊇ 逐 -t 定向——重跑日志 output/t34-recert/logs/ 本地留档）；机器判定载体=scripts/check-gate-evidence.mjs（release 门——六 manifest skipped=0/cases 全 pass/artifact 齐/commit 认证+生产码零漂移，缺证据 exit 非零=不发布）。"
   ],
   "go": true
 }

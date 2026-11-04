@@ -1,10 +1,10 @@
 {
   "gate": "G2",
-  "commit": "ee958acc",
+  "commit": "72fc45d258e6340d71e64e4b795d1e3f6eb6fd81",
   "env": {
     "pg": "PostgreSQL 16.13 (localhost:5432/flowweb)",
     "migration": "20261024140000_y1c_t10_drop_canvas_doc_update_seq",
-    "date": "2026-10-25T13:08:00.000Z",
+    "date": "2026-11-05（Y1c T34 发布门全量重认证——认证对象 ee958acc 滞后 HEAD 105 commit〔P3/P4 各批+微批〕，确认点②裁定「manifest==最终代码」兑现：全部 cases 断言/命令原样在最终代码树（T34 代码批 72fc45d2+证据批工作树）重跑全绿）；前序=2026-10-25T13:08:00.000Z",
     "suite": "apps/api/src/modules/collab/collab-t10-g2.int.spec.ts（真 PG/真 spool tmpdir/真 repo——vitest.int.config；kill -9=进程内 seam 注入+服务重实例化+recoverScan 本地路径模拟——生产 boot 接线归 T13）+C1 lease-fence：canvas-doc-update.repository.append.int.spec.ts（facet A 真 PG——vitest.int.config）+canvas-doc-update.repository.spec.ts（facet B 词法 sim+形状锚——默认池）；barrier/unload=collab-t10-barrier-unload.spec.ts（默认池）；F7=packages/shared collab-close-code.test.ts+recovery-flow.spec.ts"
   },
   "cases": [
@@ -178,7 +178,8 @@
     "T9 语义修正三处（同批评审议定）：S-I1 截断后重发 walSeq 3n→2n（密集前缀）+spool-wal 两例同轴；A9/BOI-3 卸载期望翻转（帧 WAL 安全即卸载→applied 未 drain 拒绝卸载——偏离 37⑩+38⑤）；dual-client-server dispose destroy 套 4s race（生产 onApplicationShutdown 同款兜底）",
     "全量：api vitest 2828/2828+int 池 351/351（MinIO minioadmin 补启后——media 三文件 ECONNREFUSED 为环境缺失非回归）+shared 691/691+web 3995/3995+census 32/32（㉞ 新组+④⑮㉒ ㉜ 白名单同批登记）+module-size（gateway 985→1015 锚重标：onStateless+卸载纪律净增 30 行）+verify:fast 16/16",
     "T10 双评审收口注记（quality 1C+2I+6M+spec 3 Minor 合并批——原「认证对象 74287e10 不动/免重跑」口径已被确认点②裁定推翻：C1 根修=水位 CAS/adopt/懒建档三写点补 lease fence+部分插入按 PK 回查（G2 证据轴水位/confirm 语义强化——旧实现「全 fenced 水位越过未插入行」与「部分 fenced ok 短路吞缺口→confirm 回收缺行 WAL」两 facet 由红测锁死=现 C1A/C1B 两 cases 入列）；Q-I2 appliedQueue 上界 1024 帧/16MiB 与 submit 背压同语义耦合（G2 批前缀/水位断言面不变——上界=2×批上界，健康路径不触界；红测在 barrier-unload 文件内随 B1/U1 面重跑）",
-    "登记项（冻结面不动）：Q-M4 recovery-flow assertY1cCodesNotBackoffRouted 生产调用点=T25 close 分派表装配时接线（T10 无装配面——api/web 均未消费 resolveRecoveryAction；commit message 同步登记）；Q-M9 system-history canonicalUpdateHashPayload 双 canonical 形并存=修正批#2 候选（T22 前裁）；spec-M2 g2 notes 广度低报+spec-M3 replayAll 回灌行 actorRanges NULL=T27 审计消费面裁定时补齐（回灌行=单帧行 singleFrameRow 不带 actorRanges——审计消费面定口径）"
+    "登记项（冻结面不动）：Q-M4 recovery-flow assertY1cCodesNotBackoffRouted 生产调用点=T25 close 分派表装配时接线（T10 无装配面——api/web 均未消费 resolveRecoveryAction；commit message 同步登记）；Q-M9 system-history canonicalUpdateHashPayload 双 canonical 形并存=修正批#2 候选（T22 前裁）；spec-M2 g2 notes 广度低报+spec-M3 replayAll 回灌行 actorRanges NULL=T27 审计消费面裁定时补齐（回灌行=单帧行 singleFrameRow 不带 actorRanges——审计消费面定口径）",
+    "T34 发布门全量重认证（2026-11-05——确认点③裁定「G3 不能长期停在 fc6a4d68」与 plan :441「commit==HEAD 机器判定」兑现）：本 manifest ee958acc → 72fc45d2（T34 代码批=di-smoke 文件环解环根修后的最终生产码）；G2（WAL 耐久 G2 门：重复帧幂等/PG 失败保留/CAS 水位/毒帧截断/恢复重放十用例+C1 水位 CAS 租约栅栏+barrier 无状态契约+Y1c 四码恢复分派） 在 72fc45d2 树逐命令重跑全绿（按 case 命令目标文件归组整文件跑 ⊇ 逐 -t 定向——重跑日志 output/t34-recert/logs/ 本地留档）；机器判定载体=scripts/check-gate-evidence.mjs（release 门——六 manifest skipped=0/cases 全 pass/artifact 齐/commit 认证+生产码零漂移，缺证据 exit 非零=不发布）。"
   ],
   "go": true
 }
