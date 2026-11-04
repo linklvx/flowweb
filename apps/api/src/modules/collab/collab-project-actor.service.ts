@@ -113,8 +113,8 @@ export interface CollabProjectActorHost {
   noteReadOnlyDrop(conn: CollabConnection, pid: string, bytes: number): boolean;
   /** PG append fenced（RC4 承接：fenced→selfIsolate→closeAll→释放 listener——gateway selfIsolate 同链）。 */
   onFencedByWrite(): Promise<void>;
-  /** Y1c T10：维护/冻结窗口判定（barrier maintenance 拒绝语义——gateway 接线=DR.isVacuuming∨维护态；
-   *  缺省 false=无维护窗口〔直构/测试〕；T27 维护状态机扩展同缝）。 */
+  /** Y1c T10：维护/冻结窗口判定（barrier maintenance 拒绝语义；T32 收口后 gateway 接线=
+   *  maintenanceService.isFrozen 单承载——vacuum era 族已删）；缺省 false=无维护窗口〔直构/测试〕。 */
   isMaintenanceBlocked?(pid: string): boolean;
   /** Y1c T27：维护 freeze 面（准入链 ⓪ 最先——**仅 connection 帧**：4413 maintenance-freeze 完整
    *  close 投递+拒帧；维护帧〔item.conn==null〕豁免=drain 通道 freeze 期照常落 PG〔红①〕）。

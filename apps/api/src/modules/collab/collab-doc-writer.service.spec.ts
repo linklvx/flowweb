@@ -198,7 +198,7 @@ describe('Y0c T12 直写收编（两 op+doc 域 API+幂等执法面 flag）', ()
     expect(doc.getMap('edges').get('e1')).toBeUndefined();   // 级联删边（E68）
   });
 
-  it('fillDoc op 可执行；validateWriteBatch 默认档不产 NON_IDEMPOTENT_OP / requireIdempotentOps:true 仍拒（flag 判别）', () => {
+  it('fillDoc op 可执行且 validateWriteBatch 零违规（T32 双评审收口：requireIdempotentOps 执法档随 write-batch 端点退役删——进程内档从不产出该码）', () => {
     const doc = new Y.Doc();
 
     const results = applyWriteOpsToDoc(doc, [
@@ -208,10 +208,8 @@ describe('Y0c T12 直写收编（两 op+doc 域 API+幂等执法面 flag）', ()
     expect(doc.getMap('nodes').get('nA')).toBeInstanceOf(Y.Map);   // 节点种子落 doc
     expect(doc.getMap('edges').get('e1')).toBeInstanceOf(Y.Map);   // 边种子落 doc
 
-    // flag 判别（裁决 2）：默认档（进程内同款）不产 NON_IDEMPOTENT_OP；执法档 true 仍拒
     const ops: readonly unknown[] = [{ op: 'fillDoc', nodes: [], edges: [] }];
     expect(validateWriteBatch(ops)).toEqual([]);
-    expect(validateWriteBatch(ops, { requireIdempotentOps: true }).some((v) => v.code === 'NON_IDEMPOTENT_OP')).toBe(true);
   });
 
   it('applyWriteOpsToDoc doc 域应用核心（裁决 1）shrink 场景形态成立：预演（scratch）与活写同函数同语义——同 ops 两 doc 结果一致', () => {

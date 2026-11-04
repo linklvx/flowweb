@@ -35,7 +35,9 @@ function collectProductionFiles(): string[] {
 const FILES = collectProductionFiles();
 const RAW = new Map<string, string>(FILES.map((p) => [p, fs.readFileSync(path.join(ROOT, p), 'utf8')]));
 
-/** 词面命中（raw 全文——含注释；T32 删除纪律=注释提及一并清（非 spec 冻结文档），故 raw 计数）。 */
+/** 词面命中（**stripped 口径**——stripCommentsAndStrings 后计数；历史注记〔「某符号已删」类锚注〕
+ *  不计=合法残留，与 census findLineOccurrences 同源。落地批注①登记的放宽：先 raw 后 stripped，
+ *  T32 双评审对 12 例符号 raw 全文复核=剩余命中 100% 注释）。 */
 function stripCommentsAndStrings(src: string): string {
   let out = '';
   let i = 0;

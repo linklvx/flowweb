@@ -401,9 +401,15 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
     expect((await maintenance.run(req.ok ? req.maintenanceId : '', { drainBudgetMs: 50 })).result).toBe('failed');
     maintenance.clearFrozenForTest();   // 进程内 freeze 面清空=重启形态
     expect(maintenance.isFrozen(PID)).toBe(false);   // 红锚前提：重启后进程面空
-    // ★ boot 重 freeze：FAILED 行纳入（只维持只读不续跑——stage 仍 FAILED）
+    // ★ boot 重 freeze：FAILED 行纳入（只维持只读不续跑——stage 仍 FAILED）。
+    // T32 双评审根修（quality 复合面）：resumeActiveOnBoot=全局域（boot 语义正确）——外部残留行
+    // （演练夹具/其他项目 FAILED）抬高计数；断言改**紧前基线等值**（计数与 resume 间零突变——
+    // 夹具行已含在基线内）替代绝对值 1（红形态实录=T31 演练残留 1 行 FAILED 致 2≠1——隔离环境态非服务缺陷）。
+    const pendingBefore = await prisma.maintenanceOperation.count({
+      where: { stage: { notIn: ['COMPLETED', 'ABORTED'] }, status: { not: 'SUPERSEDED' } },
+    });
     const resumed = await maintenance.resumeActiveOnBoot();
-    expect(resumed).toBe(1);
+    expect(resumed).toBe(pendingBefore);
     expect(maintenance.isFrozen(PID), 'FAILED 行重 freeze（只读维持跨重启）').toBe(true);
     const opAfter = await prisma.maintenanceOperation.findUnique({ where: { maintenanceId: req.ok ? req.maintenanceId : '' } });
     expect(opAfter?.stage).toBe('FAILED');   // 不续跑（run 未被触发——FAILED 无续跑面）

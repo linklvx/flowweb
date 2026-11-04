@@ -82,3 +82,17 @@
   打印后 provider WS 清理竞态偶发噪声栈（演练已达终态、判据面全绿）；影响面=进程退出噪声非判据面。
   处置=不阻断（装置产物已定）；若后续复现于判据期再行登记升级。
 
+
+- 2026-11-05（Y1c T32 收口批登记①——满载池轮三处；quality 双评审 P1 台账落位）：T32 六 commit
+  满载窗观察=①web ThemeToggleButton.test.tsx 2 例高载池轮红（满载两轮后单跑+连跑两次 2/2 绿
+  ——收口批定向复取证 2/2）②api order-no.spec ③api managed-redis.spec 满载偶红（定向单跑绿；
+  收口批复取证两文件 10/10）。三处零代码交叠=工具域/通用域文件 T32 链零触碰。处置=隔离重跑绿
+  即过（负载族同款口径——禁以环境态调阈值）。
+
+- 2026-11-05（Y1c T32 收口批登记②——t27 int 红② standing red 复合定性+根修归档）：collab-
+  maintenance.t27.int「红② FAILED 只读维持跨重启」expected 2 to be 1=T31 演练批残留 1 行 FAILED
+  MaintenanceOperation（t31-vac 夹具、created 2026-11-04T13:15Z 先于 T32 链）× resumeActiveOnBoot
+  全局域计数（boot 语义正确）×测试绝对值断言——环境残留×测试隔离缺陷复合（quality 员 PG 实测
+  1+1=2 精确吻合+clean HEAD 同红=非 T32 回归）。**根修已落（本批）**：①断言改紧前基线等值
+  （判别性双向亲证：残留在库旧断言红 2≠1/新断言绿 2=2——清残留后 14/14）②装置 cleanupFixtures
+  补 maintenanceOperation 清理面（防复发）③残留行已清（演练证据在 t31-fault-drill.txt 不依赖 PG 行）。

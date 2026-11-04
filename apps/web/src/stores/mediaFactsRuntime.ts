@@ -24,8 +24,8 @@
 // 「图片超过尺寸上限，已自动缩小至支持尺寸（原 w×h）」；每 mediaId 每会话恰一次（模块级 Set，
 // resetMediaFacts 清空）；pending 暂存路径记录原尺寸、fileId 到达消费窗（consumePendingFacts 调用后）
 // 同 Set 去重告知。告知与 store 条目正交（纯 natural 行不建条目——不因此吞告知）。上传者本人
-// 会话链锚=scheduleUploadFactPull（P0：②lazy 被本地 origin 过滤+④watcher 结构性不适用→上传
-// confirm 后双档延时定向补拉——组件侧挂点）。
+// 会话链锚=上传 confirm 后双档延时定向补拉（T22 前为 scheduleUploadFactPull 组件侧挂点——该
+// 定时器函数已随 Y1b 尺寸轮询退役，此处为历史锚注记；现行驱动=①重连全量拉/②引用变化消费/④watcher）。
 import * as Y from 'yjs';
 import { message } from 'antd';
 import { collectMediaIds, type MediaNaturalFactPayload } from '@flowweb/shared';

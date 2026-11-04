@@ -243,6 +243,9 @@ async function makeFixtures(prefix) {
 }
 async function cleanupFixtures(S) {
   const order = [
+    // T32 双评审补（quality P1 复合面）：maintenance 行无级联——FAILED 残留会抬高 t27 int 全局
+    // resumeActiveOnBoot 计数（2026-11-05 实录 t31-vac 残留 1 行致 standing red）；清理面补此表。
+    () => S.prisma.maintenanceOperation.deleteMany({ where: { projectId: S.project } }),
     () => S.prisma.session.deleteMany({ where: { userId: S.user } }),
     () => S.prisma.teamMember.deleteMany({ where: { id: S.member } }),
     () => S.prisma.canvasProject.deleteMany({ where: { id: S.project } }),
