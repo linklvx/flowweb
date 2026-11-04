@@ -301,7 +301,7 @@ jobs:
   # PR/push 不跑（smoke 档已在 test job verify 链 bench-load-smoke 步）；本 job=workflow_dispatch
   # 手动调度（nightly/release 前实弹——固定 runner 口径=ubuntu-latest+PG16 容器规格固定，跨跑可比；
   # 绝对阈值（fsync p95≤20ms 等）的生产裁定按 T0-S4 spike §1 平台注记：Linux fsync 语义与 Windows
-  # 不同，本 job 数字=固定 runner 档基准；本地实弹档（win32 4C/16G）数字见 gate-evidence/
+  # 不同，本 job 数字=固定 runner 档基准；本地实弹档（win11/20C/32G——T33 双评审勘正）数字见 gate-evidence/
   # t33-load-benchmark.txt 机器形态注记——两档独立登记不混算）。跑批产物=JSONL 分段落盘+
   # 终局 bench.json（artifact 上传供 runbook §17 落档）。
   load-bench-hard:

@@ -45,11 +45,15 @@ export class LifecycleObligationSweeper implements OnApplicationShutdown {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(RuntimeFeedService) private readonly feed: RuntimeFeedService,
-    /** ①清扫面注入（media-delivery 模块——collab 模块跨模块引用经 @Optional 解耦直构测试）。 */
-    @Optional() private readonly reconciler?: BindingReconcileService | null,
-    /** Y1c T23：EXEC_FINALIZE 退款主体（team 模块——@Optional 同款解耦：直构测试〔t22-g5 三参
-     *  形态〕无资金面时该 kind 执行 false 转 fail 档重试，生产装配恒注入）。 */
-    @Optional() private readonly teamCredit?: TeamCreditService | null,
+    /** ①清扫面注入（media-delivery 模块——CollabModule 不 import MediaDeliveryModule=本图结构性
+     *  null（@Optional+@Inject 语义：无 provider 即 null）；@Inject 补解析=防联合注解反射 Object
+     *  真装配断链族〔T33 双评审普查〕——图内含该模块的形态（worker/全量）解析真值）。 */
+    @Optional() @Inject(BindingReconcileService) private readonly reconciler?: BindingReconcileService | null,
+    /** Y1c T23：EXEC_FINALIZE 退款主体（team 模块——@Optional 解耦直构测试：无资金面时该 kind
+     *  执行 false 转 fail 档重试）。**T33 双评审普查 P1-① 根修**：联合注解反射 Object→真装配恒
+     *  undefined=生产退款恒不履行——补 @Inject(token)（TeamModule 在 CollabModule imports 且
+     *  exports〔team.module:38〕——本可注入，反射缺陷而已；红锚=collab-di-real-assembly.spec）。 */
+    @Optional() @Inject(TeamCreditService) private readonly teamCredit?: TeamCreditService | null,
   ) {}
 
   onModuleInit(): void {

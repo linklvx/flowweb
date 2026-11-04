@@ -135,8 +135,10 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
     @Inject(StorageQuotaService) private readonly quota: StorageQuotaService,
     @Inject(EmitPort) private readonly emit: EmitPort,
     /** Y1c T23（迁移三）：delete-claim 面（上传 content-addressed 键前 claim、锚定后 release）。
-     *  @Optional——直构测试（t23 int 六参形态）缺席=跳过（行域 GC 兜底仍在）。 */
-    @Optional() private readonly manifests?: ObjectManifestService | null,
+     *  @Optional——直构测试（t23 int 六参形态）缺席=跳过（行域 GC 兜底仍在）。**T33 双评审普查
+     *  P2-③ 随批**：联合注解反射 Object→worker 真装配恒 undefined=claim 面恒跳过（降级非断链）
+     *  ——补 @Inject(token)（同 module 注册本可注入；红锚=collab-di-real-assembly.spec）。 */
+    @Optional() @Inject(ObjectManifestService) private readonly manifests?: ObjectManifestService | null,
   ) {}
 
   onModuleInit(): void {

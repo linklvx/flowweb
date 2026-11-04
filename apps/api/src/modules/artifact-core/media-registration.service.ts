@@ -59,8 +59,10 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
     /** Y1c T23 收口 I-2（Q7 根修）：presign 配额门禁事务内消费（assertCanUploadInTx——Team 行
-     *  FOR UPDATE 串行化同团队 presign；@Optional 解耦直构测试/装配序）。 */
-    @Optional() private readonly quota?: StorageQuotaService | null,
+     *  FOR UPDATE 串行化同团队 presign）。**T33 双评审普查 P1-② 根修**：联合注解反射 Object→
+     *  真装配恒 undefined=生产门禁静默失效——补 @Inject(token)（TeamModule 经 ArtifactCoreModule
+     *  imports 且 exports——本可注入；红锚=collab-di-real-assembly.spec）。 */
+    @Optional() @Inject(StorageQuotaService) private readonly quota?: StorageQuotaService | null,
   ) {}
 
   /** T4-①：presign 幂等入口——同 teamId+clientUploadId 复用既有行与 key（网络重试恰一行）。

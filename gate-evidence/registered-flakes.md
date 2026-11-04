@@ -96,3 +96,8 @@
   1+1=2 精确吻合+clean HEAD 同红=非 T32 回归）。**根修已落（本批）**：①断言改紧前基线等值
   （判别性双向亲证：残留在库旧断言红 2≠1/新断言绿 2=2——清残留后 14/14）②装置 cleanupFixtures
   补 maintenanceOperation 清理面（防复发）③残留行已清（演练证据在 t31-fault-drill.txt 不依赖 PG 行）。
+
+- 2026-11-05（Y1c T33 收口批登记——t9-actor 临时目录清理族复发扩枚举）：T33 收尾满载轮
+  collab-project-actor.spec（t9-actor）临时目录清理用例单红——同族先例=2026-10-24 ENOTEMPTY 条
+  （同套件同根因：Windows rmdir×mkdir 竞态窗）。单跑 23/23 绿（implementer 收尾批）+quality 员
+  定向复核绿。处置=隔离重跑绿即过（Windows fs 竞态族既有口径）。

@@ -25,11 +25,15 @@ export const ERROR_RATE_LIMITS = {
   timeoutCascadeRate: 0.01,  // 超时雪崩：操作超时占比>1%（「无超时雪崩」的机器化——零星超时进 warn）
 };
 
-/** 软预算清单（发布前无 TBD——每项带依据）。固定 runner 形态注记：本地实弹 4C/16G win32 为本卡
- *  基线形态（外推服务器档归 runbook §9.2 既有判据线——两线独立不混用）。 */
+/** 软预算清单（发布前无 TBD——每项带依据）。固定 runner 形态注记（T33 双评审 P2-1 勘正：阶段①
+ *  预写「4C/16G」与阶段③实测形态不符——实测机 os 报数=win11/20 逻辑核/32G，见 t33-load-benchmark
+ *  机器形态行）：本地实弹档=win11/20C/32G NTFS 为本卡基线形态（外推服务器档归 runbook §9.2 既有
+ *  判据线——两线独立不混用）。 */
 export const SOFT_BUDGETS = [
-  { axis: 'rss', budgetBytes: 1_600_000_000, bandHigh: 1.2, why: 'api 进程 RSS 软预算 1.6GiB（本地 16G 形态：maxResidentDocBytes 装载面+基线外推；1.0-1.2× 带内=warn，超带=over 级 warn 触发评审）' },
-  { axis: 'cpu', budgetPercent: 85, bandHigh: 1.2, why: 'CPU 峰值软预算 85%（4C 形态满载留系统余量；带内 85-100%=warn）' },
+  { axis: 'rss', budgetBytes: 1_600_000_000, bandHigh: 1.2, why: 'api 进程 RSS 软预算 1.6GiB（maxResidentDocBytes 装载面+基线外推——实测 RSS 峰 450MB 远离带；1.0-1.2× 带内=warn，超带=over 级 warn 触发评审）' },
+  { axis: 'cpu', budgetPercent: 85, bandHigh: 1.2, why: 'CPU 峰值软预算 85%（满载留系统余量——实测核均 4% 远离带；带内 85-100%=warn）' },
+  // io 轴（T33 双评审 P2-2 登记）：concurrency 场景 resources 面不产出 ioWriteBytes——本轴机器判定
+  // 恒跳过；spec §9.4「磁盘 IO」由 PG 批字节差分+spool 峰值代理承载（演练记录【三】人工对照）。
   { axis: 'io', budgetBytes: 2_000_000_000, bandHigh: 1.2, why: '全窗磁盘写软预算 2GiB（spool 256MB 容量+PG 批归零回收的净增长口径——超带=IO 放大评审）' },
   { axis: 'applyReplay', budgetP95Ms: 100, why: 'apply_replay_ms 软预算 p95≤100ms（S1 契约下库内重放=幂等 no-op 纯解码——装置口径=回声 RTT 代理，主体应远低于 fsync p95 的 5 倍）' },
   { axis: 'echoBytes', why: 'echo_bytes 软预算=入站字节×扇出连接数上界（广播每帧恰一次含发送者——结构性上界，超出=广播放大异常评审）' },
