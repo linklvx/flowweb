@@ -1,0 +1,336 @@
+{
+  "meta": {
+    "profile": "full",
+    "machine": "win32/x64 20C/32G node v24.14.1",
+    "startedAt": "2026-11-04T20:26:28.172Z",
+    "axesComplete": true,
+    "finishedAt": "2026-11-04T20:35:42.871Z"
+  },
+  "errors": {
+    "http5xx": 0,
+    "httpOps": 596,
+    "unhandledExceptions": 0,
+    "unexpectedClose1011": 0,
+    "dataAssertionFailures": 0,
+    "timeouts": 10,
+    "timedOps": 14655,
+    "expectedCloseCodes": {
+      "4404": 12,
+      "4406": 0,
+      "4411": 0,
+      "4412": 39,
+      "4413": 0
+    },
+    "logScan": {
+      "lastCount": 0
+    }
+  },
+  "invariants": {
+    "seededKeys": {
+      "pass": true,
+      "detail": "种子键 10000/10000"
+    },
+    "mixedConvergence": {
+      "pass": true,
+      "detail": "apply 确认 16/16+wire 回声 16/16"
+    },
+    "crossProjectIsolation": {
+      "pass": true,
+      "detail": "跨项目广播泄漏 0 帧"
+    },
+    "convergence": {
+      "pass": true,
+      "detail": "10 项目 PG 重放 ≥ max(客户端)；客户端追平缺口（断连重连面——软档）: 988207: 1131/1354; 988207: 956/1301; 988207: 1192/1358"
+    },
+    "outboundBudget": {
+      "pass": true,
+      "detail": "出站 44050034B/96MiB 预算+close 事件 delta=0"
+    },
+    "backlogDrained": {
+      "pass": true,
+      "detail": "撤触发器后积压排空=true（drainMs=412）"
+    },
+    "slowProjectIsolation": {
+      "pass": true,
+      "detail": "慢项目滞留窗正常项目帧 p95=17ms（对照 fsync 硬门 20ms 的 4×容差）"
+    },
+    "noSilentDrop": {
+      "pass": true,
+      "detail": "PG 重放键 378 / 客户端终态 378 / 主窗帧 377（容量触发=false，容量段拒帧=0——fail-closed 拒收非静默丢）"
+    },
+    "replaySuperset": {
+      "pass": true,
+      "detail": "重启重放 90 ≥ kill 前接受 90"
+    }
+  },
+  "axes": {
+    "coldLoad": {
+      "p50": 435,
+      "p95": 441,
+      "p99": 441,
+      "max": 441,
+      "count": 5,
+      "unit": "ms",
+      "connectP": {
+        "p50": 387,
+        "p95": 393,
+        "p99": 393,
+        "max": 393,
+        "count": 5
+      },
+      "readModelP": {
+        "p50": 48,
+        "p95": 52,
+        "p99": 52,
+        "max": 52,
+        "count": 5
+      },
+      "serverLoadP95Ms": 250,
+      "docNodeCount": 10000,
+      "visibleNodeCount": 10000
+    },
+    "applyReplay": {
+      "p50": 14,
+      "p95": 22,
+      "p99": 22,
+      "max": 22,
+      "count": 16,
+      "unit": "ms",
+      "why": "装置口径=writer 发送→observer doc apply 确认 RTT（新内容必 emit update；主体=gate pre-apply+fsync+广播——库内幂等重放成本 spec §9.3 apply_replay_ms 的装置代理观测）",
+      "wireEchoP": {
+        "p50": 6,
+        "p95": 17,
+        "p99": 17,
+        "max": 17,
+        "count": 16
+      }
+    },
+    "echo": {
+      "bytes": 16977900,
+      "inboundBytes": 8388608,
+      "fanoutCeiling": 4
+    },
+    "mixedFsync": {
+      "p50": 2,
+      "p95": 5,
+      "p99": 5,
+      "count": 16,
+      "sumDelta": 28,
+      "unit": "ms(p50/p95/p99),count,sum"
+    },
+    "saveBarrier": {
+      "p50": 0,
+      "p95": 137,
+      "p99": 137,
+      "max": 137,
+      "count": 5,
+      "unit": "ms"
+    },
+    "projectionRead": {
+      "p50": 35,
+      "p95": 63,
+      "p99": 63,
+      "max": 63,
+      "count": 5,
+      "unit": "ms"
+    },
+    "mixedThroughput": {
+      "bytes": 8388608,
+      "windowMs": 211,
+      "bytesPerSec": 39756436
+    },
+    "concurrency": {
+      "p50": 18,
+      "p95": 57,
+      "p99": 106,
+      "max": 12696,
+      "count": 13305,
+      "unit": "ms",
+      "conns": 100,
+      "windowMs": 72598
+    },
+    "walFsync": {
+      "p50": 5,
+      "p95": 10,
+      "p99": 20,
+      "count": 5216,
+      "sumDelta": 23082,
+      "unit": "ms(p50/p95/p99),count,sum",
+      "fsyncPerSec": 71.8,
+      "storeBytesDelta": 2304147
+    },
+    "feedLag": {
+      "p50": 45,
+      "p95": 171,
+      "p99": 171,
+      "max": 171,
+      "count": 8,
+      "unit": "ms"
+    },
+    "resources": {
+      "rssMaxBytes": 472408064,
+      "cpuMaxPercent": 4,
+      "eventLoopLagMaxMs": 0,
+      "pgLockWaitMaxMs": 0,
+      "docPgLagSeqMax": 9
+    },
+    "ss2Fanout": {
+      "conns": 10,
+      "outboundBytes": 44050034,
+      "fanoutMs": 62084,
+      "perConnSyncedMs": 62084,
+      "outboundBudgetBytes": 100663296,
+      "budgetUtilization": 0.438,
+      "eventLoopLagMaxMs": 0,
+      "budgetCloseDelta": 0,
+      "slowConsumerDisconnectDelta": 0
+    },
+    "backlog": {
+      "windowMs": 20000,
+      "sampleCount": 20,
+      "lagSeqMax": 62,
+      "pendingBytesMax": 11600,
+      "backlogDurationMs": 20412,
+      "drainMs": 412,
+      "series": [
+        {
+          "at": 4,
+          "lag": 1,
+          "pending": 218
+        },
+        {
+          "at": 1017,
+          "lag": 5,
+          "pending": 942
+        },
+        {
+          "at": 2023,
+          "lag": 8,
+          "pending": 1485
+        },
+        {
+          "at": 3029,
+          "lag": 11,
+          "pending": 2030
+        },
+        {
+          "at": 4038,
+          "lag": 14,
+          "pending": 2579
+        },
+        {
+          "at": 5052,
+          "lag": 17,
+          "pending": 3128
+        },
+        {
+          "at": 6070,
+          "lag": 21,
+          "pending": 3860
+        },
+        {
+          "at": 7079,
+          "lag": 24,
+          "pending": 4418
+        },
+        {
+          "at": 8088,
+          "lag": 27,
+          "pending": 4985
+        },
+        {
+          "at": 9095,
+          "lag": 30,
+          "pending": 5552
+        },
+        {
+          "at": 10113,
+          "lag": 33,
+          "pending": 6119
+        },
+        {
+          "at": 11118,
+          "lag": 36,
+          "pending": 6686
+        },
+        {
+          "at": 12124,
+          "lag": 40,
+          "pending": 7442
+        },
+        {
+          "at": 13131,
+          "lag": 43,
+          "pending": 8009
+        },
+        {
+          "at": 14136,
+          "lag": 46,
+          "pending": 8576
+        },
+        {
+          "at": 15139,
+          "lag": 49,
+          "pending": 9143
+        },
+        {
+          "at": 16158,
+          "lag": 52,
+          "pending": 9710
+        },
+        {
+          "at": 17163,
+          "lag": 55,
+          "pending": 10277
+        },
+        {
+          "at": 18180,
+          "lag": 58,
+          "pending": 10844
+        },
+        {
+          "at": 19198,
+          "lag": 62,
+          "pending": 11600
+        }
+      ]
+    },
+    "slowProjectIsolation": {
+      "normalP95Ms": 17,
+      "slowP95Ms": 17,
+      "normalSampleCount": 63,
+      "slowSampleCount": 63
+    },
+    "sustained": {
+      "windowMs": 120000,
+      "framesAccepted": 563,
+      "framesRejected": 0,
+      "rssMaxBytes": 312860672,
+      "rssStableBytes": 54493184,
+      "spoolBytesMax": 7872,
+      "eventLoopLagMaxMs": 0,
+      "spoolCapacityBytes": 12582912,
+      "capacityTriggered": false
+    },
+    "recoveryRto": {
+      "ms": 9962,
+      "acceptedBeforeKill": 90,
+      "replayKeysAfter": 90
+    }
+  },
+  "_rtoKilled": true,
+  "verdict": {
+    "verdict": "pass",
+    "hardBlocks": [],
+    "softWarns": [
+      {
+        "axis": "timeouts",
+        "level": "band",
+        "actual": 0.000682360968952576,
+        "budget": 0.01,
+        "why": "零星超时 10/14655（<1% 不构成雪崩——逐笔登记供评审）"
+      }
+    ],
+    "unobservable": []
+  }
+}

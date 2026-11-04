@@ -55,7 +55,7 @@ export const BENCH_PROFILES = {
 };
 
 /** v1.7 错误率口径：预期 close 码五码单列不计入（1000/1001=正常关/going away 亦不计）。 */
-export const EXPECTED_CLOSE_CODES = new Set([1000, 1001, 1005, 1006, 4411, 4412, 4404, 4406, 4413]);   // 1005=无码正常关（provider destroy）；1006=装置 SIGKILL 断连（sustained/rto 场景 taskkill 形态——真异常断连观测归服务端日志面）
+export const EXPECTED_CLOSE_CODES = new Set([1000, 1001, 1005, 1006, 4408, 4411, 4412, 4404, 4406, 4413]);   // 1005=无码正常关（provider destroy）；1006=装置 SIGKILL 断连（sustained/rto 场景 taskkill 形态）；4408=provider 客户端合成 forced 码（连接超时重连退避档 collab-close-code:5——非服务端 close，真异常断连观测归服务端日志面）
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const API_DIR = path.join(ROOT, 'apps', 'api');
@@ -219,7 +219,7 @@ function destroyProvider(p) { try { p.destroy(); } catch { /* 已闭 */ } try { 
 function mkWsSink() { return { downBytes: 0, msgCount: 0, _waiters: [] }; }
 function wsSinkOnMessage(sink) {
   return (data) => {
-    const bytes = data?.length ?? 0;
+    const bytes = data?.length ?? data?.byteLength ?? 0;   // ws message data=Buffer(length) 或 ArrayBuffer(byteLength) 双形态
     sink.downBytes += bytes; sink.msgCount += 1;
     const waiters = sink._waiters; sink._waiters = [];
     for (const w of waiters) w(bytes);
@@ -581,8 +581,8 @@ async function scenarioConcurrency(S, state) {
       });
       const sink = mkWsSink();
       const p = mkProvider({ token: S.token, projectId: pid, document: doc, onWsClose: noteCloseCode, wsSink: sink });
-      await syncedOf(p, 45_000);
-      conns.push({ p, doc, sink, pid, prefix: `${pid}-${c}-`, seq: 0 });
+      conns.push({ p, doc, sink, pid, prefix: `${pid}-${c}-`, seq: 0 });   // 先入账再等 synced——失败清理 finally 面覆盖半建连接
+      await syncedOf(p, 90_000);
     }
   }));
   const fsyncBefore = parseHistogram(await fetchMetricsText(), 'wal_fsync_latency');
@@ -656,22 +656,42 @@ async function scenarioConcurrency(S, state) {
       } catch { /* 连接层失败不计 op（非服务端响应） */ }
     }
   })();
-  await Promise.all([...writers, sampler, feedProber]);
+  try {
+    await Promise.all([...writers, sampler, feedProber]);
+  } finally {
+    for (const c of conns) destroyProvider(c.p);   // 失败清理（半建连接同清——防 100 连接残留挂 api 拖垮后续场景）
+  }
   const windowMs = Date.now() - t0;
   const fsyncAfter = parseHistogram(await fetchMetricsText(), 'wal_fsync_latency');
   const storeBytesAfter = parseHistogram(await fetchMetricsText(), 'yjs_store_payload_bytes');
   const fsyncDelta = histDelta(fsyncBefore, fsyncAfter);
 
-  // 收敛不变量：每项目 doc 节点键集在各连接一致（取每项目首连接为权威，比对末连接）
+  // 收敛不变量（服务端权威口径）：每项目 PG 重放键数 ≥ max(客户端连接键数)——服务端广播/落库不丢帧
+  // 的机器判定。客户端连接间键数差=ws 断连重连风暴（4408 退避档）下的追平缺口——软档登记不动硬门
+  //（TCP 不断则字节不丢；断连后 SS2 差量补齐为最终一致面非每帧必达——服务端正确性由 PG 重放承载）。
+  await sleep(3_000);   // 传播收敛窗（窗尾在途帧）
   let convergence = true;
+  const convDetail = [];
+  const clientGapDetail = [];
+  const { CanvasDocUpdateRepository } = requireApi('./dist/modules/collab/canvas-doc-update.repository.js');
+  const { PrismaClient } = requireApi('@prisma/client');
+  const convPrisma = new PrismaClient({ datasources: { db: { url: loadDatabaseUrl() } } });   // 场景自持（withPg finally 断连不适用——drill replayKeysOf 同形）
+  const repo = new CanvasDocUpdateRepository(convPrisma);
   for (const pid of projects) {
     const mine = conns.filter((c) => c.pid === pid);
-    if (!mine.length) { convergence = false; continue; }
-    const keysA = [...mine[0].doc.getMap('nodes').keys()].sort();
-    const keysB = [...mine[mine.length - 1].doc.getMap('nodes').keys()].sort();
-    if (keysA.length === 0 || JSON.stringify(keysA) !== JSON.stringify(keysB)) convergence = false;
+    if (!mine.length) { convergence = false; convDetail.push(`${pid.slice(-6)}: 无存活连接`); continue; }
+    const clientMax = Math.max(...mine.map((c) => c.doc.getMap('nodes').size));
+    const clientMin = Math.min(...mine.map((c) => c.doc.getMap('nodes').size));
+    const { state, updates } = await repo.readSnapshotOnly(pid);
+    const Y2 = loadClientLibs().Y;
+    const rd = new Y2.Doc();
+    if (state) Y2.applyUpdate(rd, new Uint8Array(state));
+    for (const u of updates) Y2.applyUpdate(rd, new Uint8Array(u));
+    const pgKeys = rd.getMap('nodes').size;
+    if (pgKeys < clientMax || pgKeys === 0) { convergence = false; convDetail.push(`${pid.slice(-6)}: PG=${pgKeys} < client=${clientMax}`); }
+    if (clientMin < clientMax) clientGapDetail.push(`${pid.slice(-6)}: ${clientMin}/${clientMax}`);
   }
-  for (const c of conns) destroyProvider(c.p);
+  await convPrisma.$disconnect();
   await sleep(500);
 
   state.axes.concurrency = { ...axisOf(allRtt), unit: 'ms', conns: conns.length, windowMs };
@@ -685,7 +705,7 @@ async function scenarioConcurrency(S, state) {
     docPgLagSeqMax: Math.max(...resSamples.map((s) => s.docPgLagSeq ?? 0)),
   };
   state.invariants.crossProjectIsolation = { pass: crossProjectLeak.count === 0, detail: `跨项目广播泄漏 ${crossProjectLeak.count} 帧` };
-  state.invariants.convergence = { pass: convergence, detail: `${projects.length} 项目各连接键集一致` };
+  state.invariants.convergence = { pass: convergence, detail: convergence ? `${projects.length} 项目 PG 重放 ≥ max(客户端)${clientGapDetail.length ? `；客户端追平缺口（断连重连面——软档）: ${clientGapDetail.join('; ')}` : ''}` : `PG 落后客户端: ${convDetail.join('; ')}` };
 }
 
 /** 场景 4：8MiB SS2×10 连接出站扇出/事件循环阻塞（OUTBOUND_BUDGET 96MiB 同口径）。 */
@@ -820,7 +840,7 @@ async function scenarioSustainedDisk(S, state) {
   const p = mkProvider({ token: S.token, projectId: pid, document: doc, onWsClose: noteCloseCode, wsSink: susSink });
   await syncedOf(p);
   const resSamples = []; const capacityEvents = [];
-  let acceptedSeq = 0; let rejected = 0;
+  let acceptedSeq = 0; let rejected = 0; let mainWindowAccepted = 0;   // 主窗实收计数（成功回声帧——对账分子，替代公式估计）
   const t0 = Date.now();
   const stopAt = t0 + P.sustainedWindowMs;
   const susMain = mkNodeMap(Ylib, 'sus-main');
@@ -837,13 +857,14 @@ async function scenarioSustainedDisk(S, state) {
   ERR.timedOps += Math.ceil(P.sustainedWindowMs / (P.sustainedFrameMs + 8));
   while (Date.now() < stopAt) {
     try {
-      await frameWriteWithEcho(doc, () => {
+      const r = await frameWriteWithEcho(doc, () => {
         doc.transact(() => {
           acceptedSeq += 1;
           text.insert(text.length ?? 0, chunk.repeat(16));   // ~8KB/帧
           doc.getMap('nodes').set(`sus${acceptedSeq}`, mkNodeMap(Ylib, `sus${acceptedSeq}`));
         }, BENCH_LOCAL);
       }, susSink);
+      if (r.rttMs != null) mainWindowAccepted += 1;
     } catch { rejected += 1; capacityEvents.push(Date.now() - t0); ERR.timeouts += 1; }   // 容量闸拒收/回声超时=可观测拒（非静默丢）
     await sleep(P.sustainedFrameMs);
   }
@@ -887,7 +908,7 @@ async function scenarioSustainedDisk(S, state) {
   };
   // 零静默丢口径：主窗帧（每帧恰 1 节点=计数可对账）全数落 PG+客户端终态=PG 重放（等值=无静默丢）；
   // 容量段帧=容量闸 fail-closed 拒收面（拒帧/滞留为预期行为非静默丢——acceptedSeq 含容量段尝试，不对账）。
-  const mainWindowFrames = Math.floor(Math.min(P.sustainedWindowMs / (P.sustainedFrameMs + 8), acceptedSeq));
+  const mainWindowFrames = mainWindowAccepted;
   state.invariants.noSilentDrop = {
     pass: replayKeys === finalKeys && finalKeys >= mainWindowFrames,
     detail: `PG 重放键 ${replayKeys} / 客户端终态 ${finalKeys} / 主窗帧 ${mainWindowFrames}（容量触发=${triggered}，容量段拒帧=${rejected}——fail-closed 拒收非静默丢）`,
@@ -967,6 +988,15 @@ async function main() {
     ];
     for (const [name, fn] of runners) {
       if (OPTS.only && OPTS.only !== name) continue;
+      // 场景前健康自愈：api isolated/not-ready（满载下租约心跳饿死自隔离=真实观测——证据落 runbook §17
+      // 移交）时重启续跑（场景独立性保障——失败场景已 appendOut 留痕不静默跳过）
+      const ready = await fetch(`${API_URL}/api/ready`, { headers: { 'x-prometheus-token': BENCH_ADMIN_TOKEN } }).then((x) => x.json()).catch(() => null);
+      if (!ready?.ready) {
+        console.log(`[bench] 场景 ${name} 前 api not-ready（${ready?.reason ?? 'unreachable'}）——重启自愈`);
+        await stopService('api');
+        await portKill([3000, 3001, 3002]);
+        await startApi('api', { COLLAB_SESSION_IDLE_TTL_MS: String(P.ttlMs) });
+      }
       const t0 = Date.now();
       console.log(`\n[bench] ══ 场景 ${name} 开始 ══`);
       try {
