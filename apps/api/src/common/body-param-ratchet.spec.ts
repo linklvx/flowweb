@@ -80,7 +80,7 @@ const INLINE_BASELINE = new Set<string>([
   'modules/collab/collab-doc.controller.ts|body: { deleteNodeIds?: string[]; keepNodeIds?: string[]; recalibrate?: boolean }',
   /* Y0c T27：worker 写端点（body 校验=controller 内 T4 manifest 执法档 validateWriteBatch——
    * 六 op 判别联合数组非 class-validator 表达面，pipe 零增量；shrink 端点同惯例「校验进门自持」） */
-  'modules/collab/collab-write.controller.ts|body: { projectId?: unknown; ops?: unknown }',
+  'modules/collab/collab-write.controller.ts|body: { projectId?: unknown; nodeId?: unknown; patch?: unknown }',   // Y1c T32：write-batch→exec-status 端点（投影写进门自持同惯例）
   /* Y1a T11：replaceMedia/clearMedia 命令（body 判别联合进门自持窄化——collab-write 同惯例） */
   'modules/collab/collab-media.controller.ts|body: { action?: unknown; mediaId?: unknown; expectedRev?: unknown }',
   /* T25b 四读径③：BindMedia/CloneBinding typed 命令（判别联合进门自持窄化——collab-media 同惯例+棘轮登记） */
