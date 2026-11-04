@@ -1028,6 +1028,9 @@ async function modeClient() {
       const oldClosed = wsCloseOf(first, 20_000);
       await synced(second, 20_000);
       second.document.transact(() => { const data = new Y.Map(); data.set('model', 'cl-idbind2'); const m = new Y.Map(); m.set('type', 'textInput'); m.set('data', data); second.document.getMap('nodes').set('t31-cl-idbind2', m); });   // 同四元第二连接首帧→接管判定
+      // T31 双评审 quality P2-4：second 帧落 PG 断言（判别力）——未观测接管 close 时区分两形态：
+      // 帧达准入链而未触发接管（=接线动态时序疑点，升级调查）vs 帧未达准入链（=装置驱动形态未达）。
+      await waitFor(async () => (await replayKeysOf(S.project)).includes('t31-cl-idbind2') ? 'done' : false, 20_000, 'second 帧落 PG（接管判别力锚——帧未达=装置形态未达非接线缺口）');
       const code = await oldClosed.catch(() => null);
       console.log(`[drill] clientID 同键：旧连接 close=${code ?? '未达（20s 无接管 close）'}；新连接 synced`);
       destroyProvider(first); destroyProvider(second);

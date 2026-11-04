@@ -618,6 +618,7 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 - **fsync 失败分档**：写前失败/ENOSPC=截断回 last-good+复用已分配 seq（fail-closed 停收）；**EIO=fail-stop**（walHealthy=false/停收/close 1011 WSN/要求进程重启+磁盘检查——不进截断复用路径；`wal_fsync_error_total{device}` 告警不自动重试）。
 - **毒帧协议**（WAL fsync 成功+apply 失败）：同步关项目全部连接（广播 flush 前）→停写→WAL 截断至 appliedSeq→close 4411→从 pgSeq 重放——不得跳帧续提交。
 - **save barrier**（onStateless）：回执 `{nonce,clientSeq,committedSeq}`；触发=800ms idle/5s 上限/pagehide/执行前；服务端 flush 节流 ≤250ms；durable watermark 广播 ≤1 次/秒仅辅助。拒帧连接屏障不可成功；maintenance 期回错误回执 `{nonce,error:'maintenance',committedSeq}`（BarrierErrorReceipt 冻结线形——nonce 回显供幂等匹配，不产生 Durable）。
+- **维护端点调用形态**（T31 发现④，2026-11-04）：`/api/collab/maintenance/:projectId/start|complete` 走全局 AuthGuard 非 public 路径——**双凭据**（`x-prometheus-token`〔=COLLAB_ADMIN_TOKEN〕+用户 session cookie `flowweb.session_token`）缺一 401；人工/脚本调用须两样齐。
 - **版本硬门**=protocolVersion+schemaVersion+historyId 三元（4406 client-outdated 强刷）；build hash 仅遥测。**onAuthenticate 先比 historyId 再比 generation**（同代 PITR 的 SS2 复活形态）→server-restored 只读 recovery。
 - **帧闸**（单源派生见代码）：普通帧=2×maxTxBytes=512KB；SS2 帧=maxDocBytes+包装余量≈8.06MiB；WS maxPayload=9MiB（T9 翻转 collab-limits 单源改引）；认证后入站排队上限=2×SS2 帧闸超限 1009；SS2 并发信号量 per-project 1+全局预算 4×SS2≈32MiB（工程值，T33 观测后调）。**HTTP seed 端点废止**——重开触发条件 cold p95>3s 或 loop block>50ms（T29 挂 gate，重开即新评审）。
 
@@ -669,7 +670,7 @@ node scripts/reset-collab.mjs --status                             # 只读：�
 | 3 | migrate | `prisma migrate deploy`（apps/api cwd，串行锁内） |
 | 4 | seed | `tsx prisma/seed.ts`+`tsx prisma/gate-seed.ts`（§3.3 人工序收编） |
 | 5 | quarantine-spool | 旧 spool/WAL **整目录**挪 `.quarantine-<ts>/` 兄弟目录（保证据不删；目录不存在=已完成语义幂等；detail 落盘两态） |
-| 6 | bump-history | `UPDATE SystemHistory SET historyId=gen_random_uuid(), epochStartedAt=now() WHERE id=1`（T13/T29 恢复契约收尾步：bump 后旧 WAL 段 historyId 不匹配=boot 不收养，时间戳栅栏对新一代恒假） |
+| 6 | bump-history | `UPDATE SystemHistory SET historyId=gen_random_uuid(), epochStartedAt=(now() AT TIME ZONE 'utc') WHERE id=1`（T13/T29 恢复契约收尾步：bump 后旧 WAL 段 historyId 不匹配=boot 不收养，时间戳栅栏对新一代恒假；**T31 P-1 时区根修口径——禁裸 `now()`**：epoch 列=timestamp without tz 按会话时区墙钟存+Prisma 按 UTC 读=+8h 漂移〔2026-11-04 实弹根修——reset-collab 产品工具同形〕。**双评审登记（T31）：T7 genesis 迁移 bootstrap 行裸 `now()` 系迁移不可改残留**——漂移窗=安装→首次 bump，新装/升级后必经本步 bump 一次即自愈新形态；忘 bump 场景由 restore.lock marker 时间戳栅栏双保险兜底〔T31 restore-fence 实弹证〕） |
 | 7 | verify | SystemHistory id=1 非零非空+核心 collab 表 4/4（CanvasDoc/CanvasDocUpdate/CanvasDocSnapshot/SystemHistory）+spool 目录净；quarantine=不存在态且本链 DROP 前计数非零时打显式注记（空库 reset 合法不强红——宣称面诚实） |
 
 **spool 目录解析口径（收口 spec C1）**：`COLLAB_SPOOL_DIR`（env→apps/api/.env）双缺回退树内默认（apps/api/.data/collab-spool）时工具打显式 WARNING 不红——本地 dev 该默认即真实目录（合法）；**服务器 P47 后真实目录=树外 `/home/ubuntu/flowweb-data/collab-spool` 且 env 只经 ecosystem 注入到 api 进程（工具不可见）——步 ⑤ 前人工 `export COLLAB_SPOOL_DIR=/home/ubuntu/flowweb-data/collab-spool` 或核对 WARNING 打印的目录**。

@@ -95,7 +95,9 @@ Y1c T31 故障演练矩阵记录（本地实弹——P4 重启裁定②「实弹
       重试零重复副作用       ahead 键外呼前落库）即 kill api（崩溃窗=外部成功/本地未提交——形态注记
                             D-6：text 链承载于 api 进程）→重启重试→三断言全过：外呼恰 1 次+幂等键
                             恒同 1 个+台账 reserve/settle 各恰 1 行+余额恰扣一次（9/10）+intent 恰一行
-                            SUCCEEDED ✓〔spec 偏离 36-④⑥ text 链锚〕
+                            SUCCEEDED ✓〔spec 偏离 36-④⑥ text 链锚；双评审 spec P2 措辞勘正：外呼恰
+                            1 次=stub 日志观测项非硬断言——硬断言=幂等键恒同/reserve·settle 各恰 1/
+                            余额 9/10/intent SUCCEEDED 四项〕
 
   J. doc 卸载×PG 故障      实弹 --infra 档1 同链承载：停机窗在连客户端断开（destroy 触发卸载路径）
                             ×PG 不可达——恢复后帧由回灌承接（x2 零丢失）✓；卸载 drain 纪律单测=
@@ -128,19 +130,27 @@ Y1c T31 故障演练矩阵记录（本地实弹——P4 重启裁定②「实弹
       UTC 墙钟（now() AT TIME ZONE 'utc'——reset-collab bump〔产品工具〕/drill-cutover rollback
       随批/drill-fault 装置三处）；红锚 deploy-guard T31-P1 红①红②（先红 42/44 后绿 44/44）；
       根修后 restore-fence 实弹复证 blocked 拦截全绿。存量数据：现库 epoch 已新形态 bump 自愈；
-      生产升级=下次 bump 起新形态（恢复窗内 8h 漂移面在 bump 前暴露——runbook §16 步④ reset
-      收尾序覆盖）。
-  发现②（登记移交）clientID 单活跃真 WS 接管 close 未观测：t24-clientid-binding spec 单测链全绿
-      （actor 直调四态）而装置实弹（同 doc.clientID 双 provider+awareness 写+帧提交两驱动）20s
-      无接管 close。接线面疑点（gateway→actor 的 clientId 提取或帧时序）移交 Controller；契约
-      承载=既有 spec 四态。
-  发现③（登记移交）L2 毒帧×水位窗→walHealthy 全实例熔断：container-replacement 帧在
-      pgSeq>appliedSeq 窗触发「truncate/close failed: watermark」→walHealthy fail-stop（单帧
-      毒帧=全实例停收，重启即复现）。超 fail-closed（不静默）但与 spec §4.3「隔离当前文档」
-      的作用域（per-doc vs 全实例）存疑——归 Controller 核实档位。
-  发现④（装置演化非缺陷）maintenance 端点 401=全局 AuthGuard 非 public 路径要求 session
-      cookie（admin token 之外）——装置补 cookie 后通；runbook 维护调用面注记（admin token+
-      session 双凭据形态）。
+      生产升级=下次 bump 起新形态（恢复窗内 8h 漂移面在 bump 前暴露——runbook §16 步⑥ bump-history
+      收尾序覆盖〔双评审 P2 步号勘正：原文引「步④」系错步号——步④是 DB 快照〕）。
+  发现②（登记移交→**双评审收口升级定案**）clientID 单活跃真 WS 接管 close 未观测：t24-clientid-binding
+      spec 单测链全绿（actor 直调四态）而装置实弹（同 doc.clientID 双 provider+awareness 写+帧提交两驱动）
+      20s 无接管 close。**双收口微批补判别锚复跑（--client 51.2s EXIT=0）：second 帧落 PG 断言通过而
+      接管 close 仍未观测=「帧达准入链而执法未触发」定案**（排除装置驱动形态未达）；quality 员静态
+      接线链逐跳核完整（gateway:471→frame-gate:53/92→actor:1121-1130 conn 真值传递）→动态时序/路径
+      疑点确认，专项调查派发（真栈中间层用例补位——actor 直调 unit 与全栈 drill 之间的 gateway 层）；
+      契约承载暂=t24 四态单测。
+  发现③（登记移交→**双评审两疑点闭合**）L2 毒帧×水位窗→walHealthy 全实例熔断：container-replacement
+      帧在 pgSeq>appliedSeq 窗触发「truncate/close failed: watermark」→walHealthy fail-stop（单帧
+      毒帧=全实例停收）。超 fail-closed（不静默）但与 spec §4.3「隔离当前文档」的作用域（per-doc vs
+      全实例）存疑——spec 员裁定=合规方向 P2（截断失败档全局 walHealthy=false 系既有设计语义，
+      §4.3:191 fail-closed 出口承载；常规毒帧路径 per-doc 隔离合规）。两疑点：①窗可达性根因=
+      合法滞后形态假说（T26 F-1 doc-lag/收养窗 pgSeq 先行——不变量断言求值域×合法窗作用域错配）
+      登记待专项定位；②原文「重启即复现」登记不实勘正——walHealthyFlag=实例级内存字段（spool:480）
+      +新进程 boot recoverScan 重建水位（EIO 档重启自愈=g6a K6〔collab-t13-g6a.spec.ts:242〕既有
+      承载；水位违例档重启行为未直接测试）——「永久不可用」形态结构性不成立，P1 升级条件不满足。
+  发现④（装置演化非缺陷→**双评审落地 runbook**）maintenance 端点 401=全局 AuthGuard 非 public 路径
+      要求 session cookie（admin token 之外）——装置补 cookie 后通；runbook §14 维护端点调用形态
+      注记已落（admin token+session 双凭据——双评审 P2 原仅口头移交）。
 
 【四】形态偏差登记（本地实弹=本地形态——诚实登记；T30b D-1..D-7 先例）
   D-1 PG failover=装置前置 TCP proxy+DSN 改写注入（proxy kill=api 视角主库不可达）——本机无
@@ -166,16 +176,29 @@ Y1c T31 故障演练矩阵记录（本地实弹——P4 重启裁定②「实弹
     40.4s/restore-fence 43.1s〔P-1 根修后〕/pitr-ss2 31.0s/client 54.4s/worker-crash 30.4s
   scripts 全池 node --test scripts/*.test.mjs=274/274（含 deploy-guard 44/44〔T31-P1 红①红②+
     charter 判据 T29 族〕+drill-fault.test.mjs 10/10〔红①-⑩〕+verify-chain⑥防漂移面同步
-    drill-fault.test.mjs 入 manifest）
+    drill-fault.test.mjs 入 manifest）（双评审 P2 计数勘正：本行为收尾批时点值——红⑩ 同批落定后
+    终值=275/275；commit 3ac21213 记「276/276」系笔误〔该时点推导值 274〕，quality 员实跑复核
+    =275/275 全绿）
   pre-commit verify:fast 12 步 PASS×4 commit（check-collab-census 33/33 内含）
   charter restore-drill 项 evidence 落位（首次 drill 已执行——dev-test 形态全绿+生产季度 drill
     仍 pending 归 T34 发布门前；deploy-guard T29 族 44/44 复验不回归）
 
 【六】演练工件
   装置=scripts/drill-fault.mjs（七模式+--confirm 破坏性守卫+FAULT_MODES 机器承载）；测试组=
-  scripts/drill-fault.test.mjs（10 例红组）；进程日志=backups/t31-logs/；快照=backups/t31-
-  restore-* / t31-pitr-*.dump（gitignored）；隔离目录=apps/api/.data/.quarantine-t31-*（gitignored，
-  证据保全不删）；会话级运行日志=/d/tmp/t31-*.log。
+    scripts/drill-fault.test.mjs（10 例红组）；进程日志=backups/t31-logs/；快照=backups/t31-
+    restore-* / t31-pitr-*.dump（gitignored）；隔离目录=apps/api/.data/.quarantine-t31-*（gitignored，
+    证据保全不删）；会话级运行日志=/d/tmp/t31-*.log。
+
+【七】双评审收口补登（2026-11-04，spec+quality 双 APPROVED 无 P0/P1——P2 七项〔spec 4+quality 5，
+    去重后五族〕处置）
+  ① runbook §16 步⑥ bump SQL 补 UTC 口径+禁裸 now() 注记+T7 genesis 迁移残留写者登记（迁移
+     不可改铁律——新装/升级后必经 bump 一次自愈+忘 bump restore.lock marker 双保险兜底）
+  ② cl2 装置补 second 帧落 PG 判别锚（quality P2-4）+复跑定案发现②（见【三】升级文本）
+  ③ 发现③两疑点闭合+「重启即复现」勘正（见【三】升级文本）——P1 升级条件不满足，维持 P2 登记
+  ④ 发现④双凭据注记落 runbook §14（原口头移交落地）
+  ⑤ 计数口径勘正（见【五】注记）+worker-crash「三断言」措辞勘正（见【一】I1 注记——外呼恰 1 次
+     =日志观测项非硬断言，硬断言四项守住核心契约）
+  复验：--client 复跑 51.2s EXIT=0（cl1 5.5s/cl2 20.8s〔新判别锚过〕/cl3 8.9s）。
 
 【七】终态 commit 链
   73ee0728〔装置+红组 9 例+kill9 族实弹绿〕→3ac21213〔恢复族三模式+P-1 根修（epoch 时区漂移）
