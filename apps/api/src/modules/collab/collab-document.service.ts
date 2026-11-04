@@ -9,7 +9,6 @@ import { toDocLike } from './doc-like.util';
 import { createCanvasDoc } from './canvas-doc.factory';
 import type { FlushOutcome } from './collab-persistence.service';
 import { yjsSnapshotFallbackTotal, yjsWithdocDuration, yjsWithdocOpenDuration, noteDirectLoad, consumeDirectLoad, registerSnapshotCacheEntriesReader, unregisterSnapshotCacheEntriesReader } from './store.metrics';
-import { execProjectionDroppedTotal, execOrphanBlockedTotal, execSeqStaleRejected } from '../execution/exec.metrics';
 import { SnapshotDocCache } from './snapshot-doc-cache';
 import { RuntimeFeedService } from './runtime-feed.service';
 import { CollabLifecycleObserverService } from './collab-lifecycle-observer.service';
@@ -341,9 +340,10 @@ export class CollabDocumentService implements OnApplicationShutdown {
   }
 }
 
-// ── Y0c T8：doc 写原语纯函数（writeNodeData/writeExecStatus 方法体与 writeBatch 逐 op 共用——
-// 单一写语义真源；置于类后保 withDoc 调用点行号 advisory 稳定）。守卫失败返回类型化结果不 throw
-// （Z40②：批面=合法结果进数组；单写面=原样返回给调用方）。 ──
+// ── Y0c T8：doc 写原语纯函数（writeNodeData 方法体与 writeBatch 逐 op 共用——单一写语义真源；
+// 置于类后保 withDoc 调用点行号 advisory 稳定）。守卫失败返回类型化结果不 throw（Z40②：批面=合法
+// 结果进数组；单写面=原样返回给调用方）。Y1c T32：writeExecStatus/deleteExecOrphans 两原语随
+// doc.exec 读写链退役删除（writeExecStatus/deliverArtifact=RuntimeEvent feed 写面——方法体见类内）。 ──
 
 /** Z5 undefined 拒码单源（Y0c T9）：消息含码名 UNDEFINED_PATCH_VALUE——applyWriteNodeDataToDoc
  *  （单写面+批面原语共用）与 writeBatch 进门扫描两 fail-fast 点共此一口，禁漂移。
@@ -384,38 +384,6 @@ export function applyWriteNodeDataToDoc(doc: Y.Doc, nodeId: string, patch: Recor
   return { written: true };
 }
 
-/** writeExecStatus 守卫判定结果——Z40②：守卫失败在批面=合法结果 written:false+reason；
- *  单写面维持 void 静默语义不变（cause 计数在方法内保持）；{written,reason} 上浮调用方=Z69 登记 Y1c-3。
- *  Y0c T11（Z4）：node-deleted=节点不存在（存在性守卫在代次判定之前——不建条目，守卫拦截至此即返；
- *  writeNodeData 的 node-deleted/no-node-map 两档在 exec 域合并为一档——exec 条目无细分处置需求）。 */
-export type ExecStatusApplyOutcome =
-  | { written: true }
-  | { written: false; reason: 'missing-attempts' | 'older-attempts' | 'terminal-superseded' | 'node-deleted' };
-
-/** writeExecStatus 写核心（Z99/Z111 代次守卫 fail-closed——守卫子句语义见方法头注，此处逐条对应）。
- *  Y0c T11（Z4）：首段节点存在性守卫（结构对齐 applyWriteNodeDataToDoc 存在性先行——undefined/非
- *  Y.Map 同拦一档 node-deleted；Z69 减法：不建条目即返，新孤儿结构性不可产生，存量归 sweepOrphanExec）。 */
-export function applyWriteExecStatusToDoc(doc: Y.Doc, nodeId: string, patch: ExecStatusPatch): ExecStatusApplyOutcome {
-  const node = doc.getMap('nodes').get(nodeId);
-  if (!(node instanceof Y.Map)) return { written: false, reason: 'node-deleted' };
-  if (typeof patch.attempts !== 'number') return { written: false, reason: 'missing-attempts' };
-  const exec = doc.getMap('exec');
-  let m = exec.get(nodeId) as Y.Map<any> | undefined;
-  if (m instanceof Y.Map) {
-    const storedAttempts = typeof m.get('attempts') === 'number' ? (m.get('attempts') as number) : 0;
-    if (patch.attempts < storedAttempts) return { written: false, reason: 'older-attempts' };
-    const s = m.get('status');
-    if (patch.attempts === storedAttempts && (s === 'done' || s === 'error')) {
-      return { written: false, reason: 'terminal-superseded' }; // 同代次终态不倒退
-    }
-  } else {
-    m = new Y.Map();
-    exec.set(nodeId, m);
-  }
-  for (const [k, v] of Object.entries(patch)) if (v !== undefined) m.set(k, v);
-  return { written: true };
-}
-
 /** deleteNodeDataKeys 写核心（Y0c T9·Z5 显式删键 op——客户端 canvasIntents.updateNodeData
  *  「patch 值===undefined⇒delete 键」本地语义的服务端对应物，该语义永不上线〔JSON wire 不可达〕）：
  *  节点缺失 ⇒ written:false node-deleted（Z44 对齐）；不存在之键 delete no-op；
@@ -441,7 +409,7 @@ export function applyDeleteNodeDataKeysToDoc(doc: Y.Doc, nodeId: string, keys: r
 
 /** deleteNodes 写核心（收编 collab-shrink.deleteNodesInDoc——语义原样迁移）：E68 边级联
  *  （引用被删节点的边一并删——悬挂边防护；非 map 边值跳过）+nodes 删；doc.transact 单事务原子。
- *  delete 幂等（不存在的 id=no-op）；exec 条目不在此删（孤儿清扫归 deleteExecOrphans 单点）。 */
+ *  delete 幂等（不存在的 id=no-op）；exec 根=T32 起死根（零写者——无孤儿清扫面）。 */
 export function applyDeleteNodesToDoc(doc: Y.Doc, nodeIds: readonly string[]): WriteNodeDataResult {
   const victims = new Set(nodeIds);
   doc.transact(() => {
@@ -468,16 +436,3 @@ export function applyFillDocToDoc(doc: Y.Doc, nodes: readonly StoredNodeRecord[]
   return { written: true };
 }
 
-/** deleteExecOrphans 写核心（收编 intent-reconcile.sweepOrphanExec 直写——语义原样迁移）：
- *  nodes map 无该 nodeId 的 exec 条目删除（Z4 守卫止新孤儿，本项消化存量）；零孤儿=合法 no-op；
- *  delete 幂等（重扫空集）。 */
-export function applyDeleteExecOrphansToDoc(doc: Y.Doc): WriteNodeDataResult {
-  doc.transact(() => {
-    const exec = doc.getMap('exec');
-    const nodes = doc.getMap('nodes');
-    for (const id of [...exec.keys()]) {
-      if (!nodes.has(id)) exec.delete(id);
-    }
-  });
-  return { written: true };
-}

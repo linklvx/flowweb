@@ -84,39 +84,14 @@ export const providerRedriveBlockedTotal = new Counter({
   registers: [register],
 });
 
-/** Z111：writeExecStatus 守卫 fail-closed 丢弃计数——缺 attempts（违约 patch）/严格更老一律丢
- *  （不看终态——老代 error(1) 不得覆盖新代 loading(2)）；Y0c T11 起 cause=node-deleted（存在性守卫）
- *  同事件并入。非 0=有投影被拦（观测代次违约面+守卫丢弃全集）。 */
-export const execProjectionDroppedTotal = new Counter({
-  name: 'exec_projection_dropped_total',
-  help: 'Y0b-2（Z111）：exec 投影守卫丢弃计数（cause=missing-attempts 缺代次/older-attempts 严格更老——fail-closed 两子句；node-deleted（Y0c T11 存在性守卫——与 exec_orphan_blocked_total 同事件并列：彼=专项信号，此=守卫丢弃全集））',
-  labelNames: ['cause'],
-  registers: [register],
-});
-
-/** Y0c T11（Z4/Z69）：writeExecStatus 存在性守卫拦截计数——节点不存在不建条目
- *  （新孤儿结构性不可产生；存量归 sweepOrphanExec 游标轮转消化）。无标签（execProjectionDeferredTotal 先例）。 */
-export const execOrphanBlockedTotal = new Counter({
-  name: 'exec_orphan_blocked_total',
-  help: 'Y0c T11（Z4）：writeExecStatus 存在性守卫拦截计数——节点不存在不建条目（新孤儿结构性不可产生；存量归 sweepOrphanExec 消化；同事件亦计入 exec_projection_dropped_total——彼=守卫丢弃全集，此=专项信号）',
-  registers: [register],
-});
-
-/** Z112：reaper 终态投影分治——doc 非常驻跳过 UX 投影计数（重连后 alignExecFromIntents 对齐）。
- *  UX 投影不得成为装载源：provider 故障批量收敛时 withDoc 批量装载=故障自放大（正撞 E39/heap 闸）。 */
+/** Z112：reaper 终态投影分治——doc 非常驻跳过 UX 投影计数（重连后 Runtime Store feed 投影追平）。
+ *  UX 投影不得成为装载源：provider 故障批量收敛时 withDoc 批量装载=故障自放大（正撞 E39/heap 闸）。
+ *  Y1c T32：exec_projection_dropped_total/exec_orphan_blocked_total/exec_seq_stale_rejected 三计数
+ *  随 doc.exec 写守卫面退役删除（writeExecStatus=feed 写——Z99/Z111 doc 代次守卫不存在，迟到旧事件
+ *  由客户端 reducer nodeVersion 大者胜承担）。 */
 export const execProjectionDeferredTotal = new Counter({
   name: 'exec_projection_deferred_total',
-  help: 'Y0b-2（Z112）：reaper 终态投影因 doc 非常驻跳过计数（重连 alignExecFromIntents 对齐——UX 投影不成为装载源）',
-  registers: [register],
-});
-
-/** T19（plan v11.2 ③ 观测补）：旧代（execSeq 代际·doc exec cache attempts 域）写入被拒计数——
- *  writeExecStatus 代次守卫 older-attempts 拒点的专项命名信号（spec 钉名 exec_seq_stale_rejected）。
- *  与 exec_projection_dropped_total{cause='older-attempts'} 同事件并列（exec_orphan_blocked_total
- *  先例：彼=守卫丢弃全集，此=旧代拒写专项——takeover/重排场景旧 worker 迟到写的直接观测面）。 */
-export const execSeqStaleRejected = new Counter({
-  name: 'exec_seq_stale_rejected',
-  help: 'T19（v11.2 ③）：旧代 exec cache 写入被拒计数（writeExecStatus 代次守卫 older-attempts 拒点——takeover/重排后旧 worker 迟到写；与 exec_projection_dropped_total{cause=older-attempts} 同事件专项并列）',
+  help: 'Y0b-2（Z112）：reaper 终态投影因 doc 非常驻跳过计数（重连 Runtime Store feed 投影追平——UX 投影不成为装载源）',
   registers: [register],
 });
 

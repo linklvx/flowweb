@@ -438,12 +438,11 @@ const rowsOf = async (nodeId: string) =>
     expect(e.writeExecCalls.find((c) => c.patch.status === 'error')).toBeUndefined();
   });
 
-  it('Z78 信封清剿 api 侧前提：listByNode 真库行=裸数组（attempts 列在投影——web 对齐消费）', async () => {
+  it('T32 注记：intents 读面（GET /execution/intents+listByNode）随 web execAligned 链退役删除——行形态锚改经 intent 行直查（attempts 列在案）', async () => {
     const n = nid('env'); const nodes = [textNode(n)];
     const e = makeExec(nodes);
     await e.svc.execute(PID, undefined, UID, [n]);
-    const rows = await intentSvc.listByNode(PID, n);
-    expect(Array.isArray(rows)).toBe(true);      // controller 裸返回（拦截器单层包裹——手包双层已清剿）
+    const rows = await prisma.generationIntent.findMany({ where: { projectId: PID, nodeId: n } });
     expect(rows.length).toBe(1);
     expect(rows[0]).toMatchObject({ kind: 'text', status: 'SUCCEEDED' });
     expect(typeof rows[0].attempts).toBe('number'); // T5 投影代次判据列

@@ -106,13 +106,13 @@ describe('AuthGuard（批3-3：SessionService.touch 注入 + DB 异常不吞 401
     await expect(guard.canActivate(ctxFor('/api/collab/doc/p1/vacuum', {}, 'POST').ctx)).rejects.toThrow('Unauthorized');
   });
 
-  // Y0c T27：worker 写端点精确放行——POST /api/collab/doc/write-batch 静态路径全等（无 :projectId
+  // Y0c T27→Y1c T32：worker 写端点精确放行——POST /api/collab/doc/exec-status 静态路径全等（无 :projectId
   // 段，无需 regex——偏离 32 形态对齐；WorkerWriteAuthGuard 把关 Bearer WORKER_WRITE_TOKEN）。
-  it('Y0c T27：POST /api/collab/doc/write-batch 放行（WorkerWriteAuthGuard 把关）；GET 同路径与变体路径不获放行', async () => {
-    await expect(guard.canActivate(ctxFor('/api/collab/doc/write-batch', {}, 'POST').ctx)).resolves.toBe(true);
+  it('Y1c T32：POST /api/collab/doc/exec-status 放行（WorkerWriteAuthGuard 把关）；GET 同路径与变体路径不获放行', async () => {
+    await expect(guard.canActivate(ctxFor('/api/collab/doc/exec-status', {}, 'POST').ctx)).resolves.toBe(true);
     expect(touch).not.toHaveBeenCalled();
-    await expect(guard.canActivate(ctxFor('/api/collab/doc/write-batch', {}, 'GET').ctx)).rejects.toThrow('Unauthorized');       // 谓词限 POST
-    await expect(guard.canActivate(ctxFor('/api/collab/doc/write-batch/', {}, 'POST').ctx)).rejects.toThrow('Unauthorized');     // 尾斜杠非全等
-    await expect(guard.canActivate(ctxFor('/api/collab/doc/write-batch/x', {}, 'POST').ctx)).rejects.toThrow('Unauthorized');    // 深一段非端点
+    await expect(guard.canActivate(ctxFor('/api/collab/doc/exec-status', {}, 'GET').ctx)).rejects.toThrow('Unauthorized');       // 谓词限 POST
+    await expect(guard.canActivate(ctxFor('/api/collab/doc/exec-status/', {}, 'POST').ctx)).rejects.toThrow('Unauthorized');     // 尾斜杠非全等
+    await expect(guard.canActivate(ctxFor('/api/collab/doc/exec-status/x', {}, 'POST').ctx)).rejects.toThrow('Unauthorized');    // 深一段非端点
   });
 });

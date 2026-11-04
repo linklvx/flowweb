@@ -36,10 +36,45 @@ const FILES = collectProductionFiles();
 const RAW = new Map<string, string>(FILES.map((p) => [p, fs.readFileSync(path.join(ROOT, p), 'utf8')]));
 
 /** 词面命中（raw 全文——含注释；T32 删除纪律=注释提及一并清（非 spec 冻结文档），故 raw 计数）。 */
+function stripCommentsAndStrings(src: string): string {
+  let out = '';
+  let i = 0;
+  let mode: 'code' | 'line' | 'block' | 'single' | 'double' | 'template' = 'code';
+  let quote = '';
+  while (i < src.length) {
+    const c = src[i]; const n = src[i + 1];
+    if (mode === 'code') {
+      if (c === '/' && n === '/') { out += '  '; i += 2; mode = 'line'; continue; }
+      if (c === '/' && n === '*') { out += '  '; i += 2; mode = 'block'; continue; }
+      if (c === "'" || c === '"') { out += c; i += 1; mode = c === "'" ? 'single' : 'double'; quote = c; continue; }
+      if (c === '`') { out += '`'; i += 1; mode = 'template'; continue; }
+      out += c; i += 1;
+    } else if (mode === 'line') {
+      if (c === '\n') { out += '\n'; mode = 'code'; } i += 1;
+    } else if (mode === 'block') {
+      if (c === '*' && n === '/') { out += '  '; i += 2; mode = 'code'; continue; }
+      out += c === '\n' ? '\n' : ' '; i += 1;
+    } else if (mode === 'single' || mode === 'double') {
+      if (c === '\\') { out += '  '; i += 2; continue; }
+      if (c === quote) { out += quote; i += 1; mode = 'code'; continue; }
+      out += c === '\n' ? '\n' : ' '; i += 1;
+    } else {
+      if (c === '\\') { out += '  '; i += 2; continue; }
+      if (c === '`') { out += '`'; i += 1; mode = 'code'; continue; }
+      out += c === '\n' ? '\n' : ' '; i += 1;
+    }
+  }
+  return out;
+}
+
+const STRIPPED = new Map<string, string>(FILES.map((p) => [p, stripCommentsAndStrings(RAW.get(p)!)]));
+
+/** 词面命中（代码面——stripped：注释与字符串内容不计〔历史注记/help 文本=删除缘由在档非符号
+ *  触碰——census 主流组 findLineOccurrences 同口径〕）。 */
 function hits(token: string): Array<{ file: string; line: number }> {
   const out: Array<{ file: string; line: number }> = [];
-  for (const [p, raw] of RAW) {
-    raw.split('\n').forEach((l, i) => {
+  for (const [p, stripped] of STRIPPED) {
+    stripped.split('\n').forEach((l, i) => {
       if (l.includes(token)) out.push({ file: p, line: i + 1 });
     });
   }
@@ -52,9 +87,10 @@ describe('Y1c T32 删除清单 grep 零锚（census ⑤/⑥ 逐项——删除�
     expect(details).toEqual([]);
   });
 
-  it('A2 writeBatch exec 词汇：writeExecStatus op 构造/deleteExecOrphans 任意命中零（含 shared manifest 条目）', () => {
-    const details = [...hits("'writeExecStatus'"), ...hits('"writeExecStatus"'), ...hits('deleteExecOrphans')];
-    expect(details).toEqual([]);
+  it('A2 writeBatch exec 词汇：DOC_WRITE_OPS 词汇面无 writeExecStatus/deleteExecOrphans（shared manifest 单源——writeExecStatus 裸词保留=feed 写方法名/计数标签合法面）', async () => {
+    const { DOC_WRITE_OPS } = await import('@flowweb/shared');
+    expect(Object.keys(DOC_WRITE_OPS).sort()).toEqual(['deleteNodeDataKeys', 'deleteNodes', 'fillDoc', 'writeNodeData']);
+    expect(hits('deleteExecOrphans')).toEqual([]);
   });
 
   it('A3 exec 键域常量：EXEC_STATUS_KEYS 与 DOC_KEY_MANIFEST exec 根条目零（exec 根随 doc.exec 链退役）', () => {

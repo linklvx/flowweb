@@ -1,17 +1,17 @@
 // apps/api/src/modules/collab/collab-write.port.http.spec.ts
-// Y0c T24（Z99）：HttpCollabWritePort——worker 形态写端口（走内部端点，结果三分契约）。
+// Y0c T24（Z99）→Y1c T32：HttpCollabWritePort——worker 形态写端口（走内部端点，结果三分契约）。
 // 三分（Z99 字面）：瞬态（503/COLLAB_NOT_SERVING/真空窗/租约失守/网络错误族）⇒预算内退避重试，
 // 耗尽后**绝不上抛到 job**（作业成败由生成结果决定，不由投影写决定；attempts:1 维持）；
-// 业务 written:false（端点 200 业务响应）⇒原样传递（退款终态链唯一凭据——HTTP 侧 written:false 唯一
-// 生产者）；永久（token 失配/404/schema 拒）⇒计数告警不上抛。readCanvas=计费读 fail-closed（E49）——
+// 永久（token 失配/404/schema 拒）⇒计数告警不上抛。readCanvas=计费读 fail-closed（E49）——
 // 503 显式传递（throw SUE），区别于投影写的绝不上抛。
-// 第一验收锚（先红——spec Z99/plan T24）：注入 503 ⇒ rollbackDeliveryFailed 零调用+job 不失败——
-// 以端口单测+execution.service 既有 rollbackDeliveryFailed 调用链 mock 断言落锚（processor 全链归 T25 改道后）。
+// T32 改造注记：writeExecStatus 改道 POST /api/collab/doc/exec-status 端点（RuntimeEvent feed
+// 写——write-batch 端点/doc 批写面退役）；writeOpsBatch/HttpCollabDocWriter/typed 异常族用例
+// 随令牌删除（writeBatch worker 形态零消费）。
+// 第一验收锚（先红——spec Z99/plan T24）：注入 503 ⇒ rollbackDeliveryFailed 零调用+job 不失败。
 import { describe, it, expect, vi } from 'vitest';
 import { register } from 'prom-client';
 import { ServiceUnavailableException } from '@nestjs/common';
-import { HttpCollabWritePort, HttpCollabDocWriter, CollabWriteTransientExhaustedError, CollabWriteChannelPermanentError } from './collab-write.port';
-import { CollabDocWriterService } from './collab-doc-writer.service';
+import { HttpCollabWritePort } from './collab-write.port';
 import { ExecutionService } from '../execution/execution.service';
 
 /** 结构化响应装置（port 只读 status+json——plain object 免环境依赖）。 */
@@ -34,20 +34,20 @@ function fastPort(fetchImpl: ReturnType<typeof vi.fn>, opts: { maxAttempts?: num
   return new HttpCollabWritePort({ fetchImpl: fetchImpl as any, backoffBaseMs: 1, ...opts });
 }
 
-describe('HttpCollabWritePort（Z99 三分契约——真走 HTTP=writeExecStatus/readCanvas/writeOpsBatch〔T15 删 writeNodeData 单写面〕）', () => {
-  it('瞬态收敛：503×2 后 200——预算内退避重试后成功（writeExecStatus 单 op 批请求面——T15 后唯一单写面）', async () => {
+describe('HttpCollabWritePort（Z99 三分契约——真走 HTTP=writeExecStatus/readCanvas〔T32 后两方法〕）', () => {
+  it('瞬态收敛：503×2 后 200——预算内退避重试后成功（exec-status 单条请求面——worker 唯一写面）', async () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(res(503))
       .mockResolvedValueOnce(res(503))
-      .mockResolvedValueOnce(res(200, [{ index: 0, op: 'writeExecStatus', written: true }]));
+      .mockResolvedValueOnce(res(200, { written: true }));
     const port = fastPort(fetchImpl, { maxAttempts: 3 });
     await expect(port.writeExecStatus('p1', 'n1', { status: 'loading', attempts: 0 })).resolves.toBeUndefined();
     expect(fetchImpl).toHaveBeenCalledTimes(3);
-    // 请求面：write-batch 单端点（P8）+writeExecStatus 单 op 批
+    // 请求面（Y1c T32）：exec-status 端点+{projectId,nodeId,patch} 单条 body（原 write-batch 单 op 批退役）
     const [url, init] = fetchImpl.mock.calls[0];
-    expect(String(url)).toContain('/api/collab/doc/write-batch');
+    expect(String(url)).toContain('/api/collab/doc/exec-status');
     expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body).ops[0]).toEqual({ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'loading', attempts: 0 } });
+    expect(JSON.parse(init.body)).toEqual({ projectId: 'p1', nodeId: 'n1', patch: { status: 'loading', attempts: 0 } });
   });
 
   it('writeExecStatus 持续 503：resolve（void）不上抛+计数——投影写不决定作业成败', async () => {
@@ -82,7 +82,7 @@ describe('HttpCollabWritePort（Z99 三分契约——真走 HTTP=writeExecStatu
     expect(init.method).toBe('GET');
   });
 
-  it('NotImplemented 显式面：withDoc/isDocResident——worker 不消费（Z100 实测）显式抛错且零 fetch（T13：probeArtifacts 已随 doc 探测退款后门删除——端口面 7→6 方法）', () => {
+  it('NotImplemented 显式面：withDoc/isDocResident——worker 不消费（Z100 实测）显式抛错且零 fetch', () => {
     const fetchImpl = vi.fn();
     const port = fastPort(fetchImpl);
     expect(() => port.withDoc('p1', () => 1)).toThrow(/NotImplemented.*withDoc/);
@@ -90,7 +90,7 @@ describe('HttpCollabWritePort（Z99 三分契约——真走 HTTP=writeExecStatu
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('Y0c T25：isLeaseServing=门放行（恒 true 零 fetch）——worker 受理判据由端点 503 显式传递承担（Z99 三分/Z102③「正确性由三分语义承担，不由启动顺序承担」：readCanvas fail-closed E49 在首个端点调用点 503 显式 throw，execution.service :155 前置门在 worker 侧冗余）', async () => {
+  it('Y0c T25：isLeaseServing=门放行（恒 true 零 fetch）——worker 受理判据由端点 503 显式传递承担（Z99 三分/Z102③）', async () => {
     const fetchImpl = vi.fn();
     const port = fastPort(fetchImpl);
     expect(port.isLeaseServing()).toBe(true);
@@ -98,81 +98,15 @@ describe('HttpCollabWritePort（Z99 三分契约——真走 HTTP=writeExecStatu
   });
 
   it('WORKER_WRITE_TOKEN 预留参数：token 提供时 Authorization: Bearer 头携带（T27 服务端鉴权对齐）', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(res(200, [{ index: 0, op: 'writeExecStatus', written: true }]));
+    const fetchImpl = vi.fn().mockResolvedValue(res(200, { written: true }));
     const port = fastPort(fetchImpl, { token: 'tok-1' });
     await port.writeExecStatus('p1', 'n1', { status: 'loading', attempts: 0 });
     expect(fetchImpl.mock.calls[0][1].headers.authorization).toBe('Bearer tok-1');
   });
-});
-
-describe('Y0c T26（偏离 31）：writeOpsBatch+HttpCollabDocWriter——CollabDocWriterService 令牌 worker 形态', () => {
-  it('200 数组响应：WriteOpResult[] 一一对应透传（整批单 POST——deliver+done 组批契约）', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(res(200, [
-      { index: 0, op: 'writeNodeData', written: true },
-      { index: 1, op: 'writeExecStatus', written: true },
-    ]));
-    const port = fastPort(fetchImpl);
-    const ops = [
-      { op: 'writeNodeData' as const, nodeId: 'n1', patch: { resultUrl: 'http://x/1.png' } },
-      { op: 'writeExecStatus' as const, nodeId: 'n1', patch: { status: 'done' as const, attempts: 1 } },
-    ];
-    const out = await port.writeOpsBatch('p1', ops);
-    expect(out).toEqual({ kind: 'business', results: [
-      { index: 0, op: 'writeNodeData', written: true },
-      { index: 1, op: 'writeExecStatus', written: true },
-    ] });
-    const [url, init] = fetchImpl.mock.calls[0];
-    expect(String(url)).toContain('/api/collab/doc/write-batch');
-    expect(JSON.parse(init.body)).toEqual({ projectId: 'p1', ops });
-  });
-
-  it('T13 红→绿：持续 503 ⇒ writeOpsBatch 返回 {kind:"transient"}（禁逐 op 合成 written:true——合成面删除）+transient-exhausted 计数', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(res(503));
-    const port = fastPort(fetchImpl, { maxAttempts: 2 });
-    const d = await outcomeDelta('writeBatch', 'transient-exhausted', () =>
-      port.writeOpsBatch('p1', [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } }]));
-    expect(d).toBe(1);
-    const out = await port.writeOpsBatch('p1', [
-      { op: 'writeNodeData', nodeId: 'n1', patch: { fileId: 'm1' } },
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } },
-    ]);
-    expect(out).toEqual({ kind: 'transient' });
-  });
-
-  it('T13 红→绿：永久（401）与 200 非数组 body ⇒ {kind:"permanent"}+计数（permanent:401/permanent:bad-body——合成面删除）', async () => {
-    const f401 = vi.fn().mockResolvedValue(res(401));
-    const p401 = fastPort(f401);
-    const d1 = await outcomeDelta('writeBatch', 'permanent:401', () => p401.writeOpsBatch('p1', [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } }]));
-    expect(d1).toBe(1);
-    const fBad = vi.fn().mockResolvedValue(res(200, { code: 0 }));
-    const pBad = fastPort(fBad);
-    const d2 = await outcomeDelta('writeBatch', 'permanent:bad-body', () => pBad.writeOpsBatch('p1', [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } }]));
-    expect(d2).toBe(1);
-    await expect(pBad.writeOpsBatch('p1', [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } }])).resolves.toEqual({ kind: 'permanent' });
-    await expect(p401.writeOpsBatch('p1', [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } }])).resolves.toEqual({ kind: 'permanent' });
-  });
-
-  it('HttpCollabDocWriter：extends CollabDocWriterService（令牌兼容）+writeBatch 委托 writeOpsBatch', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(res(200, [{ index: 0, op: 'writeNodeData', written: false, reason: 'node-deleted' }]));
-    const port = fastPort(fetchImpl);
-    const writer = new HttpCollabDocWriter(port);
-    expect(writer).toBeInstanceOf(CollabDocWriterService);
-    const out = await writer.writeBatch('p1', [{ op: 'writeNodeData', nodeId: 'n1', patch: { fileId: 'm1' } }]);
-    expect(out[0]).toMatchObject({ written: false, reason: 'node-deleted' });   // 业务 written:false 原样传递（退款终态链凭据——HTTP 侧唯一合法生产者）
-  });
-
-  it('T13 typed 翻译：HttpCollabDocWriter.writeBatch 对 transient/permanent 档 throw typed 异常（执行链 deliver 捕获走悬留——非合成数组）', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(res(503));
-    const writer = new HttpCollabDocWriter(fastPort(fetchImpl, { maxAttempts: 1 }));
-    await expect(writer.writeBatch('p1', [{ op: 'writeNodeData', nodeId: 'n1', patch: { fileId: 'm1' } }])).rejects.toBeInstanceOf(CollabWriteTransientExhaustedError);
-    const fetch401 = vi.fn().mockResolvedValue(res(401));
-    const writer401 = new HttpCollabDocWriter(fastPort(fetch401));
-    await expect(writer401.writeBatch('p1', [{ op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } }])).rejects.toBeInstanceOf(CollabWriteChannelPermanentError);
-  });
 
   it('T13 scope 铸造：token 配置时写请求携带 x-worker-scope 头（scope=claim 上下文→HMAC 绑定 projectId+intentRowId+execSeq+exp；缺省=裸项目档）', async () => {
     const { verifyWorkerScopeToken, WORKER_SCOPE_HEADER } = await import('./worker-scope-token');
-    const fetchImpl = vi.fn().mockResolvedValue(res(200, [{ index: 0, op: 'writeExecStatus', written: true }]));
+    const fetchImpl = vi.fn().mockResolvedValue(res(200, { written: true }));
     const port = fastPort(fetchImpl, { token: 'tok-scope-1' });
     await port.writeExecStatus('p1', 'n1', { status: 'loading', attempts: 1 }, { intentRowId: 'gi-9', execSeq: '31' });
     const headers = fetchImpl.mock.calls[0][1].headers;
@@ -188,7 +122,7 @@ describe('Y0c T26（偏离 31）：writeOpsBatch+HttpCollabDocWriter——Collab
 });
 
 describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFailed 零调用+job 不失败', () => {
-  it('503 全程持续（writeExecStatus 全部瞬态耗尽——T15 后 worker 唯一 doc 写面）：runNodeLifecycle 完成（外呼完成+零 throw+errors 空）∧ rollbackDeliveryFailed 零调用', async () => {
+  it('503 全程持续（writeExecStatus 全部瞬态耗尽——worker 唯一投影写面）：runNodeLifecycle 完成（外呼完成+零 throw+errors 空）∧ rollbackDeliveryFailed 零调用', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(res(503));
     const port = new HttpCollabWritePort({ fetchImpl: fetchImpl as any, maxAttempts: 2, backoffBaseMs: 1 });
     const rollbackDeliveryFailed = vi.fn().mockResolvedValue(true);

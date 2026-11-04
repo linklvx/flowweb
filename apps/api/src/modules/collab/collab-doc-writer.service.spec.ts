@@ -1,19 +1,14 @@
 // apps/api/src/modules/collab/collab-doc-writer.service.spec.ts
-// Y0c T8（片 A1 行为契约——spec :502 目标形态①）：writeBatch 先红用例②③④（红证据贴 commit body）：
-// ②Z75 合法终态（Y0c T11 演进·spec §0.6 偏离 19：deliver 失败∧done 同批被 Z4 守卫拦⇒无孤儿条目
-//   ——E22 读侧两形态等价〔exec 无 node 与无 exec 条目同 render 不存在〕；Z75 实质禁则全保留：
-//   deliver 失败不回滚整批/禁跨 op 耦合/批接受）
-// ③「data 与 exec 同事务」（同批两写落同一会话写事务——事务单次性；Y0c T15 起载体=withSession{mode:'write'}）
-// ④Z108 内容校验三拒（__proto__ 键/超批字节 Σ/超 op 数＝业务级拒绝进结果+reject 计数，不 throw 不回滚同批合法 op）
-// 附：Z40 基础设施失败二分（会话事务 503 ⇒ 全批 thrown）+Z76 幂等重放收敛（writeBatch 层可测形态）。
-import { describe, it, expect, vi } from 'vitest';
+// Y0c T8（片 A1 行为契约）→Y1c T32：writeBatch DI 门面（write-batch 端点/孤儿清扫/worker 令牌
+// 三消费面）随 doc.exec 读写链退役删除——本 spec 收窄为 doc 域应用核心 applyWriteOpsToDoc
+// （shrink 影子预演/活写、export-fresh 种子副本=剩余维护消费面）+transactSync 类型门+四 op
+// 词汇执法（Z108 拒绝码进结果/PROTO_KEY_BANNED/超批 Σ/超 op 数——批级违规整批拒绝零执行）。
+// writeExecStatus/deleteExecOrphans 两 op 词汇与 exec 守卫计数族用例随删除清单退役
+// （writeExecStatus feed 写面行为=collab-t22-delivery-switch.int.spec；exec 根死=无孤儿面）。
+import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
-import { ServiceUnavailableException } from '@nestjs/common';
-import { CollabDocWriterService, applyWriteOpsToDoc, transactSync } from './collab-doc-writer.service';
-import { CollabDocumentService } from './collab-document.service';
-import { toDocLike } from './doc-like.util';
+import { applyWriteOpsToDoc, transactSync } from './collab-doc-writer.service';
 import { collabWriteRejectedTotal } from './store.metrics';
-import { execOrphanBlockedTotal } from '../execution/exec.metrics';
 import {
   MAX_WRITE_OPS_PER_BATCH, MAX_WRITE_BATCH_BYTES,
   validateWriteBatch,
@@ -23,16 +18,6 @@ import {
 const rejectedOf = async (reason: string): Promise<number> => {
   const v = await collabWriteRejectedTotal.get();
   return v.values.find((x) => x.labels.reason === reason)?.value ?? 0;
-};
-
-const orphanBlockedOf = async (): Promise<number> => {
-  const v = await execOrphanBlockedTotal.get();
-  return v.values.reduce((s, x) => s + x.value, 0);
-};
-
-const rejectedTotalSum = async (): Promise<number> => {
-  const v = await collabWriteRejectedTotal.get();
-  return v.values.reduce((s, x) => s + x.value, 0);
 };
 
 /** 夹具节点种子：手建节点（T18 起 meta 零键——版本=PG 列装载门，进程内 doc 无戳档=常态）。
@@ -46,68 +31,30 @@ function seedNode(doc: Y.Doc, id = 'n1'): Y.Map<any> {
   return n;
 }
 
-/** 真事务装置：withSession stub 直跑 fn(doc)（Y0c T15 写路径改道 seam 同步——A1 期 seam=withDoc）——事务单次性可断言。
- *  T9 起 writeBatch 进门消费 doc.assertWriteAdmitted（X9 批面受理门单点）——stub 同形补齐。 */
-function makeWriter(doc: Y.Doc) {
-  const withSession = vi.fn(async (_pid: string, fn: (d: Y.Doc) => unknown, _opts?: unknown) => fn(doc));
-  const writer = new CollabDocWriterService({ withSession, assertWriteAdmitted: vi.fn() } as any);
-  return { writer, withSession, doc };
-}
-
-/** 真实 CollabDocumentService+stub gateway 装置：受理门跑真判据（stub 只有 mock 无真门）。 */
-function makeWriterWithRealDoc(gateway: { isLeaseServing: () => boolean; isWritableOrDegraded: () => 'ok' | 'spool-unwritable' }) {
-  const docService = new CollabDocumentService(gateway as any, { readSnapshotOnly: vi.fn() } as any);
-  return new CollabDocWriterService(docService);
-}
-
-describe('Y0c T8 writeBatch（片 A1 行为契约）', () => {
-  it('红③「data 与 exec 同事务」：writeNodeData+writeExecStatus 同批 ⇒ withDoc 恰一次且两写都在其内（结果一一对应）', async () => {
-    const doc = new Y.Doc();
-    const n1 = seedNode(doc);
-    const { writer, withSession } = makeWriter(doc);
-
-    const results = await writer.writeBatch('p1', [
-      { op: 'writeNodeData', nodeId: 'n1', patch: { resultUrl: 'http://x/1.png' } },
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } },
-    ]);
-
-    expect(withSession).toHaveBeenCalledTimes(1); // 同 doc 同事务——一次 writeBatch=单次会话事务（Y0c T15 起经 withSession{mode:'write'}；原两写=两次直连）
-    expect(results).toEqual([
-      { index: 0, op: 'writeNodeData', written: true },
-      { index: 1, op: 'writeExecStatus', written: true },
-    ]);
-    expect((n1.get('data') as Y.Map<any>).get('resultUrl')).toBe('http://x/1.png');           // data 写在事务内
-    expect((doc.getMap('exec').get('n1') as Y.Map<any>).get('status')).toBe('done');          // exec 写在同一事务内
-  });
-
-  it('红② Z75 合法终态（Y0c T11 演进·偏离 19）：deliver 失败（node-deleted）∧done 同批被 Z4 守卫拦 ⇒ 无孤儿条目+E22 读侧等价（禁跨 op 耦合：批不 throw 不回滚）', async () => {
-    const doc = new Y.Doc(); // gone 不存在=节点已删域（Z4 守卫双面生效：writeNodeData 与 writeExecStatus 同拦）
-    const { writer } = makeWriter(doc);
+describe('Y0c T8/T12 doc 域应用核心 applyWriteOpsToDoc（四 op 词汇——Y1c T32 收窄载体）', () => {
+  it('红② Z75 合法终态（演进·偏离 19）：deliver 失败（node-deleted）⇒ written:false 进结果——禁 throw 禁回滚（同批合法 op 照常）', async () => {
+    const doc = new Y.Doc(); // gone 不存在=节点已删域
     const before = await rejectedOf('node-deleted');
-    const orphanBefore = await orphanBlockedOf();
 
-    const results = await writer.writeBatch('p1', [
+    const results = applyWriteOpsToDoc(doc, [
       { op: 'writeNodeData', nodeId: 'gone', patch: { resultUrl: 'http://x/gone.png' } },
-      { op: 'writeExecStatus', nodeId: 'gone', patch: { status: 'done', attempts: 2 } },
+      { op: 'writeNodeData', nodeId: 'gone', patch: { resultUrl: 'http://x/gone2.png' } },
     ]);
 
     expect(results[0]).toMatchObject({ index: 0, op: 'writeNodeData', written: false, reason: 'node-deleted' });
-    expect(results[1]).toMatchObject({ index: 1, op: 'writeExecStatus', written: false, reason: 'node-deleted' }); // 演进点：done 被守卫拦（原 written:true 落孤儿条目）
+    expect(results[1]).toMatchObject({ index: 1, op: 'writeNodeData', written: false, reason: 'node-deleted' });
     expect(doc.getMap('nodes').get('gone')).toBeUndefined();        // 节点已删
-    expect(doc.getMap('exec').get('gone')).toBeUndefined();         // 无孤儿条目——E22 读侧两形态等价：exec 无 node 与无 exec 条目同 render 不存在（偏离 19）
-    expect(await rejectedOf('node-deleted')).toBe(before + 2);      // 两 op 各一（守卫 reason 进 reject 计数）
-    expect(await orphanBlockedOf()).toBe(orphanBefore + 1);         // 批面 Z4 计数：仅 exec op（writeNodeData 守卫属 Z44 交付判据域）
+    expect(await rejectedOf('node-deleted')).toBe(before + 2);      // 逐 op 守卫 reason 进 reject 计数
   });
 
   it('红④ Z108 三拒＝业务级拒绝进结果+reject 计数：__proto__ 键拒（同批合法 op 照常执行）/超批字节 Σ 整批拒/超 op 数整批拒——不 throw 不回滚', async () => {
     const doc = new Y.Doc();
     const n1 = seedNode(doc);
-    const { writer, withSession } = makeWriter(doc);
 
     // (a) __proto__ 键：违规 op 拒，同批合法 op 照常执行（拒绝非截断非 sanitize；批不回滚）
     const beforeProto = await rejectedOf('PROTO_KEY_BANNED');
     const protoPatch = JSON.parse('{"__proto__":"polluted"}') as Record<string, unknown>;
-    const r1 = await writer.writeBatch('p1', [
+    const r1 = applyWriteOpsToDoc(doc, [
       { op: 'writeNodeData', nodeId: 'n1', patch: { resultUrl: 'http://ok/1.png' } },
       { op: 'writeNodeData', nodeId: 'n1', patch: protoPatch },
     ]);
@@ -116,11 +63,11 @@ describe('Y0c T8 writeBatch（片 A1 行为契约）', () => {
     expect((n1.get('data') as Y.Map<any>).get('resultUrl')).toBe('http://ok/1.png'); // 合法 op 已生效（不回滚）
     expect(await rejectedOf('PROTO_KEY_BANNED')).toBe(beforeProto + 1);
 
-    // (b) 超批字节 Σ：批级违规（index=-1）——整批拒绝零执行（不进事务）。计数=逐违规全量
+    // (b) 超批字节 Σ：批级违规（index=-1）——整批拒绝零执行。计数=逐违规全量
     //（超限大值同时命中每键上限与批 Σ 两违规——同码两计，均 PATCH_TOO_LARGE）
     const beforeBig = await rejectedOf('PATCH_TOO_LARGE');
     const big = 'x'.repeat(MAX_WRITE_BATCH_BYTES);
-    const r2 = await writer.writeBatch('p1', [
+    const r2 = applyWriteOpsToDoc(doc, [
       { op: 'writeNodeData', nodeId: 'n1', patch: { resultUrl: 'http://ok/2.png' } },
       { op: 'writeNodeData', nodeId: 'n1', patch: { result: big } },
     ]);
@@ -131,125 +78,77 @@ describe('Y0c T8 writeBatch（片 A1 行为契约）', () => {
 
     // (c) 超 op 数：OP_COUNT_EXCEEDED——整批拒（结果仍一一对应）
     const beforeCount = await rejectedOf('OP_COUNT_EXCEEDED');
-    const many: DocWriteOp[] = Array.from({ length: MAX_WRITE_OPS_PER_BATCH + 1 }, () => ({ op: 'deleteExecOrphans' }));
-    const r3 = await writer.writeBatch('p1', many);
+    const many: DocWriteOp[] = Array.from({ length: MAX_WRITE_OPS_PER_BATCH + 1 }, () => ({ op: 'deleteNodes', nodeIds: [] }));
+    const r3 = applyWriteOpsToDoc(doc, many);
     expect(r3).toHaveLength(MAX_WRITE_OPS_PER_BATCH + 1);
     expect(r3.every((r, i) => !r.written && r.reason === 'OP_COUNT_EXCEEDED' && r.index === i)).toBe(true);
     expect(await rejectedOf('OP_COUNT_EXCEEDED')).toBe(beforeCount + 1);
-
-    expect(withSession).toHaveBeenCalledTimes(1); // 仅 (a) 进事务——批级拒两例零会话事务（T12 勘正：Z108 恢复事务外——T9 裁定字面+T8 批级零执行语义；op 级拒=1 次合法 op 照常执行的对照保持）
   });
 
-  it('Z40 基础设施失败二分：withDoc 503（租约失守）⇒ 全批 thrown（非 written:false——调用方按零交付退款）', async () => {
-    const writer = new CollabDocWriterService({
-      withSession: vi.fn(async () => { throw new ServiceUnavailableException('collab not serving (lease not held)'); }),
-      assertWriteAdmitted: vi.fn(),
-    } as any);
-    await expect(writer.writeBatch('p1', [
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } },
-    ])).rejects.toThrow(ServiceUnavailableException);
-  });
-
-  it('Z76 幂等重放收敛（writeBatch 层可测形态）：同批重发两次 ⇒ data 键级 set 同值收敛；已生效的 done 投影被代次守卫识别为已写入（terminal-superseded）非重复 append', async () => {
+  it('Z76 幂等重放收敛：同批重放两次 ⇒ data 键级 set 同值收敛（键集不变无垃圾态）', () => {
     const doc = new Y.Doc();
     const n1 = seedNode(doc);
-    const { writer } = makeWriter(doc);
     const ops: DocWriteOp[] = [
-      { op: 'writeNodeData', nodeId: 'n1', patch: { result: '同一产物' } },   // Y1c T24 D-3：'content' 键移除（死键 fail-closed）——幂等语义面改 'result' 同测
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1, intentId: 'i-1' } },
+      { op: 'writeNodeData', nodeId: 'n1', patch: { result: '同一产物' } },
     ];
-
-    const first = await writer.writeBatch('p1', ops);
-    const second = await writer.writeBatch('p1', ops); // 调用方盲目重放——写入已生效须可识别（非重发 append）
-
+    const first = applyWriteOpsToDoc(doc, ops);
+    const second = applyWriteOpsToDoc(doc, ops);
     expect(first.every((r) => r.written)).toBe(true);
-    expect(second[0]).toMatchObject({ index: 0, op: 'writeNodeData', written: true });   // 幂等 op 键级 set 同值收敛
-    expect(second[1]).toMatchObject({ index: 1, op: 'writeExecStatus', written: false, reason: 'terminal-superseded' }); // 已生效=守卫吸收
+    expect(second.every((r) => r.written)).toBe(true);   // 幂等 op 键级 set 同值收敛
     const data = n1.get('data') as Y.Map<any>;
-    expect(data.get('result')).toBe('同一产物');                                         // 状态语义等价（重放不破坏）
-    expect((doc.getMap('exec').get('n1') as Y.Map<any>).get('status')).toBe('done');
-    expect(Array.from(data.keys())).toEqual(['result']);                                // 无重复键无垃圾态
+    expect(data.get('result')).toBe('同一产物');
+    expect(Array.from(data.keys())).toEqual(['result']);  // 无重复键无垃圾态
+  });
+
+  it('Y1c T32：writeExecStatus/deleteExecOrphans op 词汇=UNKNOWN_OP 业务级拒（六 op 收四——fail-closed 防词汇回流）', async () => {
+    const doc = new Y.Doc();
+    seedNode(doc);
+    const before = await rejectedOf('UNKNOWN_OP');
+    const r = applyWriteOpsToDoc(doc, [
+      { op: 'writeNodeData', nodeId: 'n1', patch: { resultUrl: 'x' } },
+      { op: 'deleteExecOrphans' } as unknown as DocWriteOp,
+    ]);
+    expect(r[0]).toMatchObject({ index: 0, written: true });
+    expect(r[1]).toMatchObject({ index: 1, written: false, reason: 'UNKNOWN_OP' });
+    expect(await rejectedOf('UNKNOWN_OP')).toBe(before + 1);
   });
 });
 
-// ── Y0c T9：进门四段顺序（空批早退→①X9 受理门→②undefined fail-fast→③Z108 内容校验→④会话写事务
-// 事务〔首段 schema 门〕）+deleteNodeDataKeys+transactSync 类型门。 ──
-describe('Y0c T9 进门门+undefined 语义+schema 门+transactSync+deleteNodeDataKeys', () => {
-  it('红·受理门（X9 批面单点）：degraded gateway ⇒ writeBatch 抛 ServiceUnavailableException（全批 thrown——Z40 基础设施档零交付退款）', async () => {
-    const writer = makeWriterWithRealDoc({ isLeaseServing: () => false, isWritableOrDegraded: () => 'ok' });
-    await expect(writer.writeBatch('p1', [
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } },
-    ])).rejects.toThrow(ServiceUnavailableException);
-
-    const writer2 = makeWriterWithRealDoc({ isLeaseServing: () => true, isWritableOrDegraded: () => 'spool-unwritable' });
-    await expect(writer2.writeBatch('p1', [
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } },
-    ])).rejects.toThrow(ServiceUnavailableException);
-  });
-
-  it('红·受理门先于 Z108（进门排序）：degraded + 含违规 op 批 ⇒ 抛受理门错误∧collabWriteRejectedTotal 零增（降级期不白跑校验不污染计数）', async () => {
-    const writer = makeWriterWithRealDoc({ isLeaseServing: () => false, isWritableOrDegraded: () => 'spool-unwritable' });
-    const before = await rejectedTotalSum();
-    await expect(writer.writeBatch('p1', [
-      { op: 'writeNodeData', nodeId: 'n1', patch: JSON.parse('{"__proto__":"x"}') }, // Z108 违规 op 同批
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } },
-    ])).rejects.toThrow(ServiceUnavailableException);   // 受理门错误非业务结果
-    expect(await rejectedTotalSum()).toBe(before);      // 校验未跑——计数零污染
-  });
-
-  it('红·undefined fail-fast（Z5·批面）：writeNodeData patch 含 undefined ⇒ throw /UNDEFINED_PATCH_VALUE/（非 VALUE_TYPE_MISMATCH written:false）', async () => {
+describe('Y0c T9 undefined 语义+schema 门+transactSync+deleteNodeDataKeys', () => {
+  it('undefined fail-fast（Z5·原语面）：writeNodeData patch 含 undefined ⇒ throw /UNDEFINED_PATCH_VALUE/', () => {
     const doc = new Y.Doc();
     const n1 = seedNode(doc);
-    const { writer } = makeWriter(doc);
-    await expect(writer.writeBatch('p1', [
+    expect(() => applyWriteOpsToDoc(doc, [
       { op: 'writeNodeData', nodeId: 'n1', patch: { resultUrl: undefined } },
-    ])).rejects.toThrow(/UNDEFINED_PATCH_VALUE/);
+    ])).toThrow(/UNDEFINED_PATCH_VALUE/);
     // fail-fast 在应用前——零写入（Y1c T15 起种子自带 data Y.Map〔容器规则〕——断言=零键写入）
     expect([...(n1.get('data') as Y.Map<unknown>).keys()]).toEqual([]);
   });
 
-  it('红·undefined skip（Z5·exec 档）：writeBatch writeExecStatus patch 含 undefined 值 ⇒ written:true ∧ 该键不在 exec map（救活 :261 跳过语义）', async () => {
-    const doc = new Y.Doc();
-    seedNode(doc);
-    const { writer } = makeWriter(doc);
-    const results = await writer.writeBatch('p1', [
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1, reason: undefined } },
-    ]);
-    expect(results[0]).toMatchObject({ index: 0, op: 'writeExecStatus', written: true });
-    const exec = doc.getMap('exec').get('n1') as Y.Map<any>;
-    expect(exec.get('status')).toBe('done');
-    expect(exec.has('reason')).toBe(false);             // undefined 键跳过非写入
-  });
-
-  it('T18·meta schema 门退役：meta.schemaVersion（任意残留值——旧档历史载荷）不再拦写——版本判据唯一承载=CanvasDoc.schemaVersion PG 列（装载门结构性先于写路径，进程内已装载 doc 无前瞻档可达态）', async () => {
+  it('T18·meta schema 门退役：meta.schemaVersion（任意残留值——旧档历史载荷）不再拦写——版本判据唯一承载=CanvasDoc.schemaVersion PG 列', async () => {
     const stale = new Y.Doc();
-    stale.getMap('nodes').set('n1', new Y.Map());   // 守卫放行前提（node-deleted 拦截与版本门正交）
+    seedNode(stale);
     stale.getMap('meta').set('schemaVersion', 1);   // 旧档残留载荷——写侧不解释
-    const w1 = makeWriter(stale);
     const before = await rejectedOf('DOC_SCHEMA_AHEAD');
-    await expect(w1.writer.writeBatch('p1', [
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1 } },
-    ])).resolves.toMatchObject([{ index: 0, op: 'writeExecStatus', written: true }]);   // 门已删——写按 op 语义执行非拒
+    expect(applyWriteOpsToDoc(stale, [
+      { op: 'writeNodeData', nodeId: 'n1', patch: { resultUrl: 'x' } },
+    ])).toMatchObject([{ index: 0, op: 'writeNodeData', written: true }]);   // 门已删——写按 op 语义执行非拒
     expect(await rejectedOf('DOC_SCHEMA_AHEAD')).toBe(before);   // 计数零增量（分支不存在）
-    expect(stale.getMap('exec').size).toBe(1);          // op 已应用（meta 载荷不影响）
   });
 
-  it('红·transactSync 类型门：返回 Promise 的回调 ⇒ throw（会话写事务会把异步回调捕获到事务外续跑——破坏同事务不变量）', () => {
+  it('transactSync 类型门：返回 Promise 的回调 ⇒ throw（会话写事务会把异步回调捕获到事务外续跑——破坏同事务不变量）', () => {
     const asyncFn = ((doc: Y.Doc) => { doc.getMap('meta'); return Promise.resolve(); }) as unknown as (d: Y.Doc) => void;
     expect(() => transactSync(asyncFn)(new Y.Doc())).toThrow(/Promise/);
     // 同步回调照常放行
     expect(() => transactSync((doc) => { doc.getMap('meta').set('k', 'v'); })(new Y.Doc())).not.toThrow();
   });
 
-  it('红·deleteNodeDataKeys：同批写后逐键删+不存在键 no-op+节点缺失 written:false node-deleted+空数组合法 no-op', async () => {
+  it('deleteNodeDataKeys：写后逐键删+不存在键 no-op+节点缺失 written:false node-deleted+空数组合法 no-op', async () => {
     const doc = new Y.Doc();
     const n1 = seedNode(doc);
-    const { writer } = makeWriter(doc);
 
-    // (a) 同批写后删——同事务内显式删键（客户端 undefined⇒delete 语义的服务端对应物）。
-    // 删键名单与写域同集（Z108 既有语义——白名单外陌生键 UNKNOWN_KEY 拒），
-    // 「不存在键 no-op」用白名单内但 doc 无此键的 fileId。
-    const r1 = await writer.writeBatch('p1', [
+    // (a) 同批写后删（「不存在键 no-op」用白名单内但 doc 无此键的 fileId）。
+    const r1 = applyWriteOpsToDoc(doc, [
       { op: 'writeNodeData', nodeId: 'n1', patch: { resultUrl: 'http://x/1.png', errorCode: 'E1' } },
       { op: 'deleteNodeDataKeys', nodeId: 'n1', keys: ['resultUrl', 'fileId'] },
     ]);
@@ -262,14 +161,14 @@ describe('Y0c T9 进门门+undefined 语义+schema 门+transactSync+deleteNodeDa
 
     // (b) 节点缺失 ⇒ written:false + reason:'node-deleted'（Z44 对齐）
     const before = await rejectedOf('node-deleted');
-    const r2 = await writer.writeBatch('p1', [
+    const r2 = applyWriteOpsToDoc(doc, [
       { op: 'deleteNodeDataKeys', nodeId: 'gone', keys: ['resultUrl'] },
     ]);
     expect(r2[0]).toMatchObject({ index: 0, op: 'deleteNodeDataKeys', written: false, reason: 'node-deleted' });
     expect(await rejectedOf('node-deleted')).toBe(before + 1);
 
     // (c) 空数组 ⇒ written:true 合法 no-op（spec §6 ②）
-    const r3 = await writer.writeBatch('p1', [
+    const r3 = applyWriteOpsToDoc(doc, [
       { op: 'deleteNodeDataKeys', nodeId: 'n1', keys: [] },
     ]);
     expect(r3[0]).toMatchObject({ index: 0, op: 'deleteNodeDataKeys', written: true });
@@ -277,29 +176,12 @@ describe('Y0c T9 进门门+undefined 语义+schema 门+transactSync+deleteNodeDa
   });
 });
 
-// ── Y0c T12 直写收编（控制方裁决 1/2——spec §0.6 偏离 20）：三直写 op 经 writeBatch 可执行
-// （deleteExecOrphans/deleteNodes/fillDoc——语义原样迁移）+doc 域应用核心 applyWriteOpsToDoc
-// （shrink 预演与活写同源）+validateWriteBatch 幂等执法面 flag（裁决 2：默认进程内档不产
-// NON_IDEMPOTENT_OP，requireIdempotentOps:true=T27 端点执法档）。 ──
-describe('Y0c T12 直写收编（三 op+doc 域 API+幂等执法面 flag）', () => {
-  it('红① deleteExecOrphans op：writeBatch 在含孤儿 doc 上清孤儿（nodes 在册条目保留）；零孤儿=合法 no-op written:true', async () => {
-    const doc = new Y.Doc();
-    seedNode(doc, 'n1');
-    doc.getMap('exec').set('n1', new Y.Map());      // 在册
-    doc.getMap('exec').set('ghost-1', new Y.Map()); // 孤儿：nodes 无此节点
-    const { writer } = makeWriter(doc);
-
-    const results = await writer.writeBatch('p1', [{ op: 'deleteExecOrphans' }]);
-
-    expect(results[0]).toMatchObject({ index: 0, op: 'deleteExecOrphans', written: true }); // 现红：default throw 未实现
-    expect(doc.getMap('exec').get('ghost-1')).toBeUndefined();  // 孤儿已清
-    expect(doc.getMap('exec').get('n1')).toBeDefined();         // 在册保留
-
-    const again = await writer.writeBatch('p1', [{ op: 'deleteExecOrphans' }]); // 零孤儿重扫
-    expect(again[0]).toMatchObject({ index: 0, op: 'deleteExecOrphans', written: true }); // 幂等 no-op
-  });
-
-  it('红② deleteNodes op：级联删边（引用被删节点的边一并删——悬挂边防护）+nodes 删+非 victims 保留', async () => {
+// ── Y0c T12 直写收编（裁决 1/2）→Y1c T32 收窄：deleteNodes/fillDoc 两 op+doc 域应用核心
+// applyWriteOpsToDoc（shrink 预演与活写同源）+validateWriteBatch 幂等执法面 flag（裁决 2：默认
+// 进程内档不产 NON_IDEMPOTENT_OP，requireIdempotentOps:true=端点执法档——T32 后端点已退役，
+// flag 保留供未来执法面复用）。 ──
+describe('Y0c T12 直写收编（两 op+doc 域 API+幂等执法面 flag）', () => {
+  it('deleteNodes op：级联删边（引用被删节点的边一并删——悬挂边防护）+nodes 删+非 victims 保留', () => {
     const doc = new Y.Doc();
     seedNode(doc, 'n1');
     seedNode(doc, 'n2');
@@ -307,38 +189,33 @@ describe('Y0c T12 直写收编（三 op+doc 域 API+幂等执法面 flag）', ()
     e1.set('source', 'n1');
     e1.set('target', 'n2');
     doc.getMap('edges').set('e1', e1);
-    const { writer } = makeWriter(doc);
 
-    const results = await writer.writeBatch('p1', [{ op: 'deleteNodes', nodeIds: ['n1'] }]);
+    const results = applyWriteOpsToDoc(doc, [{ op: 'deleteNodes', nodeIds: ['n1'] }]);
 
-    expect(results[0]).toMatchObject({ index: 0, op: 'deleteNodes', written: true }); // 现红：default throw 未实现
+    expect(results[0]).toMatchObject({ index: 0, op: 'deleteNodes', written: true });
     expect(doc.getMap('nodes').get('n1')).toBeUndefined();   // victim 已删
     expect(doc.getMap('nodes').get('n2')).toBeInstanceOf(Y.Map); // 非 victim 保留
     expect(doc.getMap('edges').get('e1')).toBeUndefined();   // 级联删边（E68）
   });
 
-  it('红③ fillDoc op 经 writeBatch 可执行（现红：NON_IDEMPOTENT_OP 拒——裁决 2 的红即绿判据）；validateWriteBatch 默认档不产 NON_IDEMPOTENT_OP / requireIdempotentOps:true 仍拒（flag 判别）', async () => {
+  it('fillDoc op 可执行；validateWriteBatch 默认档不产 NON_IDEMPOTENT_OP / requireIdempotentOps:true 仍拒（flag 判别）', () => {
     const doc = new Y.Doc();
-    const { writer } = makeWriter(doc);
 
-    const results = await writer.writeBatch('p1', [
+    const results = applyWriteOpsToDoc(doc, [
       { op: 'fillDoc', nodes: [{ id: 'nA', type: 'image', data: {} }], edges: [{ id: 'e1', source: 'nA', target: 'nB' }] },
     ]);
-    expect(results[0]).toMatchObject({ index: 0, op: 'fillDoc', written: true });  // 现红
+    expect(results[0]).toMatchObject({ index: 0, op: 'fillDoc', written: true });
     expect(doc.getMap('nodes').get('nA')).toBeInstanceOf(Y.Map);   // 节点种子落 doc
     expect(doc.getMap('edges').get('e1')).toBeInstanceOf(Y.Map);   // 边种子落 doc
 
-    // flag 判别（裁决 2）：默认档（进程内 writeBatch 同款）不产 NON_IDEMPOTENT_OP；端点档 true 仍拒
+    // flag 判别（裁决 2）：默认档（进程内同款）不产 NON_IDEMPOTENT_OP；执法档 true 仍拒
     const ops: readonly unknown[] = [{ op: 'fillDoc', nodes: [], edges: [] }];
-    expect(validateWriteBatch(ops)).toEqual([]);                    // 现红：默认档产 NON_IDEMPOTENT_OP
+    expect(validateWriteBatch(ops)).toEqual([]);
     expect(validateWriteBatch(ops, { requireIdempotentOps: true }).some((v) => v.code === 'NON_IDEMPOTENT_OP')).toBe(true);
   });
 
-  it('红④ applyWriteOpsToDoc doc 域应用核心（裁决 1）存在且 shrink 场景形态成立：预演（scratch）与活写同函数同语义——同 ops 两 doc 结果一致', async () => {
-    // 存在性由静态 import+tsc 保证（红期动态 import 装置撤除——T12 质量收尾 M-1）
-
+  it('applyWriteOpsToDoc doc 域应用核心（裁决 1）shrink 场景形态成立：预演（scratch）与活写同函数同语义——同 ops 两 doc 结果一致', () => {
     // 同源形态：同一 ops 分别应用 scratch（预演测量）与活 doc——结果与 doc 终态一致
-    //（生产 shrink 场景 doc 恒有戳——withDoc 装载/种子自愈点；夹具对齐）
     const mkDoc = (): Y.Doc => {
       const d = new Y.Doc();
       const n1 = new Y.Map();

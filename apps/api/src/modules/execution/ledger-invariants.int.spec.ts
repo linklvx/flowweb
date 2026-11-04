@@ -181,7 +181,7 @@ describe('Y0b-1 settle 失败对账闭环（§1.5/Z17）', () => {
     const { makeArtifactCommit } = await import('../../test-utils/artifact-commit-fixture');
     const intentSvc = new GenerationIntentService(prisma as any, teamCredit, new NodeArtifactService());
     const artifactCommit = makeArtifactCommit(prisma as any, ledger, teamCredit, intentSvc).artifactCommit;
-    return new IntentReconcileService(prisma as any, collabDoc, { writeBatch: async () => [{ index: 0, op: 'deleteExecOrphans', written: true }] } as any, ledger, {} as any, {} as any, {} as any, teamCredit, artifactCommit); // Y0c T12 改道 +T13 R3
+    return new IntentReconcileService(prisma as any, collabDoc, ledger, {} as any, {} as any, {} as any, teamCredit, artifactCommit); // Y0c T12 改道 +T13 R3
   };
   /** 夹具基线：钱包唯一口 ensureBalance + register_grant 100（计入 Σ——对齐 G-2 不变量①口径，禁裸建绕台账） */
   const fundTeam = async (teamId: string, ts: number) => {

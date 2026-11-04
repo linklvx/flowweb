@@ -5,7 +5,7 @@
 // 红锚面：
 //  - CollabLease fencing（v11.1①：claim 捕获 epoch→循环全程比对；非 holder claim 后 withSession/
 //    flush 被拒不耗 attempts——滚动部署/双开复现）；
-//  - 投影循环全序（claim SKIP LOCKED→读 NodeArtifact rev≠→superseded→内容等值 fast path→
+//  - 投影循环全序（claim SKIP LOCKED→读 NodeArtifact rev≠→superseded→deliverArtifact〔T32：内容等值 fast path 退役〕→
 //    withSession apply〔deliverArtifact 复合 op：data.{fileId|result}+exec done〕→批尾 typed flush
 //    →逐行 recheck rev→一致才 projected）；
 //  - 六终态（node 删→orphaned 不重试+幂等退款/replace 新代→superseded/耗尽→dead/undo 恢复→
@@ -219,19 +219,18 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     await teardownProject(PID);
   }, 60_000);
 
-  it('内容等值 fast path：doc data.fileId==artifact.mediaId ⇒ 跳 apply（exec 无 done 条目）直接 flush+projected', async () => {
+  it('Y1c T32：doc 等值 fast path 退役——doc data.fileId 预置同值仍走 deliverArtifact（幂等=feed 事件 (nodeId,artifactRev) 唯一性）+零 doc 写+exec 恒空', async () => {
     const PID = 't15-proj-fast';
     await seedProject(PID);
-    await seedNode(PID, 'n1', { fileId: 'm-fast' });   // 预置等值（裁决 :53：非权威判据——fast path 专用）
+    await seedNode(PID, 'n1', { fileId: 'm-fast' });   // 预置等值（T32 前=fast path 跳写判据；T32 后=无效载荷——照走交付事务）
     const { projectionId } = await seedArtifact(PID, 'n1', { mediaId: 'm-fast' });
-    const fastBefore = await outcomeOf('fast-path');
     const summary = await poller.tick();
-    expect(summary.outcomes['fast-path'] ?? 0).toBeGreaterThan(0);
+    expect(summary.outcomes.projected ?? 0).toBeGreaterThan(0);
     expect((await projectionRow(projectionId))?.state).toBe('projected');
     const revived = await reviveFromPg(PID);
-    expect((revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON().fileId).toBe('m-fast');
-    expect(revived.getMap('exec').get('n1')).toBeUndefined();   // apply 跳过——exec done 不写（fast path 判别锚）
-    expect(await outcomeOf('fast-path')).toBe(fastBefore + 1);
+    expect((revived.getMap('nodes').get('n1') as Y.Map<any>).get('data').toJSON().fileId).toBe('m-fast');   // doc 值不变（零 doc 写——值自预置）
+    expect(revived.getMap('exec').get('n1')).toBeUndefined();   // exec 恒空（doc.exec 停写——T22 起常量）
+    expect(await prisma.runtimeEvent.count({ where: { projectId: PID, kind: 'exec.artifact' } })).toBe(1);   // 交付=恰一事件（新权威）
     await teardownProject(PID);
   }, 60_000);
 
@@ -458,15 +457,12 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     await seedNode(PID, 'n-clear2', { fileId: null });                       // 已 null 形态（undo/复投窗）
     const a = await seedArtifact(PID, 'n-clear1', { mediaId: null });        // clear 命令行的投影形态（state=stored 夹具默认无害——判据=mediaId）
     await seedArtifact(PID, 'n-clear2', { mediaId: null });
-    const fastBefore = await outcomeOf('fast-path');
     const summary = await poller.tick();
-    expect(summary.outcomes.projected ?? 0).toBeGreaterThan(0);
-    expect(summary.outcomes['fast-path'] ?? 0).toBeGreaterThan(0);   // n-clear2：null===null 等值——跳 apply
+    expect(summary.outcomes.projected ?? 0).toBe(2);   // Y1c T32：等值判据退役——null 复投照走交付事务（fast-path 标签消亡）
     expect((await projectionRow(a.projectionId))?.state).toBe('projected');
     const revivedClear = await reviveFromPg(PID);
     expect((revivedClear.getMap('nodes').get('n-clear1') as Y.Map<any>).get('data').toJSON().fileId).toBe('m-old');   // T22：doc 零写——clear 语义=feed 事件（无 mediaId 键）非 data 落 null（P2-⑥ 钉 null 写随 doc 写面退役）
     expect((await prisma.runtimeEvent.findFirst({ where: { projectId: PID, kind: 'exec.artifact' } }))?.payload).not.toHaveProperty('mediaId');
-    expect(await outcomeOf('fast-path')).toBe(fastBefore + 1);
     await teardownProject(PID);
   }, 60_000);
 

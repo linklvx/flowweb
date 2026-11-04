@@ -52,8 +52,6 @@ import { TeamRechargeService } from './modules/team/team-recharge.service';
 import { StorageQuotaService } from './modules/team/storage-quota.service';
 import { CreditLedgerService } from './modules/team/credit-ledger.service';
 import { CollabWritePort, HttpCollabWritePort } from './modules/collab/collab-write.port';
-import { HttpCollabDocWriter } from './modules/collab/collab-write.port';
-import { CollabDocWriterService } from './modules/collab/collab-doc-writer.service';
 import { EmitPort, WorkerEmitPort } from './modules/gateway/emit.port';
 import { MetricsCoreModule } from './metrics/metrics-core.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -94,14 +92,14 @@ describe('Y0c T26 worker.module——结构面（Z131 闭包纯净的模块侧�
     }
   });
 
-  it('providers 含 16 processor 全集+execution/team 链关键服务+三令牌（CollabWritePort/CollabDocWriterService/EmitPort）', async () => {
+  it('providers 含 16 processor 全集+execution/team 链关键服务+双令牌（CollabWritePort/EmitPort——T32 删 writeBatch 令牌）', async () => {
     const { WorkerModule } = await import('./worker.module');
     const syms = providerSymbols(WorkerModule);
     for (const p of PROCESSORS) expect(syms, `providers 应含 ${p.name}`).toContain(p);
     for (const s of [ExecutionService, GenerationIntentService, TeamCreditService, TeamRechargeService, StorageQuotaService, CreditLedgerService]) {
       expect(syms, `providers 应含 ${s.name}`).toContain(s);
     }
-    for (const t of [CollabWritePort, CollabDocWriterService, EmitPort]) {
+    for (const t of [CollabWritePort, EmitPort]) {
       expect(syms, `providers 应含令牌 ${t.name}`).toContain(t);
     }
     // Y1c T11：compact 轮询面（DB poller+repo 平铺——worker 进程重放载体；真新行为断言）
@@ -113,7 +111,7 @@ describe('Y0c T26 worker.module——结构面（Z131 闭包纯净的模块侧�
 });
 
 describe('Y0c T26 worker.module——DI compile 冒烟（平铺装配缺注册即红）+端口形态', () => {
-  it('全图可解析；CollabWritePort=Http 形态（baseUrl/token 工厂注入）、EmitPort=WorkerEmitPort、CollabDocWriterService=HttpCollabDocWriter', async () => {
+  it('全图可解析；CollabWritePort=Http 形态（baseUrl/token 工厂注入）、EmitPort=WorkerEmitPort（T32：writeBatch 令牌 HttpCollabDocWriter 随 write-batch 端点退役删除）', async () => {
     const { WorkerModule } = await import('./worker.module');
     const stubQueue = { add: async () => {} };
     let builder = Test.createTestingModule({ imports: [WorkerModule] });
@@ -141,7 +139,6 @@ describe('Y0c T26 worker.module——DI compile 冒烟（平铺装配缺注册�
     expect(port).toBeInstanceOf(HttpCollabWritePort);
     expect((port as unknown as { baseUrl: string }).baseUrl).toBe(`http://127.0.0.1:${process.env.PORT ?? '3000'}`);
     expect(moduleRef.get(EmitPort, { strict: false })).toBeInstanceOf(WorkerEmitPort);
-    expect(moduleRef.get(CollabDocWriterService, { strict: false })).toBeInstanceOf(HttpCollabDocWriter);
   }, 60000);
 
   it('双 ECONNREFUSED（构造性——Z101 措辞修正：装配后 3000/3001 均无监听者）', async () => {

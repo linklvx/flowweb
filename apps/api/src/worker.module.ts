@@ -11,8 +11,8 @@
 //    OnModuleInit 原生 setInterval——非 @Processor 面）；
 //  ②MetricsCoreModule（Z139——collectDefaultMetrics 全仓唯一调用点=MetricsService 构造器，进程内
 //    恰一次；worker 不装则 3002 无 process_*/nodejs_* 族）；
-//  ③端口形态三令牌：CollabWritePort=HttpCollabWritePort（baseUrl/token env 读——WORKER_READ 门
-//    同源 loopback）/CollabDocWriterService=HttpCollabDocWriter（偏离 31——writeBatch 整批走端点）/
+//  ③端口形态令牌（T32 起单令牌）：CollabWritePort=HttpCollabWritePort（baseUrl/token env 读——
+//    WORKER_READ 门同源 loopback；
 //    EmitPort=WorkerEmitPort（Z101 降级 no-op）；
 //  ④资金/基础设施依赖平铺（PAYMENT_PROVIDER 工厂=RechargeModule 同款 verbatim——close-expired/
 //    active-query 消费面非空转）。
@@ -89,8 +89,7 @@ import { TeamCloseExpiredProcessor } from './modules/team/task/team-recharge-clo
 import { PaymentGateway } from './modules/recharge/payment.gateway';
 import { WechatPaymentProvider } from './modules/recharge/providers/wechat-payment.provider';
 // ── 端口形态 ──
-import { CollabWritePort, HttpCollabWritePort, HttpCollabDocWriter } from './modules/collab/collab-write.port';
-import { CollabDocWriterService } from './modules/collab/collab-doc-writer.service';
+import { CollabWritePort, HttpCollabWritePort } from './modules/collab/collab-write.port';
 import { EmitPort, WorkerEmitPort } from './modules/gateway/emit.port';
 // ── Y1c T11：compact 轮询 DB poller（worker 进程——重放在 worker；MediaProbePoller/MaterializeJob
 //    同款平铺先例；闭包纯净=repo 族〔canvas-doc.factory/sentry-scrub/store.metrics〕零 controller/
@@ -211,11 +210,8 @@ const env = validateEnv();
         token: env.WORKER_WRITE_TOKEN,
       }),
     },
-    {
-      provide: CollabDocWriterService,
-      useFactory: (port: CollabWritePort) => new HttpCollabDocWriter(port as HttpCollabWritePort),
-      inject: [CollabWritePort],
-    },
+    // Y1c T32：HttpCollabDocWriter（writeBatch worker 令牌）随 write-batch 端点退役删除——worker
+    // 通道唯一写面=HttpCollabWritePort.writeExecStatus（exec-status 端点，RuntimeEvent feed 写）。
     { provide: EmitPort, useValue: new WorkerEmitPort() },
     { provide: REDIS_CLIENT, useFactory: () => createManagedRedis() },   // 批3-2 B6 受管工厂（video-separate 链消费）
   ],

@@ -22,7 +22,6 @@ import { CreditLedgerService } from '../team/credit-ledger.service';
 import { execProjectionDeferredTotal } from './exec.metrics';
 import { ledgerWipe, deleteTeamsWithPass } from '../../test-utils/intent-fixture';
 import { BusinessException } from '../../common/exceptions/business.exception';
-import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';
 
 // 无 DATABASE_URL（CI 未起库）自动 skip
 const hasDb = !!process.env.DATABASE_URL;
@@ -241,7 +240,6 @@ const statusOf = async (nodeId: string) =>
     const reconcile = new IntentReconcileService(
       prisma as unknown as any,
       { isDocResident: () => false, writeExecStatus } as any,
-      { writeBatch: async () => [{ index: 0, op: 'deleteExecOrphans', written: true }] } as any, // Y0c T12：exec-GC 改道 writer
       ledger, { getJob: async () => null } as any, { getJob: async () => null } as any, {} as any, teamCredit,
       makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T13 R3
     );
@@ -268,7 +266,6 @@ const statusOf = async (nodeId: string) =>
     const reconcile = new IntentReconcileService(
       prisma as unknown as any,
       { isDocResident: () => true, writeExecStatus } as any,
-      { writeBatch: async () => [{ index: 0, op: 'deleteExecOrphans', written: true }] } as any, // Y0c T12：exec-GC 改道 writer
       ledger, { getJob: async () => null } as any, { getJob: async () => null } as any, {} as any, teamCredit,
       makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T13 R3
     );

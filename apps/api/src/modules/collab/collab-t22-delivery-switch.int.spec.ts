@@ -119,6 +119,20 @@ const execDonePatch = { status: 'done', attempts: 1 } as const;
     after.destroy();
   });
 
+  it('Y1c T32 常驻不变量：writeExecStatus+deliverArtifact 双写后 PG 前缀重建 doc 全量零变更（serving 期零业务 doc 写——最强断言：编码字节级相等）', async () => {
+    // n1 的 fence 行已被前用例占用（partial unique）——本用例种子独立节点 n2（词表外/在册与否与
+    // 零 doc 写不变量正交：fence ACTIVE 放行⇒交付事务走 feed，doc 无此节点也零建零写）
+    await seedActiveFence('n2');
+    const before = await hydrateDoc();
+    const beforeBytes = Buffer.from(Y.encodeStateAsUpdate(before)).toString('base64');
+    await docs.writeExecStatus(PID, 'n2', { status: 'loading', attempts: 9, intentId: 'i-t32' });
+    await docs.deliverArtifact(PID, { nodeId: 'n2', targetField: 'fileId', value: 'm-t32', exec: { status: 'done', attempts: 9, artifactRev: 2 } });
+    const after = await hydrateDoc();
+    expect(Buffer.from(Y.encodeStateAsUpdate(after)).toString('base64')).toBe(beforeBytes);   // doc 全量零变更（编码字节级——含 exec 根/任意键）
+    after.destroy();
+    before.destroy();
+  });
+
   it('T26 裁定面：fence unregistered（无行——legacy/词表外）⇒ 拒档 written:false（T25 收口 I-5：unregistered 档独立 surfaced——fail-closed 开发期无存量兼容）', async () => {
     const r = await docs.deliverArtifact(PID, { nodeId: 'ghost-node', targetField: 'fileId', value: 'm-x', exec: { ...execDonePatch, artifactRev: 1 } });
     expect(r.data.written).toBe(false);

@@ -13,7 +13,6 @@ import { CollabRecoveryImportController } from './collab-recovery-import.control
 import { LifecycleObligationSweeper } from './lifecycle-obligation.sweeper';   // Y1c T22：义务消费面（FEED_TOMBSTONE/NODE_DELETED——SKIP LOCKED 租约）
 import { CollabFrameGateService } from './collab-frame-gate.service';
 import { CollabDocumentService } from './collab-document.service';
-import { CollabDocWriterService } from './collab-doc-writer.service';
 import { CollabResidencyService } from './collab-residency.service';
 import { CollabWritePort, DirectCollabWritePort } from './collab-write.port';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
@@ -57,7 +56,6 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
     CollabGateway,
     CollabDocumentService,
     CollabResidencyService,   // Y0c T15（A2）：常驻会话单例——会话表/withSession 读写二分/releaseSessionFor 原语（Z59/Z109/Z111/Z113）
-    CollabDocWriterService,   // Y0c T8：writeBatch 同事务组批写门面（execution.service 首个消费方；T13b 端口化前直注入）
     DirectCollabWritePort,   // Y0c T13b：写端口 Direct 形态（api 进程内直调 CollabDocumentService）
     { provide: CollabWritePort, useExisting: DirectCollabWritePort },   // Y0c T13b：端口令牌→Direct 形态（T24 补 Http 形态）
     CanvasDocUpdateRepository,
@@ -97,6 +95,6 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
   // .currentEpoch；模块外消费面唯一=ProjectionOutboxPoller）。
   // T25b 四读径①：exports += RuntimeFeedService（video-work 公开快照 projection join 读面——
   // snapshotEnvelope 已提交态折叠；偏离 21 直注登记族追加同款）。
-  exports: [CollabDocumentService, CollabDocWriterService, CollabWritePort, CollabResidencyService, CollabLeaseService, CanvasDocUpdateRepository, RuntimeFeedService],   // Y0c T8：消费面逐步扩（T12 收编 shrink/intent-reconcile）；Y0c T15：residency 面导出（T16/T17 reaper/释放入口消费）；Y1c T21：+CanvasDocUpdateRepository（ExecutionRequestService PG 前缀重建档——受理冻结读面）
+  exports: [CollabDocumentService, CollabWritePort, CollabResidencyService, CollabLeaseService, CanvasDocUpdateRepository, RuntimeFeedService],   // Y1c T32：CollabDocWriterService 导出随 writeBatch 门面退役删除（维护域走纯函数 applyWriteOpsToDoc 直调）   // Y0c T8：消费面逐步扩（T12 收编 shrink/intent-reconcile）；Y0c T15：residency 面导出（T16/T17 reaper/释放入口消费）；Y1c T21：+CanvasDocUpdateRepository（ExecutionRequestService PG 前缀重建档——受理冻结读面）
 })
 export class CollabModule {}

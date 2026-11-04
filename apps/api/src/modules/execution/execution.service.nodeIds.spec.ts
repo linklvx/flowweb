@@ -10,8 +10,6 @@ import { ApiCallerService } from './api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabWritePort } from '../collab/collab-write.port';
-import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
-import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';
 import { EmitPort } from '../gateway/emit.port';
 import { GenerationIntentService } from './generation-intent.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -70,7 +68,6 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
         { provide: TeamCreditService, useValue: teamCredit },
         { provide: ProjectPermissionService, useValue: { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'), assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR') } },
         { provide: CollabWritePort, useValue: collabDoc },
-        { provide: CollabDocWriterService, useValue: docWriterStubOf(collabDoc) },   // Y0c T8：deliver+done 组批 stub（分派回记录器）
         { provide: EmitPort, useValue: gateway },
         { provide: UpstreamMediaService, useValue: { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } },
         // 批0.5-6 最小装置：意图服务默认放行（created:true）+ complete 默认过门（count=1）

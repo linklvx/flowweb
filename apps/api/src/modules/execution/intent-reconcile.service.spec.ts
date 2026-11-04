@@ -4,7 +4,6 @@ import { ServiceUnavailableException } from '@nestjs/common';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabWritePort } from '../collab/collab-write.port';
-import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { ArtifactCommitService } from '../artifact-core/artifact-commit.service';
@@ -118,8 +117,6 @@ describe('IntentReconcileService（F12/F13 两档收敛——T13 R3 重写后语
     imageEditQueue = { getJob: vi.fn().mockResolvedValue(null) };
     // Y0b-2 T5（Z106/Z112）：reaper 投影分治消费面——isDocResident+writeExecStatus 可断言
     collabDoc = { withDoc: vi.fn(), isDocResident: vi.fn(() => true), writeExecStatus: vi.fn().mockResolvedValue(undefined) };
-    // Y0c T12：sweepOrphanExec 改道 writeBatch——writer stub（结果断言在 writer spec 真判据，此处只断言改道）
-    collabWriter = { writeBatch: vi.fn().mockResolvedValue([{ index: 0, op: 'deleteExecOrphans', written: true }]) };
     // T13 R3：动作表单入口 stub——默认 not-recoverable（stale RUNNING 无 stage 行——charge 剩余分支承接）
     artifactCommit = {
       finalizeFromExistingMediaOrText: vi.fn().mockResolvedValue({ action: 'not-recoverable' }),
@@ -132,7 +129,6 @@ describe('IntentReconcileService（F12/F13 两档收敛——T13 R3 重写后语
         IntentReconcileService,
         { provide: PrismaService, useValue: prisma },
         { provide: CollabWritePort, useValue: collabDoc },
-        { provide: CollabDocWriterService, useValue: collabWriter },
         { provide: CreditLedgerService, useValue: ledger },
         { provide: TeamCreditService, useValue: teamCredit },
         { provide: getQueueToken(EXECUTION_QUEUE_NAME), useValue: queue },
@@ -466,45 +462,6 @@ describe('IntentReconcileService（F12/F13 两档收敛——T13 R3 重写后语
       }));
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('dead-letter'));
       warnSpy.mockRestore();
-    });
-
-    it('红·Y0c T12 sweepOrphanExec 改道 writeBatch：逐项目 collabWriter.writeBatch([{op:deleteExecOrphans}]) 单点，直写收编后 withDoc 零触达', async () => {
-      prisma.canvasProject.findMany.mockResolvedValue([{ id: 'p1' }, { id: 'p2' }]);
-
-      await (service as any).sweepOrphanExec();
-
-      expect(collabWriter.writeBatch).toHaveBeenCalledTimes(2);
-      expect(collabWriter.writeBatch).toHaveBeenNthCalledWith(1, 'p1', [{ op: 'deleteExecOrphans' }]);
-      expect(collabWriter.writeBatch).toHaveBeenNthCalledWith(2, 'p2', [{ op: 'deleteExecOrphans' }]);
-      expect(collabDoc.withDoc).not.toHaveBeenCalled();           // 直写收编后 withDoc 零触达
-    });
-
-    it('红·Y0c T11 Z56 游标轮转：满页推进游标/不足页回卷', async () => {
-      prisma.canvasProject.findMany
-        .mockResolvedValueOnce(Array.from({ length: 100 }, (_, i) => ({ id: `p${String(i).padStart(3, '0')}` })))
-        .mockResolvedValueOnce([{ id: 'pA' }, { id: 'pB' }])
-        .mockResolvedValueOnce([]);
-
-      await (service as any).sweepOrphanExec();
-      await (service as any).sweepOrphanExec();
-      await (service as any).sweepOrphanExec();
-
-      const calls = prisma.canvasProject.findMany.mock.calls;
-      expect(calls[0][0]).toEqual({ select: { id: true }, orderBy: { id: 'asc' }, take: 100 });
-      expect(calls[1][0]).toEqual({ where: { id: { gt: 'p099' } }, select: { id: true }, orderBy: { id: 'asc' }, take: 100 });
-      expect(calls[2][0]).toEqual({ select: { id: true }, orderBy: { id: 'asc' }, take: 100 });
-    });
-
-    it('Y0a-3 V20：writeBatch 抛 503（lease 失守）→ 捕获后延后重试——单项目失败不阻塞整批', async () => {
-      prisma.canvasProject.findMany.mockResolvedValue([{ id: 'p1' }, { id: 'p2' }]);
-      collabWriter.writeBatch.mockRejectedValueOnce(
-        new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'collab not serving' }),
-      );
-
-      await expect(service.reconcileDaily()).resolves.toBeUndefined();
-
-      expect(collabWriter.writeBatch).toHaveBeenCalledTimes(2);
-      expect(prisma.generationIntent.updateMany).not.toHaveBeenCalled();
     });
 
     it('video-separate 陈旧任务对账+并发额度归还（自 video-separate.cron 搬入）', async () => {

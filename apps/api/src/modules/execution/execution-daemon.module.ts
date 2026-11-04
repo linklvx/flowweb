@@ -40,7 +40,7 @@ export class ExecutionDaemonModule {
     return {
       module: ExecutionDaemonModule,
       imports: [
-        CollabModule,   // CollabWritePort/CollabDocWriterService（reconcile 修复写直调 DocWriter——留 api 的归属依据）
+        CollabModule,   // CollabWritePort（reconcile 投影写/读面——留 api 的归属依据；T32 删 DocWriter 导出〔writeBatch 门面退役〕）
         TeamModule,     // CreditLedgerService/TeamCreditService（资金冲销面）
         // T13 R3：动作表单入口（finalizeFromExistingMediaOrText/finalizeFromStage——stage 行重下
         // finalize）。api 进程可安全导入（census ⑰ 闭包约束=worker 专用；worker 侧 R3 不装配=本

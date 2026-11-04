@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { ExecutionService } from './execution.service';
-import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';   // Y0c T8：writeBatch stub（分派回 collabDoc 记录器）
 import { ExecutionController } from './execution.controller';
 
 /** F4 必红：扣费失败后 doc 不得含本次新产物（text/video 曾违反——先写产物后扣费）。
@@ -139,19 +138,3 @@ describe('批0c-5 jobs/:id 归属（default-deny + 成员级）', () => {
 });
 
 /** 批0.5-6 必红：GET intents 成员级读面——与 jobs/:id 同口径（404 不泄露存在性；VIEWER 也可见）。 */
-describe('批0.5-6 GET intents 归属（default-deny + 成员级）', () => {
-  it('非成员（resolve null）→ 404 NotFoundException（不泄露意图存在性）', async () => {
-    const { ctrl } = makeController(null, null);
-    await expect(ctrl.listIntents('p1', 'n1', { user: { id: 'u1' } } as any)).rejects.toBeInstanceOf(NotFoundException);
-  });
-
-  it('VIEWER（成员非 editor）→ 200 返回 listByNode 裸数组（T6 信封清剿——交全局拦截器单层包裹，web apiFetch 直接得数组）', async () => {
-    const rows = [{ id: 'row-1', intentId: 'i-1', kind: 'image', status: 'SUCCEEDED', resultRef: 'http://x' }];
-    const { ctrl: c, intentService, perm } = makeController(null, 'PROJECT_VIEWER');
-    (intentService as any).listByNode = vi.fn().mockResolvedValue(rows);
-    const r = await c.listIntents('p1', 'n1', { user: { id: 'u1' } } as any);
-    expect(perm.resolve).toHaveBeenCalledWith('p1', 'u1');
-    expect((intentService as any).listByNode).toHaveBeenCalledWith('p1', 'n1');
-    expect(r).toEqual(rows);
-  });
-});

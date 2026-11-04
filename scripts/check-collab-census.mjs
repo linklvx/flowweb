@@ -1324,14 +1324,15 @@ if (isMain()) {
   //  〔媒体列表 Y.Array 域容器物化——array-domains materialize 消费；ydocBuilder 另有
   //  applyRecordToMap data 工厂 1 点=原 3 计〕）+canvasIntents 3 点（position×2 工厂
   //  实参/edges 复用守卫；**T15 删 nodes.*.data 懒建 1 点**〔容器规则——缺 data 拒绝不懒建〕）
-  //  +collab-document.service 1 点（exec.* 唯一创建者；**T15 删 nodes.*.data 懒建 1 点**）
+  //  +collab-document.service 1 点（exec.* 唯一创建者——**T32 随 doc.exec 写链退役删除**）
   //  +doc-registry deepCopyYMap 1 点（vacuum 真空重建——T41 W3a 自 gateway 随域迁，同计数换宿主）。
   //  Y.Text 生产创建点=Y1c T15 fillDoc 物化工厂 3 处（text-domains materialize 消费）；
   //  Y.Array 生产创建点=Y1c T17 fillDoc 物化工厂 3 处（array-domains materialize 消费——原
   //  「零创建点」注记随 T17 域迁移失效，doc-codec buildYValue/rebuild=shared 面不在本组扫描域）。
   const NESTED_CREATOR_WHITELIST = {
     'apps/api/src/gate-canvas-state.ts': 3,
-    'apps/api/src/modules/collab/collab-document.service.ts': 1,
+    // Y1c T32：collab-document.service 1 点（applyWriteExecStatusToDoc exec.* 条目懒建）随
+    // doc.exec 写链退役删除——条目清零移出白名单。
     'apps/api/src/modules/collab/collab-doc-registry.service.ts': 1,   // T41 W3a：gateway deepCopyYMap 1 点（vacuum 真空重建）随域迁——同计数换宿主
     'apps/api/src/modules/collab/doc-like.util.ts': 3,
     'apps/web/src/collab/ydocBuilder.ts': 4,
@@ -1494,12 +1495,12 @@ if (isMain()) {
   // ㉛doc.exec 触碰面零增长（census ⑤ 基线清单——P3/P4 删除前只许零增长）：词面投影=
   //  getMap('exec') 出现数（census ⑤ 十条目+上游写点+读者中直触 exec map 的机械子集——上游写点
   //  经 writeExecStatus/deliverArtifact/writeBatch 服务原语不直触 map 故不计）。冻结值=2026-10-24
-  //  实测；T22/T32 删除 doc.exec 读写链时本组白名单清零同步。
+  //  实测；T32 删除 doc.exec 读写链——本组白名单已同步清零。
   const EXEC_MAP_WHITELIST = {
-    'apps/api/src/modules/collab/collab-document.service.ts': 2,   // applyWriteExecStatusToDoc:312+applyDeleteExecOrphansToDoc:381（写原语直触——T32 删码清单项）
-    'apps/api/src/modules/collab/collab-doc-registry.service.ts': 2, // vacuum 等价校验 :662 同行两次（新旧 doc keys 比对）
-    // Y1c T22（G5 同切片）：web 面清零——projectExecToStore/observeDeep 读源退役（doc.exec 停读，
-    // 数据源=runtimeStore 投影——execView 静态锚锁零接触）；web 条目移出白名单。
+    // Y1c T32（spec §6.7 删除清单——census ⑤ 词面投影）：doc.exec 读写链退役——写原语
+    // （applyWriteExecStatusToDoc/applyDeleteExecOrphansToDoc）与 vacuum 等价校验 exec keys 比对
+    // 均已删除，白名单清零（T22 web 面先清——projectExecToStore/observeDeep 读源退役）。生产面
+    // getMap('exec') 零容忍（旧档 wire 透传不触代码面）。
   };
   {
     const occurrences = {};
@@ -1508,7 +1509,7 @@ if (isMain()) {
       if (lines.length) occurrences[relOf(p)] = lines;
     }
     const details = reconcileCountWhitelist(occurrences, EXEC_MAP_WHITELIST, 'doc.exec 触碰');
-    report('㉛', `doc.exec 触碰面零增长（getMap('exec') ${Object.values(EXEC_MAP_WHITELIST).reduce((a, b) => a + b, 0)} 处/2 文件冻结（T22 web 面清零）——census ⑤ 词面投影；T22/T32 删除时同步清零；违规明细 file:line）`, details.length === 0, details);
+    report('㉛', `doc.exec 触碰面零容忍（getMap('exec') 生产面清零——T32 删除清单落地；census ⑤ 词面投影；违规明细 file:line）`, details.length === 0, details);
   }
 
   // ㉜Y.applyUpdate 消费面白名单（census ⑨ 现状调用点为基线；目标态=gate/load/import 三处——
@@ -1560,8 +1561,9 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-residency.service.ts': 1,  // withSession 常驻会话 acquire（:445）
   };
   const DIRECT_CONNECTION_BUSINESS_WRITE_REGISTERED_RED = {
-    writeExecStatus: { file: 'apps/api/src/modules/collab/collab-document.service.ts', until: 'T32', note: 'T22 主体批已切 PG 事件写面（doc.exec 零写）——方法本体在册待 T32 删码核销（非 doc 写承载）' },
-    writeBatch: { file: 'apps/api/src/modules/collab/collab-doc-writer.service.ts', until: 'T32', note: 'serving 期业务 doc 写经 withSession 直连通道（T32 doc 写链终点收口）' },
+    // Y1c T32 核销：writeExecStatus（T22 已切 PG 事件写面——方法在册登记）与 writeBatch（T32
+    // 随 write-batch 端点退役删除——DI 门面/worker 令牌/孤儿清扫三消费面清零）两登记行移除：
+    // serving 期业务 doc 写=0 目标态达成（通道 A 维护域 allowlist 不变）。
   };
   {
     const occurrences = {};
@@ -1577,7 +1579,7 @@ if (isMain()) {
       if (present) registered.push(`登记红（until=${reg.until}）${reg.file} ${method}——${reg.note}`);
       else details.push(`业务写登记项已消失——转绿达成请移除登记 ${reg.file} ${method}（until=${reg.until}）`);
     }
-    report('㉝', 'DirectConnection 检查（openDirectConnection 恰 2 调用点=census ⑫ openSites；serving 期业务写=0 目标态——现役业务写登记红 until=T32〔deliverArtifact=T22 收口批核销；writeExecStatus=T22 主体批已切 PG 事件零 doc 写（登记留 T32 删码核销）；现役 doc 写仅 writeBatch〕）',
+    report('㉝', 'DirectConnection 检查（openDirectConnection 恰 2 调用点=census ⑫ openSites；serving 期业务写=0 目标态达成——T32 核销：writeExecStatus T22 切 PG 事件〔登记移除〕+writeBatch 随 write-batch 端点退役删除；通道 A 维护域 allowlist 不变）',
       details.length === 0, [...details, ...registered]);
   }
 

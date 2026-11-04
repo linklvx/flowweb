@@ -25,7 +25,6 @@ import { ProjectPermissionService } from '../team/project-permission.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { ledgerWipe, deleteTeamsWithPass } from '../../test-utils/intent-fixture';
-import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';   // Y0c T8：writeBatch stub（分派回 collabDoc 记录器）
 
 // 无 DATABASE_URL（CI 未起库）自动 skip
 const hasDb = !!process.env.DATABASE_URL;

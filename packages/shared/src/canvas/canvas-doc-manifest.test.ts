@@ -19,23 +19,11 @@ import {
 import { QUOTA_DEFAULTS } from '../constants/collab-quota';
 
 describe('Y0c T4 manifest 执行期校验表（Z108——A1 DocWriter 进门消费）', () => {
-  it('合法批零违规（writeNodeData+writeExecStatus+delete 族全词汇）', () => {
+  it('合法批零违规（writeNodeData+delete 族全词汇——Y1c T32 四 op 面）', () => {
     const violations = validateWriteBatch([
       { op: 'writeNodeData', nodeId: 'n1', patch: { fileId: 'media_1', resultUrl: 'https://x/y.png' } },
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1, intentId: 'i1', jobId: null } },
       { op: 'deleteNodeDataKeys', nodeId: 'n2', keys: ['resultUrl'] },
       { op: 'deleteNodes', nodeIds: ['n3'] },
-      { op: 'deleteExecOrphans' },
-    ]);
-    expect(violations).toEqual([]);
-  });
-
-  it('skipped 投影 reason 键合法（execution.service 两处生产调用点：:306 重复外呼/:411 Z99 NodeBusy）', () => {
-    const violations = validateWriteBatch([
-      // 镜像 execution.service.ts:306——reserve 拒（重复外呼企图）投影
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'skipped', reason: 'INTENT_DUPLICATE_ATTEMPT', attempts: 2, intentId: 'i1' } },
-      // 镜像 execution.service.ts:411-414——Z99 NodeBusy 投影（intentId 条件展开后缺省形态）
-      { op: 'writeExecStatus', nodeId: 'n2', patch: { status: 'skipped', reason: 'node busy: other writer in flight', attempts: 0 } },
     ]);
     expect(violations).toEqual([]);
   });
@@ -98,16 +86,7 @@ describe('Y0c T4 manifest 执行期校验表（Z108——A1 DocWriter 进门消�
     expect(violations[0].code).toBe('NON_IDEMPOTENT_OP');
   });
 
-  it('值域违规（writeExecStatus.attempts 非 number——VALUE_TYPE_MISMATCH）', () => {
-    const violations = validateWriteBatch([
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'loading', attempts: '3' } },
-    ]);
-    expect(violations).toHaveLength(1);
-    expect(violations[0].code).toBe('VALUE_TYPE_MISMATCH');
-    expect(violations[0].key).toBe('attempts');
-  });
-
-  it('未知 op 拒绝（新增第七 op 未分类即红——UNKNOWN_OP）', () => {
+  it('未知 op 拒绝（新增第五 op 未分类即红——UNKNOWN_OP；Y1c T32 四 op 面）', () => {
     const violations = validateWriteBatch([{ op: 'someFutureOp' }]);
     expect(violations).toHaveLength(1);
     expect(violations[0].code).toBe('UNKNOWN_OP');
@@ -135,9 +114,9 @@ describe('Y0c T4 manifest 执行期校验表（Z108——A1 DocWriter 进门消�
     ]);
     expect(keyViolations[0].opName).toBe('writeNodeData');
     const typeViolations = validateWriteBatch([
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'loading', attempts: '3' } },
+      { op: 'writeNodeData', nodeId: 'n1', patch: { fileId: 42 } },
     ]);
-    expect(typeViolations[0].opName).toBe('writeExecStatus');
+    expect(typeViolations[0].opName).toBe('writeNodeData');
     // op 形态不可知（op 字段非法值）时 opName 仍带原值——日志可读
     const unknownOp = validateWriteBatch([{ op: 'someFutureOp' }]);
     expect(unknownOp[0].opName).toBe('someFutureOp');
@@ -157,16 +136,15 @@ describe('Y0c T4 manifest 执行期校验表（Z108——A1 DocWriter 进门消�
     // （throw 与跳过）在批面均被校验表拦死。T9 勘正：checkPatchEntry 对 undefined skip 早退。
     const violations = validateWriteBatch([
       { op: 'writeNodeData', nodeId: 'n1', patch: { resultUrl: undefined, fileId: 'm_1' } },
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'done', attempts: 1, reason: undefined } },
     ]);
-    expect(violations).toEqual([]);
+    expect(violations).toEqual([]);   // Y1c T32：writeExecStatus op 词汇随 doc.exec 链退役——Z5 单 op 同测
   });
 });
 
 describe('Y0c T4 manifest 结构完整性（E38 四层——编译断言的运行时面）', () => {
-  it('六 op 词汇全分类（Record<DocWriteOpType,…> 穷尽——新增忘分类即 tsc 红）', () => {
+  it('四 op 词汇全分类（Record<DocWriteOpType,…> 穷尽——新增忘分类即 tsc 红；Y1c T32：writeExecStatus/deleteExecOrphans 随 doc.exec 链退役——六 op 收四）', () => {
     const expected: readonly DocWriteOpType[] = [
-      'writeNodeData', 'writeExecStatus', 'deleteNodeDataKeys', 'deleteNodes', 'fillDoc', 'deleteExecOrphans',
+      'writeNodeData', 'deleteNodeDataKeys', 'deleteNodes', 'fillDoc',
     ];
     expect(Object.keys(DOC_WRITE_OPS).sort()).toEqual([...expected].sort());
     for (const spec of Object.values(DOC_WRITE_OPS)) {
@@ -221,23 +199,7 @@ describe('Y0c T4 manifest 结构完整性（E38 四层——编译断言的运�
   });
 });
 
-describe('Y1a T3（片 S0）：execSeq 代际键入 exec 键集+服务端/客户端键集单源两常量', () => {
-  it('writeExecStatus patch 带 execSeq 键合法（T9 代际围栏前置——现状 UNKNOWN_KEY 即本卡先红判据）', () => {
-    const violations = validateWriteBatch([
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'loading', attempts: 1, intentId: 'i1', execSeq: '9007199254740993' } },
-    ]);
-    expect(violations).toEqual([]);
-  });
-
-  it('execSeq 值域=string（DB BigInt wire 一律 string 化——number 形态 VALUE_TYPE_MISMATCH）', () => {
-    const violations = validateWriteBatch([
-      { op: 'writeExecStatus', nodeId: 'n1', patch: { status: 'loading', attempts: 1, execSeq: 42 } },
-    ]);
-    expect(violations).toHaveLength(1);
-    expect(violations[0].code).toBe('VALUE_TYPE_MISMATCH');
-    expect(violations[0].key).toBe('execSeq');
-  });
-
+describe('Y1a T3（片 S0）：服务端/客户端键集单源两常量（Y1c T32：execSeq 两用例随 writeExecStatus op 词汇退役删除）', () => {
   it('键集单源两常量同集 {fileId,result}（v11 架构定案：同引用=真单源——分化时再拆）', () => {
     expect([...SERVER_WRITABLE_DATA_KEYS]).toEqual(['fileId', 'result']);
     expect(CLIENT_FORBIDDEN_ON_UPDATE).toBe(SERVER_WRITABLE_DATA_KEYS);

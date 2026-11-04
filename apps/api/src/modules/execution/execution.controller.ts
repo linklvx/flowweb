@@ -119,16 +119,6 @@ export class ExecutionController {
     };
   }
 
-  /** 批0.5-6：节点意图列表（断连恢复读面）。成员级——VIEWER 也可见（与 jobs/:id 同口径）。
-   *  Y0b-2 T6（Z78 信封清剿）：裸值返回交全局 TransformInterceptor 单层包裹——改前手包 {code,data}
-   *  双层使 web apiFetch（返 json.data）拿到 {code,data} 对象非数组 ⇒ alignExecFromIntents 静默 no-op。 */
-  @Get('intents')
-  async listIntents(@Query('projectId') projectId: string, @Query('nodeId') nodeId: string, @Req() req: Request) {
-    const role = await this.perm.resolve(projectId, (req as any).user?.id);
-    if (!role) throw new NotFoundException(); // 404 不泄露存在性
-    return this.intentService.listByNode(projectId, nodeId);
-  }
-
   @Get('jobs/:id')
   async getJob(@Param('id') id: string, @Req() req: Request) {
     const job = await this.executionQueue.getJob(id);

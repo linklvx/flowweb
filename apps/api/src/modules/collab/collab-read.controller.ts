@@ -4,7 +4,7 @@
 // .readCanvas 消费——E49 计费读 fail-closed：瞬态 503 耗尽显式 throw 不按空画布外呼）。
 // 形态三钉：@NoTransform（裸 {nodes,edges}——TransformInterceptor 包裹壳会破坏端口直接 cast 契约）/
 // @SkipThrottle（worker 内部通道不吃共享 300/min 桶——/api/ready 同惯例）/WorkerWriteAuthGuard
-// （Bearer WORKER_WRITE_TOKEN+timingSafeEqual——T27 write-batch 复用）。AuthGuard 会话面由
+// （Bearer WORKER_WRITE_TOKEN+timingSafeEqual——T27 建/T32 exec-status 端点复用）。AuthGuard 会话面由
 // auth.guard 精确谓词放行 GET canvas 路径（偏离 32——前缀机制覆盖不了 :projectId 段）。
 import { Controller, Get, Inject, Param, UseGuards } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';

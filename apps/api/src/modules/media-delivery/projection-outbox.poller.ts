@@ -108,7 +108,7 @@ export interface ProjectionTickSummary {
   outcomes: Partial<Record<string, number>>;
 }
 
-type OutcomeLabel = 'projected' | 'fast-path' | 'superseded' | 'orphaned' | 'dead' | 'retry-spooled' | 'retry-failed' | 'fenced';
+type OutcomeLabel = 'projected' | 'superseded' | 'orphaned' | 'dead' | 'retry-spooled' | 'retry-failed' | 'fenced';   // Y1c T32：fast-path 标签随 doc 等值判等死路径退役
 
 @Injectable()
 export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdown {
@@ -262,32 +262,14 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
     }
     if (survivors.length === 0) return { outcomes, fenced: false, appliedUnpersisted: 0 };
 
-    // ③ 内容等值 fast path 判定（裁决 :53：doc 当前值等值=跳 apply 省写——非权威判据）：
-    //    withSession(read) 单次读全部存活行的 doc 当前值。null 等值同判（clear 行复投/已 null
-    //    预置=null 值交付的 fast path——readNodeDataValue 缺键=undefined≠null：缺键仍走 apply 补写）。
-    let equalFlags: boolean[];
-    try {
-      equalFlags = await this.docs.withSession(projectId, (doc) => survivors.map(({ row, artifact }) =>
-        readNodeDataValue(doc, row.nodeId, keyOf(row)) === valueOf(artifact, row),
-      ), { mode: 'read' });
-    } catch (err) {
-      if (classifyApplyError(err, capturedEpoch, this.lease.currentEpoch()) === 'fenced') {
-        await this.fencedBail(survivors.map((s) => s.row), inc);
-        return { outcomes, fenced: true, appliedUnpersisted: 0 };
-      }
-      // Minor#5（T15 质评）：读失败降级全走 apply（equalFlags 全 false）——真失败计数由逐行 apply
-      // 承担（哪行 apply 成功哪行耗尽各归各），不整组预支 attempts。
-      this.logger.warn(`[projection] fast path 读失败降级全走 apply（逐行承担失败计数）project=${projectId}: ${(err as Error).message}`);
-      equalFlags = survivors.map(() => false);
-    }
-
-    // ④ deliverArtifact 复合 op（非等值行）：data.{fileId|result}+exec done 同 withSession(write) 事务。
-    //    written:false node-deleted =「谁观察 node 删除」权威观察点 ⇒ orphaned+幂等退款。
+    // ④ deliverArtifact（feed 交付事务：fence 权威+exec.artifact/exec.status(done) 双事件——T22 起
+    //    零 doc 写）。written:false node-deleted =「谁观察 node 删除」权威观察点 ⇒ orphaned+幂等退款。
+    //    Y1c T32：③ 内容等值 fast path（doc data 当前值判等跳 apply）随 data 域 doc 写停写删除——
+    //    T22 停写后 doc 恒无值=判等恒 false 死路径（幂等由 deliverArtifact 事务内 (nodeId,artifactRev)
+    //    事件唯一性承担）。
     const deliverable: Array<{ row: ArtifactProjection; artifact: NodeArtifact }> = [];   // flush 后 recheck 集
-    const fastPath: Array<{ row: ArtifactProjection; artifact: NodeArtifact }> = [];
     for (let i = 0; i < survivors.length; i += 1) {
       const s = survivors[i];
-      if (equalFlags[i]) { fastPath.push(s); continue; }   // fast path——跳写（flush 后 mark）
       try {
         const r = await this.docs.deliverArtifact(projectId, {
           nodeId: s.row.nodeId,
@@ -322,13 +304,13 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
       } catch (err) {
         if (classifyApplyError(err, capturedEpoch, this.lease.currentEpoch()) === 'fenced') {
           // fenced：本行+未处理行+已 apply/快道未 mark 行全数释放（fencedBail）——本轮放弃
-          await this.fencedBail([s.row, ...survivors.slice(i + 1).map((x) => x.row), ...fastPath.map((x) => x.row), ...deliverable.map((x) => x.row)], inc);
+          await this.fencedBail([s.row, ...survivors.slice(i + 1).map((x) => x.row), ...deliverable.map((x) => x.row)], inc);
           return { outcomes, fenced: true, appliedUnpersisted: 0 };
         }
         inc(await this.failRow(s.row, err) ? 'dead' : 'retry-failed');   // 真失败——耗 attempts
       }
     }
-    if (deliverable.length === 0 && fastPath.length === 0) return { outcomes, fenced: false, appliedUnpersisted: 0 };
+    if (deliverable.length === 0) return { outcomes, fenced: false, appliedUnpersisted: 0 };
 
     // ⑤ 批尾一次 flush（T14 窄接口——投影推进唯一凭据；capturedEpoch 提交前校验在彼①段）
     let flush: Awaited<ReturnType<CollabDocumentService['flushDocument']>>;
@@ -341,15 +323,15 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
     }
     // T19（spec :518·质评 Important#1 改道）：本组 applied_unpersisted 改返回值（tick 全局累计
     // 一次 set——原组内直 set 的跨 project last-writer-wins 缺口根修）。persisted ⇒ 0；
-    // spooled/failed（apply 已做未持久）⇒ deliverable 行数（fast path 行未 apply——不计）；
+    // spooled/failed（apply 已做未持久）⇒ deliverable 行数；
     // terminal fk ⇒ 0（行已终态化无待持久语义）；稳态目标=0，spool 回灌后下轮归零。
     const appliedUnpersisted
       = flush.kind === 'persisted' || (flush.kind === 'terminal' && flush.reason === 'fk')
         ? 0
         : deliverable.length;
 
-    // ⑥ 逐行 recheck+mark（fast path 同判定——等值是内存态判定，projected 需 flush persisted 背书）
-    const flushLoop = [...deliverable, ...fastPath];
+    // ⑥ 逐行 recheck+mark
+    const flushLoop = [...deliverable];
     for (let fi = 0; fi < flushLoop.length; fi += 1) {
       const s = flushLoop[fi];
       if (flush.kind === 'terminal' && flush.reason === 'fk') {
@@ -384,7 +366,7 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
         continue;
       }
       await this.mark(s.row, { state: 'projected', projectedAt: new Date() });
-      inc(deliverable.includes(s) ? 'projected' : 'fast-path');
+      inc('projected');   // Y1c T32：等值跳写死路径删除——flush 后 mark 全档 projected
       // T16 post-apply 触发：fileId/result 落 doc ⇒ MediaBinding 索引对齐（fire-and-forget 入队——
       // drain 周期收敛，不阻塞本循环）。
       this.reconciler.requestReconcile(projectId);
@@ -539,10 +521,3 @@ function valueOf(artifact: NodeArtifact, row: Pick<ArtifactProjection, 'targetFi
   return row.targetField === 'result' ? artifact.resultText : artifact.mediaId;
 }
 
-function readNodeDataValue(doc: Y.Doc, nodeId: string, key: string): unknown {
-  const entry = doc.getMap('nodes').get(nodeId);
-  if (!(entry instanceof Y.Map)) return undefined;
-  const data = entry.get('data');
-  if (!(data instanceof Y.Map)) return undefined;
-  return data.get(key);
-}

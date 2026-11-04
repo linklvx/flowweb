@@ -711,7 +711,8 @@ export class CollabDocRegistryService {
   /** ④ 全根真空重建（vacuum service 与 recheck residue 评估共用单源）：按 doc.share 枚举——
    *  nodes/edges → toReadModel+fillDoc（records 真值重放——墓碑/GC 壳/delete set 不随行；Y1c T4
    *  起读侧改道 doc-codec toReadModel）；
-   *  其余 Y.Map 根（exec/meta/未来新增）→ 逐 key 深拷贝（未来新增根 map 不可能被静默丢弃〔U-2〕）；
+   *  其余 Y.Map 根（meta/未来新增）→ 逐 key 深拷贝（未来新增根 map 不可能被静默丢弃〔U-2〕；
+   *  Y1c T32：exec 根=已除名死根——不搬运不深拷贝〔doc.exec 读写链退役，旧档残留随真空消亡〕）；
    *  T18 起 meta 零键（版本=PG 列——深拷贝=透明搬运；旧档残留值随拷贝保留为历史载荷不解释）；
    *  非 Map 根（Y.Text 等）⇒ null（vacuum 不支持——降级导出通道，DB 零变更）。
    *  ⚠ yjs wire 根类型事实（实测 13.6.32）：applyUpdate 重建的 doc.share 根=AbstractType 占位
@@ -730,6 +731,9 @@ export class CollabDocRegistryService {
       fresh.transact(() => {
         for (const [name] of source.share) {
           if (name === 'nodes' || name === 'edges') continue;
+          // Y1c T32：exec 根死根不搬运（doc.exec 读写链退役——零写者零读者；旧档残留值随真空消亡，
+          // wire 透传义务随删除清单解除——meta 同族深拷贝保留〔未知未来根 U-2 守恒〕）。
+          if (name === 'exec') continue;
           deepCopyYMap(source.getMap(name), fresh.getMap(name));   // getMap 规约化（占位→YMap 视图——服务端访问语义）
         }
       });
@@ -741,17 +745,19 @@ export class CollabDocRegistryService {
   }
 
   /** ⑤ 等价断言扩全根（把信任 fillDoc 变成验证 fillDoc）：readRecords 深比+根类型集合相等
-   *  +exec 键集合相等（三条 O(键数)——U-1/U-2 直接检测）。T18：meta.schemaVersion===current
-   *  检查随版本移 PG 列退役（行值不随 vacuum 变）；JSON 序列化对比（键序=遍历序稳定）。 */
+   *  （两条 O(键数)——U-1/U-2 直接检测）。T18：meta.schemaVersion===current 检查随版本移 PG 列
+   *  退役（行值不随 vacuum 变）；JSON 序列化对比（键序=遍历序稳定）。
+   *  Y1c T32：exec 键集合相等断言随 doc.exec 读写链退役删除——exec 根=已除名死根（rebuild 不
+   *  搬运、shape 断言两侧行过滤对称豁免〔旧档源 exec 根丢弃合法〕）。 */
   vacuumEquivalent(oldDoc: Y.Doc, newDoc: Y.Doc): boolean {
     // 三常驻根规约化（装载路径同款——根集合对称口径；空源 doc 键集合口径由此对称）。
     // T18：meta 规约化删除——legacy 根两侧自然对称（source 有 ⇒ fresh 深拷贝亦有；无 ⇒ 双无；
     // 单侧 getMap 建根=制造形状差〔stamp 退役后装载不再建 meta——equivalence-failed 根因〕）。
     oldDoc.getMap('nodes'); oldDoc.getMap('edges');
-    const shapeOf = (d: Y.Doc) => [...d.share.keys()].sort().join('|');   // 根键名集合（wire 占位与本地实例 constructor 不可比——类型保型由 rebuild 判定结构性保证）
+    // T32：exec 键两侧行过滤（rebuild 不搬运源 exec 根——已知死根豁免；未过滤即旧档源必假失败）
+    const shapeOf = (d: Y.Doc) => [...d.share.keys()].filter((k) => k !== 'exec').sort().join('|');   // 根键名集合（wire 占位与本地实例 constructor 不可比——类型保型由 rebuild 判定结构性保证）
     if (shapeOf(oldDoc) !== shapeOf(newDoc)) return false;
     if (JSON.stringify(toReadModel(oldDoc)) !== JSON.stringify(toReadModel(newDoc))) return false;
-    if ([...oldDoc.getMap('exec').keys()].sort().join('\x00') !== [...newDoc.getMap('exec').keys()].sort().join('\x00')) return false;
     return true;
   }
 

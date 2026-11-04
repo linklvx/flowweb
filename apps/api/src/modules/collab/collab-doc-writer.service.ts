@@ -1,6 +1,10 @@
 // apps/api/src/modules/collab/collab-doc-writer.service.ts
-// Y0c T8（片 A1 行为契约——spec :502 目标形态①）：服务端 doc 写唯一门面核心（A1 T9 三门/T10 origin/
-// T11 守卫/T12 收编都在本服务上叠加）。六 op 词汇表=shared canvas-doc-manifest 单源（禁 api 侧重复定义）。
+// Y0c T8（片 A1 行为契约——spec :502 目标形态①）：服务端 doc 写原语纯函数域（A1 T9 三门/T10 origin/
+// T11 守卫/T12 收编叠加）。四 op 词汇表=shared canvas-doc-manifest 单源（禁 api 侧重复定义；Y1c T32：
+// writeExecStatus/deleteExecOrphans 随 doc.exec 读写链退役——六 op 收四）。**CollabDocWriterService
+// DI 门面（writeBatch 会话批写）随三消费面退役删除**（write-batch HTTP 端点〔doc.exec 链〕+
+// intent-reconcile deleteExecOrphans〔exec 根死=无孤儿面〕+worker HttpCollabDocWriter 令牌）——
+// 剩余消费者=维护域直调纯函数 applyWriteOpsToDoc（shrink 影子预演/活写、export-fresh 种子副本）。
 //
 // writeBatch 同 doc 同事务：一次 writeBatch=恰一次会话事务（Y0c T15 起经 withSession{mode:'write'}
 // ——A1 期为 withDoc；事务形态与写 origin 逐字保持），「data 与 exec 同事务」（先红用例③）。
@@ -42,11 +46,10 @@
 // 一次零双计），违规一律不 throw 化=实质禁则保持。
 //
 // 写守卫 reason 词表（本文件枚举——CollabAuthReason 是 auth 拒绝域不混入；wire 面 T27 端点透传
-// 只增不改）：node-deleted（writeNodeData/deleteNodeDataKeys/writeExecStatus——Z44/Z4）/ no-node-map
+// 只增不改）：node-deleted（writeNodeData/deleteNodeDataKeys——Z44/Z4）/ no-node-map
 // （writeNodeData，Z44）/ missing-attempts / older-attempts（Z111 代次 fail-closed）/
 // terminal-superseded（Z99 同代终态不倒退）/ text-domain-protected + no-data-map（Y1c T15 容器
 // 规则——Y.Text 域键整串覆盖拒+缺 data Y.Map 拒绝不懒建，collab-document.service 写核心守卫）。
-import { Injectable, Inject } from '@nestjs/common';
 import type * as Y from 'yjs';
 import {
   validateWriteBatch,
@@ -56,18 +59,12 @@ import {
   type WriteBatchViolationCode,
 } from '@flowweb/shared';
 import {
-  CollabDocumentService,
   applyWriteNodeDataToDoc,
-  applyWriteExecStatusToDoc,
   applyDeleteNodeDataKeysToDoc,
   applyDeleteNodesToDoc,
   applyFillDocToDoc,
-  applyDeleteExecOrphansToDoc,
-  undefinedPatchValueError,
-  type ExecStatusPatch,
 } from './collab-document.service';
 import { collabWriteRejectedTotal } from './store.metrics';
-import { execProjectionDroppedTotal, execOrphanBlockedTotal } from '../execution/exec.metrics';
 
 /** Y0c T9（D 类型门）：writeBatch 事务回调同步封套。会话写事务（Y0c T15 起 withSession{mode:'write'}；
  *  A1 期 withDoc）会把异步回调的 Promise 捕获到事务外
@@ -149,16 +146,6 @@ function applyOp(doc: Y.Doc, op: DocWriteOp, index: number): WriteOpResult {
       const r = applyWriteNodeDataToDoc(doc, op.nodeId, op.patch);
       return guardResult(index, op.op, r.written, r.reason);
     }
-    case 'writeExecStatus': {
-      const r = applyWriteExecStatusToDoc(doc, op.nodeId, op.patch as ExecStatusPatch);
-      if (!r.written && r.reason === 'node-deleted') {
-        execOrphanBlockedTotal.inc();   // Y0c T11 Z4：与单写面同款专项信号（守卫双面生效）
-      }
-      if (!r.written && r.reason !== 'terminal-superseded') {
-        execProjectionDroppedTotal.inc({ cause: r.reason });   // 与单写面同计数（投影丢弃观测零分裂）
-      }
-      return guardResult(index, op.op, r.written, r.written ? undefined : r.reason);
-    }
     case 'deleteNodeDataKeys': {
       const r = applyDeleteNodeDataKeysToDoc(doc, op.nodeId, op.keys);
       return guardResult(index, op.op, r.written, r.reason);
@@ -167,10 +154,8 @@ function applyOp(doc: Y.Doc, op: DocWriteOp, index: number): WriteOpResult {
       return guardResult(index, op.op, applyDeleteNodesToDoc(doc, op.nodeIds).written);   // T12 收编（shrink 同源）
     case 'fillDoc':
       return guardResult(index, op.op, applyFillDocToDoc(doc, op.nodes, op.edges).written); // T12 收编（export-fresh 同源）
-    case 'deleteExecOrphans':
-      return guardResult(index, op.op, applyDeleteExecOrphansToDoc(doc).written);           // T12 收编（exec-GC 同源）
     default:
-      // 六 op 词汇表 Record 穷尽=编译断言——运行时不可达（词汇表外 op 已被 Z108 UNKNOWN_OP 业务级拒）。
+      // 四 op 词汇表 Record 穷尽=编译断言——运行时不可达（词汇表外 op 已被 Z108 UNKNOWN_OP 业务级拒）。
       throw new Error(`writeBatch op 未实现: ${String((op as { op?: unknown }).op)}`);
   }
 }
@@ -179,50 +164,4 @@ function applyOp(doc: Y.Doc, op: DocWriteOp, index: number): WriteOpResult {
 function guardResult(index: number, op: DocWriteOpType, written: boolean, reason?: string): WriteOpResult {
   if (!written && reason) collabWriteRejectedTotal.inc({ reason });
   return { index, op, written, ...(reason ? { reason } : {}) };
-}
-
-@Injectable()
-export class CollabDocWriterService {
-  constructor(@Inject(CollabDocumentService) private readonly doc: CollabDocumentService) {}
-
-  /** 同 doc 同事务组批写（Y0c T15 起=片 A1 唯一组批会话事务点，经 withSession{mode:'write'}；
-   *  census ⑭ 分类同步：.withDoc( 点位随读写二分改道收敛——登记表见 check-collab-census.mjs）。
-   *  Y0c T9 进门四段顺序（顺序即语义）：空批早退 → ①X9 受理门（assertWriteAdmitted 单点——503
-   *  throw）→ ②undefined fail-fast（writeNodeData 类 op 扫描——UNDEFINED_PATCH_VALUE throw）→
-   *  ③Z108 内容校验（rejectionsOf——事务外·T9 裁定字面：业务拒绝不得降级成基础设施失败触发退款；
-   *  批级违规=整批拒绝零执行不进事务·T8 语义；op 级违规归集 byIndex 进事务短路）→ ④会话写事务
-   *  （withSession write；transactSync 包裹；回调=applyOpsCore 共享核心——schema 门+逐 op 守卫求值+应用）。
-   *  受理门先于内容校验：降级期不白跑校验、reject 计数不被降级噪声污染。
-   *  T13：可选 scope 形参——进程内（api/Direct）形态忽略；worker 形态（HttpCollabDocWriter 覆盖）
-   *  用于铸造 x-worker-scope 作用域头（write-batch 端点收窄面——collab-write.controller）。 */
-  async writeBatch(projectId: string, ops: readonly DocWriteOp[], _scope?: unknown): Promise<WriteOpResult[]> {
-    // 空批=合法 no-op（validateWriteBatch 同判据——零违规放行，不白开一次 doc 事务）
-    if (ops.length === 0) return [];
-    // ① X9 批面受理门（T9 根修单点——与单写面同判据同 throw；Z40 基础设施档全批 thrown⇒零交付退款）
-    this.doc.assertWriteAdmitted();
-    // ② undefined fail-fast（Z5 分流：writeNodeData 含 undefined=进程内 bug ⇒ throw；writeExecStatus
-    //   不扫——其 undefined 合法走原语跳过。事务外 fail-fast：避免 mid-transaction 部分应用）
-    for (const op of ops) {
-      if (op.op !== 'writeNodeData') continue;
-      for (const [k, v] of Object.entries(op.patch)) {
-        if (v === undefined) throw undefinedPatchValueError('writeBatch.writeNodeData', k);
-      }
-    }
-    // ③ Z108 进门（事务外——T9 裁定字面：校验在会话事务之前，业务拒绝=合法结果非基础设施失败）
-    const { byIndex, batchLevel } = rejectionsOf(ops);
-    if (batchLevel) {
-      // 批级违规=整批拒绝零执行（不进事务——T8 语义；拒绝非截断，逐 op 结果同携批级码一一对应）
-      return ops.map((op, index) => ({ index, op: op.op, written: false, reason: batchLevel.code }));
-    }
-    // ④ 同 doc 同事务：schema 门+守卫求值+应用在此唯一事务内完成；守卫失败只落结果不回滚不 throw；
-    //   transactSync 类型门包裹（异步回调=同事务不变量破坏）；回调=applyOpsCore 共享核心（T12 勘正）。
-    //   Y0c T15（A2）：改道 withSession({mode:'write'})——写路径走会话 acquire（spec「写路径走会话
-    //   acquire」）；事务形态与 withDoc 同款（SERVER_TRANSACT_ORIGIN 最外层——Z119/Z6 保持），
-    //   会话复用零 disconnect 零重装（Z128 写面零抖动）。
-    let results: WriteOpResult[] = [];
-    await this.doc.withSession(projectId, transactSync((doc) => {
-      results = applyOpsCore(doc, ops, byIndex);
-    }), { mode: 'write' });
-    return results;
-  }
 }

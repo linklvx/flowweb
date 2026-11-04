@@ -72,12 +72,6 @@ export const NESTED_TYPE_CREATORS: readonly NestedCreatorEntry[] = [
     note: '双创建点现状登记——upsert 形态在则复用（非并发首建域）',
   },
   {
-    container: 'exec', key: '<nodeId>',
-    creators: ['collab-document.service.writeExecStatus'],
-    unique: true,
-    note: '客户端零 exec 写（批0.5 起静态断言）',
-  },
-  {
     container: '*', key: '*',
     creators: ['collab.gateway.deepCopyYMap（vacuum 真空重建——任意嵌套递归拷贝）'],
     unique: true,
@@ -102,16 +96,6 @@ type _EdgeAnchor = _AssertNoMissing<_MissingEdgeKeys>;  // 勿删——删即静
  *  （DOC_SCHEMA_V4 textInput.content:xmlSpec）——保留即「未来白名单扩键单层穿透」纵深缺口
  *  （writeBatch 误用 {content} 绕域保护无守卫拦）。死键 fail-closed：误用 → UNKNOWN_KEY 拒。 */
 const SERVER_NODE_DATA_KEYS = ['fileId', 'resultUrl', 'videoUrl', 'result', 'errorCode'] as const;
-
-/** writeExecStatus 键域=现行 ExecStatusPatch 写面实测键集（枚举全文见 DOC_WRITE_OPS.writeExecStatus——
- *  本常量即单源，path 派生+valueTypes 逐键声明同源，不再此处重抄）。T4 评审勘误（2026-10-14）：
- *  初版注释自称「execution.service 全调用点枚举」实为不实——漏 reason（execution.service.ts:306
- *  reserve 拒重复外呼投影与 :411 Z99 NodeBusy 投影两处 skipped 在写），若不补 A1 DocWriter 消费
- *  即 UNKNOWN_KEY 拒合法写。attempts 必填（编译级）；error 已被 errorPatch slice(0,200) 上界。
- *  Y1a T3（片 S0）：+execSeq——DB BigInt 执行代际 wire 一律 string 化（GenerationIntent.execSeq
- *  BigInt→JSON string；2^53 之上 Number 精度必损），比较单源=compareExecSeq（media-fact.ts——
- *  T9 代际围栏/onTick abort/takeover void 消费前置）。 */
-const EXEC_STATUS_KEYS = ['status', 'attempts', 'jobId', 'intentId', 'fileId', 'errorCode', 'error', 'rearmable', 'reason', 'execSeq'] as const;
 
 /** Y1a T3（v11 架构定案）：服务端可写 data 键集单源={fileId,result}——v3 doc 契约先行。
  *  消费面=deliverArtifact/replaceMedia/clearMedia 三 op（T10/T11/T15 建——NodeArtifact PG 权威
@@ -196,31 +180,34 @@ export const DOC_KEY_MANIFEST: Record<DocTopLevelMap, readonly DocKeyManifestEnt
   ],
   exec: [
     {
-      map: 'exec', path: `exec.*（键集=DOC_WRITE_OPS.writeExecStatus.keys——${EXEC_STATUS_KEYS.join('/')}，EXEC_STATUS_KEYS 派生）`,
-      writers: ['collab-document.service.writeExecStatus（唯一写者——客户端零 exec 写）'],
-      readers: ['web exec 投影（execStatusView/visibility 门）', 'intent-reconcile/sweepOrphanExec（孤儿清扫兜底）'],
+      // Y1c T32（spec §6.7 删除清单）：doc.exec 读写链退役——writeExecStatus/deliverArtifact 已切
+      // RuntimeEvent feed（T22），exec map 零生产写者/零读者（web 读=T22 起切 Runtime Store 投影）。
+      // 条目保留=顶层 map 集合登记（DOC_TOP_LEVEL_MAPS 四 map 面不变——旧档 doc 残留 exec 根值仅
+      // 作历史载荷 wire 透传不解释；vacuum 真空重建不搬运该根〔死根随换代消亡〕）。
+      map: 'exec', path: 'exec（死根——T32 起零键登记；执行状态权威=RuntimeEvent feed 投影）',
+      writers: ['（无——T22 起零生产写者，T32 删 doc 写原语）'],
+      readers: ['（无——web 读 T22 起切 Runtime Store 投影；api 读者 T32 随删除清单退役）'],
       ownership: 'exec', undo: 'server-only',
     },
   ],
 };
 
-// ── Z108 执行期校验表：DocWriteOp 六 op 词汇+逐 op 五面（键集/值域/字节上限/拒键/idempotent）──
+// ── Z108 执行期校验表：DocWriteOp 四 op 词汇+逐 op 五面（键集/值域/字节上限/拒键/idempotent；
+//  Y1c T32：writeExecStatus/deleteExecOrphans 随 doc.exec 链退役——六 op 收四）──
+// Y1c T32：writeExecStatus/deleteExecOrphans 随 doc.exec 读写链退役（writeExecStatus=RuntimeEvent
+// feed 写面——worker 通道改 POST /api/collab/doc/exec-status 端点，非 doc 批写词汇）。
 export type DocWriteOpType =
   | 'writeNodeData'
-  | 'writeExecStatus'
   | 'deleteNodeDataKeys'
   | 'deleteNodes'
-  | 'fillDoc'
-  | 'deleteExecOrphans';
+  | 'fillDoc';
 
 /** DocWriteOp 线格式（A1 T8 writeBatch body 词汇——T27 端点同此消费）。 */
 export type DocWriteOp =
   | { op: 'writeNodeData'; nodeId: string; patch: Record<string, unknown> }
-  | { op: 'writeExecStatus'; nodeId: string; patch: Record<string, unknown> }
   | { op: 'deleteNodeDataKeys'; nodeId: string; keys: string[] }
   | { op: 'deleteNodes'; nodeIds: string[] }
-  | { op: 'fillDoc'; nodes: StoredNodeRecord[]; edges: DocEdgeRecord[] }
-  | { op: 'deleteExecOrphans' };
+  | { op: 'fillDoc'; nodes: StoredNodeRecord[]; edges: DocEdgeRecord[] };
 
 /** 值域词汇（JS typeof 域；null 单列——jobId:string|null 形态）。 */
 export type ValueTypeName = 'string' | 'number' | 'boolean' | 'null';
@@ -244,23 +231,13 @@ export const MAX_WRITE_BATCH_BYTES = QUOTA_DEFAULTS.maxTxBytes;
 /** Z108③ 原型链三键显式拒绝（patch/删键名单/fillDoc data 全域生效）。 */
 export const BANNED_DATA_KEYS: readonly string[] = ['__proto__', 'constructor', 'prototype'];
 
-/** Record<DocWriteOpType,…> 穷尽=编译断言：新增第七 op 忘分类即 tsc 红（Z148① 宗旨）。 */
+/** Record<DocWriteOpType,…> 穷尽=编译断言：新增第五 op 忘分类即 tsc 红（Z148① 宗旨）。 */
 export const DOC_WRITE_OPS: Record<DocWriteOpType, DocWriteOpSpec> = {
   writeNodeData: {
     keys: SERVER_NODE_DATA_KEYS,
     valueTypes: Object.fromEntries(SERVER_NODE_DATA_KEYS.map((k) => [k, ['string'] as const])),
     keyMaxBytes: 65_536, // 文本产物 content/result 大文本域——≤批上限 1/4
     idempotent: true,    // 键级 set 语义——CRDT 重放同值收敛（Z133）
-  },
-  writeExecStatus: {
-    keys: EXEC_STATUS_KEYS,
-    valueTypes: {
-      status: ['string'], attempts: ['number'], jobId: ['string', 'null'], intentId: ['string'],
-      fileId: ['string'], errorCode: ['string'], error: ['string'], rearmable: ['boolean'], reason: ['string'],
-      execSeq: ['string'], // Y1a T3：BigInt wire=string（DB BigInt→JSON string 化；number 形态 VALUE_TYPE_MISMATCH）
-    },
-    keyMaxBytes: 4_096, // errorPatch 已 slice(0,200)——上限防绕过 errorPatch 直写大值
-    idempotent: true,   // 键级 set+attempts 代次守卫（Z99/Z111）
   },
   deleteNodeDataKeys: {
     keys: SERVER_NODE_DATA_KEYS, // 删键名单与写域同集（删自己写过的键）
@@ -276,22 +253,7 @@ export const DOC_WRITE_OPS: Record<DocWriteOpType, DocWriteOpSpec> = {
     keys: [...NODE_ENVELOPE_KEYS, ...DOC_EDGE_RECORD_KEYS],
     idempotent: false,           // 无条件 new Y.Map=重放即新 item（doc 膨胀）——非幂等；种子路径专用，T27 端点拒收
   },
-  deleteExecOrphans: {
-    keys: [],
-    idempotent: true,            // 重放二次扫描空集
-  },
 };
-
-// ── T13→T15 收口后（plan v11.2 ① 承接）：worker 写通道（write-batch 端点）op 白名单=exec-only ──
-// **T15 已收口：writeNodeData 与 done 移除**——正式投影 poller（api 进程）接管一切 data 域交付
-// （deliverArtifact 复合 op：data.{fileId|result}+exec done 专写）；worker 面只余 writeExecStatus
-// （claim 期 loading/skipped+error 投影——error 非 done：终态 done=投影 poller 专写〔Z99 同代终态
-// 不倒退守卫的通道级前置〕）。WORKER_EXEC_FORBIDDEN_STATUSES=通道级 status 黑名单（现只 done——
-// spec :280 终态字面〔loading/skipped〕保留 error 为 claim 期在案面，扩黑名单=有意识动作）。
-// WORKER_WRITE_NODE_DATA_KEYS 随 writeNodeData 移除退役（键域白名单消费面消失——SERVER_WRITABLE_
-// DATA_KEYS 单源仍在：deliverArtifact/replaceMedia/clearMedia 三 op 消费域不变）。
-export const WORKER_CHANNEL_OPS: readonly DocWriteOpType[] = ['writeExecStatus'];
-export const WORKER_EXEC_FORBIDDEN_STATUSES: readonly string[] = ['done'];
 
 // ── 违规分类码+校验函数（Z108②：业务级拒绝非截断非 sanitize）──
 export type WriteBatchViolationCode =
@@ -308,7 +270,7 @@ export type WriteBatchViolationCode =
  *  A1 侧逐码进 reject 计数，T27 端点侧 4xx 拒收（NON_IDEMPOTENT_OP 仅 requireIdempotentOps:true
  *  执法档产出——Y0c T12 偏离 20：默认进程内档 fillDoc 种子路径合法，不产此码）。按执法面分三组：
  *  - 批级（进门即拒，index=-1）：OP_COUNT_EXCEEDED/PATCH_TOO_LARGE（批 Σ）
- *  - op 形态级：UNKNOWN_OP（非对象/类型不在六 op 词汇/patch·keys·nodes 载荷缺或形不对）
+ *  - op 形态级：UNKNOWN_OP（非对象/类型不在四 op 词汇/patch·keys·nodes 载荷缺或形不对）
  *    /NON_IDEMPOTENT_OP（Z148① 端点执法档——flag 门控）
  *  - 键值内容级：UNKNOWN_KEY/PROTO_KEY_BANNED（Z108③）/VALUE_TYPE_MISMATCH/PATCH_TOO_LARGE（每键） */
 export interface WriteBatchViolation {
@@ -412,14 +374,14 @@ export function validateWriteBatch(
     const opName = op.op;
     if (typeof opName !== 'string' || !(opName in DOC_WRITE_OPS)) {
       // op 形态违规但 op 字段为字符串时仍带原值——日志可读（载荷约定见 WriteBatchViolation.opName）
-      violations.push({ index, ...(typeof opName === 'string' ? { opName } : {}), code: 'UNKNOWN_OP', message: `op#${index} 类型 ${String(opName)} 不在六 op 词汇（新增 op 须先入 DOC_WRITE_OPS 分类）` });
+      violations.push({ index, ...(typeof opName === 'string' ? { opName } : {}), code: 'UNKNOWN_OP', message: `op#${index} 类型 ${String(opName)} 不在四 op 词汇（新增 op 须先入 DOC_WRITE_OPS 分类）` });
       return;
     }
     const spec = DOC_WRITE_OPS[opName as DocWriteOpType];
     if (!spec.idempotent && opts?.requireIdempotentOps === true) {
       violations.push({ index, opName, code: 'NON_IDEMPOTENT_OP', message: `op#${index} ${opName} 声明 idempotent:false——T27 端点拒收（Z148①/Z133 端口只收幂等 op）` });
     }
-    if (opName === 'writeNodeData' || opName === 'writeExecStatus') {
+    if (opName === 'writeNodeData') {
       const patch = op.patch;
       if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
         violations.push({ index, opName, code: 'UNKNOWN_OP', message: `op#${index} ${opName} patch 缺失或非对象` });
@@ -472,7 +434,7 @@ export function validateWriteBatch(
       }
       return;
     }
-    // deleteNodes / deleteExecOrphans：无键集面（载荷键面已由线类型约束）
+    // deleteNodes：无键集面（载荷键面已由线类型约束）
   });
   if (batchBytes > MAX_WRITE_BATCH_BYTES) {
     violations.push({ index: -1, code: 'PATCH_TOO_LARGE', message: `批总字节 Σ=${batchBytes}B 超上限 ${MAX_WRITE_BATCH_BYTES}B（COLLAB_MAX_TX_BYTES 同源）` });

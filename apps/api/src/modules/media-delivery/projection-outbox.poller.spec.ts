@@ -154,9 +154,7 @@ describe('T16 post-apply 触发：poller→requestReconcile（spec 评审 P2#3�
     expect(reconciler.requestReconcile).toHaveBeenCalledWith('px');
   });
 
-  it('fast-path（内容等值跳 apply）同触发——fileId 已在 doc 索引对齐面', async () => {
-    // withSession read 返回 doc 当前值==artifact.mediaId ⇒ fast-path 分档（readNodeDataValue
-    // 是 Y.Map 结构守卫读——fake doc 须真 Y.Doc 非 plain Map）
+  it('Y1c T32：doc 等值 fast-path（readNodeDataValue 判等跳 apply）退役——doc 有值形态仍走 deliverArtifact（幂等由 (nodeId,artifactRev) 事件唯一性承担）且零 withSession read 触达', async () => {
     const { poller, docs, reconciler } = makePoller({ claimRows: [row()] });
     const ydoc = new Y.Doc();
     const node = new Y.Map();
@@ -166,8 +164,11 @@ describe('T16 post-apply 触发：poller→requestReconcile（spec 评审 P2#3�
     ydoc.getMap('nodes').set('n1', node);
     (docs.withSession as any).mockImplementation(async (_p: string, fn: any) => fn(ydoc));
     const r = await poller.tick();
-    expect(r.outcomes['fast-path']).toBe(1);
+    expect(r.outcomes['projected']).toBe(1);   // 等值档照走交付事务（fast-path 标签退役）
     expect(reconciler.requestReconcile).toHaveBeenCalledWith('px');
+    // fast-path 判等读面（withSession read 独立读段）已删——withSession 调用仅交付/flush 链
+    const readOnlyCalls = (docs.withSession as any).mock.calls.filter((c: any[]) => (c[2] as any)?.mode === 'read');
+    expect(readOnlyCalls).toHaveLength(0);
   });
 
   it('orphaned（node 删除——written:false 权威观察点）→ requestReconcile（binding stale 清扫触发）', async () => {

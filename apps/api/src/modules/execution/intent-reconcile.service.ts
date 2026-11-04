@@ -4,7 +4,6 @@ import type { Queue } from 'bullmq';
 import type { GenerationIntent, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabWritePort } from '../collab/collab-write.port';
-import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { ArtifactCommitService } from '../artifact-core/artifact-commit.service';
@@ -35,8 +34,6 @@ export const TEXT_RETENTION_MS = 90 * 24 * 3600_000;
  *  MediaFactOutbox published 7d（spec Z18''⑥）+dead-letter 告警。 */
 export const PROJECTION_RETENTION_MS = 30 * 24 * 3600_000;
 export const OUTBOX_RETENTION_MS = 7 * 24 * 3600_000;
-/** Z56 每轮页宽 */
-const SWEEP_PAGE = 100;
 const TERMINAL = ['SUCCEEDED', 'FAILED', 'VOIDED'] as const;
 /** T13 R3 护栏：每行有界尝试 3 次+jitter（spec Z18''⑥——毒行不冻结整轮）。 */
 const R3_MAX_ATTEMPTS = 3;
@@ -93,13 +90,10 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
   private readonly logger = new Logger(IntentReconcileService.name);
   private timers: ReturnType<typeof setInterval>[] = [];
   private verifyActiveRunning = false;
-  /** Y0c T11（Z56）：sweepOrphanExec 进程内游标——重启回起点无害（轮转非进度承诺，每轮 100 有界全量轮转）。 */
-  private orphanSweepCursor: string | null = null;
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
-    @Inject(CollabDocWriterService) private readonly collabWriter: CollabDocWriterService,   // Y0c T12：exec-GC 直写收编改道 writeBatch（deleteExecOrphans op 单点）
     @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
     @InjectQueue(EXECUTION_QUEUE_NAME) private readonly executionQueue: Queue,
     @InjectQueue(AI_IMAGE_EDIT_QUEUE_NAME) private readonly imageEditQueue: Queue,
@@ -514,8 +508,6 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     // ② 保留矩阵清理（T13：7d/90d/锚守护 + projection 30d/outbox 7d/dead-letter 告警 + 审计行 90d）
     await this.cleanTerminalIntents();
     await this.cleanProjectionAndOutbox();
-    // ③ exec map 孤儿清理（F2 GC——Y0c T11 Z56 有界全量轮转；Z4 守卫已止新孤儿，此项消化存量）
-    await this.sweepOrphanExec();
     // ④ video-separate 陈旧任务对账+并发额度归还（自 video-separate.cron.ts 搬入，注记见类头）
     await this.reconcileStaleVideoSeparateTasks();
     // ⑤ 三不变量运行时巡检（Z11——drift 指标+WARN，台账为真源）
@@ -675,35 +667,6 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
       WHERE gi.status IN ('FAILED', 'VOIDED') AND gi."reservedCredits" > 0
       ORDER BY gi.id LIMIT 20`;
     for (const d of drift4) { frozenDriftTotal.inc(); this.logger.warn(`[ledger-drift] 不变量④漂移 intent=${d.id} teamId=${d.teamId}（FAILED/VOIDED 冻结未清——R3 闭环失效）`); }
-  }
-
-  /** nodes map 无该 nodeId 的 exec 条目删除
-   *  Y0b-1 限量 → Y0c T11 Z56 有界全量轮转：orderBy id asc+进程内游标每轮 100。
-   *  Y0c T12 直写收编（裁决 1）：直写段整体改道 collabWriter.writeBatch([{op:deleteExecOrphans}])
-   *  ——零孤儿=合法 no-op written:true（守卫/计数/schema 门与组批写同源单点）；503 等基础设施
-   *  失败按原样单项目 try/catch 捕获（不阻塞整批）。
-   *  T13 注记：本 poller 装配于 ExecutionDaemonModule（role=api|all）——进程内直写（非 HTTP），
-   *  write-batch 端点收窄（worker 通道白名单拒 deleteExecOrphans）不影响本调用面。 */
-  private async sweepOrphanExec(): Promise<void> {
-    const cursor = this.orphanSweepCursor;
-    const projects = await this.prisma.canvasProject.findMany({
-      ...(cursor ? { where: { id: { gt: cursor } } } : {}),
-      select: { id: true },
-      orderBy: { id: 'asc' },
-      take: SWEEP_PAGE,
-    });
-    for (const p of projects) {
-      try {
-        const results = await this.collabWriter.writeBatch(p.id, [{ op: 'deleteExecOrphans' }]);
-        if (!results[0]?.written) {
-          // deleteExecOrphans 无守卫域——written:false 属意外（结构防线信号，非日常路径）
-          this.logger.warn(`exec-GC 项目 ${p.id} writeBatch 结果异常: ${JSON.stringify(results[0])}`);
-        }
-      } catch (e) {
-        this.logger.warn(`exec-GC 项目 ${p.id} 失败: ${(e as Error).message}`);
-      }
-    }
-    this.orphanSweepCursor = projects.length < SWEEP_PAGE ? null : projects[projects.length - 1].id;
   }
 
   /** 陈旧 videoSeparateTask 判死 + Redis 并发计数器归还（DECR 前查存在防负数，负则重置 0） */

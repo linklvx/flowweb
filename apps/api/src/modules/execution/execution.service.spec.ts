@@ -13,8 +13,6 @@ import { EmitPort } from '../gateway/emit.port';
 import { GenerationIntentService } from './generation-intent.service';
 import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { CollabDocWriterService } from '../collab/collab-doc-writer.service';
-import { docWriterStubOf } from '../collab/test-utils/doc-writer-stub';
 import { NodeBusyError } from './generation-intent.service';
 import { ArtifactCommitService, FundsInvariantError } from '../artifact-core/artifact-commit.service';
 
@@ -26,7 +24,6 @@ describe('ExecutionService', () => {
   let apiCaller: any;
   let teamCredit: any;
   let collabDoc: any;
-  let docWriter: ReturnType<typeof docWriterStubOf>;
   let gateway: any;
   let permSvc: { resolve: ReturnType<typeof vi.fn>; assertEditor: ReturnType<typeof vi.fn> };
   let intentSvc: any; // Y0c T12：结构断言族/replay 分支需逐测试改 claim/complete/reanchorDeadline 判据
@@ -49,7 +46,6 @@ describe('ExecutionService', () => {
       writeNodeData: vi.fn().mockResolvedValue({ kind: 'business', written: true }),   // T13 typed outcome——business 档（transient/permanent=悬留档）, // Y0b-2 T5：交付判据类型化 {written,reason}
       writeExecStatus: vi.fn().mockResolvedValue(undefined), // 批0.5-6 claim 接线最小装置
     };
-    docWriter = docWriterStubOf(collabDoc); // Y0c T8：deliver+done 组批经 writeBatch——stub 按 op 分派回记录器（断言零改动）
     topology = {
       getScope: vi.fn().mockReturnValue([
         { id: 'n1', type: 'textInput', data: { content: 'hello', model: 'm-text' } },
@@ -117,7 +113,6 @@ describe('ExecutionService', () => {
         { provide: TeamCreditService, useValue: teamCredit },
         { provide: ProjectPermissionService, useValue: permSvc },
         { provide: CollabWritePort, useValue: collabDoc },
-        { provide: CollabDocWriterService, useValue: docWriter },
         { provide: EmitPort, useValue: gateway },
         { provide: GenerationIntentService, useValue: intentSvc },
         { provide: UpstreamMediaService, useValue: { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } },   // Y1a T8：上游身份读源 mock（默认无上游图）
@@ -218,7 +213,6 @@ describe('ExecutionService', () => {
 
     // 交付不再阻塞 worker 判定（乐观成功——doc 收敛归投影链；node 删→orphaned+退款在 poller）
     expect(result.success).toBe(true);
-    expect(docWriter.writeBatch).not.toHaveBeenCalled();
     expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
     const doneCalls = collabDoc.writeExecStatus.mock.calls.filter((c: any[]) => c[2]?.status === 'done');
     expect(doneCalls).toHaveLength(0);   // exec done=投影 poller deliverArtifact 复合 op 专写
@@ -234,7 +228,6 @@ describe('ExecutionService', () => {
       projectId: 'p1', nodeId: 'n2', teamId: 't1', userId: 'default-user',
       intentRowId: 'intent-1', execSeq: 1n, expectedRev: 0, sourceUrl: '/mock/test.jpg',
     }));
-    expect(docWriter.writeBatch).not.toHaveBeenCalled();   // T15：交付归投影 poller（fileId=mediaId 键面在彼）
     const dones = gateway.emitNodeStatus.mock.calls.filter((c: any[]) => c[1]?.status === 'done' && c[1]?.fileId);
     expect(dones.at(-1)![1].fileId).toBe('media-t10');   // emit fileId=mediaId（即时 UX——旧 { resultUrl } 404 面根修维持）
   });
@@ -254,7 +247,6 @@ describe('ExecutionService', () => {
     expect(intentSvc.complete).not.toHaveBeenCalled();
     expect(teamCredit.settle).not.toHaveBeenCalled();
     // 交付键唯一 fileId=mediaId（旧红：现状 { videoUrl: '/mock/video.mp4' }——VideoGenNode 渲染 fileId=404 不可达）
-    expect(docWriter.writeBatch).not.toHaveBeenCalled();   // T15：交付归投影 poller（doc 无 videoUrl 键面维持）
     const dones = gateway.emitNodeStatus.mock.calls.filter((c: any[]) => c[1]?.status === 'done' && c[1]?.fileId);
     expect(dones.at(-1)![1].fileId).toBe('media-t12');   // 旧链 emit fileId=result.url（404 面）根修
   });
@@ -269,7 +261,6 @@ describe('ExecutionService', () => {
     });
     const result = await service.execute('p1', 'n3', 'default-user');
     expect(result.success).toBe(true);
-    expect(docWriter.writeBatch).not.toHaveBeenCalled();   // T15：回放 doc 写移除（投影行在案=poller 交付）
     const dones = gateway.emitNodeStatus.mock.calls.filter((c: any[]) => c[1]?.status === 'done' && c[1]?.fileId);
     expect(dones.at(-1)![1].fileId).toBe('media-replay');   // replay fileId=mediaId（旧 videoUrl 写点删除维持）
   });
@@ -283,7 +274,6 @@ describe('ExecutionService', () => {
     expect(artifactCommit.finalizeText).toHaveBeenCalledWith(expect.objectContaining({
       projectId: 'p1', nodeId: 'n1', resultText: 'hello', expectedRev: 0,
     }));
-    expect(docWriter.writeBatch).not.toHaveBeenCalled();   // T15：交付归投影 poller（交付值=NodeArtifact.resultText 权威——content 回显删除面维持）
   });
 
   it('T10 资金独立判调用方面：superseded → doc 不覆盖用户值（仅 done 投影批）+实扣照计；intent-stale → INTENT_DEADLINE_EXCEEDED 早退', async () => {
@@ -295,7 +285,6 @@ describe('ExecutionService', () => {
     const r1 = await service.execute('p1', undefined, 'default-user', ['n2']);   // 单节点作用域（默认拓扑 n1+n2 双扣）
     expect(r1.success).toBe(true);   // superseded 非节点失败（产物已入库）
     expect(r1.totalCost).toBe(5);    // 照常实扣（无条件退款即红）
-    expect(docWriter.writeBatch).not.toHaveBeenCalled();   // T15：superseded doc 零覆盖（投影行已记 superseded——poller 终态免投）
     artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'intent-stale' });
     const r2 = await service.execute('p1', undefined, 'default-user', ['n2']);
     expect(r2.success).toBe(false);
@@ -476,7 +465,7 @@ describe('ExecutionService', () => {
   });
 
   // ── Y0c T12（裁决 4·Z122②）：单节点写段 ≤2 结构断言族——instrument 三写入口
-  // （collabDoc.writeExecStatus/collabDoc.writeNodeData/docWriter.writeBatch）按分支逐档断言。
+  // （collabDoc.writeExecStatus 按分支逐档断言——T32 后 doc 写面仅此一投影写。）
   // 计数判据=已执行（resolved）的写段：writeBatch reject=基础设施失败零写入不入计（B-1 档）——
   // 「第三写注入⇒红」变红证明见 commit message（临时注入后还原，元纪律⑥）。 ──
   describe('Y0c T12 单节点写段 ≤2 结构断言族（三写入口 instrument）', () => {
@@ -486,14 +475,10 @@ describe('ExecutionService', () => {
 
     beforeEach(() => {
       cnt = { exec: 0, data: 0, batch: 0 };
-      writeEntries = () => cnt.exec + cnt.data + cnt.batch;
-      // 独立计数实现（docWriterStubOf 会把批 op 分派回 collabDoc 记录器——双重计数破坏判据）
+      writeEntries = () => cnt.exec + cnt.data;
+      // 独立计数实现（T32：writeBatch 门面退役——batch 档归零，计数面=exec 投影/doc data 两档）
       collabDoc.writeExecStatus.mockImplementation(async () => { cnt.exec += 1; });
       collabDoc.writeNodeData.mockImplementation(async () => { cnt.data += 1; return { kind: 'business', written: true }; });
-      vi.mocked(docWriter.writeBatch).mockImplementation(async (_pid: string, ops: readonly any[]) => {
-        cnt.batch += 1;
-        return ops.map((op, index) => ({ index, op: op.op, written: true }));
-      });
       prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
     });
 
@@ -511,7 +496,7 @@ describe('ExecutionService', () => {
       scopedToN2();
       await service.execute('p1', 'n2', 'u1');
       expect(writeEntries()).toBe(1); // loading 1——交付批/doc data 写零触达
-      expect(vi.mocked(docWriter.writeBatch)).not.toHaveBeenCalled();
+      expect(cnt.batch).toBe(0);   // T32：writeBatch 门面退役——批档恒 0（写面仅 exec 投影）
     });
 
     it('plan-missing：PLAN_MISSING error 投影 ⇒ ≤2 且 ≥1', async () => {
@@ -600,8 +585,6 @@ describe('ExecutionService', () => {
       });
 
       await service.execute('p1', 'n2', 'u1');
-
-      expect(docWriter.writeBatch).not.toHaveBeenCalled();    // T15：回放 doc 写移除（投影行在案=poller 交付）
       expect(collabDoc.writeExecStatus).not.toHaveBeenCalled();   // 单写入口零调用
       expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
       expect(gateway.emitNodeStatus).toHaveBeenCalledWith('p1', expect.objectContaining({ status: 'done', fileId: '/mock/replay.png' })); // emit 即时 UX（fileId=resultRef=mediaId 语义）

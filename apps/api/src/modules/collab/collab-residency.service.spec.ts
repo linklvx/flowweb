@@ -22,7 +22,6 @@ import { register } from 'prom-client';
 import { SERVER_TRANSACT_ORIGIN,
   type DocLike, type DocMapLike, type TextLike } from '@flowweb/shared';
 import { CollabDocumentService } from './collab-document.service';
-import { CollabDocWriterService } from './collab-doc-writer.service';
 import {
   registerDegradedDocsReader, unregisterDegradedDocsReader,
 } from './store.metrics';
@@ -112,10 +111,9 @@ function makeFixture() {
     server: { hocuspocus: { openDirectConnection, documents: docs } },   // documents=T18 Σdirect 断言读面（库 Map 形态复刻）
   };
   const svc = new CollabDocumentService(gateway as any, { readSnapshotOnly: vi.fn() } as any);
-  const writer = new CollabDocWriterService(svc);
   /** residency 经 doc service 惰性自建面触达（生产 DI 单例由 module 装配——直构测试同 gateway 兜底惯例） */
   const residency = (): any => (svc as any).residency;
-  return { svc, writer, residency, gateway, openDirectConnection, docs, counts, persisted, disconnectGates, disconnectCallCount: () => disconnectCalls };
+  return { svc, residency, gateway, openDirectConnection, docs, counts, persisted, disconnectGates, disconnectCallCount: () => disconnectCalls };
 }
 
 afterEach(() => {
@@ -140,8 +138,11 @@ describe('Y0c T15 Z128：常驻 pid 恒 1 条 direct（读路径零抖动零重�
   it('关页后（无 WS）重复写不再重复装载：写批连发零新开零 disconnect；写值在会话内可见（出口判据）', async () => {
     const fx = makeFixture();
     for (let i = 0; i < 3; i += 1) {
-      const r = await fx.writer.writeBatch('p1', [{ op: 'writeNodeData', nodeId: 'n1', patch: { result: `v${i}` }   /* Y1c T24 D-3：content 键移除——result 同测 */ }]);
-      expect(r[0]).toMatchObject({ written: true });
+      // Y1c T32：writeBatch 门面退役——等价驱动=withSession(write) 事务内 data.set（writeNodeData 单键同语义）
+      const r = await fx.svc.withSession('p1', (doc: Y.Doc) => {
+        (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data').set('result', `v${i}`);
+      }, { mode: 'write' });
+      expect(r).toBeUndefined();   // withSession 写事务=void（writeBatch 结果数组随门面退役）
     }
     expect(fx.openDirectConnection).toHaveBeenCalledTimes(1);
     expect(fx.disconnectCallCount()).toBe(0);
@@ -186,7 +187,9 @@ describe('Y0c T15 Z128：常驻 pid 恒 1 条 direct（读路径零抖动零重�
     const doc = fx.docs.get('project:p1')!;
     const captured: unknown[] = [];
     doc.on('update', (_u: Uint8Array, origin: unknown) => { captured.push(origin); });
-    await fx.writer.writeBatch('p1', [{ op: 'writeNodeData', nodeId: 'n1', patch: { result: 'v1' }   /* Y1c T24 D-3 */ }]);
+    await fx.svc.withSession('p1', (doc: Y.Doc) => {
+      (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data').set('result', 'v1');
+    }, { mode: 'write' });
     expect(captured).toHaveLength(1);
     expect(captured[0]).toBe(SERVER_TRANSACT_ORIGIN);
   });
@@ -211,14 +214,16 @@ describe('Y0c T15 Z83：释放窗口并发 acquire', () => {
     void fx.residency().releaseSessionFor('p1');                 // 释放开跑→releasing→disconnect 挂起
     expect(fx.residency().sessionState('p1')).toBe('releasing');
 
-    const s2 = fx.writer.writeBatch('p1', [{ op: 'writeNodeData', nodeId: 'n1', patch: { result: 'v1' }   /* Y1c T24 D-3 */ }]);   // 并发 acquire 撞 releasing
+    const s2 = fx.svc.withSession('p1', (doc: Y.Doc) => {
+      (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data').set('result', 'v1');
+    }, { mode: 'write' });   // 并发 acquire 撞 releasing
 
     fnHold.resolve();                                            // s1 fn 完成（finally refCount-- 落孤儿条目）
     await s1;
     gateHold.resolve();                                          // disconnect 解挂→持久化（含 k1）+卸载→释放完成
     const results = await s2;                                    // acquire 等到释放完成→新开（重放含 k1）→写 k2
 
-    expect(results[0]).toMatchObject({ index: 0, op: 'writeNodeData', written: true });
+    // 写事务 void（writeBatch 结果数组退役）——零静默丢弃判据=下方 doc 值可见
     const doc2 = fx.docs.get('project:p1')!;
     expect(doc2.getMap('nodes').has('k1')).toBe(true);           // 零静默丢弃：第一会话写经持久化在新实例可见（时点③路径）
     expect(((doc2.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>).get('result')).toBe('v1');   // Y1c T24 D-3：content→result
@@ -440,7 +445,9 @@ describe('Y0c T15：withSession 受理门+新开观测', () => {
     const fx = makeFixture();
     fx.gateway.isWritableOrDegraded.mockReturnValue('spool-unwritable');
     await expect(fx.svc.readCanvas('p1')).resolves.toBeTruthy();
-    await expect(fx.writer.writeBatch('p1', [{ op: 'writeNodeData', nodeId: 'n1', patch: { result: 'v1' }   /* Y1c T24 D-3 */ }]))
+    await expect(fx.svc.withSession('p1', (doc: Y.Doc) => {
+      (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data').set('result', 'v1');
+    }, { mode: 'write' }))
       .rejects.toMatchObject({ status: 503 });
     expect(fx.openDirectConnection).toHaveBeenCalledTimes(1);    // 写门早退零直开（读会话池化在先）
   });

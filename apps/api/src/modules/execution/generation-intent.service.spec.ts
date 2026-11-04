@@ -585,25 +585,6 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
         where: expect.objectContaining({ id: 'gi-c', status: expect.anything() }),
       }));
     });
-
-    it('listByNode → take 20 + 投影 select', async () => {
-      const list = [row()];
-      prisma.generationIntent.findMany.mockResolvedValue(list);
-
-      const r = await service.listByNode('p1', 'n1');
-
-      expect(r).toBe(list);
-      expect(prisma.generationIntent.findMany).toHaveBeenCalledWith({
-        where: { projectId: 'p1', nodeId: 'n1' },
-        orderBy: { createdAt: 'desc' },
-        take: 20,
-        select: {
-          id: true, intentId: true, kind: true, status: true, resultRef: true,
-          error: true, creditsConsumed: true, createdAt: true, completedAt: true,
-          attempts: true,   // Y0b-2 T5（Z99/Z111）：投影代次判据——web ExecStatusEntry.attempts 对齐
-        },
-      });
-    });
   });
 
   describe('T9 收尾：tickFence 单往返（UPDATE...RETURNING——改前 updateMany+findUnique 每 tick 两次 DB 往返）', () => {

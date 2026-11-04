@@ -180,7 +180,7 @@ export const envSchema = z.object({
 
   // Y0c T26（Z102/偏离 29）：worker 引导两键——zod 只验形态不写 default（默认值落使用点纪律同上）。
   // WORKER_WRITE_TOKEN：api/worker 共读同值键（Z49 单文件 .env——分叉键禁入是 COLLAB_ROLE 族，
-  // 本键两进程同值无分叉）＝读端点（T26）+写端点（T27 write-batch）鉴权（WorkerWriteAuthGuard
+  // 本键两进程同值无分叉）＝读端点（T26）+写端点（T32 起=exec-status 投影写）鉴权（WorkerWriteAuthGuard
   // timingSafeEqual）；worker 侧 HttpCollabWritePort Bearer 注入同源。production 未设=拒启
   // （envSchemaValidated superRefine 单点——T27 收口，api/worker 双进程同款）；dev 未设放行
   // （fail-open——guard 请求级 403 为纵深冗余）。

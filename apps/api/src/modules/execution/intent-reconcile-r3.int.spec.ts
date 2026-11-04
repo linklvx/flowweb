@@ -34,7 +34,6 @@ const { artifactCommit, safeFetch } = makeArtifactCommit(prisma as unknown as Pr
 const reconcile = new IntentReconcileService(
   prisma as unknown as any,
   { isDocResident: () => false, writeExecStatus: vi.fn() } as any,
-  { writeBatch: async () => [{ index: 0, op: 'deleteExecOrphans', written: true }] } as any,
   ledger,
   { getJob: async () => null } as any, { getJob: async () => null } as any,
   {} as any, teamCredit,

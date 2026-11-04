@@ -835,7 +835,7 @@ function addExecEntry(doc: Y.Doc, nodeId: string, patch: Record<string, unknown>
 }
 
 describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/finally+SV 代际门）', () => {
-  it('红门⑦ 代际一致性：vacuum 完成→重连写入新编辑→再重载⇒全部 keys 完整+pendingStructs/pendingDs==null+meta 零键（T18——版本=PG 列）+exec 条目保留（写入后 exec 可读回）', async () => {
+  it('红门⑦ 代际一致性：vacuum 完成→重连写入新编辑→再重载⇒全部 keys 完整+pendingStructs/pendingDs==null+meta 零键（T18——版本=PG 列）+exec 死根不搬运（Y1c T32——doc.exec 读写链退役，旧档残留随真空消亡）', async () => {
     const gateway = buildGateway();
     const src = seedDoc();
     addNode(src, 'n1', 64);
@@ -863,10 +863,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     expect([...reloaded.getMap('meta').keys()].sort()).toEqual([...src.getMap('meta').keys()].sort());   // T18：meta 深拷贝透明搬运（键集与源逐位相等——零写零删；版本=PG 列与 doc 内容正交）
     expect([...reloaded.getMap('nodes').keys()].sort()).toEqual(['n1', 'n2']);
     expect([...reloaded.getMap('edges').keys()]).toEqual(['e1']);
-    const execEntry = reloaded.getMap('exec').get('node-a') as Y.Map<any>;   // exec 条目保留（U-2）
-    expect(execEntry).toBeInstanceOf(Y.Map);
-    expect(execEntry.get('status')).toBe('done');
-    expect(execEntry.get('attempts')).toBe(1);
+    expect(reloaded.getMap('exec').size).toBe(0);   // Y1c T32：exec 死根不搬运（重建 skip——执行状态权威=RuntimeEvent feed）
 
     // 重连写入新编辑（新 clientID）→再重载⇒新旧 keys 全在（模拟 store 落 PG 后的装载重放）
     reloaded.getMap('nodes').set('post-vac', new Y.Map([['type', 'videoGen']]));
@@ -880,10 +877,10 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     await gateway.docRegistry.loadDocument({ document: again, documentName: 'project:p1' } as any);   // W3a：DR 公有化直调（cast 消失）
     expect(again.store.pendingStructs).toBe(null);
     expect([...again.getMap('nodes').keys()].sort()).toEqual(['n1', 'n2', 'post-vac']);   // 新旧编辑共存
-    expect(again.getMap('exec').get('node-a')).toBeInstanceOf(Y.Map);                     // exec 跨重载保留
+    expect(again.getMap('exec').size).toBe(0);                                            // exec 死根跨重载恒空（T32）
   });
 
-  it('全根复制断言：vacuum 后 doc.share 根类型集合与源完全一致（nodes/edges/meta/exec+未知 Map 根——未来新增根 map 不可能被静默丢弃）；构造 Y.Text 型根 ⇒ result=unsupported-root 拒绝且 DB 零变更', async () => {
+  it('全根复制断言：vacuum 后 doc.share 根类型集合与源一致（nodes/edges/meta+未知 Map 根——未来新增根 map 不可能被静默丢弃；Y1c T32：exec 死根豁免）；构造 Y.Text 型根 ⇒ result=unsupported-root 拒绝且 DB 零变更', async () => {
     const gateway = buildGateway();
     const src = seedDoc();
     addNode(src, 'n1', 32);
@@ -900,13 +897,12 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     const vacuumed: Buffer = vacuumReplace.mock.calls[0]![1];
     const fresh = new Y.Doc();
     Y.applyUpdate(fresh, new Uint8Array(vacuumed));
-    // 有内容的根全随行（nodes/extra/meta——src 的 exec 根为空，yjs 空根不随 wire 传播=无信息
-    // 损失，装载侧 getMap 按需重建）；vacuum 后 src 读侧建了空 edges 根（readRecords 副作用）
-    // ——fresh 解码侧无（同为空根），断言取内容根集合。
+    // 有内容的根全随行（nodes/extra/meta——Y1c T32：exec 根已除名豁免〔死根不搬运——shape 断言
+    // 两侧行过滤同产线语义〕）；vacuum 后 src 读侧建了空 edges 根（readRecords 副作用）——fresh
+    // 解码侧无（同为空根），断言取内容根集合。
     expect(shapeOf(fresh)).toBe('extra|meta|nodes');
     expect(fresh.getMap('extra').get('k')).toBe('v');     // 未知 Map 根内容随行
     expect(fresh.getMap('extra')).toBeInstanceOf(Y.Map);  // 规约化后 Map 型
-    expect(fresh.getMap('exec')).toBeInstanceOf(Y.Map);   // 空根按需重建（getMap 即 Map 视图）
 
     // 臂二：Y.Text 型根 ⇒ unsupported-root+DB 零变更（upsert/deleteMany 零调用）
     const gw2 = buildGateway();

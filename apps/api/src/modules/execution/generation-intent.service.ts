@@ -456,17 +456,4 @@ export class GenerationIntentService {
   async attachJob(id: string, jobId: string): Promise<void> {
     await this.prisma.generationIntent.updateMany({ where: { id, status: 'RUNNING' }, data: { jobId } });
   }
-
-  async listByNode(projectId: string, nodeId: string) {
-    return this.prisma.generationIntent.findMany({
-      where: { projectId, nodeId },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-      select: {
-        id: true, intentId: true, kind: true, status: true, resultRef: true,
-        error: true, creditsConsumed: true, createdAt: true, completedAt: true,
-        attempts: true, // Y0b-2 T5（Z99/Z111）：投影代次判据——web ExecStatusEntry.attempts 对齐
-      },
-    });
-  }
 }
