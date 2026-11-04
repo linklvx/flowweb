@@ -47,7 +47,6 @@ vi.mock('@/stores/nodeStore', () => {
     IMAGE_EXT_DEFAULTS: { model: '', ratio: '16:9', resolution: '2K', generateCount: 1 },
     // Y0b-2 T6：投影两源（token 轮换/三态判据——测试经 hoisted mockExec 注入）
     execStatus: getMockExec().execStatus,
-    execAligned: getMockExec().execAligned,
   });
   return {
     isImageExtNode: (node: unknown) => {
@@ -67,7 +66,7 @@ vi.mock('@/stores/nodeStore', () => {
 
 const { mockSubmitGeneration, getMockExec } = vi.hoisted(() => {
   // Y0b-2 T6：exec 投影可变注入（buildState 每次读新值——用例内改 entries 即生效）
-  const exec = { execStatus: new Map(), execAligned: new Map() };
+  const exec = { execStatus: new Map() };
   return {
     mockSubmitGeneration: vi.fn().mockResolvedValue({ jobId: 'job-1' }),
     getMockExec: () => exec,

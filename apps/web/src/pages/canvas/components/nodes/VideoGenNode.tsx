@@ -50,13 +50,14 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const { getNodes } = useReactFlow();
   const isSingleSelected = useIsSingleSelected(selected);
-  // 批1-6（B2）：执行状态合并视图（exec 投影 → 对齐 → data.status；终态优先不回退）
+  // 批1-6（B2）：执行状态合并视图（exec 投影 → data.status；终态优先不回退）
   const status = useNodeStore((s) => selectExecStatus(s, id));
   const fileId = nodeData?.fileId;
   const referenceVideo = nodeData?.referenceVideo;
   // R2b-5：onError 自愈直通 <video>——展示哪个 hook 的 url 就传哪个的 onError（displayUrl 优先级与之一致）
-  // T22 C-2：读径=runtime 投影 artifact.mediaId（exec.artifact overlay）→ doc 残留 fileId（legacy 兜底）
-  const { url: resultUrl, onError: onResultError } = useMediaUrl(runtimeMediaIdOf(id) ?? fileId);
+  // T22 C-2 读径=runtime 投影 artifact.mediaId（exec.artifact overlay）——T32 删码：doc 残留 fileId
+  // legacy 兜底退役（overlay 成产物唯一在档源；fileId 变量其余读点=trim/mediaFact 等节点数据面）
+  const { url: resultUrl, onError: onResultError } = useMediaUrl(runtimeMediaIdOf(id));
   const { url: refVideoUrl, onError: onRefVideoError } = useMediaUrl(referenceVideo);
   // Y1b T16：媒体事实消费（materialize processing/failed——fileId 已交付而字节在途/终态失败的真实通道）
   const mediaFact = useMediaFact(fileId);

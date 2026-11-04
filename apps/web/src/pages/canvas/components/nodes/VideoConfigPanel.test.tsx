@@ -85,7 +85,6 @@ vi.mock('@/stores/nodeStore', async (importOriginal) => {
     applyNodeDataPatch: vi.fn(), // 批2-2：面板内容写收口 wrapper（mock 面）
     // Y0b-2 T6：投影两源（token 轮换/三态判据——测试经 hoisted mockExec 注入）
     execStatus: getMockExec().execStatus,
-    execAligned: getMockExec().execAligned,
   });
   return {
     ...real,
@@ -119,7 +118,7 @@ vi.mock('@/stores/canvasStore', () => {
 
 const { mockEnqueueWorkflow, getMockExec } = vi.hoisted(() => {
   // Y0b-2 T6：exec 投影可变注入（buildState 每次读新值——用例内改 entries 即生效）
-  const exec = { execStatus: new Map(), execAligned: new Map() };
+  const exec = { execStatus: new Map() };
   return {
     mockEnqueueWorkflow: vi.fn().mockResolvedValue({ jobId: 'job-1', status: 'queued' }),
     getMockExec: () => exec,

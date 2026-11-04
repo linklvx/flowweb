@@ -7,8 +7,7 @@ import { NODE_TYPES } from '@/stores/nodeStore'; // Y1c T1：函数体内延迟�
 // 投影——交付判定唯一权威=data.fileId/referenceImage（PG NodeArtifact→投影 poller 写 doc 的
 // 服务端所有权面；T15 起 deliverArtifact 同 withSession(write) 事务原子写 data.fileId+exec done
 // ——exec done 可见则 fileId 必已可见，exec 子句的历史使命〔断连恢复直写竞态窗〕随直写收口消亡）。
-// raw 写 exec（外部 Yjs update 直改 exec map）自此仅构成显示漂移（alignExecFromIntents 重连对账
-// 可修复），不影响交付判定——execStatusView 系纯展示投影。
+// raw 写 exec（外部 Yjs update 直改 exec map）自此仅构成显示漂移（重连 feed 追平可修复），不影响交付判定——execStatusView 系纯展示投影。
 export function isImageCompletedNode(node: Node): boolean {
   const d = node.data as any;
   if (node.type === NODE_TYPES.IMAGE_GEN || node.type === NODE_TYPES.IMAGE_EXT_GEN) {

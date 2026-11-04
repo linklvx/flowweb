@@ -14,6 +14,7 @@ import { reportNodeSize } from '@/stores/canvasIntents';
 // Y1c T22 收口批（C-2）：runtime 投影 artifact 槽 overlay 读径（四节点族同型——选型：MultiImage
 // 产物位=stacked 主图；expanded 网格=用户上传 images 数组〔doc 态〕不参与 overlay）
 import { runtimeMediaIdOf } from '@/stores/runtimeStore';
+import { selectExecEntry } from '@/stores/execStatusView';
 import axios from 'axios';
 import { toFlowaiUrl } from '@/api/mediaApi';
 
@@ -70,6 +71,13 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
   const toggleExpanded = useNodeStore((s) => s.toggleExpanded);
   const updateMultiImageNodeStatus = useNodeStore((s) => s.updateMultiImageNodeStatus);
   const isSingleSelected = useIsSingleSelected(selected);
+  // Y1c T22 G5 末轮收口（T32 前置——卡文第二 checkbox）：投影订阅补位——feed exec.status/exec.artifact
+  // 落 runtimeStore 投影→nodeStore.execStatus（projectRuntimeExecToNodeStore 每次投影变更整替），本
+  // selector 命中触发重渲染，兜住下方 runtimeMediaIdOf 非响应直读（与 AudioGen/ImageGen/VideoGen
+  // 节点族同形——彼族以 selectExecStatus 订阅承载同款触发；本节点无 exec 状态显示面，订阅值弃用。
+  // selectExecEntry=execStatusView 单源读（execStatus 键 optional——vi.mock 整替组件测试 state 缺键
+  // 天然回落 undefined，ExecViewSlice 契约同款）。
+  useNodeStore((s) => selectExecEntry(s, id));
 
   const images: any[] = nodeData?.images ?? [];
   const mainImageIndex: number = nodeData?.mainImageIndex ?? 0;

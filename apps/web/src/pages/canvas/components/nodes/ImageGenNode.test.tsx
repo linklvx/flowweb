@@ -40,7 +40,6 @@ let mockNodeData: any = {
 };
 // 批1-6：mock nodeStore state 的 exec 合并视图两源（selectExecStatus 读——默认空 Map 走 data.status 回落）
 let mockExecStatus: Map<string, any> = new Map();
-let mockExecAligned: Map<string, any> = new Map();
 let mockLastPointerShiftKey = false;
 let mockMarqueeSelecting = false;
 
@@ -50,6 +49,14 @@ vi.mock('@/hooks/useMediaUrl', () => ({
     return { url: null, loading: false, error: null };
   },
 }));
+
+// Y1c T32：产物渲染读径唯一源=runtime 投影 overlay（doc data.fileId legacy 兜底退役）——测试面将
+// runtimeMediaIdOf 派生自 mockNodeData.fileId（用例产物身份即投影 artifact 身份；F2 命令动态流
+// 「成功后落新 fileId」自动随动，无需逐用例注入 runtimeStore）。
+vi.mock('@/stores/runtimeStore', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/runtimeStore')>();
+  return { ...actual, runtimeMediaIdOf: () => (mockNodeData?.fileId as string) || undefined };
+});
 
 const {
   mockUpdateConfig,
@@ -109,7 +116,6 @@ const {
     const state = {
       nodes: { 'img1': { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, data: mockNodeData } },
       execStatus: mockExecStatus,
-      execAligned: mockExecAligned,
       updateConfig,
       applyDataPatchToStores,
       setStatus,
@@ -303,7 +309,6 @@ describe('ImageGenNode', () => {
     vi.clearAllMocks();
     mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     mockExecStatus = new Map();
-    mockExecAligned = new Map();
     mockActiveNodeId = null;
     mockCancelRequestedAt = 0;
     mockCsNodes = [];

@@ -57,7 +57,7 @@ describe('批2-2 第一层：doc 硬门（readOnly 会话 doc 零写——含 sy
   beforeEach(() => {
     (HocuspocusProvider as any).instances.length = 0;
     useCanvasStore.setState({ connStatus: 'connecting', nodes: [], edges: [], connUi: 'ok', hydration: 'idle', collabReadOnly: true, wsAuthNotice: null });
-    useNodeStore.setState({ nodes: {}, execStatus: new Map(), execAligned: new Map() });
+    useNodeStore.setState({ nodes: {}, execStatus: new Map() });
   });
   afterEach(async () => {
     await runtime.destroyCollab();

@@ -22,13 +22,14 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
   const nodeData = useNodeStore((s) => s.nodes[id]?.data) as any;
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const isSingleSelected = useIsSingleSelected(selected);
-  // 批1-6（B2）：执行状态合并视图（exec 投影 → 对齐 → data.status；终态优先不回退）
+  // 批1-6（B2）：执行状态合并视图（exec 投影 → data.status；终态优先不回退）
   const status = useNodeStore((s) => selectExecStatus(s, id));
   const fileId = nodeData?.fileId;
   const referenceAudio = nodeData?.referenceAudio;
   // R2b-5：onError 自愈直通 <audio> 兜底元素（AudioWaveform 失败先走 useFallback，兜底 <audio> 再失败=URL 死亡）
-  // T22 C-2：读径=runtime 投影 artifact.mediaId（exec.artifact overlay）→ doc 残留 fileId（legacy 兜底）
-  const { url: resultUrl, onError: onResultError } = useMediaUrl(runtimeMediaIdOf(id) ?? fileId);
+  // T22 C-2 读径=runtime 投影 artifact.mediaId（exec.artifact overlay）——T32 删码：doc 残留 fileId
+  // legacy 兜底退役（overlay 成产物唯一在档源；本节点 fileId 变量其余读点=上传/空态判断等节点数据面）
+  const { url: resultUrl, onError: onResultError } = useMediaUrl(runtimeMediaIdOf(id));
   const { url: refAudioUrl, onError: onRefAudioError } = useMediaUrl(referenceAudio);
 
   const displayUrl = resultUrl || refAudioUrl;

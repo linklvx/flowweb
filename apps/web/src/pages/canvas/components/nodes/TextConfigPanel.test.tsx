@@ -34,7 +34,6 @@ const { mockNodeStoreState } = vi.hoisted(() => {
     applyNodeDataPatch: vi.fn(), // 批2-2：面板内容写收口 wrapper（mock 面）
     // Y0b-2 T6：exec 投影两源（token 轮换/三态判据——用例内直接注入 Map）
     execStatus: new Map(),
-    execAligned: new Map(),
   };
   return { mockNodeStoreState: state };
 });

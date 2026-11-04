@@ -80,7 +80,6 @@ vi.mock('@/stores/nodeStore', () => {
     applyNodeDataPatch: vi.fn(),
     // Y0b-2 T6：投影两源（token 轮换/三态判据——测试经 hoisted mockExec 注入 done/EXHAUSTED 形态）
     execStatus: getMockExec().execStatus,
-    execAligned: getMockExec().execAligned,
   });
   return {
     isImageNode: (node: unknown) => {
@@ -107,7 +106,7 @@ vi.mock('@/stores/nodeStore', () => {
 const { getMockCanvasNodes, mockSubmitGeneration, mockFetchModels, getMockExec } = vi.hoisted(() => {
   let mockCanvasNodes: any[] = [];
   // Y0b-2 T6：exec 投影可变注入（buildState 每次读新值——用例内改 entries 即生效）
-  const exec = { execStatus: new Map(), execAligned: new Map() };
+  const exec = { execStatus: new Map() };
   return {
     mockSubmitGeneration: vi.fn().mockResolvedValue({ jobId: 'job-1' }),
     getMockCanvasNodes: () => mockCanvasNodes,

@@ -4,7 +4,22 @@ import { AudioGenNode } from './AudioGenNode';
 import { ReactFlowProvider } from '@xyflow/react';
 
 // All shared state must be hoisted for vi.mock factories
-const { subscribeNodeStatusMock, getMockNodeData, setMockNodeData, getStoreSetStatus, getStoreSetFileResult, getMockExecStatus, setMockExecStatus, getMockExecAligned, setMockExecAligned } = vi.hoisted(() => {
+// Y1c T32：产物渲染读径唯一源=runtime 投影（doc data.fileId legacy 兜底退役）——用例设产物时
+// 同步注入 useRuntimeFeedStore 投影 artifact（组件 runtimeMediaIdOf 直读该面）。
+import { useRuntimeFeedStore } from '@/stores/runtimeStore';
+function setArtifactProjection(nodeId: string, mediaId?: string) {
+  useRuntimeFeedStore.setState({
+    projectId: 'test-project',
+    cursor: { historyId: 'h', generation: 0, feedSeq: '1' },
+    projection: {
+      projectId: 'test-project', generation: 0, feedSeq: '1', pgSeq: '0',
+      nodes: mediaId ? { [nodeId]: { artifact: { mediaId, artifactRev: 1, nodeVersion: '1' } } } : {},
+    },
+    fetchedAtMs: Date.now(),
+  });
+}
+
+const { subscribeNodeStatusMock, getMockNodeData, setMockNodeData, getStoreSetStatus, getStoreSetFileResult, getMockExecStatus, setMockExecStatus } = vi.hoisted(() => {
   // 声明 handler 参数使 mock.calls[0][0] 类型为处理器本身（测试经此触发 node:status）
   const subscribeNodeStatusMock = vi.fn((_handler: (p: any) => void) => () => {});
   let mockNodeData: any = { fileId: undefined, status: 'idle', model: '', referenceAudio: undefined };
@@ -12,7 +27,6 @@ const { subscribeNodeStatusMock, getMockNodeData, setMockNodeData, getStoreSetSt
   let storeSetFileResult = vi.fn();
   // 批1-6：mock nodeStore state 的 exec 合并视图两源（selectExecStatus 读——默认空 Map 走 data.status 回落）
   let mockExecStatus: Map<string, any> = new Map();
-  let mockExecAligned: Map<string, any> = new Map();
 
   return {
     subscribeNodeStatusMock,
@@ -22,8 +36,6 @@ const { subscribeNodeStatusMock, getMockNodeData, setMockNodeData, getStoreSetSt
     getStoreSetFileResult: () => storeSetFileResult,
     getMockExecStatus: () => mockExecStatus,
     setMockExecStatus: (m: Map<string, any>) => { mockExecStatus = m; },
-    getMockExecAligned: () => mockExecAligned,
-    setMockExecAligned: (m: Map<string, any>) => { mockExecAligned = m; },
   };
 });
 
@@ -53,7 +65,6 @@ vi.mock('@/stores/nodeStore', () => ({
       const state = {
         nodes: { 'a1': { id: 'a1', type: 'audioGen', position: { x: 0, y: 0 }, data: getMockNodeData() } },
         execStatus: getMockExecStatus(),
-        execAligned: getMockExecAligned(),
         updateConfig: mockUpdateConfig,
         setStatus: getStoreSetStatus(),
         setFileResult: getStoreSetFileResult(),
@@ -65,7 +76,6 @@ vi.mock('@/stores/nodeStore', () => ({
       getState: () => ({
         nodes: { 'a1': { id: 'a1', type: 'audioGen', position: { x: 0, y: 0 }, data: getMockNodeData() } },
         execStatus: getMockExecStatus(),
-        execAligned: getMockExecAligned(),
         setStatus: getStoreSetStatus(),
         setFileResult: getStoreSetFileResult(),
       }),
@@ -125,7 +135,7 @@ describe('AudioGenNode', () => {
     vi.clearAllMocks();
     setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceAudio: undefined });
     setMockExecStatus(new Map());
-    setMockExecAligned(new Map());
+    setArtifactProjection('a1', undefined);
   });
 
   const baseNodeProps = {
@@ -212,6 +222,7 @@ describe('AudioGenNode', () => {
 
   it('should render AudioWaveform when fileId exists', () => {
     setMockNodeData({ fileId: 'test-audio-id', status: 'done', model: '', referenceAudio: undefined });
+    setArtifactProjection('a1', 'test-audio-id');
     renderNode();
     expect(screen.getByTestId('audio-waveform')).toBeTruthy();
   });
@@ -259,6 +270,7 @@ describe('AudioGenNode', () => {
 
   it('does not show replace button when audio is AI-generated (fileId set)', () => {
     setMockNodeData({ fileId: 'audio-789', status: 'done', referenceAudio: 'ref-456', model: '' });
+    setArtifactProjection('a1', 'audio-789');
     renderNode();
     expect(screen.queryByText('替换')).not.toBeInTheDocument();
   });
@@ -286,12 +298,14 @@ describe('AudioGenNode', () => {
 
   it('should render AudioWaveform when displayUrl exists', () => {
     setMockNodeData({ fileId: 'test-audio-id', status: 'done', model: '', referenceAudio: undefined });
+    setArtifactProjection('a1', 'test-audio-id');
     renderNode();
     expect(screen.getByTestId('audio-waveform')).toBeTruthy();
   });
 
   it('should fall back to native audio element when AudioWaveform errors', () => {
     setMockNodeData({ fileId: 'test-audio-id', status: 'done', model: '', referenceAudio: undefined });
+    setArtifactProjection('a1', 'test-audio-id');
     renderNode();
     // Verify AudioWaveform is shown first
     expect(screen.getByTestId('audio-waveform')).toBeTruthy();

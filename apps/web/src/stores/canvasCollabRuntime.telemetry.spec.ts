@@ -2,7 +2,7 @@
 // Y0b-5 T2 红测：runtime 侧遥测接线——close_code 打点（({event}) 解构+event?.code 反向断言——
 // 库载荷恒 {event} 包装，防整片落 other 哑写点）/SLO 两条（hydration=initCollab→ready、
 // reconnect=掉线→authenticated——载体=ws_status detail ms，控制器裁决）/projection_duration 打点
-// 包 applyDocToStore（与 alignExecFromIntents 互不包含禁打错位）/invariant 生产确定性采样节律
+// 包 applyDocToStore（会话事件驱动面互不包含禁打错位）/invariant 生产确定性采样节律
 // （每 30 次 apply 或每 30s 取先到+hydration synced 后必跑+结构性变更后必跑+DEV 全跑）/
 // 遥测 loop 启停绑定 initCollab/destroyCollab（无会话零 beacon）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -97,7 +97,7 @@ describe('Y0b-5 T2：SLO 两条（载体=ws_status detail ms——控制器裁�
 });
 
 describe('Y0b-5 T2：projection_duration 打点包 applyDocToStore（禁 Date.now——单调钟）', () => {
-  it('水合路径+远端 apply 路径各打一条 projection_duration{ms≥0}（alignExecFromIntents 不在计时位——connected 边沿触发与投影互不包含）', async () => {
+  it('水合路径+远端 apply 路径各打一条 projection_duration{ms≥0}（会话事件驱动面不在计时位——与投影互不包含）', async () => {
     await driveToSynced();
     // 水合路径已打一条
     expect(detailsOf('projection_duration').length).toBe(1);

@@ -7,7 +7,22 @@ const { mockDownloadMediaFile } = vi.hoisted(() => ({ mockDownloadMediaFile: vi.
 vi.mock('@/utils/mediaDownload', () => ({ downloadMediaFile: mockDownloadMediaFile }));
 
 // All shared state must be hoisted for vi.mock factories
-const { subscribeNodeStatusMock, getMockNodeData, setMockNodeData, getStoreSetStatus, getStoreSetFileResult, getMockExecStatus, setMockExecStatus, getMockExecAligned, setMockExecAligned } = vi.hoisted(() => {
+// Y1c T32：产物渲染读径唯一源=runtime 投影（doc data.fileId legacy 兜底退役）——用例设产物时
+// 同步注入 useRuntimeFeedStore 投影 artifact（组件 runtimeMediaIdOf 直读该面）。
+import { useRuntimeFeedStore } from '@/stores/runtimeStore';
+function setArtifactProjection(nodeId: string, mediaId?: string) {
+  useRuntimeFeedStore.setState({
+    projectId: 'test-project',
+    cursor: { historyId: 'h', generation: 0, feedSeq: '1' },
+    projection: {
+      projectId: 'test-project', generation: 0, feedSeq: '1', pgSeq: '0',
+      nodes: mediaId ? { [nodeId]: { artifact: { mediaId, artifactRev: 1, nodeVersion: '1' } } } : {},
+    },
+    fetchedAtMs: Date.now(),
+  });
+}
+
+const { subscribeNodeStatusMock, getMockNodeData, setMockNodeData, getStoreSetStatus, getStoreSetFileResult, getMockExecStatus, setMockExecStatus } = vi.hoisted(() => {
   // 声明 handler 参数使 mock.calls[0][0] 类型为处理器本身（测试经此触发 node:status）
   const subscribeNodeStatusMock = vi.fn((_handler: (p: any) => void) => () => {});
   let mockNodeData: any = { fileId: undefined, status: 'idle', model: '', referenceVideo: undefined };
@@ -15,7 +30,6 @@ const { subscribeNodeStatusMock, getMockNodeData, setMockNodeData, getStoreSetSt
   let storeSetFileResult = vi.fn();
   // 批1-6：mock nodeStore state 的 exec 合并视图两源（selectExecStatus 读——默认空 Map 走 data.status 回落）
   let mockExecStatus: Map<string, any> = new Map();
-  let mockExecAligned: Map<string, any> = new Map();
 
   return {
     subscribeNodeStatusMock,
@@ -25,8 +39,6 @@ const { subscribeNodeStatusMock, getMockNodeData, setMockNodeData, getStoreSetSt
     getStoreSetFileResult: () => storeSetFileResult,
     getMockExecStatus: () => mockExecStatus,
     setMockExecStatus: (m: Map<string, any>) => { mockExecStatus = m; },
-    getMockExecAligned: () => mockExecAligned,
-    setMockExecAligned: (m: Map<string, any>) => { mockExecAligned = m; },
   };
 });
 
@@ -69,7 +81,6 @@ vi.mock('@/stores/nodeStore', () => ({
       const state = {
         nodes: { 'v1': { id: 'v1', type: 'video', position: { x: 0, y: 0 }, data: getMockNodeData() } },
         execStatus: getMockExecStatus(),
-        execAligned: getMockExecAligned(),
         mediaFacts: new Map(),   // Y1b T16：媒体事实消费 Map（useMediaFact 读——默认空）
         updateConfig: mockUpdateConfig,
         setStatus: getStoreSetStatus(),
@@ -82,7 +93,6 @@ vi.mock('@/stores/nodeStore', () => ({
       getState: () => ({
         nodes: { 'v1': { id: 'v1', type: 'video', position: { x: 0, y: 0 }, data: getMockNodeData() } },
         execStatus: getMockExecStatus(),
-        execAligned: getMockExecAligned(),
         mediaFacts: new Map(),   // Y1b T16
         setStatus: getStoreSetStatus(),
         setFileResult: getStoreSetFileResult(),
@@ -150,7 +160,7 @@ describe('VideoGenNode', () => {
     mockMarqueeSelecting = false;
     setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
     setMockExecStatus(new Map());
-    setMockExecAligned(new Map());
+    setArtifactProjection('v1', undefined);
   });
 
   const baseNodeProps = {
@@ -192,6 +202,7 @@ describe('VideoGenNode', () => {
 
   it('should initialize title from data.label when present（产物节点标题接线）', () => {
     setMockNodeData({ fileId: 'p-file', status: 'done', model: '', referenceVideo: undefined, label: 'x · 导出 1' });
+    setArtifactProjection('v1', 'p-file');
     renderNode();
     const input = screen.getByLabelText('节点标题') as HTMLInputElement;
     expect(input.value).toBe('x · 导出 1');
@@ -243,6 +254,7 @@ describe('VideoGenNode', () => {
 
   it('should render video element when videoUrl exists', () => {
     setMockNodeData({ fileId: 'test-file-id', status: 'done', model: '', referenceVideo: undefined });
+    setArtifactProjection('v1', 'test-file-id');
     renderNode();
     const videoEl = document.querySelector('video');
     expect(videoEl).toBeTruthy();
@@ -273,6 +285,7 @@ describe('VideoGenNode', () => {
   // （现状锚——B6-1 起经 getAvailableHandles 谓词默认分支恒双 handle，imageGen 族才有门）
   it('editMode/transformMode 下双 handle 仍渲染（无门=有意保留）', () => {
     setMockNodeData({ fileId: 'f1', status: 'done', model: '', referenceVideo: undefined, editMode: 'crop' });
+    setArtifactProjection('v1', 'f1');
     const { container } = renderNode();
     expect(container.querySelectorAll('.react-flow__handle').length).toBe(2);
   });
@@ -319,6 +332,7 @@ describe('VideoGenNode', () => {
   // ---- Dynamic sizing by video aspect ratio ----
   it('should resize container based on video dimensions after load', () => {
     setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    setArtifactProjection('v1', 'vid-123');
     renderNode();
     const video = document.querySelector('video');
     expect(video).toBeTruthy();
@@ -336,6 +350,7 @@ describe('VideoGenNode', () => {
 
   it('does not show replace button when video is AI-generated (fileId set)', () => {
     setMockNodeData({ fileId: 'vid-123', status: 'done', referenceVideo: 'ref-123', model: '' });
+    setArtifactProjection('v1', 'vid-123');
     renderNode();
     expect(screen.queryByText('替换')).not.toBeInTheDocument();
   });
@@ -397,6 +412,7 @@ describe('VideoGenNode', () => {
 
   it('should render 4 corner resize handles when single-selected with video loaded', () => {
     setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    setArtifactProjection('v1', 'vid-123');
     renderNode(true);
     expect(screen.getByTestId('resize-control-top-left')).toBeInTheDocument();
     expect(screen.getByTestId('resize-control-top-right')).toBeInTheDocument();
@@ -408,6 +424,7 @@ describe('VideoGenNode', () => {
 
   it('displays video dimensions in title bar after video metadata loads', () => {
     setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    setArtifactProjection('v1', 'vid-123');
     renderNode();
     const video = document.querySelector('video');
     expect(video).toBeTruthy();
@@ -437,6 +454,7 @@ describe('VideoGenNode', () => {
 
   it('renders HD button but not HD panel when fileId exists', () => {
     setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    setArtifactProjection('v1', 'vid-123');
     renderNode(true);
     // HD button visible in toolbar
     expect(screen.getByText('高清')).toBeInTheDocument();
@@ -446,6 +464,7 @@ describe('VideoGenNode', () => {
 
   it('opens HD panel when HD button is clicked', () => {
     setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    setArtifactProjection('v1', 'vid-123');
     renderNode(true);
     fireEvent.click(screen.getByText('高清'));
     expect(screen.getByText('hd panel')).toBeInTheDocument();
@@ -453,6 +472,7 @@ describe('VideoGenNode', () => {
 
   it('hides HD panel when selected becomes false', () => {
     setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    setArtifactProjection('v1', 'vid-123');
     const { rerender } = renderNode(true);
     // Open panel
     fireEvent.click(screen.getByText('高清'));
@@ -464,6 +484,7 @@ describe('VideoGenNode', () => {
 
   it('hides HD panel when dragging becomes true', () => {
     setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    setArtifactProjection('v1', 'vid-123');
     const { rerender } = renderNode(true);
     // Open panel
     fireEvent.click(screen.getByText('高清'));
@@ -475,6 +496,7 @@ describe('VideoGenNode', () => {
 
   it('does not show HD panel when multiple nodes are selected', () => {
     setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    setArtifactProjection('v1', 'vid-123');
     // Return multiple selected nodes
     mockGetNodes.mockReturnValue([
       { id: 'v1', type: 'videoGen', selected: true } as any,
@@ -490,6 +512,7 @@ describe('VideoGenNode', () => {
 
   it('closes HD panel on Escape key', () => {
     setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    setArtifactProjection('v1', 'vid-123');
     renderNode(true);
     fireEvent.click(screen.getByText('高清'));
     expect(screen.getByText('hd panel')).toBeInTheDocument();
@@ -499,6 +522,7 @@ describe('VideoGenNode', () => {
 
   it('does not close HD panel on Escape when input is focused', () => {
     setMockNodeData({ fileId: 'vid-123', status: 'done', model: '', referenceVideo: undefined });
+    setArtifactProjection('v1', 'vid-123');
     renderNode(true);
     fireEvent.click(screen.getByText('高清'));
     expect(screen.getByText('hd panel')).toBeInTheDocument();
@@ -524,6 +548,7 @@ describe('VideoGenNode', () => {
 
   it('点击下载 → downloadMediaFile 携 fileId+url+类型前缀文件名（mediaName 缺省 delta①）', async () => {
     setMockNodeData({ fileId: 'v-fid-000123', status: 'done', model: '', referenceVideo: undefined });
+    setArtifactProjection('v1', 'v-fid-000123');
     mockDownloadMediaFile.mockResolvedValue({ ok: true });
     renderNode(true);
     fireEvent.click(screen.getByLabelText('下载'));

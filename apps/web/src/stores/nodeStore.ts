@@ -384,9 +384,10 @@ interface NodeState {
   nodes: Record<string, AppNode>;
   activeTransformNodeId: string | null;
 
-  // 批1-6（B2）：执行状态合并视图两源（均 canvasCollabRuntime 唯一写者，UI 经 selectExecStatus 读）
-  execStatus: Map<string, ExecStatusEntry>;  // doc exec map 投影（服务端唯一写者）
-  execAligned: Map<string, ExecStatusEntry>; // 断连恢复 intents 查表终态（只读对齐——零 doc 写）
+  // 批1-6（B2）：执行状态合并视图（runtimeStore 投影器唯一写者，UI 经 selectExecStatus 读）。
+  // Y1c T32：断连恢复 intents 查表终态源随 doc.exec 删除清单退役——恢复对齐=Runtime Store
+  // 投影承载（IDB 持久化+feed 重连追平）。
+  execStatus: Map<string, ExecStatusEntry>;  // runtime 投影（feed exec.status/exec.artifact）
 
   // Y1b T16：媒体事实消费 Map（mediaId→事实条目——processing/completed/failed 驱动 UI；
   // canvasCollabRuntime 唯一写者〔重连全量拉/fileId 到达消费〕，UI 经 useMediaFact 读；
@@ -457,7 +458,6 @@ let _referenceNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 export const useNodeStore = create<NodeState>((set, get) => ({
   nodes: {},
   execStatus: new Map(),
-  execAligned: new Map(),
   mediaFacts: new Map(),
   activeTransformNodeId: null,
   referenceSelect: null,

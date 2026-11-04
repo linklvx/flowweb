@@ -41,10 +41,6 @@ import { detectDraftMergeAnomalies } from '@/collab/recovery-adjudication';   //
 // T19 登记收口：派生核心统一 canvasStore.computeStoryboardCellsPatch——本模块零派生逻辑）
 import { deriveHiddenMap, edgeHidden } from '@/utils/groupDerive';
 import { AwarenessBridge } from '@/collab/awareness';
-// 批1-6（B2 ③）：恢复对齐查表（循环依赖同裁定：executionApi 的 getStateVector 与本模块互为顶层
-// import 声明，双方均函数体内使用——ESM 本地绑定延迟求值安全）
-import { fetchNodeIntents } from '@/api/executionApi';
-import type { ExecStatusEntry } from './execStatusView';
 // Y1b T16：mediaFacts 拉取/暂存/消费会话编排（nodeStore.mediaFacts 唯一写者——三挂点：
 // 重连全量拉/fileId 到达判定/切项目清空；本模块零事实逻辑，全在 mediaFactsRuntime）
 import { pullMediaFactsFull, onDocRefsChanged, resetMediaFacts, pullMediaFactsForIds } from './mediaFactsRuntime';
@@ -1201,39 +1197,6 @@ function updateConnectionUi(ui: MachineOutput['ui']) {
   if (clamped !== s.connUi) useCanvasStore.setState({ connUi: clamped });
 }
 
-/** 批1-6（B2 ③）：断连/刷新后执行态恢复对齐——只读对齐（不写回 doc exec map，F2 客户端零 exec 写）。
- *  候选= data.status==='loading' 且 exec 投影无条目（服务端已写 exec=已接管该节点状态，不重复对齐；
- *  投影仅收录合法 status 值——非法值条目不在 Map，归入"无条目"）。
- *  查表语义=最新意图行定夺（createdAt desc 首行）：SUCCEEDED→done / FAILED→error / RUNNING/VOIDED→不写
- *  （不回退不误置，保持 loading）。触发点= status connected 边沿 + visibilitychange 回前台。
- *  去抖语义=单飞（in-flight 互斥）：并发触发只跑一轮；完成后再次触发重跑（幂等——同一终态重复写收敛）。
- *  Y0b-2 T6（Z78 激活验收）：api 侧 intents 信封清剿后 fetchNodeIntents 真实拿到数组（改前双层
- *  {code,data} 使 rows?.[0] 恒 undefined=静默 no-op）；FAILED 对齐补 attempts（T5 deferred 行
- *  形态——error 投影 attempts 的对齐镜像，envelope-shape.spec 断言）。 */
-let alignInFlight = false;
-async function alignExecFromIntents(): Promise<void> {
-  if (alignInFlight || !session) return;
-  const pid = session.pid;
-  const ns = useNodeStore.getState();
-  const candidates = Object.values(ns.nodes).filter(
-    (n) => (n.data as { status?: string } | undefined)?.status === 'loading' && !ns.execStatus.has(n.id),
-  );
-  if (candidates.length === 0) return;
-  alignInFlight = true;
-  try {
-    for (const node of candidates) {
-      const rows = await fetchNodeIntents(pid, node.id).catch(() => null); // 单节点失败不阻断其余
-      const latest = rows?.[0];
-      if (latest?.status !== 'SUCCEEDED' && latest?.status !== 'FAILED') continue;
-      const entry: ExecStatusEntry = latest.status === 'SUCCEEDED'
-        ? { status: 'done', intentId: latest.intentId, fileId: latest.resultRef ?? undefined }
-        : { status: 'error', intentId: latest.intentId, error: latest.error ?? undefined, attempts: latest.attempts };
-      useNodeStore.setState((s) => ({ execAligned: new Map(s.execAligned).set(node.id, entry) }));
-    }
-  } finally {
-    alignInFlight = false;
-  }
-}
 
 /** connStatus 唯一写点：healthy = ws connected 事件 + isAuthenticated/isSynced 公开布尔
  *  + 本 attempt 已有真入站（message——4408 形态下布尔陈旧 true，唯代际判据挡得住早宣）。
@@ -1857,7 +1820,6 @@ function bindProviderListeners(p: HocuspocusProvider): void {
   p.on('status', ({ status }: any) => {
     if (status !== lastWsStatus && lastWsStatus === 'connected') attemptId++;
     if (status === 'connected' && lastWsStatus !== 'connected') {
-      void alignExecFromIntents(); // 批1-6（B2 ③）：connect 边沿恢复对齐（connected 双发仅第一发是边沿）
       if (doc) pullMediaFactsFull(doc);   // Y1b T16：重连全量拉 media-facts（按 doc mediaId 集 POST）
     }
     if (status === 'connecting') inboundAttemptId = -1;
@@ -2159,9 +2121,7 @@ function bindReevaluateOnce(): void {
   reevaluateBound = true;
   document.addEventListener('visibilitychange', () => {
     recomputeConnStatus();
-    // 批1-6（B2 ③）：回前台恢复对齐（隐藏态不查——查询无意义）；去抖=单飞（alignExecFromIntents）
     if (!document.hidden) {
-      void alignExecFromIntents();
       // Y0b-5 T3b（裁定 24⑨/25⑶）：回前台 kick（0-3s jitter——已排程则忽略；hidden 期间挂起
       // 的重连 timer 恢复即连，kick 在无排程时补 0-3s 事件触发恢复）
       supervisor.kickNow();
@@ -2313,9 +2273,6 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
   // generation=vacuum 代际——doc-status 通道现有字段，flush 时闭包求值）
   _startTelemetryLoop();
   registerTelemetryMeta(() => ({ csv: CLIENT_PROTOCOL_VERSION, generation: lastGeneration }));
-  // 批1-6：intents 对齐投影会话起点复位（execStatus 由 sync 后投影整替；execAligned 无 doc 源——
-  // 显式清，防同项目快速重进时陈旧对齐终态参与合并视图）
-  useNodeStore.setState({ execAligned: new Map() });
   // Y1b T16：媒体事实会话起点清空（mediaFacts+pendingFacts+lazy 队列——旧项目事实不跨会话）
   resetMediaFacts();
   // Y0b-5 T8：本地缓存编排态会话起点复位（抑制窗/回放判据/docBytes 去重——不跨会话携带）
@@ -2636,7 +2593,7 @@ function armSession(epoch: number): void {
       lastAppliedNodeCount = doc!.getMap('nodes').size;
       // Y1b T16：fileId 到达判定（远端应用尾挂——投影 poller 交付后新见 mediaId 消费 pending/lazy 补拉）
       onDocRefsChanged(doc!);
-      // Y0b-5 T2：投影耗时（包 applyDocToStore+invariant——与 alignExecFromIntents 互不包含）
+      // Y0b-5 T2：投影耗时（包 applyDocToStore+invariant——会话事件驱动面互不包含）
       recordCollabDiag('projection_duration', { ms: performance.now() - t0Projection });
       if (!invariantOk) {
         recordCollabDiag('invariant_violation', { where: 'applyRemote' });

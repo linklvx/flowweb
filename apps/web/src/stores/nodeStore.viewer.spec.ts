@@ -31,7 +31,7 @@ const csNode = () => useCanvasStore.getState().nodes.find((n: any) => n.id === '
 describe('批2-2 第二层：applyNodeDataPatch（ns 内容写收口 wrapper）', () => {
   let warnSpy: MockInstance<typeof message.warning>;
   beforeEach(() => {
-    useNodeStore.setState({ nodes: {}, execStatus: new Map(), execAligned: new Map() });
+    useNodeStore.setState({ nodes: {}, execStatus: new Map() });
     useCanvasStore.setState({ nodes: [], edges: [] });
     readOnlySession();
     seedNode();

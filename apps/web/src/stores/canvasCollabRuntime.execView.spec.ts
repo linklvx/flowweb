@@ -1,10 +1,7 @@
 // apps/web/src/stores/canvasCollabRuntime.execView.spec.ts
-// 批1-6（B2 合并视图）：执行状态恢复客户端半边。
-// 红=exec 监听投影缺失 / execStatusOf 合并视图缺失 / 读点仍直读 data.status /
-//   恢复对齐（connect 边沿 + visibilitychange）缺失 / 客户端零 exec 写静态锚失败。
-// 绿=runtime exec 投影（observeDeep 浅 Map 重建）+ nodeStore 两源投影
-//   （execStatus=doc 投影 / execAligned=intents 对齐）+ selectExecStatus 合并视图
-//   （exec 投影 → 对齐 → data.status；终态优先不回退）+ alignExecFromIntents（只读对齐，零 doc 写）。
+// 批1-6（B2 合并视图）：执行状态客户端半边（Y1c T32：execAligned/intents 恢复对齐链随 doc.exec
+// 删除清单退役——断连/刷新恢复=Runtime Store 投影承载〔IDB 持久化+feed 重连追平〕，本 spec 收窄至
+// doc.exec 停读（T22 红③）+execStatusOf 合并视图（exec 投影 → data.status）+客户端零 exec 接触静态锚）。
 // 装置照 conn.spec：mock provider 手写 handlers 表（真 Y.Doc 经 runtime.getDoc() 直驱）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { HocuspocusProvider } from '@hocuspocus/provider';
@@ -20,8 +17,7 @@ vi.mock('@hocuspocus/provider', async () => {
 });
 
 // Y1c T22 收口批（C-1）：生产接线后 armSession 会拉 feed 首连快照（真 apiFetch→global fetch）——
-// 本 spec 的 fetch spy 计数面（alignExecFromIntents 查表断言）须与 feed 通道隔离：collabApi 模块界
-// stub（生产接线本身不掩盖——wiring 断言独立锁在 runtimeFeedWiring.spec）。
+// collabApi 模块界 stub（生产接线本身不掩盖——wiring 断言独立锁在 runtimeFeedWiring.spec）。
 vi.mock('@/api/collabApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/collabApi')>();
   return {
@@ -56,20 +52,13 @@ async function driveToSynced(pid = 'p1') {
   return p;
 }
 
-/** fetch 全程接管（apiFetch 信封 {code:0,data}）；默认空行——connect 边沿对齐零副作用 */
-const ok = (data: unknown) => new Response(JSON.stringify({ code: 0, data }), { status: 200 });
-const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => ok([]));
-const intentRow = (status: string, extra: Record<string, unknown> = {}) => ({
-  intentId: 'i-1', kind: 'image', status, resultRef: null, error: null, ...extra,
-});
-
 const loadingNode = (id: string, type = 'imageGen') => ({
   id, type, data: { status: 'loading' } as any,
 });
 
 const resetStores = () => {
   useCanvasStore.setState({ connStatus: 'connecting', nodes: [], edges: [], connUi: 'ok', hydration: 'idle' });
-  useNodeStore.setState({ nodes: {}, execStatus: new Map(), execAligned: new Map() });
+  useNodeStore.setState({ nodes: {}, execStatus: new Map() });
 };
 
 describe('Y1c T22 G5（红③收口）：exec 监听投影退役——doc.exec 停读（数据源=Runtime Store 投影）', () => {
@@ -129,9 +118,9 @@ describe('Y1c T22 G5（红③收口）：exec 监听投影退役——doc.exec �
   });
 });
 
-describe('批1-6：execStatusOf 合并视图（终态优先不回退）', () => {
+describe('批1-6：execStatusOf 合并视图（exec 投影 → data.status）', () => {
   beforeEach(() => {
-    useNodeStore.setState({ nodes: {}, execStatus: new Map(), execAligned: new Map() });
+    useNodeStore.setState({ nodes: {}, execStatus: new Map() });
   });
 
   it('exec[id]=done 且 data.status=loading → done（exec 投影优先）', () => {
@@ -142,159 +131,12 @@ describe('批1-6：execStatusOf 合并视图（终态优先不回退）', () => 
     expect(execStatusOf('n1')).toBe('done');
   });
 
-  it('exec 投影 loading 压过 aligned done（服务端新鲜度优先——重跑接管对齐结果）', () => {
-    useNodeStore.setState({
-      nodes: { n1: loadingNode('n1') as any },
-      execStatus: new Map([['n1', { status: 'loading', jobId: 'j2' }]]),
-      execAligned: new Map([['n1', { status: 'done' }]]),
-    });
-    expect(execStatusOf('n1')).toBe('loading');
-  });
-
-  it('无 exec 投影但有对齐终态 → done（断连恢复查表结果参与合并视图）', () => {
-    useNodeStore.setState({
-      nodes: { n1: loadingNode('n1') as any },
-      execAligned: new Map([['n1', { status: 'done', intentId: 'i-1' }]]),
-    });
-    expect(execStatusOf('n1')).toBe('done');
-  });
-
-  it('两源均无 → data.status（默认路径回归）', () => {
+  it('无 exec 投影 → data.status（默认路径回归）', () => {
     useNodeStore.setState({
       nodes: { n1: { id: 'n1', type: 'imageGen', data: { status: 'error' } as any } },
     });
     expect(execStatusOf('n1')).toBe('error');
     expect(execStatusOf('ghost')).toBe('idle');
-  });
-});
-
-describe('批1-6：恢复对齐 alignExecFromIntents（connect 边沿 + visibilitychange；只读对齐零 doc 写）', () => {
-  beforeEach(() => {
-    (HocuspocusProvider as any).instances.length = 0;
-    resetStores();
-    fetchSpy.mockClear();
-    fetchSpy.mockImplementation(async () => ok([]));
-  });
-  afterEach(async () => {
-    await runtime.destroyCollab();
-    // 注意：不得 vi.restoreAllMocks()——会把模块级 fetch spy 还原成原生 fetch，
-    // 后续用例对齐走真 fetch（catch 吞错）→ fetch 计数恒 0（批1-6 实测装置坑）
-    fetchSpy.mockClear();
-    fetchSpy.mockImplementation(async () => ok([]));
-  });
-
-  it('connect 边沿：loading 态节点且无 exec 条目 → GET intents → SUCCEEDED → UI done（execAligned）', async () => {
-    const p = await driveToSynced('p1'); // 此时 store 无 loading 节点——首连边沿零查询
-    fetchSpy.mockClear();
-    // 刷新/断连后形态：节点 data.status=loading、exec map 无条目（服务端从未写/未达）
-    useNodeStore.setState({ nodes: { n1: loadingNode('n1') as any } });
-    fetchSpy.mockImplementation(async () => ok([intentRow('SUCCEEDED', { resultRef: 'f-done' })]));
-    // 重连边沿（connected 双发库契约——仅第一发是边沿）
-    p.emit('status', { status: 'disconnected' });
-    p.emit('status', { status: 'connected' });
-    p.emit('status', { status: 'connected' });
-    await tick();
-    expect(fetchSpy).toHaveBeenCalledTimes(1); // 双发只触发一次（边沿判定锚）
-    expect(fetchSpy.mock.calls[0][0]).toBe('/api/execution/intents?projectId=p1&nodeId=n1');
-    expect(useNodeStore.getState().execAligned.get('n1')).toEqual({ status: 'done', intentId: 'i-1', fileId: 'f-done' });
-    expect(execStatusOf('n1')).toBe('done');
-    // 只读对齐：doc exec map 不被写回（F2 客户端零 exec 写）
-    expect(runtime.getDoc()!.getMap('exec').size).toBe(0);
-  });
-
-  it('FAILED → error + error 文案进对齐投影', async () => {
-    const p = await driveToSynced('p1');
-    useNodeStore.setState({ nodes: { n1: loadingNode('n1') as any } });
-    fetchSpy.mockImplementation(async () => ok([intentRow('FAILED', { error: 'boom' })]));
-    p.emit('status', { status: 'disconnected' });
-    p.emit('status', { status: 'connected' });
-    await tick();
-    expect(useNodeStore.getState().execAligned.get('n1')).toEqual({ status: 'error', intentId: 'i-1', error: 'boom' });
-    expect(execStatusOf('n1')).toBe('error');
-  });
-
-  it('最新意图行 RUNNING → 不写不回退（保持 loading）', async () => {
-    const p = await driveToSynced('p1');
-    useNodeStore.setState({ nodes: { n1: loadingNode('n1') as any } });
-    fetchSpy.mockImplementation(async () => ok([intentRow('RUNNING')]));
-    p.emit('status', { status: 'disconnected' });
-    p.emit('status', { status: 'connected' });
-    await tick();
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(useNodeStore.getState().execAligned.has('n1')).toBe(false);
-    expect(execStatusOf('n1')).toBe('loading');
-  });
-
-  it('exec 投影已有条目（服务端已接管——T22 源=Runtime Store）→ 不查表不重复对齐', async () => {
-    const p = await driveToSynced('p1');
-    // T22：doc.exec 停读——「服务端已接管」判据=runtime 投影条目（nodeStore.execStatus 由其投影）
-    useNodeStore.setState({ nodes: { n1: loadingNode('n1') as any } });
-    useNodeStore.setState({ execStatus: new Map([['n1', { status: 'loading', jobId: 'j1' }]]) });
-    p.emit('status', { status: 'disconnected' });
-    p.emit('status', { status: 'connected' });
-    await tick();
-    expect(fetchSpy).not.toHaveBeenCalled();
-    expect(execStatusOf('n1')).toBe('loading');
-  });
-
-  it('visibilitychange 回前台 → 触发一次（新增 loading 节点被对齐）', async () => {
-    await driveToSynced('p1');
-    useNodeStore.setState({ nodes: { n2: loadingNode('n2') as any } });
-    fetchSpy.mockImplementation(async () => ok([intentRow('SUCCEEDED')]));
-    document.dispatchEvent(new Event('visibilitychange'));
-    await tick();
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(fetchSpy.mock.calls[0][0]).toContain('nodeId=n2');
-    expect(execStatusOf('n2')).toBe('done');
-  });
-
-  it('去抖=单飞：fetch 在飞时连发两次 visibilitychange → 只查一次；完成后终态落位', async () => {
-    await driveToSynced('p1');
-    useNodeStore.setState({ nodes: { n3: loadingNode('n3') as any } });
-    let release!: (r: Response) => void;
-    fetchSpy.mockImplementationOnce(() => new Promise<Response>((res) => { release = res; }));
-    document.dispatchEvent(new Event('visibilitychange')); // 启动（in-flight）
-    document.dispatchEvent(new Event('visibilitychange')); // in-flight 早退
-    await tick();
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    release(ok([intentRow('SUCCEEDED')]));
-    await tick();
-    expect(execStatusOf('n3')).toBe('done');
-  });
-
-  it('页面隐藏（visibilitychange 但 document.hidden）→ 不查表', async () => {
-    await driveToSynced('p1');
-    useNodeStore.setState({ nodes: { n4: loadingNode('n4') as any } });
-    // Y0b-5 T2：collabDiagnostics visibilitychange flush 同事件触发——jsdom 无 sendBeacon 会落
-    // fetch 降级路径污染"零 fetch"断言；吸收遥测 beacon（真浏览器走 sendBeacon 不经 fetch）
-    const beacon = vi.fn(() => true);
-    Object.defineProperty(navigator, 'sendBeacon', { value: beacon, configurable: true, writable: true });
-    const hiddenSpy = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
-    document.dispatchEvent(new Event('visibilitychange'));
-    await tick();
-    expect(fetchSpy).not.toHaveBeenCalled();
-    hiddenSpy.mockRestore();
-  });
-
-  it('Y0b-2 T6（Z78 激活验收）：VOIDED 最新行 → 不写不回退（保持 loading——资金已退，终态未定）', async () => {
-    const p = await driveToSynced('p1');
-    useNodeStore.setState({ nodes: { n1: loadingNode('n1') as any } });
-    fetchSpy.mockImplementation(async () => ok([intentRow('VOIDED', { error: '回收' })]));
-    p.emit('status', { status: 'disconnected' });
-    p.emit('status', { status: 'connected' });
-    await tick();
-    expect(useNodeStore.getState().execAligned.has('n1')).toBe(false);
-    expect(execStatusOf('n1')).toBe('loading');
-  });
-
-  it('Y0b-2 T6（T5 deferred 行形态）：FAILED 行带 attempts → 对齐投影 attempts 随行（重试文案判据单源）', async () => {
-    const p = await driveToSynced('p1');
-    useNodeStore.setState({ nodes: { n1: loadingNode('n1') as any } });
-    fetchSpy.mockImplementation(async () => ok([intentRow('FAILED', { error: 'boom', attempts: 2 })]));
-    p.emit('status', { status: 'disconnected' });
-    p.emit('status', { status: 'connected' });
-    await tick();
-    expect(useNodeStore.getState().execAligned.get('n1')).toMatchObject({ status: 'error', error: 'boom', attempts: 2 });
   });
 });
 

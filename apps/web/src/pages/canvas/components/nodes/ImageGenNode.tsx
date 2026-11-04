@@ -111,8 +111,8 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   const activeMediaOpRef = useRef<number | null>(null);
   // R2b-5：onError 自愈直通 <img>——展示哪个 hook 的 url 就传哪个的 onError（displayUrl 优先级与之一致）
   // T22 C-2：读径=本地 pending 预览 → runtime 投影 artifact.mediaId（exec.artifact overlay——
-  // 刷新/新协作者/错过广播会话的产物唯一在档源）→ doc 残留 fileId（legacy 兜底）
-  const { url: resultUrl, onError: onResultError } = useMediaUrl(pendingPreview?.mediaId ?? runtimeMediaIdOf(id) ?? fileId);
+  // 刷新/新协作者/错过广播会话的产物唯一在档源）；T32 删码：doc 残留 fileId legacy 兜底退役
+  const { url: resultUrl, onError: onResultError } = useMediaUrl(pendingPreview?.mediaId ?? runtimeMediaIdOf(id));
   const { url: refPreviewUrl, onError: onRefPreviewError } = useMediaUrl(referenceImage);
 
   const displayUrl = resultUrl || refPreviewUrl;

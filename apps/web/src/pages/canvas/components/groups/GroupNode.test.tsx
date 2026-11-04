@@ -105,11 +105,11 @@ describe('GroupNode（StoryboardGroupRendererCellNodes 映射）', () => {
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['c1'] } },
       { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'loading' } },
     ]);
-    useNodeStore.setState({ execStatus: new Map([['c1', { status: 'done' }]]), execAligned: new Map() });
+    useNodeStore.setState({ execStatus: new Map([['c1', { status: 'done' }]]) });
     render(<GroupNode id="g1" data={{ groupType: 'storyboard', cells: ['c1'] }} selected={false} {...{} as any} />);
     const cellNodes = JSON.parse(screen.getByTestId('renderer').getAttribute('data-cellnodes')!);
     expect(cellNodes).toEqual([{ id: 'c1', status: 'done' }]); // fileId: undefined 序列化丢失
-    useNodeStore.setState({ execStatus: new Map(), execAligned: new Map() });
+    useNodeStore.setState({ execStatus: new Map() });
   });
 });
 

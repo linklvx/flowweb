@@ -21,10 +21,11 @@ vi.mock('@/hooks/useMediaUrl', () => ({
   },
 }));
 
-const { getMockNodeData } = vi.hoisted(() => {
-  // data 恒「无 fileId」形态（C-2 红基线：服务端停写 data.fileId——产物唯一在档源=runtime 投影）
-  const mockNodeData: any = { fileId: undefined, status: 'idle', model: '', referenceAudio: undefined };
-  return { getMockNodeData: () => mockNodeData };
+const { getMockNodeData, setMockNodeData } = vi.hoisted(() => {
+  // data 恒「无 fileId」形态（C-2 红基线：服务端停写 data.fileId——产物唯一在档源=runtime 投影；
+  // T32 用例可覆写〔legacy 兜底退役断言——doc 残留 fileId 形态〕）
+  let mockNodeData: any = { fileId: undefined, status: 'idle', model: '', referenceAudio: undefined };
+  return { getMockNodeData: () => mockNodeData, setMockNodeData: (v: any) => { mockNodeData = v; } };
 });
 
 vi.mock('@xyflow/react', async (importOriginal) => {
@@ -38,7 +39,6 @@ vi.mock('@/stores/nodeStore', () => ({
       const state = {
         nodes: { a1: { id: 'a1', type: 'audioGen', position: { x: 0, y: 0 }, data: getMockNodeData() } },
         execStatus: new Map(),
-        execAligned: new Map(),
         updateConfig: vi.fn(),
         setStatus: vi.fn(),
         setFileResult: vi.fn(),
@@ -49,7 +49,6 @@ vi.mock('@/stores/nodeStore', () => ({
       getState: () => ({
         nodes: { a1: { id: 'a1', type: 'audioGen', position: { x: 0, y: 0 }, data: getMockNodeData() } },
         execStatus: new Map(),
-        execAligned: new Map(),
         setStatus: vi.fn(),
         setFileResult: vi.fn(),
       }),
@@ -103,6 +102,7 @@ describe('Y1c T22 收口批 C-2：exec.artifact overlay 读径（四节点族代
   afterEach(() => {
     useMediaUrlArgs.length = 0;
     resetRuntimeFeed();
+    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceAudio: undefined });
   });
 
   it('红→绿：runtime 投影 artifact.mediaId（feed exec.artifact）→ useMediaUrl 载荷=overlay 值（doc data.fileId 停写后产物唯一在档源）', () => {
@@ -122,14 +122,16 @@ describe('Y1c T22 收口批 C-2：exec.artifact overlay 读径（四节点族代
     expect(screen.getByTestId('audio-waveform').textContent).toBe('http://media/m-overlay');
   });
 
-  it('legacy 兜底序：无 runtime artifact → doc 残留 fileId 照读（overlay 不破坏存量档）', () => {
+  it('Y1c T32：doc 残留 fileId legacy 兜底退役——无 runtime artifact → 产物读径不再回落 data.fileId（overlay 成唯一源）', () => {
     useRuntimeFeedStore.setState({
       projectId: 'test-project',
       cursor: { historyId: 'h', generation: 0, feedSeq: '0' },
       projection: { projectId: 'test-project', generation: 0, feedSeq: '0', pgSeq: '0', nodes: {} },
       fetchedAtMs: Date.now(),
     });
+    setMockNodeData({ fileId: 'f-legacy', status: 'done', model: '', referenceAudio: undefined });
     renderNode();
-    expect(useMediaUrlArgs).toContain(undefined);   // data.fileId=undefined → null 载荷（占位形态不变）
+    expect(useMediaUrlArgs).not.toContain('f-legacy');   // T32 删码：legacy 兜底序退役（doc 残留值不读）
+    expect(useMediaUrlArgs).toContain(undefined);        // 无投影 → null 载荷（占位形态）
   });
 });
