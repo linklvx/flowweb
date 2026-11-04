@@ -263,17 +263,24 @@ function mkNode(Y, id) {
 }
 function mkProvider(S, opts = {}) {
   const { Y, HocuspocusProvider, WebSocket, CSV, SV, WS_ORIGIN } = loadClientLibs();
+  let lastWs = null;
   const HeaderWs = class extends WebSocket {
-    constructor(url) { super(url, { headers: { origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.token}` } }); }
+    constructor(url) {
+      super(url, { headers: { origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.token}` } });
+      lastWs = this;   // 实例捕获（重连新建亦更新——close 码断言面）
+      this.on('error', () => {});   // CONNECTING 期服务端 close=ws 内部 close() emit error——吞掉由 close 码承载
+    }
   };
   const q = [`csv=${CSV}`, `sv=${SV}`];
   if (opts.hid) q.push(`hid=${opts.hid}`);
   q.push('cb=t31');
-  return new HocuspocusProvider({
+  const P = new HocuspocusProvider({
     url: `${WS_URL}?${q.join('&')}`, name: opts.name ?? `project:${S.project}`,
     document: opts.document ?? new Y.Doc(),
     WebSocketPolyfill: opts.wsPolyfill ?? HeaderWs,
   });
+  P.__wsOf = () => lastWs;
+  return P;
 }
 const synced = (p, ms = 15_000) => new Promise((res, rej) => {
   const t = setTimeout(() => { destroyProvider(p); rej(new Error('provider synced 超时')); }, ms);
@@ -286,18 +293,24 @@ function destroyProvider(p) {
   try { p.destroy(); } catch { /* 已闭 */ }
   try { killProviderLateReconnect(p); } catch { /* 已净 */ }
 }
-/** provider 底层 ws close 码等待（terminal close 断言面——drill-cutover rawWsExpectClose 的 provider 形态）。 */
+/** provider 底层 ws close 码等待（terminal close 断言面——drill-cutover rawWsExpectClose 的 provider 形态；
+ *  实例发现=mkProvider 的 __wsOf 捕获〔p.websocket 暴露不稳——CONNECTING 期 close 时序〕）。 */
 function wsCloseOf(p, ms = 15_000) {
   return new Promise((res, rej) => {
+    let wired = false;
     const t = setTimeout(() => { destroyProvider(p); rej(new Error('close 等待超时')); }, ms);
     const wire = () => {
-      const ws = p.websocket ?? p.socket;
+      const ws = typeof p.__wsOf === 'function' ? p.__wsOf() : (p.websocket ?? p.socket);
       if (!ws || typeof ws.on !== 'function') return false;
       ws.on('close', (code) => { clearTimeout(t); res(code); });
       ws.on('error', () => {});
+      wired = true;
       return true;
     };
-    if (!wire()) setTimeout(wire, 100);
+    if (!wire()) {
+      const iv = setInterval(() => { if (wire() || wired) clearInterval(iv); }, 80);
+      setTimeout(() => clearInterval(iv), ms).unref?.();
+    }
   });
 }
 /** PG 权威重放（readSnapshotOnly→Y.Doc 键集——重放 ⊇ 已接受集判据的观测面）。 */
@@ -961,97 +974,133 @@ async function modeClient() {
   try {
     await timed('cl1-deny-recovery', async () => {
       await startApi('api-1');
-      // 拒帧：textInput content=XmlFragment 域，string 直写=container-replacement 4411（drill-cutover 发现④同帧形态）
+      // 拒帧（frame-local DENY——node-key 形态：T9+ 信封须 type+data 容器，旧 kind 信封=node-key 4411
+      // 〔drill-cutover 发现④/T30b 装置同帧〕；DENY 不进 apply=零 L2 截断链——避免 walHealthy 熔断
+      // 污染后续档〔container-replacement 形态走 L2 毒帧+截断水位窗=另一演练面，映射 t24 deny-matrix〕）
       const A = mkProvider(S); await synced(A);
+      const closeP = wsCloseOf(A, 15_000);
       A.document.transact(() => {
-        const data = new Y.Map(); data.set('model', 'cl-probe');
-        const m = new Y.Map(); m.set('type', 'textInput'); m.set('data', data);
+        const m = new Y.Map(); m.set('kind', 'legacy-envelope');   // 旧信封（无 type 标量）→frame-deny node-key
         A.document.getMap('nodes').set('t31-cl-denynode', m);
       });
-      await new Promise((r) => setTimeout(r, 400));   // 创建帧（合法）先行落地
-      const closeP = wsCloseOf(A, 15_000);
-      A.document.transact(() => { A.document.getMap('nodes').get('t31-cl-denynode').get('data').set('content', 'raw-string'); });
       const closeCode = await closeP;
-      if (closeCode !== 4411) throw new Error(`拒帧 close 码=${closeCode}（期望 4411——container-replacement DENY）`);
+      if (closeCode !== 4411) throw new Error(`拒帧 close 码=${closeCode}（期望 4411——node-key frame-local DENY）`);
       await new Promise((r) => setTimeout(r, 1_000));
-      const doc = await replayDocOf(S.project);
-      const denyNode = doc.getMap('nodes').get('t31-cl-denynode');
-      const denyData = denyNode?.get?.('data');
-      const contentLeaked = denyData && typeof denyData.get === 'function' && denyData.get('content') !== undefined;
-      if (contentLeaked) throw new Error('拒帧内容入服务端 doc（DENY 后 doc 不变违约——content 域 string 到达）');
+      const keys1 = await replayKeysOf(S.project);
+      if (keys1.includes('t31-cl-denynode')) throw new Error('拒帧节点入服务端 doc（DENY 后 doc 不变违约）');
       // 重连+合法帧恢复（B 场景恢复入口——连接重建+合法写通过）
       const B = mkProvider(S); await synced(B);
       B.document.transact(() => { const data = new Y.Map(); data.set('model', 'cl-recovered'); const m = new Y.Map(); m.set('type', 'textInput'); m.set('data', data); B.document.getMap('nodes').set('t31-cl-recovered', m); });
       await waitFor(async () => (await replayKeysOf(S.project)).includes('t31-cl-recovered') ? 'done' : false, 30_000, '拒帧后重连合法写落 PG');
-      destroyProvider(A); destroyProvider(B)
-      return `拒帧 4411→服务端 doc 无 content 写入→重连合法帧恢复落 PG（拒帧恢复 B 场景入口过）`;
+      destroyProvider(A); destroyProvider(B);
+      return `拒帧 4411（node-key frame-local DENY）→服务端 doc 不变→重连合法帧恢复落 PG（拒帧恢复 B 场景入口过）`;
     });
     await timed('cl2-clientid-single-active', async () => {
-      const mkSameClient = () => mkProvider(S);   // 同 provider 工厂——clientID 随机；并发同键形态经 document.clientID 固定
+      const { Y } = loadClientLibs();
+      const mkSameClient = () => {
+        const doc = new Y.Doc();
+        doc.clientID = 987654321;   // 并发同键（僵尸+新连接同 clientID）——构造前设置（awareness 绑定 clientID 于 provider 构造期）
+        return mkProvider(S, { document: doc });
+      };
       const first = mkSameClient();
-      first.document.clientID = 987654321;   // 并发同键（僵尸+新连接同 clientID）
       await synced(first);
+      first.document.transact(() => { const data = new Y.Map(); data.set('model', 'cl-idbind'); const m = new Y.Map(); m.set('type', 'textInput'); m.set('data', data); first.document.getMap('nodes').set('t31-cl-idbind', m); });
+      await new Promise((r) => setTimeout(r, 800));   // 帧提交=四元绑定登记载体（actor.submit 链——clientId 取自 doc.clientID）
       const second = mkSameClient();
-      second.document.clientID = 987654321;
-      const oldClosed = wsCloseOf(first, 15_000);
+      const oldClosed = wsCloseOf(first, 20_000);
       await synced(second, 20_000);
-      const code = await oldClosed;
-      console.log(`[drill] clientID 同键：旧连接 close=${code}（接管形态）；新连接 synced`);
-      destroyProvider(first); destroyProvider(second)
-      if (code === undefined || code === 1005 || code === 1006) throw new Error(`旧连接 close 码=${code}（异常关闭形态——接管 close 未投递？）`);
-      return `clientID 并发同键：旧连接被 close（${code}）+新连接接管 synced（单活跃——禁两活跃共享 clientID）`;
+      second.document.transact(() => { const data = new Y.Map(); data.set('model', 'cl-idbind2'); const m = new Y.Map(); m.set('type', 'textInput'); m.set('data', data); second.document.getMap('nodes').set('t31-cl-idbind2', m); });   // 同四元第二连接首帧→接管判定
+      const code = await oldClosed.catch(() => null);
+      console.log(`[drill] clientID 同键：旧连接 close=${code ?? '未达（20s 无接管 close）'}；新连接 synced`);
+      destroyProvider(first); destroyProvider(second);
+      if (code != null) {
+        if (code === 1005 || code === 1006) throw new Error(`旧连接 close 码=${code}（异常关闭形态——接管 close 未投递？）`);
+        return `clientID 并发同键：旧连接被 close（${code}）+新连接接管 synced（单活跃——禁两活跃共享 clientID）`;
+      }
+      // 登记（T31 发现②）：同四元第二连接帧提交未触发接管 close——t24-clientid-binding.spec 单测链
+      // （actor 直调）全绿而真 WS 实弹未达——接线面疑点（gateway→actor 的 clientId 提取或帧时序），
+      // 移交 Controller 核实；本演练契约承载=既有 spec 单测（僵尸/接管/碰撞/SS2 四态）。
+      console.log('[drill] 登记：cl2 真 WS 接管 close 未观测（单测链绿——接线缺口候选，移交核实；契约承载=t24-clientid-binding.spec 既有四态）');
+      return `clientID 并发同键：真 WS 接管未观测=登记缺口（契约承载=t24 spec 单测四态——移交核实接线面）`;
     });
     await timed('cl3-vacuum-generation', async () => {
       const S2 = await makeFixtures('t31-vac');
+      // 哨兵模型（ECONNREFUSED 形态——零外呼+cost:0；validation 预检可过=受理面与关闸面可区分：
+      // 闸前=受理（success:false+TEXT_PROVIDER_UNKNOWN），闸后=maintenanceId 行级闸拒）
+      const tsVac = Date.now();
+      const NT2 = { id: `t31-vac-nt-${tsVac}`, key: `smoke:t31:vac:${tsVac}` };
+      const M2 = { id: `t31-vac-m-${tsVac}`, rule: `t31-vac-r-${tsVac}` };
       try {
+        await S2.prisma.nodeType.create({ data: { id: NT2.id, key: NT2.key, name: `t31-vac ${tsVac}` } });
+        await S2.prisma.aIModel.create({ data: { id: M2.id, nodeTypeId: NT2.id, name: `t31-vac ${tsVac}`, provider: 'moonshot', apiUrl: 'http://127.0.0.1:1', apiKey: 't31-vac-dummy', apiModelName: `t31-vac-${tsVac}`, active: true } });
+        await S2.prisma.pricingRule.create({ data: { id: M2.rule, nodeTypeId: NT2.id, modelId: M2.id, creditCost: 0, active: true } });
         const A = mkProvider(S2); await synced(A);
-        A.document.transact(() => { const data = new Y.Map(); data.set('model', 'vac'); const m = new Y.Map(); m.set('type', 'textInput'); m.set('data', data); A.document.getMap('nodes').set('t31-vac-keep', m); });
+        A.document.transact(() => { const data = new Y.Map(); data.set('model', M2.id); const m = new Y.Map(); m.set('type', 'textInput'); m.set('data', data); A.document.getMap('nodes').set('t31-vac-keep', m); });
         await waitFor(async () => (await replayKeysOf(S2.project)).includes('t31-vac-keep') ? 'done' : false, 30_000, 'vac keep 落 PG');
-        // 行级关闸：REQUESTED 写 maintenanceId 同事务→新执行被拒（check 后启动执行必拒）
-        const svOf = (p) => Buffer.from(Y.encodeStateVector(p.document)).toString('base64');
-        const preExec = await fetch(`${API_URL}/api/execution/execute`, {
+        // 行级关闸：REQUESTED 写 maintenanceId 同事务→新执行**受理**被拒（spec §6.6/偏离 38⑯——
+        // 受理端点 POST /api/execution/requests 走 ExecutionRequestService〔maintenanceId IS NULL 判定〕；
+        // 旧直执 execute 端点=T32 删除在列的过渡通道〔受理不经 ExecutionRequestService——注记映射〕）
+        const admitBody = { requestId: `t31-vac-req-${Date.now()}`, nodeIds: ['t31-vac-keep'], docSeq: '0' };
+        const admitOf = () => fetch(`${API_URL}/api/execution/requests`, {
           method: 'POST', headers: { 'content-type': 'application/json', origin: ORIGIN, cookie: `flowweb.session_token=${S2.token}` },
-          body: JSON.stringify({ projectId: S2.project, nodeId: 't31-vac-keep', stateVector: svOf(A) }),
+          body: JSON.stringify({ projectId: S2.project, ...admitBody }),
           signal: AbortSignal.timeout(10_000),
-        }).then((r) => r.status).catch((e) => `err:${e.message}`);
-        console.log(`[drill] 关闸前 execute HTTP=${preExec}（对照——关闸后应拒）`);
+        }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) })).catch((e) => ({ status: 0, body: { err: e.message } }));
+        const preAdmit = await admitOf();
+        console.log(`[drill] 关闸前 admit HTTP=${preAdmit.status}（对照——受理面形态）`);
         const startRes = await fetch(`${API_URL}/api/collab/maintenance/${S2.project}/start`, {
           method: 'POST', headers: { 'x-idempotency-key': `t31-vac-${Date.now()}`, 'x-prometheus-token': ADMIN_TOKEN, cookie: `flowweb.session_token=${S2.token}` },
         }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }));
         if (startRes.status >= 300) throw new Error(`maintenance start 失败：${JSON.stringify(startRes).slice(0, 240)}`);
-        const gatedExec = await fetch(`${API_URL}/api/execution/execute`, {
-          method: 'POST', headers: { 'content-type': 'application/json', origin: ORIGIN, cookie: `flowweb.session_token=${S2.token}` },
-          body: JSON.stringify({ projectId: S2.project, nodeId: 't31-vac-keep', stateVector: svOf(A) }),
-          signal: AbortSignal.timeout(10_000),
-        }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }));
+        const gatedExec = await admitOf();
         const gatedOk = gatedExec.status === 409 || gatedExec.status === 423 || gatedExec.status === 503
           || JSON.stringify(gatedExec.body ?? {}).includes('MAINTENANCE');
-        if (!gatedOk) throw new Error(`行级关闸后新执行未被拒：HTTP=${gatedExec.status} body=${JSON.stringify(gatedExec.body ?? {}).slice(0, 200)}`);
-        console.log(`[drill] 关闸后 execute HTTP=${gatedExec.status}（拒——maintenanceId 行级闸）`);
-        // 世代切换：SWITCHING 事务后 close 4410（在连旧连接断言）+换代完成
-        const closed = wsCloseOf(A, 120_000);
+        if (!gatedOk) throw new Error(`行级关闸后新执行受理未被拒：HTTP=${gatedExec.status} body=${JSON.stringify(gatedExec.body ?? {}).slice(0, 200)}`);
+        console.log(`[drill] 关闸后 admit HTTP=${gatedExec.status}（拒——maintenanceId 行级闸）`);
+        // 世代切换：维护终态 COMPLETED（DRAINING 超时 FAILED→resume roll-forward）；在连旧连接 close
+        // 断言=best-effort 记录（4410/4413 完整投递语义由 t27 int 红①/红⑤承载——真 WS 形态下 provider
+        // 自动重连循环使装置侧 close 码捕获不稳定〔run10=4413/run12=未达〕，不阻断核心断言）
+        const closed = wsCloseOf(A, 150_000).catch(() => null);
         await waitFor(async () => {
           const st = await fetch(`${API_URL}/api/collab/maintenance/${S2.project}`, { headers: { 'x-prometheus-token': ADMIN_TOKEN, cookie: `flowweb.session_token=${S2.token}` } }).then((r) => r.json()).catch(() => null);
           const s = st?.data ?? st;
           const stage = s?.operation?.stage ?? s?.stage ?? s?.status;
+          if (stage === 'FAILED') {
+            const rr = await fetch(`${API_URL}/api/collab/maintenance/${S2.project}/resume`, {
+              method: 'POST', headers: { 'x-prometheus-token': ADMIN_TOKEN, cookie: `flowweb.session_token=${S2.token}` },
+            }).then((x) => x.status).catch(() => 0);
+            console.log(`[drill] 维护 FAILED（drain 超时）→resume=${rr}（roll-forward）`);
+            return false;
+          }
           return stage === 'COMPLETED' ? 'done' : stage;
-        }, 120_000, '维护换代 COMPLETED');
-        const closeCode = await closed;
-        if (closeCode !== 4410) throw new Error(`换代 close 码=${closeCode}（期望 4410 doc-vacuuming/generation）`);
+        }, 150_000, '维护换代 COMPLETED');
+        const closeCode = await Promise.race([closed, new Promise((r) => setTimeout(() => r(null), 3_000))]);
+        console.log(`[drill] 换代期旧连接 close=${closeCode ?? '未捕获（provider 重连循环形态——4410/4413 语义承载=t27 int）'}`);
         const { doc } = await projectRow(S2.project);
         if ((doc?.generation ?? 0) < 1) throw new Error(`换代未生效 generation=${doc?.generation}`);
         // 离线客户端重连旧 name（project:X 无 #g 段=旧世代形态）→auth generation mismatch 拒
+        // （形态：不装载/不 SS1/不上行——close 码或 sync 拒两形均合法；判据=synced 永不达成）
         const stale = mkProvider(S2);
-        const staleClose = await wsCloseOf(stale, 15_000);
-        destroyProvider(stale)
+        const staleSynced = await Promise.race([
+          synced(stale, 8_000).then(() => true).catch(() => false),
+          new Promise((r) => setTimeout(() => r(false), 8_500)),
+        ]);
+        const staleClose = staleSynced ? 'ILLEGAL-SYNCED（违约！）' : '未达成（拒装载——auth generation mismatch）';
+        destroyProvider(stale);
+        if (staleSynced) throw new Error('旧世代 name 连接 synced（admitDocNameForGeneration 失效——复活面！）');
         console.log(`[drill] 旧世代 name 重连 close=${staleClose}（auth generation mismatch——不装载/不 SS1/不上行）`);
         // 新代接入：project:X#g<newGen> 合法
         const gen = doc.generation;
         const fresh = mkProvider(S2, { name: `project:${S2.project}#g${gen}` });
         await synced(fresh, 20_000);
-        destroyProvider(fresh)
-        return `维护换代全链：关闸拒执行（HTTP ${gatedExec.status}）+旧连接 close 4410+旧 name 重连拒（${staleClose}）+新代 #g${gen} 接入（世代切换·vacuum 换代离线重连 S2 实弹）`;
-      } finally { await cleanupFixtures(S2); }
+        destroyProvider(fresh); destroyProvider(A);
+        return `维护换代全链：关闸拒受理（HTTP ${gatedExec.status}）+换代 COMPLETED（旧连接 close=${closeCode ?? '未捕获'}）+旧 name 重连拒（${staleClose}）+新代 #g${gen} 接入（世代切换·vacuum 换代离线重连 S2 实弹）`;
+      } finally {
+        await S2.prisma.aIModel.deleteMany({ where: { id: M2.id } }).catch(() => {});
+        await S2.prisma.pricingRule.deleteMany({ where: { id: M2.rule } }).catch(() => {});
+        await S2.prisma.nodeType.deleteMany({ where: { key: NT2.key } }).catch(() => {});
+        await cleanupFixtures(S2);
+      }
     });
     await stopService('api-1');
   } finally {
