@@ -296,3 +296,51 @@ jobs:
         run: |
           pnpm --filter @flowweb/api exec node scripts/write-frozen-drill.mjs --mode=frozen-chain
           pnpm --filter @flowweb/api exec node scripts/write-frozen-drill.mjs --mode=mid-edit-kill9
+
+  # Y1c T33：负载基准硬门档（spec §9.4「硬门固定 runner——PR 只跑 smoke，nightly/release 跑硬门」）。
+  # PR/push 不跑（smoke 档已在 test job verify 链 bench-load-smoke 步）；本 job=workflow_dispatch
+  # 手动调度（nightly/release 前实弹——固定 runner 口径=ubuntu-latest+PG16 容器规格固定，跨跑可比；
+  # 绝对阈值（fsync p95≤20ms 等）的生产裁定按 T0-S4 spike §1 平台注记：Linux fsync 语义与 Windows
+  # 不同，本 job 数字=固定 runner 档基准；本地实弹档（win32 4C/16G）数字见 gate-evidence/
+  # t33-load-benchmark.txt 机器形态注记——两档独立登记不混算）。跑批产物=JSONL 分段落盘+
+  # 终局 bench.json（artifact 上传供 runbook §17 落档）。
+  load-bench-hard:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: flowweb, POSTGRES_PASSWORD: '123456', POSTGRES_DB: flowweb }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://flowweb:123456@localhost:5432/flowweb
+      REDIS_URL: redis://localhost:6379/0
+      MINIO_ENDPOINT: http://localhost:9000
+      MINIO_ACCESS_KEY: ci-minio
+      MINIO_SECRET_KEY: ci-minio-secret
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @flowweb/api exec prisma generate
+      - name: 负载基准 full profile（七场景硬门实弹——装置自带构建+分段落盘+超时上界）
+        run: node scripts/bench-load.mjs --profile full --confirm --out gate-evidence/t33-load-benchmark.ci.jsonl
+      - name: 上传跑批产物（bench JSON+JSONL 分段——runbook §17 落档面）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t33-load-bench-${{ github.run_id }}
+          path: |
+            gate-evidence/t33-load-benchmark.ci.jsonl
+            gate-evidence/t33-load-benchmark.ci.bench.json
+          if-no-files-found: warn

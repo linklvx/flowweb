@@ -730,3 +730,20 @@ node scripts/reset-collab.mjs --status                             # 只读：�
 **缓存清理口径**（诚实登记，工具无动作面）：**公开快照缓存**=进程内 TTL+LRU 单实例（snapshot-doc-cache 32 条）——消费者进程停+新进程起=天然清空；**本地缓存键（客户端 IDB）**=服务端无清客户端缓存能力（spec 偏离 38⑳ 口径）——唯一服务端动作=bump historyId 使客户端缓存键五元 (uid,pid,generation,schemaVersion,historyId) 自燃失效（4406/4410 客户端自清），由阶段 6 承载。
 
 **失败续跑**：任一阶段失败=状态文件在档（已完成阶段保真）；修复后**重跑同一命令**即自断点续跑（例：migrate 失败→修复迁移树→重跑自 migrate 起）。**续跑前提=消费者仍处停态（步 ③）——串行锁只互斥 reset-collab 跨实例，不拦消费者重启**；中途续跑前重验三查（连接/PID/租约——步 ③ 同款）。`.reset-collab-state.json` 损坏=fail-closed 拒续跑（人工核查或确认放弃后删除再全新重跑）。旧 `.quarantine-<ts>/` 目录=保留证据不删；`restore.lock` marker 若在位随整目录隔离，清除=bump 后人工删除（T13 口径）。
+
+---
+
+## §17 Y1c T33 负载基准门禁两档（2026-11-05 落档——spec v5.4 §9.4 分档语义）
+
+**装置单一真源=`scripts/bench-load.mjs`**（七场景 CLI 断言装置——drill-fault 同族：自拉 api（COLLAB_ROLE=all）+provider 驱动+分段落盘 JSONL+全局超时上界+`--confirm` 破坏性守卫）。**判据单一真源=`scripts/lib/load-bench-verdict.mjs`**（硬门六项+软 warn 预算带——node --test 消费=`scripts/load-bench.test.mjs`）。**阈值冻结**：硬 block=正确性/数据丢失不变量任一失败、错误率>0（v1.7 口径=仅 5xx/未处理异常/非预期 1011/数据断言失败——预期 4411/4412/4404/4406/4413 单列不计入；负载 5xx<0.1% 无超时雪崩>1%）、WAL fsync p95>20ms、save barrier p95>2s、10k 冷加载 p95>3s、恢复 RTO>5min、feed lag>30s；软 warn=吞吐/CPU/RSS/IO/p99 及 1.0-1.2× 预算带、feed lag 5-30s、apply_replay_ms/echo_bytes 软预算（超限=触发 fork/patch 评审非只测不补）。发布前无 TBD 阈值（每项预算带依据注记在 SOFT_BUDGETS）。
+
+**两档接线（spec §9.4「硬门固定 runner——PR 只跑 smoke，nightly/release 跑硬门」）**：
+
+| 档 | 触发 | 载体 | 口径 |
+|---|---|---|---|
+| **smoke（PR/push）** | CI test job verify 链 `bench-load-smoke` 步（31 步链——fast 外，db:true） | `node scripts/bench-load.mjs --profile smoke --confirm --skip-build` | 微规模装置自检（场景链路+判据接线+JSON schema——非阈值裁定档） |
+| **full 硬门（nightly/release）** | CI `load-bench-hard` job（workflow_dispatch 手动调度——release 前实弹；schedule 不挂=schedule 已摘先例，恢复 nightly 归用户裁定） | `node scripts/bench-load.mjs --profile full --confirm --out gate-evidence/t33-load-benchmark.ci.jsonl`（package.json `bench:load:full`） | 七场景实弹规模+硬门判定 exit——固定 runner 口径=ubuntu-latest+PG16/Redis7 容器规格固定（跨跑可比）；产物=artifact JSONL+bench.json |
+
+**固定 runner 与绝对阈值口径**（T0-S4 spike §1 平台注记承接）：Windows NTFS fsync（FlushFileBuffers）与 Linux fsync 语义/时延不同——**硬门绝对阈值（fsync p95≤20ms 判据）的生产裁定以固定 Linux runner 档为权威**；本地实弹档（win32，机器形态注记随证据落档）数字=开发基线+外推校准源（容量评估衔接），两档独立登记不混算。首次本地实弹记录=`gate-evidence/t33-load-benchmark.txt`（T33 阶段③产物）。
+
+**错误率口径与观测面**：装置侧 5xx=HTTP 观测面（ready/metrics/feed/exec-status 轮询计数）；未处理异常=api 日志 ring 正则扫描；非预期 close 码=ws 层计数（1011 单列+其它非预期码→断言失败账；1005/1006=provider destroy/SIGKILL 断连预期形态单列不计入）；数据断言失败=装置内收敛/隔离/完整性断言。**预期 4412=pending 区间拒绝**（TTL 驱逐后重连的差量帧——协议预期）单列不计入。

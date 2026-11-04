@@ -41,6 +41,10 @@ export const VERIFY_STEPS = [
   // 分配与 idle-anchor 90s 实时等待移出主套件并行池，B10 根因；fast 外=插位索引 19 ≥ FAST_PREFIX_LEN
   // 15——plan T8）=28 步。
   { id: 'api-test-heavy', cmd: 'pnpm --filter @flowweb/api run test:heavy', db: false },
+  // Y1c T33 授权插一步：bench-load-smoke 紧随 api-test-heavy（负载基准 PR smoke 档——spec §9.4「PR 只跑
+  // smoke，nightly/release 跑硬门」两档接线；fast 外=快跑位；db:true 真 PG 依赖；dist 由 api-nest-build
+  // 步产出恒新；full 硬门档=独立跑批不进 verify 链——固定 runner 口径 runbook §17）=31 步。
+  { id: 'bench-load-smoke', cmd: 'node scripts/bench-load.mjs --profile smoke --confirm --skip-build', db: true },
   { id: 'web-lint', cmd: 'pnpm --filter @flowweb/web lint', db: false },
   { id: 'check-ecosystem', cmd: 'node scripts/check-ecosystem.mjs', db: false },
   { id: 'check-spec-consistency', cmd: 'node scripts/check-spec-consistency.mjs', db: false },
@@ -54,7 +58,7 @@ export const VERIFY_STEPS = [
   // Y1a T3 授权插一步：check-plan-census（plan 契约 census——键集单源四处一致/DocNodeRecord 零残留/
   // execSeq 裸比较禁令/compareExecSeq 定义唯一；依赖 shared dist——shared-build 步在前恒新）=30 步。
   { id: 'check-plan-census', cmd: 'node scripts/check-plan-census.mjs', db: false },
-  { id: 'scripts-node-test', cmd: 'node --test scripts/check-collab-census.test.mjs scripts/check-collab-health.test.mjs scripts/check-collab-module-size.test.mjs scripts/check-collab-test-facade.test.mjs scripts/check-ecosystem.test.mjs scripts/check-exact-pins.test.mjs scripts/check-ledger-single-writer.test.mjs scripts/check-migration-additive.test.mjs scripts/check-migration-immutability.test.mjs scripts/check-plan-anchors.test.mjs scripts/check-plan-census.test.mjs scripts/check-spec-consistency.test.mjs scripts/collab-renumber-layer.test.mjs scripts/collab-rebuild-gen.test.mjs scripts/deploy-sh-pgrestore.test.mjs scripts/dev-reset-canvas.test.mjs scripts/deploy-guard.test.mjs scripts/drill-fault.test.mjs scripts/env-file.test.mjs scripts/verify-chain.test.mjs apps/api/scripts/collab-soak-metrics.test.mjs apps/api/scripts/provider-late-reconnect-guard.test.mjs', db: false },
+  { id: 'scripts-node-test', cmd: 'node --test scripts/check-collab-census.test.mjs scripts/check-collab-health.test.mjs scripts/check-collab-module-size.test.mjs scripts/check-collab-test-facade.test.mjs scripts/check-ecosystem.test.mjs scripts/check-exact-pins.test.mjs scripts/check-ledger-single-writer.test.mjs scripts/check-migration-additive.test.mjs scripts/check-migration-immutability.test.mjs scripts/check-plan-anchors.test.mjs scripts/check-plan-census.test.mjs scripts/check-spec-consistency.test.mjs scripts/collab-renumber-layer.test.mjs scripts/collab-rebuild-gen.test.mjs scripts/deploy-sh-pgrestore.test.mjs scripts/dev-reset-canvas.test.mjs scripts/deploy-guard.test.mjs scripts/drill-fault.test.mjs scripts/env-file.test.mjs scripts/load-bench.test.mjs scripts/verify-chain.test.mjs apps/api/scripts/collab-soak-metrics.test.mjs apps/api/scripts/provider-late-reconnect-guard.test.mjs', db: false },
   // Y1c T20 出口前置根修：glob 对齐实际布局 "{src,test}/**/*.ts"→"src/**/*.ts"——apps/api 无 test/
   // 目录（api 测试=src/**/*.spec.ts 同仓共置），原 glob 模式不匹配即步红（ESLint fatal——任何环境
   // 必红=门自身预置缺陷，非代码回归）。同批同修 apps/api package.json lint 脚本同款 glob。

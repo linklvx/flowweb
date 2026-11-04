@@ -9,7 +9,9 @@
     "test": "turbo run test",
     "lint": "turbo run lint",
     "verify": "node scripts/verify-chain.mjs --tier=full",
-    "verify:fast": "node scripts/verify-chain.mjs --tier=fast"
+    "verify:fast": "node scripts/verify-chain.mjs --tier=fast",
+    "bench:load:smoke": "node scripts/bench-load.mjs --profile smoke --confirm",
+    "bench:load:full": "node scripts/bench-load.mjs --profile full --confirm --out gate-evidence/t33-load-benchmark.jsonl"
   },
   "devDependencies": {
     "turbo": "^2.0.0",

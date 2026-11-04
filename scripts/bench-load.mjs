@@ -947,9 +947,12 @@ async function main() {
   const globalDeadline = setTimeout(() => { console.error('[bench] 全局超时上界到——强制退出（分段 JSONL 已落盘）'); process.exit(2); }, P.timeoutMs);
   globalDeadline.unref?.();
   if (!OPTS.confirm) { console.error('破坏性装置（kill api/PG 触发器/容量注入）——加 --confirm 执行（drill-cutover/reset-collab 同律）'); process.exit(1); }
-  for (const [port, name] of [[5432, 'PostgreSQL'], [6379, 'Redis'], [9000, 'MinIO']]) {
+  for (const [port, name] of [[5432, 'PostgreSQL'], [6379, 'Redis']]) {
     if (!(await isPortOpen(port))) throw new Error(`基础设施预检失败：${name}(${port}) 未监听`);
   }
+  // MinIO 预检=警告非阻断（api spawn 注入 MINIO_INIT=skip 显式裁剪 ensureBucket——gate-collab B′ 先例；
+  // 负载基准零对象存储产物消费，CI load-bench-hard job 无 MinIO service 合法）
+  if (!(await isPortOpen(9000))) console.log('[bench] WARNING MinIO(9000) 未监听——MINIO_INIT=skip 形态继续（零对象存储产物消费）');
   await portKill([3000, 3001, 3002]);
   await ensureBuilt();
   const projectCount = 7 + P.concProjects + (P.fanoutConns > 0 ? 0 : 0);
