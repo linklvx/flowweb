@@ -509,7 +509,12 @@ function startProxy(listenPort, targetPort) {
   });
   return new Promise((res) => server.listen(listenPort, '127.0.0.1', () => res({
     pauseAll: () => { for (const s of sockets) s.pause(); },   // 分区：静默挂起（不 RST 不 FIN）
-    kill: () => new Promise((r) => server.close(() => { for (const s of sockets) { try { s.destroy(); } catch { /* 已闭 */ } } r(); })),
+    resumeAll: () => { for (const s of sockets) s.resume(); },  // 分区恢复：转发恢复（连接不断——客户端 pending 上行随后到达）
+    kill: () => {
+      for (const s of sockets) { try { s.destroy(); } catch { /* 已闭 */ } }   // 先断连接（长连接池挂 close 回调 300s——PG failover 注入窗效率）
+      sockets.clear();
+      return new Promise((r) => server.close(() => r()));
+    },
   })));
 }
 async function pgServiceStop() {
@@ -533,18 +538,30 @@ async function modeInfra() {
   const { Y } = loadClientLibs();
   timing.t0 = Date.now();
   let clientA = null;
+  // PG 前置 proxy（failover 注入形态——本机无管理员权限停 PG 服务〔sc stop 拒/taskkill 服务进程拒〕：
+  // api 的 DATABASE_URL 改写指向 proxy 端口，proxy 转发真 5432；「PG 停」=proxy kill〔api 视角主库不可达
+  // =连接拒——fail-closed 链等价〕，「恢复」=proxy 重起。装置自身 withPg 直连真 5432 不受影响。
+  const PG_PROXY_PORT = 15432;
+  let pgProxy = null;
+  const proxiedDsn = (() => {   // DSN host:port 改写 → PG proxy（query 参数保留）
+    const u = new URL(loadDatabaseUrl());
+    u.hostname = '127.0.0.1';
+    u.port = String(PG_PROXY_PORT);
+    return u.toString();
+  })();
   try {
-    // ── 档①：PG failover（服务 stop=主库不可达——写不静默丢/停机窗断连=doc 卸载×PG 故障同链） ──
+    // ── 档①：PG failover（proxy kill=api 视角主库不可达——写不静默丢/停机窗断连=doc 卸载×PG 故障同链） ──
     await timed('infra1-baseline', async () => {
-      await startApi('api-1');
+      pgProxy = await startProxy(PG_PROXY_PORT, 5432);
+      await startApi('api-1', { DATABASE_URL: proxiedDsn });
       clientA = mkProvider(S); await synced(clientA);
       clientA.document.transact(() => clientA.document.getMap('nodes').set('t31-infra-x1', mkNode(Y, 'x1')));
       await waitFor(async () => (await replayKeysOf(S.project)).includes('t31-infra-x1') ? 'done' : false, 30_000, 'x1 落 PG（Durable 基线）');
-      return '基线：x1 Durable 落 PG（failover 前已提交内容=恢复必达下限）';
+      return '基线：x1 Durable 落 PG（failover 前已提交内容=恢复必达下限）——api 经 PG proxy（DSN 改写注入）';
     });
     await timed('infra1-pg-stop', async () => {
-      await pgServiceStop();
-      return 'PG 停（主库不可达——本地 failover 形态，偏差登记：单机服务 stop 非备库切换）';
+      await pgProxy.kill();
+      return 'PG「停」（proxy kill=api 视角主库不可达——本地 failover 形态，偏差登记：单机无管理员权限停服务，proxy 注入等价）';
     });
     await timed('infra1-write-while-down', async () => {
       clientA.document.transact(() => clientA.document.getMap('nodes').set('t31-infra-x2', mkNode(Y, 'x2')));
@@ -554,9 +571,9 @@ async function modeInfra() {
       return '停机窗写入送达（x2——Spooled 承接/显式拒均合法，静默丢=违约——重放终判）';
     });
     await timed('infra1-pg-recover', async () => {
-      await pgServiceStart();
-      await waitFor(async () => (await replayKeysOf(S.project)).includes('t31-infra-x2') ? 'done' : false, 150_000, 'x2 恢复后回灌落 PG');
-      return 'PG 起回→x2 回灌落 PG（停机窗写入零丢失——隔离恢复）';
+      pgProxy = await startProxy(PG_PROXY_PORT, 5432);   // 「服务起回」等价：proxy 重起（api 连接池重连+breaker 探测）
+      await waitFor(async () => (await replayKeysOf(S.project)).includes('t31-infra-x2') ? 'done' : false, 180_000, 'x2 恢复后回灌落 PG');
+      return 'PG「起回」（proxy 重起）→x2 回灌落 PG（停机窗写入零丢失——隔离恢复）';
     });
     await timed('infra1-verify', async () => {
       const keys = await replayKeysOf(S.project);
@@ -585,8 +602,8 @@ async function modeInfra() {
       await waitFor(async () => (await replayKeysOf(S.project)).includes('t31-infra-x4') ? 'done' : false, 30_000, '分区窗 x4（B 直连）落 PG');
       A.document.transact(() => A.document.getMap('nodes').set('t31-infra-x5', mkNode(Y, 'x5')));   // 分区窗 A 本地写（上行不可达）
       await new Promise((r) => setTimeout(r, 800));
-      await proxy.kill();   // 恢复=分区侧断（A 连接死→重连直连）→A pending 上行重发+SV 同步
-      await waitFor(async () => (await replayKeysOf(S.project)).includes('t31-infra-x5') ? 'done' : false, 60_000, '分区窗 A 本地写 x5 重连后落 PG');
+      proxy.resumeAll();   // 恢复=转发恢复（A 连接未断〔polyfill 硬编码 proxy 端口——挂起/恢复两段即完整分区形态〕→A pending 上行到达+SV 同步
+      await waitFor(async () => (await replayKeysOf(S.project)).includes('t31-infra-x5') ? 'done' : false, 60_000, '分区窗 A 本地写 x5 恢复后落 PG');
       const bSeesX5 = await new Promise((res) => {
         if (B.document.getMap('nodes').has('t31-infra-x5')) return res(true);
         const t = setTimeout(() => res(false), 15_000);
@@ -595,7 +612,7 @@ async function modeInfra() {
       if (!bSeesX5) throw new Error('infra2 B 15s 未见 x5（分区恢复后收敛失败）');
       destroyProvider(A); destroyProvider(B)
       await stopService('api-2');
-      return '分区（挂起）→恢复：A 本地写 x5 重连上行落 PG+B 收敛（断网重连 B3 形态——零静默丢弃）';
+      return '分区（挂起）→恢复：A 本地写 x5 恢复后上行落 PG+B 收敛（断网重连 B3 形态——零静默丢弃）';
     });
 
     // ── 档③：磁盘满（COLLAB_SPOOL_CAPACITY_BYTES 容量闸——fail-closed 显式拒，不静默丢） ──
@@ -627,7 +644,8 @@ async function modeInfra() {
   } finally {
     if (clientA) { destroyProvider(clientA) }
     await stopStack();
-    await withPg(async (c) => { await c.query('SELECT 1'); }).catch(async () => { await pgServiceStart().catch(() => {}); });   // PG 若仍 down 兜底拉起
+    if (pgProxy) await pgProxy.kill().catch(() => {});
+    await withPg(async (c) => { await c.query('SELECT 1'); }).catch(() => {});   // 真 PG 健康兜底核对（直连——proxy 注入不动真服务）
     await cleanupFixtures(S);
   }
 }
@@ -1169,7 +1187,7 @@ async function modeWorkerCrash() {
       await execP.catch(() => {});
       destroyProvider(A)
       const intent = await S.prisma.generationIntent.findFirst({ where: { projectId: S.project, nodeId: NODE }, select: { status: true, providerRequestId: true, reservedCredits: true, execSeq: true } });
-      console.log(`[drill] 崩溃后 intent=${JSON.stringify(intent)}（providerRequestId 已落库=write-ahead 键在外呼前持久化）`);
+      console.log(`[drill] 崩溃后 intent=${JSON.stringify(intent, (k, v) => typeof v === 'bigint' ? v.toString() : v)}（providerRequestId 已落库=write-ahead 键在外呼前持久化）`);
       if (intent?.providerRequestId == null) throw new Error('崩溃后 providerRequestId 缺失（write-ahead 键未在外呼前落库——偏离 36-④ 契约违约）');
       return `崩溃窗注入过（外呼 1 次已到达+api kill——intent 停驻=${intent?.status}）`;
     });
@@ -1188,7 +1206,7 @@ async function modeWorkerCrash() {
         if (final && ['SUCCEEDED', 'FAILED', 'UNKNOWN'].includes(final.status)) break;
         await new Promise((res) => setTimeout(res, 1_500));
       }
-      console.log(`[drill] 重试后 intent 终态=${JSON.stringify(final)}`);
+      console.log(`[drill] 重试后 intent 终态=${JSON.stringify(final, (k, v) => typeof v === 'bigint' ? v.toString() : v)}`);
       // ── 零重复副作用三断言 ──
       const ledgerRows = await S.prisma.teamCreditTransaction.findMany({ where: { teamId: S.team, referenceId: { startsWith: 'intent:' } }, select: { type: true, balanceDelta: true, frozenDelta: true }, orderBy: { seq: 'asc' } });
       const reserves = ledgerRows.filter((l) => l.type === 'reserve');
@@ -1243,6 +1261,8 @@ function main() {
   runMode().then(() => {
     printSummary();
     console.log(`[drill] ${timing.mode} 完成（机器留净）`);
+    // 兜底退出（proxy/客户端库偶发残留句柄挂事件循环——服务进程已净、演练判定已闭合；5s 宽限后强退）
+    setTimeout(() => process.exit(0), 5_000);
   }).catch(async (e) => {
     console.error(`DRILL FAIL(${timing.mode}): ${e.message}`);
     console.error(e.stack ?? String(e));
