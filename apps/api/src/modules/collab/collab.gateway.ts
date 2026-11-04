@@ -397,7 +397,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       generationOf: (pid) => this.docRegistry.generationOf(pid),
       noteReadOnlyDrop: (conn, pid, bytes) => this.docRegistry.noteReadOnlyDrop(conn, pid, bytes),
       onFencedByWrite: () => this.selfIsolate('fenced-by-write'),   // RC4 承接（actor PG 腿 fenced→隔离链）
-      isMaintenanceBlocked: (pid) => this.docRegistry.isVacuuming(pid) || (this.maintenanceService?.isFrozen(pid) ?? false),   // Y1c T10：barrier maintenance 拒绝语义（T27 维护 freeze 扩同缝——vacuum 窗∨维护 freeze 窗）
+      isMaintenanceBlocked: (pid) => this.maintenanceService?.isFrozen(pid) ?? false,   // Y1c T10→T32：barrier maintenance 拒绝语义（T27 维护 freeze 窗单承载——vacuum era 门随死码删除）
       maintenanceFreezeOf: (pid) => this.maintenanceService?.freezeInfo(pid),   // Y1c T27：准入链 ⓪‴ 4413 freeze 面（维护帧豁免=drain 通道照常）
     });
     // Y1c T27：维护状态机 host 接线（DR/SG 能力 1 行转发族——thaw 段=beginVacuumEra ⓪ 同语义内联）
@@ -704,20 +704,6 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     return this.docRegistry.calibrateTruth(projectId, bytes);
   }
 
-  /** ===== Y0b-4 T9a（Q-U v6）：vacuum 代际替换——W3a 委托位（serving 门/纪元开启/清态/重建；
-   *  GW* 保 shrink 15 处消费零触碰〔§4.3〕，真空纪元五步语义注释见 service 对应位） ===== */
-
-  /** serving 门读点（REST withDoc/readServerSV/readCanvas/writeExecStatus 同挂〔U-3/G-7〕+
-   *  WS connected 钩子+loadDocument 三入口）。 */
-  isVacuuming(pid: string): boolean {
-    return this.docRegistry.isVacuuming(pid);
-  }
-
-  /** serving 门写点（service vacuumGate.runExclusive 内 add/finally delete——真空窗口=协议执行期）。 */
-  setVacuuming(pid: string, on: boolean): void {
-    this.docRegistry.setVacuuming(pid, on);
-  }
-
   /** 零连接窄版自动 vacuum 注入（service 构造期调用——recheckFrozenDocs 判据链消费）。 */
   setVacuumRunner(fn: (pid: string) => Promise<unknown>): void {
     this.docRegistry.setVacuumRunner(fn);
@@ -728,29 +714,10 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     return this.docRegistry.docResidueOf(pid);
   }
 
-  /** 纪元代开启（service vacuum ⓪①② 调用）：② serving 门先开→⓪ thaw 回灌（U-5 保命）→① freeze
-   *  全连接+terminal close 4410 'doc-vacuuming'——纪元序注释见 service 对应位（§2 同步块链：
-   *  quiesce 轮询 inline await 语义逐字随迁）。 */
-  beginVacuumEra(pid: string): Promise<void> {
-    return this.docRegistry.beginVacuumEra(pid);
-  }
-
-  /** T12 收口 I1.2：真空纪元当代/target 读面委托（vacuumCore ⑥ expectedGeneration 源——纪元开启
-   *  定格投影；purge ③ 后 docGeneration 无键仍可读）。 */
-  vacuumEraGeneration(pid: string): { current: number; target: number } | undefined {
-    return this.docRegistry.vacuumEraGeneration(pid);
-  }
-
   /** ③ 清进程态=共享状态普查表（v6：防旧代记账污染新代；writeFreeze/overPush 经 SG 缝+persistence
    *  两步——键集差异注释见 service 对应位；shrink spec I-1 反射普查锚=三对象〔偏离 70⑤〕）。 */
   purgeDocState(pid: string): void {
     this.docRegistry.purgeDocState(pid);
-  }
-
-  /** 中止恢复（v6 报告3 P1-2：中止路径 503 永久+全员只读=比不 vacuum 更糟——不允许存在；
-   *  ③purge 后幂等 no-op/①②间仅解除 'quota' 原因语义见 service 对应位）。 */
-  abortVacuumRestore(pid: string): void {
-    this.docRegistry.abortVacuumRestore(pid);
   }
 
   /** ④ 全根真空重建（vacuum service 与 recheck residue 评估共用单源——yjs wire 根类型事实/

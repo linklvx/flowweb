@@ -429,16 +429,13 @@ describe('Y0c T20（Z105）：冷读即用即释（ephemeral）——不进常�
 
 // ═══ 受理门（语义对齐 withDoc）+开窗观测 ═══
 describe('Y0c T15：withSession 受理门+新开观测', () => {
-  it('受理门三档对齐 withDoc：lease 失守 503/vacuuming 503/invalid doc name', async () => {
+  it('受理门两档对齐 withDoc：lease 失守 503/invalid doc name（Y1c T32：vacuuming 门随 era 族死码删除——窗口执法=T27 维护状态机）', async () => {
     const fx = makeFixture();
     fx.gateway.isLeaseServing.mockReturnValue(false);
     await expect(fx.svc.readCanvas('p1')).rejects.toMatchObject({ status: 503 });
     fx.gateway.isLeaseServing.mockReturnValue(true);
-    fx.gateway.isVacuuming.mockReturnValue(true);
-    await expect(fx.svc.readCanvas('p1')).rejects.toMatchObject({ status: 503 });
-    fx.gateway.isVacuuming.mockReturnValue(false);
     await expect(fx.svc.readCanvas('a$b')).rejects.toMatchObject({ reason: 'invalid-doc-name' });
-    expect(fx.openDirectConnection).not.toHaveBeenCalled();      // 三档皆不触直开
+    expect(fx.openDirectConnection).not.toHaveBeenCalled();      // 两档皆不触直开
   });
 
   it('mode 二分：read 不加 degraded 写门（spool-unwritable 下照常成功）；write 走 assertWriteAdmitted（503）', async () => {

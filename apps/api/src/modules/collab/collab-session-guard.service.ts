@@ -808,22 +808,9 @@ export class CollabSessionGuardService {
       this.wrapBackpressure(c);   // Y0b-4 T7：出站背压 wrap（先于下方 sendStateless——R4b' Map 幂等）
       this.heartbeat.register(socketId, c);   // R6'：心跳登记（键=payload.socketId——v3：conn.socketId 可选不可靠；与 onDisconnectCleanup unregister 同键）
       const pid = parseDocName(documentName)?.projectId ?? '';
-      // Y0b-4 T9a serving 门（WS 面）：真空窗口新连接 terminal close 4410 'doc-vacuuming'。
-      // 形态裁定：plan 原文"auth 503"——但 WS 层无 HTTP 503（auth 期 throw 被库折 close 4403
-      // 非 503）；落地=4410 terminal close（resolveCloseAction(4410)→terminal——语义=稍后重连
-      // 成功，T11 终态档 reload 通道）；REST withDoc 面用真 503（COLLAB_NOT_SERVING 族）。
-      // Y1c T12：4410 close 载荷先行（stateless {code,reason,generation,discardLocalCache:true}——
-      // beginVacuumEra 同款；客户端 export-draft-then-clear+携新世代重连链（T25 消费））。
-      if (this.docRegistry.isVacuuming(pid)) {   // W3a：serving 门读面随域迁 DR（RC4：SG→DR 直引 3 位之一）
-        try {
-          c.sendStateless?.(JSON.stringify({
-            code: CollabCloseCode.GENERATION_SUPERSEDED, reason: DOC_VACUUMING_TERMINAL_REASON,
-            generation: this.docRegistry.vacuumTargetGeneration(pid), discardLocalCache: true,
-          }));
-        } catch { /* 已断——载荷尽力，close 权威投递仍在 */ }
-        this.hardClose(c, CollabCloseCode.GENERATION_SUPERSEDED, DOC_VACUUMING_TERMINAL_REASON);
-        return Promise.resolve();
-      }
+      // Y1c T32：vacuum era 真空窗 WS close 分支随死码删除——4410 doc-vacuuming 换代 close/载荷
+      // 单承载=T27 维护状态机（FREEZING 段 maintenance.service close 4410+行级关闸；DOC_VACUUMING_
+      // TERMINAL_REASON 常量在彼消费）。
       const intent = c.context?.freezeIntent;
       if (!this.writeFreeze.has(c) && (intent === 'viewer' || intent === 'spool')) {
         this.applyWriteFreeze(c, intent, true);   // auth 意图登记（sendStateless conn-status 补推同点）

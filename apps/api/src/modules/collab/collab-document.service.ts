@@ -82,10 +82,7 @@ export class CollabDocumentService implements OnApplicationShutdown {
     if (!isValidDocName(canonicalName)) {
       throw Object.assign(new Error(`invalid doc name: ${canonicalName}`), { reason: CollabAuthReason.INVALID_DOC_NAME });
     }
-    if (!this.gateway.isLeaseServing()) throw new ServiceUnavailableException('collab not serving (lease not held)');   // P0-1 三入口③
-    if (this.gateway.isVacuuming(projectId)) {
-      throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'doc-vacuuming' });   // 真空窗口 ≤30s 上界——Retry-After 2 由 CollabNotServingFilter 附
-    }
+    if (!this.gateway.isLeaseServing()) throw new ServiceUnavailableException('collab not serving (lease not held)');   // P0-1 三入口③（Y1c T32：vacuum era 真空门随死码删除——窗口执法=T27 维护状态机行级关闸/freeze 闸）
     const withdocT0 = Date.now();   // Y0c T0（Z3）：起点前移至 open 之前——装载段并入全路径（原 Y0b-5 T10 从 open 后起算，装载时间不可见）
     noteDirectLoad(projectId);   // Y0c T0：直连开窗标记——装载在本 open 窗内命中即归因 trigger='direct'（yjs_doc_load_total）
     const connection = await this.gateway.server.hocuspocus.openDirectConnection(canonicalName)

@@ -4,19 +4,19 @@
 // 性质=**语义钉住用例**（对现状写、当场全绿）：任何用例红 ⇒ 现状语义与设计理解不符 ⇒ 停下上报，
 // 禁改断言迁就。内部状态访问一律经 test-utils/collab-gateway-test-facade（check-collab-test-facade
 // 门禁——本 spec 零违规；façade 缺面按操作化归并扩，禁 1:1 成员暴露）。
-// 覆盖：①物化（装载播种+四门拒绝+connected 真空 terminal）②真空（setVacuuming 幂等+beginVacuumEra
+// 覆盖：①物化（装载播种+门族拒绝——Y1c T32：真空门三用例随 era 族死码删除，4410 换代 close=T27 状态机承载）②真空（已删——同前
 // 纪元序）③配额（ok→pending→frozen→ok 全跃迁+freezeQuota 双调/scheduleFreezePending 去重两幂等）
 // ④降级（真实写点 hydration deferred+清理）⑤store 失败（Z110 真卸载终态）⑥常驻（委托位未 attach
 // 语义三断言+attach 缝+Z65 域视角复断言=Z105 WS-only 口径）⑦代际（装载播种+三入口清理）。
 // 清理点普查表三入口逐键全断言+**键集差异逐键钉死**（防「补齐清理」式行为漂移）：
-//   vacuumingDocs=仅 projectsGone 清（:1157 兜底——service finally 双保险）；autoVacuumLastAt=仅
+//   autoVacuumLastAt=仅
 //   purgeDocState 清（:1436 Z66）；storeFailedDocs=仅 afterUnloadDocument 清（:2043 Z110）；
 //   writeFreeze/overPush=仅 purgeDocState 经 applyWriteFreeze 单源解除（:1438-1442）；
 //   lastCompactAt/persistUnhealthy/pendingQueues=purge+projectsGone 清（persistence 侧）、afterUnload 不清。
 // 计数口径披露（纪律：设计报告与源码实测不符以源码为准——上报不改设计）：§6.2 记 afterUnload「12 键
 // +1 persistence 委托」与同句「:2039-2056 实测 15 delete+1 timer clear」自相矛盾，源码实测=15 容器
-// （14 DR 键+storeFailedDocs persistence 台账）+1 timer 族+锚结算；「onProjectGoneStateCleanup 14 键」
-// 源码实测 :1140-1157=15 容器（14+vacuumingDocs 兜底——与 §6.1 ②「仅 projectsGone 清」自洽）。
+// （13 DR 键+storeFailedDocs persistence 台账〔T32：vacuuming 族两容器删〕）+1 timer 族+锚结算
+// 源码实测=14 容器（Y1c T32：vacuuming 族容器删除后收窄）。
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as Y from 'yjs';
 import { messageYjsUpdate } from 'y-protocols/sync';
@@ -133,7 +133,6 @@ function seedAllPidState(gateway: CollabGateway, gf: GatewayTestFacade, pid: str
   gf.seedDocGeneration(pid, 2);
   gf.seedDocResidue(pid, 50);
   gf.seedAutoVacuumLastAt(pid, Date.now());
-  gateway.setVacuuming(pid, true);          // 公有写点（setVacuuming=service vacuumGate 同款）
   gateway.storeFailedDocs.add(pid);         // 公有 getter=persistence 台账真实 Set 引用（B1 委托位④）
   gf.seedWriteFreeze(conn, pid, ['quota']);
   gf.seedOverPush(conn.socketId, { count: 5, bytes: 500, firstAt: Date.now(), lastAt: Date.now() });
@@ -176,90 +175,14 @@ describe('T41 W2 ①物化+⑦代际：loadDocument 播种/门族/connected 真�
     expect((err as any).getResponse()).toEqual({ code: 'COLLAB_NOT_SERVING', message: 'doc-unloading' });   // REST 面 503 语义化（CollabNotServingFilter 附 Retry-After）
   });
 
-  it('门族②（T9a serving 门装载面）：真空窗口拒装载——SUE doc-vacuuming（connected close 4410 的结构补位）', async () => {
-    const { gateway } = buildGateway();
-    gateway.setVacuuming('p-vac', true);
-    const err = await gateway.hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:p-vac', socketId: 's' } as any).then(() => null, (e: unknown) => e);
-    expect((err as any).reason).toBe(CollabAuthReason.LEASE_NOT_READY);
-    expect((err as any).getResponse()).toEqual({ code: 'COLLAB_NOT_SERVING', message: 'doc-vacuuming' });
-  });
-
-  it('门族③（P0-1 三入口②/V12）：非 serving 态拒装载——lease not held（collabState 派生单源）', async () => {
-    const { gateway, gf } = buildGateway();
-    gf.forceCollabState('isolated');
-    const err = await gateway.hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:p-lease', socketId: 's' } as any).then(() => null, (e: unknown) => e);
-    expect((err as any).reason).toBe(CollabAuthReason.LEASE_NOT_READY);
-    expect((err as any).message).toBe('collab lease not held');
-  });
-
-  it('门族④（T9a serving 门 WS 面）：connected 真空窗口 terminal close 4410 doc-vacuuming+早退（doc-status 补推不发生；寿命台账播种先于门）', async () => {
-    const { gateway, gf } = buildGateway();
-    gateway.setVacuuming('p-c', true);
-    const conn = makeConn('s-c', 'project:p-c');
-    await gateway.hooks.connected({ socketId: 's-c', connection: conn, documentName: 'project:p-c' } as any);
-    expect(conn.webSocket.close).toHaveBeenCalledWith(CollabCloseCode.GENERATION_SUPERSEDED, DOC_VACUUMING_TERMINAL_REASON);   // 4410 terminal（T11 reload 通道）
-    // Y1c T12：4410 close 载荷先行（stateless {code,reason,generation,discardLocalCache:true}——契约
-    // CollabY1cClosePayload 4410 档）；doc-status 补推仍不达（载荷≠doc-status——唯一 stateless 调用）
-    const payloadCalls = conn.sendStateless.mock.calls.map((c: unknown[]) => String(c[0])).filter((x: string) => x.includes('doc-vacuuming'));
-    expect(payloadCalls).toHaveLength(1);
-    expect(JSON.parse(payloadCalls[0])).toEqual({ code: CollabCloseCode.GENERATION_SUPERSEDED, reason: DOC_VACUUMING_TERMINAL_REASON, generation: 1, discardLocalCache: true });
-    expect(gf.connEstablishedAtHas('s-c')).toBe(true);   // 寿命台账播种=钩子首行（门检查之前 :467）
-  });
-
-  it('门族④′（T12 收口 I1）：4410 载荷目标代真空后半窗——purgeDocState 删 docGeneration 后 onConnected 投影=纪元开启定格值（红=投影折 0+1 恒 1）', async () => {
-    const { gateway, repo } = buildGateway();
-    // 装载 #g2 播种 gen=2（真值链——评审探针 2 形态布景）
-    repo.hydrateWithRecovery.mockResolvedValue({ state: null, updates: [], stateSeq: 0n, generation: 2, schemaVersion: 3, pgSeq: 0n });
-    // 复核残留 I1.2 修适配：era 定格源=DB 真值（readGeneration——装载形态与 docGeneration 等值，
-    // 装载播种自 DB）——布景 DB 行 gen=2 同值（缺此布景 mock 缺省 null=未建档，era 折 0）
-    repo.readGeneration.mockResolvedValue(2);
-    const loaded = new Y.Doc();
-    await gateway.hooks.onLoadDocument({ document: loaded, documentName: 'project:p-i1#g2', socketId: 's0' } as any);
-    loaded.destroy();
-    expect(gateway.docRegistry.generationOf('p-i1')).toBe(2);
-    // 真空时序中段复刻：beginVacuumEra（目标代投影 3=2+1）→ quiesce → purgeDocState（docGeneration 删——后半窗）
-    await gateway.beginVacuumEra('p-i1');
-    expect(gateway.docRegistry.vacuumTargetGeneration('p-i1')).toBe(3);   // 纪元开启即定格（读点①）
-    gateway.purgeDocState('p-i1');
-    expect(gateway.docRegistry.generationOf('p-i1')).toBeUndefined();    // 后半窗前提锚：docGeneration 已无键
-    // purge 后 finally setVacuuming(false) 前的真空窗 onConnected close 4410（读点②）——目标代投影不随 docGeneration 消亡
-    const conn = makeConn('s-i1', 'project:p-i1#g2');
-    await gateway.hooks.connected({ socketId: 's-i1', connection: conn, documentName: 'project:p-i1#g2' } as any);
-    const payload = conn.sendStateless.mock.calls.map((c: unknown[]) => String(c[0])).filter((x: string) => x.includes('doc-vacuuming'));
-    expect(payload).toHaveLength(1);
-    expect(JSON.parse(payload[0])).toEqual({ code: CollabCloseCode.GENERATION_SUPERSEDED, reason: DOC_VACUUMING_TERMINAL_REASON, generation: 3, discardLocalCache: true });   // 红：旧=generation 1（docGeneration 无键折 0+1）
-    // 真空完成（成功/失败/中止任一）清纪元态——投影回落装载真值链
-    gateway.setVacuuming('p-i1', false);
-    expect(gateway.docRegistry.vacuumTargetGeneration('p-i1')).toBe(1);   // 纪元外=非真空投影（docGeneration 无键折 0+1）
-  });
+  // Y1c T32：门族②/④/④′（真空窗口 serving 门三面）随 vacuum era 死码删除——装载门/WS
+  // connected 4410 close/载荷目标代投影均=T27 维护状态机承载（t27.int :282 事务后 4410 完整投递）。
 });
 
 // ═══ ②真空维：状态跃迁+纪元开启序（§6.1 表②行） ═══
-describe('T41 W2 ②真空维：setVacuuming 幂等+beginVacuumEra 纪元序（门先开→thaw 回灌→freeze+terminal close）', () => {
-  it('¬vacuuming→vacuuming→¬vacuuming：双 add/双 delete 幂等（Set 语义——重复置位不漂移）', () => {
-    const { gateway } = buildGateway();
-    expect(gateway.isVacuuming('p-v')).toBe(false);
-    gateway.setVacuuming('p-v', true);
-    gateway.setVacuuming('p-v', true);   // 幂等重入
-    expect(gateway.isVacuuming('p-v')).toBe(true);
-    gateway.setVacuuming('p-v', false);
-    gateway.setVacuuming('p-v', false);   // 重复 delete 幂等
-    expect(gateway.isVacuuming('p-v')).toBe(false);
-  });
-
-  it('beginVacuumEra：冻结 doc 先 thaw（U-5 回灌保命）+thawCooldown 播种→serving 门开→全连接 freeze+terminal close 4410', async () => {
-    const { gateway, gf } = buildGateway();
-    gf.addQuotaFrozen('p-ve');
-    const conn = makeConn('s-ve', 'project:p-ve');
-    seedRealDoc(gateway, 'p-ve', { conns: [conn] });
-    await gateway.beginVacuumEra('p-ve');
-    expect(gateway.isVacuuming('p-ve')).toBe(true);   // ② serving 门先开（竞态窗关闭）
-    expect(gf.quotaFrozenHas('p-ve')).toBe(false);   // ⓪ thaw 回灌先行（冻结期编辑靠 SyncStep1 保命）
-    expect(gf.thawCooldownHas('p-ve')).toBe(true);   // thaw 30s 复冻冷却播种
-    expect(conn.readOnly).toBe(true);   // ① freeze 全连接（applyWriteFreeze 单源——close 前拦在飞写帧）
-    expect(conn.webSocket.close).toHaveBeenCalledWith(CollabCloseCode.GENERATION_SUPERSEDED, DOC_VACUUMING_TERMINAL_REASON);
-  });
-});
+// Y1c T32：②真空维（setVacuuming 幂等+beginVacuumEra 纪元序）随 vacuum era 死码删除——
+// 4410 换代 close/thaw/freeze 序=T27 维护状态机承载（collab-maintenance.t27.int.spec :282 事务后
+// close 4410 完整投递+FREEZING 段语义）。
 
 // ═══ ③配额维：冻结状态机全跃迁+两幂等（§6.1 表③行——guardSyncFrame 唯一落点公有钩子驱动） ═══
 describe('T41 W2 ③配额维：ok→pending→frozen→ok 全跃迁+freezeQuota 双调/scheduleFreezePending 去重', () => {
@@ -388,7 +311,6 @@ describe('T41 W2 ③配额维：ok→pending→frozen→ok 全跃迁+freezeQuota
 
 // ═══ 清理点普查表（§6.2——三入口逐键全断言+键集差异逐键钉死） ═══
 // 差异矩阵（源码实测——「补齐清理」式行为漂移即红）：
-//   vacuumingDocs：afterUnload ✗ / purge ✗ / projectsGone ✓（:1157 兜底——service finally 双保险）
 //   autoVacuumLastAt：afterUnload ✗ / purge ✓（:1436 Z66）/ projectsGone ✗
 //   storeFailedDocs：afterUnload ✓（:2043 Z110 真卸载终态）/ purge ✗ / projectsGone ✗
 //   writeFreeze/overPush：afterUnload ✗ / purge ✓（:1438-1442 经 applyWriteFreeze 单源解除）/ projectsGone ✗
@@ -396,7 +318,7 @@ describe('T41 W2 ③配额维：ok→pending→frozen→ok 全跃迁+freezeQuota
 //     onDocumentUnload/recycleEmptyQueue 职责）/ purge ✓（purgePersistenceState+recycleEmptyQueue）/
 //     projectsGone ✓（onProjectGone X1 discard+M6 回收）
 describe('T41 W2 清理点普查表：三入口逐键全断言+键集差异逐键钉死（防「补齐清理」漂移）', () => {
-  it('入口① afterUnloadDocument（真卸载终态）：15 键+锚结算全清；差异键 vacuuming/autoVacuumLastAt/writeFreeze/overPush/persistence 三键**保留**', async () => {
+  it('入口① afterUnloadDocument（真卸载终态）：14 键+锚结算全清（T32：vacuuming 容器已删）；差异键 autoVacuumLastAt/writeFreeze/overPush/persistence 三键**保留**', async () => {
     const { gateway, gf } = buildGateway();
     const conn = makeConn('s-au', 'project:p-au');
     seedAllPidState(gateway, gf, 'p-au', conn);
@@ -410,7 +332,7 @@ describe('T41 W2 清理点普查表：三入口逐键全断言+键集差异逐�
     gf.addPersistUnhealthy('project:p-au');
     gf.seedPendingQueue('p-au', []);
     await gateway.hooks.afterUnloadDocument({ documentName: 'project:p-au' } as any);
-    // ── 15 键全清（14 DR 键+storeFailedDocs persistence 台账）+锚结算消耗 ──
+    // ── 14 键全清（DR 键+storeFailedDocs persistence 台账——T32 收窄）+锚结算消耗 ──
     expect(gf.docTruthHas('p-au')).toBe(false);
     expect(gf.docDeltaHas('p-au')).toBe(false);
     expect(gf.truthMeasuredAtHas('p-au')).toBe(false);
@@ -427,7 +349,6 @@ describe('T41 W2 清理点普查表：三入口逐键全断言+键集差异逐�
     expect(gateway.docResidueOf('p-au')).toBe(0);
     expect(gf.unloadHeapAnchorOf('p-au')).toBeUndefined();     // 锚结算消耗（:2033-2034）
     // ── 差异键保留（afterUnload 不清——逐键钉死） ──
-    expect(gateway.isVacuuming('p-au')).toBe(true);
     expect(gf.autoVacuumLastAtHas('p-au')).toBe(true);
     expect(gf.writeFreezeHas(conn)).toBe(true);
     expect(gf.overPushHas('s-au')).toBe(true);
@@ -436,12 +357,12 @@ describe('T41 W2 清理点普查表：三入口逐键全断言+键集差异逐�
     expect(gf.pendingQueueHas('p-au')).toBe(true);   // afterUnload 不回收队列条目
   });
 
-  it('入口② purgeDocState（vacuum ③ 清进程态）：15 键（含 autoVacuumLastAt 专属）+writeFreeze/overPush 经单源解除+persistence 两步+空队列回收；storeFailedDocs/vacuuming **保留**', () => {
+  it('入口② purgeDocState（vacuum ③ 清进程态）：14 键（含 autoVacuumLastAt 专属——T32 收窄）+writeFreeze/overPush 经单源解除+persistence 两步+空队列回收；storeFailedDocs **保留**', () => {
     const { gateway, gf } = buildGateway();
     const conn = makeConn('s-pg', 'project:p-pg');
     seedAllPidState(gateway, gf, 'p-pg', conn);
     gateway.purgeDocState('p-pg');
-    // ── 15 键全清（14 DR+autoVacuumLastAt 专属清理键 Z66） ──
+    // ── 14 键全清（DR+autoVacuumLastAt 专属清理键 Z66——T32 收窄） ──
     expect(gf.docTruthHas('p-pg')).toBe(false);
     expect(gf.docDeltaHas('p-pg')).toBe(false);
     expect(gf.truthMeasuredAtHas('p-pg')).toBe(false);
@@ -465,16 +386,15 @@ describe('T41 W2 清理点普查表：三入口逐键全断言+键集差异逐�
     expect(gf.pendingQueueHas('p-pg')).toBe(false);       // recycleEmptyQueue（quiesce 已保证空）
     // ── 差异键保留 ──
     expect(gateway.storeFailedDocs.has('p-pg')).toBe(true);   // Z110 清点=真卸载专属
-    expect(gateway.isVacuuming('p-pg')).toBe(true);           // purge 不含 vacuumingDocs（service finally+projectsGone 双保险）
   });
 
-  it('入口③ handleProjectsGone（project.gone 事件终态）：DR 15 键（含 vacuumingDocs 专属兜底）+persistence 侧清账+终态集登记；storeFailedDocs/autoVacuumLastAt/writeFreeze/overPush **保留**', async () => {
+  it('入口③ handleProjectsGone（project.gone 事件终态）：DR 14 键（Y1c T32：vacuuming 族两容器随死码删除）+persistence 侧清账+终态集登记；storeFailedDocs/autoVacuumLastAt/writeFreeze/overPush **保留**', async () => {
     const { gateway, gf, emitter } = buildGateway();
     await gateway.onModuleInit();   // project.gone 订阅注册（lease stub fast=false——不 listen 不起 collab 面）
     const conn = makeConn('s-gone', 'project:p-gone');
     seedAllPidState(gateway, gf, 'p-gone', conn);
     emitter.emit('project.gone', { projectIds: ['p-gone'] });   // 同步派发（project-gone spec 同款——V11 禁慢操作）
-    // ── DR 15 键全清（14+vacuumingDocs 专属兜底 :1157） ──
+    // ── DR 14 键全清（T32：vacuumingDocs/vacuumEraGen 两容器已删） ──
     expect(gf.docTruthHas('p-gone')).toBe(false);
     expect(gf.docDeltaHas('p-gone')).toBe(false);
     expect(gf.truthMeasuredAtHas('p-gone')).toBe(false);
@@ -488,7 +408,6 @@ describe('T41 W2 清理点普查表：三入口逐键全断言+键集差异逐�
     expect(gf.docStatusStateHas('p-gone')).toBe(false);
     expect(gf.docGenerationOf('p-gone')).toBeUndefined();
     expect(gateway.docResidueOf('p-gone')).toBe(0);
-    expect(gateway.isVacuuming('p-gone')).toBe(false);   // **projectsGone 专属**（真空窗口中项目消失的兜底——afterUnload/purge 均不清）
     // ── persistence 侧（onProjectGone 子步）──
     expect(gf.deletedProjectsHas('p-gone')).toBe(true);        // 终态集登记（V10）
     expect(gf.lastCompactAtHas('p-gone')).toBe(false);

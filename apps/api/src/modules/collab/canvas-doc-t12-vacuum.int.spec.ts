@@ -201,15 +201,8 @@ maybe('Y1c T12 复核残留 I1.2：era 定格 DB 真值化+expectedGeneration �
     return { gateway, svc };
   }
 
-  it('era 定格=DB 真值（未装载形态——4410 载荷面）：gen=1 布景 doc 未装载 ⇒ 定格 {current:1,target:2}（红=进程内投影 {current:0,target:1}）', async () => {
-    await seedUnloadedDoc(1);
-    const { gateway } = await buildKit();
-    expect(gateway.docRegistry.generationOf(PID_ERA)).toBeUndefined();   // 未装载前提锚（docGeneration 无键）
-    await gateway.beginVacuumEra(PID_ERA);
-    expect(gateway.docRegistry.vacuumEraGeneration(PID_ERA)).toEqual({ current: 1, target: 2 });   // Part A：红=旧 {current:0,target:1}
-    expect(gateway.docRegistry.vacuumTargetGeneration(PID_ERA)).toBe(2);   // 4410 载荷 target=真代+1（红=旧 1）
-    gateway.setVacuuming(PID_ERA, false);   // 纪元态清理（setVacuuming(false) 统一出口）
-  });
+  // Y1c T32：era 定格用例（beginVacuumEra 驱动）随 vacuum era 死码删除——换代代际真值=T27
+  // 状态机 SWITCHING 事务（vacuumReplace 锁内实读复核）承载，4410 载荷=t27.int :282 断言。
 
   it('未装载 doc 连续二次 REST vacuum：gen=1 布景 ⇒ 两次均成功换代 1→2→3（红=era 投影恒 0 ⇒ expectedGeneration=0≠DB ⇒ 永久 generation-drift 中止）', async () => {
     await seedUnloadedDoc(1);

@@ -1016,7 +1016,7 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     }
   });
 
-  it('中止恢复：equivalence-failed/unsupported-root/quiesce-timeout 三路中止 ⇒ vacuuming 门解除（isVacuuming false）+freeze 已恢复可写——比不 vacuum 更糟的状态不允许存在', async () => {
+  it('中止恢复：equivalence-failed/unsupported-root/quiesce-timeout 三路中止 ⇒ freeze 已恢复可写（Y1c T32：vacuuming 门随 era 族死码删除——中止恢复=T27 状态机 ABORTED 承载）', async () => {
     // 臂一：equivalence-failed（① freeze+close 连接）。Y0c T17 Z104 后 quiesce 首轮即过（doc 挂载
     // 不再是等待动因）⇒全程快进——freeze 中间态断言结构性不可达（原 nextTick+readOnly=true 时点
     // 在改造前=quiesce 等待窗内），freeze 生效由「close 后 writeFreeze 清理+readOnly 恢复」终态承载。
@@ -1038,7 +1038,6 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       await nextTick();                                               // ⓪①② 同步段完成（未冻结——无 thaw 等待）
       const r = await vac;
       expect(r.result).toBe('equivalence-failed');
-      expect(gateway.isVacuuming('p1')).toBe(false);                   // 门解除（否则 503 永久）
       expect(conn.readOnly).toBe(false);                               // freeze 恢复可写（中止恢复终态）
       expect(gatewayFacade(gateway).writeFreezeHas(conn)).toBe(false);
     }
@@ -1057,7 +1056,6 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       gateway.server.hocuspocus.documents.delete('project:p1');
       const r = await vac;
       expect(r.result).toBe('unsupported-root');
-      expect(gateway.isVacuuming('p1')).toBe(false);
       expect(conn.readOnly).toBe(false);
     }
     // 臂三：quiesce-timeout（Y0c T17 Z104 后超时动因=三态滞后度——批恒在（去抖窗永不排空形态）；
@@ -1076,7 +1074,6 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
       await vi.advanceTimersByTimeAsync(31_000);         // request 过后在飞恒在（drain 耗尽面）
       const r = await vac;
       expect(r.result).toBe('quiesce-timeout');
-      expect(gateway.isVacuuming('p1')).toBe(false);
       expect(conn.readOnly).toBe(false);
     } finally {
       vi.useRealTimers();
@@ -1212,9 +1209,8 @@ describe('POST /api/collab/doc/:projectId/vacuum（Q-U v6——七步协议 try/
     for (const must of ['docTruth', 'docDelta', 'truthMeasuredAt', 'degradedDocs', 'quotaFrozenDocs', 'freezePending',
       'freezePendingTimers',
       'recheckRounds', 'thawCooldown', 'docStatusRev', 'docStatusState', 'docGeneration', 'docResidue',
-      'lastCompactAt', 'vacuumingDocs', 'pendingQueues', 'inFlightProjects', 'flushScheduled',
-      'deletedProjects', 'persistUnhealthy', 'persistRetry', 'retryingPersistDocs',
-      'vacuumEraGen']) {   // T12 收口 I1：真空纪元代投影（vacuum 完成 setVacuuming(false) 清——防旧代投影污染下纪元）
+      'lastCompactAt', 'pendingQueues', 'inFlightProjects', 'flushScheduled',
+      'deletedProjects', 'persistUnhealthy', 'persistRetry', 'retryingPersistDocs']) {   // Y1c T32：vacuumingDocs/vacuumEraGen 两容器随 era 族死码删除（反射普查表同步收窄）
       expect(checked, `反射枚举应覆盖 ${must}（改名或误入豁免表=红）`).toContain(must);
     }
     expect(g.overPushHas(conn.socketId)).toBe(false);   // writeFreeze 条目 pid 过滤连带清

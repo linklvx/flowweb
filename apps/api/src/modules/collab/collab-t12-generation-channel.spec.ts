@@ -74,26 +74,8 @@ describe('Y1c T12 红组①：v1.3 同 name 语义反例——换代后 generati
       .not.toBe(formatLocalCacheKey({ ...base, generation: 2 }));
   });
 
-  it('vacuum 换代 close 载荷：4410 doc-vacuuming 携 {generation, discardLocalCache:true}（stateless 先行+close 权威投递）', async () => {
-    const { gateway } = buildGateway();
-    const doc = new Y.Doc();
-    attachDoc(gateway, doc, 'p1', [makeConn('c1')]);
-    // 装载播种 gen=0（真值链——红组② 同缝）；vacuum 目标代=1
-    (gatewayFacade(gateway).repoRef() as unknown as MockRepo).hydrateWithRecovery.mockResolvedValueOnce({
-      state: null, updates: [] as Buffer[], stateSeq: 0n, generation: 0, schemaVersion: 3, pgSeq: 0n,
-    });
-    const boot = new Y.Doc();
-    await gateway.docRegistry.loadDocument({ document: boot, documentName: 'project:p1', socketId: 's0' } as any);
-    boot.destroy();
-    await gateway.docRegistry.beginVacuumEra('p1');
-    const conn = firstConn(gateway, 'p1');
-    const sent = (conn.sendStateless as ReturnType<typeof vi.fn>).mock.calls
-      .map((c) => JSON.parse(String(c[0])))
-      .find((p) => p.code === 4410);
-    expect(sent).toBeDefined();
-    expect(sent).toEqual({ code: 4410, reason: 'doc-vacuuming', generation: 1, discardLocalCache: true });
-    expect(conn.webSocket.close).toHaveBeenCalledWith(4410, 'doc-vacuuming');
-  });
+  // Y1c T32：beginVacuumEra 驱动的 4410 载荷用例随 vacuum era 死码删除——换代 close 4410
+  // doc-vacuuming 载荷契约=T27 维护状态机承载（collab-maintenance.t27.int.spec :282 事务后完整投递断言）。
 });
 
 describe('Y1c T12 红组②+S2 目标链：装载面世代执法（auth 同谓词——双校验）', () => {

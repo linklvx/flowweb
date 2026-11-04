@@ -224,10 +224,7 @@ export class CollabResidencyService implements OnModuleInit, OnApplicationShutdo
     if (!isValidDocName(`project:${projectId}`)) {
       throw Object.assign(new Error(`invalid doc name: project:${projectId}`), { reason: CollabAuthReason.INVALID_DOC_NAME });
     }
-    if (!this.gateway.isLeaseServing()) throw new ServiceUnavailableException('collab not serving (lease not held)');   // P0-1 三入口③对齐
-    if (this.gateway.isVacuuming(projectId)) {
-      throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'doc-vacuuming' });   // Y0b-4 T9a 真空窗口 ≤30s——Retry-After 由 filter 附
-    }
+    if (!this.gateway.isLeaseServing()) throw new ServiceUnavailableException('collab not serving (lease not held)');   // P0-1 三入口③对齐（Y1c T32：vacuum era 真空门随死码删除）
     if (opts.mode === 'write') this.assertWriteAdmitted();
 
     const acquired = await this.acquireSerialized(projectId, opts.ephemeral === true);
