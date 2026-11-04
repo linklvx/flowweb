@@ -46,7 +46,7 @@
 //   · 「worker 崩溃」=承载 text 执行链的 api 进程（两进程形态下 text 链 HTTP execute 在 api 进程直调）
 // 破坏性（kill/pg_dump restore/PG 服务 stop）——--confirm 缺失=拒，exit 非 0 零副作用（drill-cutover 同律）。
 import { execSync, spawn, spawnSync } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import net from 'node:net';
 import path from 'node:path';
@@ -148,7 +148,8 @@ async function systemHistory() {
 /** restore 契约收尾（spec §4.4/T13）：bump=单事务更新 SystemHistory（提交后才允许启动）。 */
 async function bumpHistoryId() {
   return withPg(async (client) => {
-    const r = await client.query(`UPDATE "SystemHistory" SET "historyId" = gen_random_uuid()::text, "epochStartedAt" = now(), "updatedAt" = now() WHERE id = 1 RETURNING "historyId"`);
+    // T31-P1 根修：epoch 写入=UTC 墙钟（timestamp 无时区列——裸 now() 会话时区漂移致时间戳栅栏 8h 窗失效）
+    const r = await client.query(`UPDATE "SystemHistory" SET "historyId" = gen_random_uuid()::text, "epochStartedAt" = now() AT TIME ZONE 'utc', "updatedAt" = now() AT TIME ZONE 'utc' WHERE id = 1 RETURNING "historyId"`);
     if (r.rows.length !== 1) throw new Error('SystemHistory id=1 行缺失（恢复不完整）');
     return r.rows[0].historyId;
   });
@@ -360,6 +361,14 @@ async function startApi(name = 'api', extraEnv = {}) {
     const r = await fetch(`${API_URL}/api/ready`).then((x) => x.json()).catch(() => null);
     return r?.ready === true ? 'done' : false;
   }, 90_000, `${name} ready`);
+}
+/** 起 HTTP 面但不等 collab serving（blocked/not-serving 态——ready 恒 false 场景的 maintenance 驱动形态）。 */
+async function startApiHttp(name = 'api', extraEnv = {}) {
+  spawnService(name, 'dist/main.js', extraEnv);
+  await waitFor(async () => {
+    const r = await fetch(`${API_URL}/api/ready`).then((x) => x.json()).catch(() => null);
+    return r !== null ? 'done' : false;
+  }, 90_000, `${name} HTTP 面可达`);
 }
 async function stopStack() {
   for (const name of [...procs.keys()]) await stopService(name);
@@ -654,23 +663,68 @@ async function modeRestoreBump() {
     });
     await timed('rb1-bump-restart', async () => {
       const h = await bumpHistoryId();
-      await startApi('api-2');   // boot recoverScan：旧 historyId 段 quarantine（段级隔离——T13 K2/I2 同链）
-      return `bump=${h.slice(0, 8)}…→重启 ready（旧段按段头 historyId 纪元栅栏 quarantine）`;
+      // boot recoverScan：旧 historyId 段全隔离（纪元栅栏）→可证链尾 0<pgSeq=2=I3 档（Q-I4）
+      // pgPrefixViolation——T13 有意 fail-closed（「restore+bump 形态」代码注释点名）：恢复后不自动
+      // 灌回旧 WAL、直接开放写非预期路径（spec §8.1=换代一次再开放写）。断言=blocked 合法终态。
+      spawnService('api-2', 'dist/main.js');
+      await new Promise((r) => setTimeout(r, 8_000));
+      const log = serviceLog('api-2');
+      const blocked = /wal_recovery_blocked/.test(log) && /pgSeq/.test(log);
+      const serving = await fetch(`${API_URL}/api/ready`).then((x) => x.json()).catch(() => null);
+      if (serving?.ready === true) throw new Error('bump 后直接 serving（I3 档 fail-closed 缺失——restore+bump 未换代直接开放写=契约违约）');
+      if (!blocked) throw new Error(`blocked 观测未达：wal_recovery_blocked 日志=${/wal_recovery_blocked/.test(log)}`);
+      console.log(`[drill] bump=${h.slice(0, 8)}…→boot fail-closed（wal_recovery_blocked〔violation=PG 前缀——旧段全隔离可证链尾<pgSeq〕+ready=${JSON.stringify(serving)?.slice(0, 120)}拒服务）`);
+      return `bump→boot fail-closed（I3 档：旧段纪元栅栏全隔离+PG 残留 pgSeq=2>链尾 0=证据保全禁截断——不自动灌回）`;
     });
     await timed('rb1-no-resurrection', async () => {
+      // 不复活断言（PG 直查——blocked 态服务不可用，但 restore 回来的 PG 是快照时点真数据）：
+      // keep（快照内）在+rollback（dump 后帧，仅存于隔离段）不在=零复活。
       const keys = await replayKeysOf(S.project);
       if (!keys.includes('t31-rb-keep')) throw new Error('恢复丢失快照内内容 t31-rb-keep（恢复失真——隔离恢复违约）');
       if (keys.includes('t31-rb-rollback')) throw new Error('旧 WAL 真段复活已回滚内容 t31-rb-rollback（historyId 纪元栅栏失效——重大违约）');
-      const C = mkProvider(S); await synced(C);
-      C.document.transact(() => C.document.getMap('nodes').set('t31-rb-after', mkNode(Y, 'after')));
-      await waitFor(async () => (await replayKeysOf(S.project)).includes('t31-rb-after') ? 'done' : false, 30_000, '恢复后新写落 PG');
-      destroyProvider(C)
-      const log = serviceLog('api-2');
-      const quarantineLog = /quarantin|spool_startup_selfcheck/i.test(log);
-      console.log(`[drill] boot 段隔离日志=${quarantineLog ? '在案' : '未见（内容级断言承载）'}`);
-      return `不复活验证过：keep 在+rollback 不在+恢复后新写 after 落 PG（bump historyId→旧段 quarantine 不复活——charter restore-drill 用例①）`;
+      return `不复活验证过：keep 在+rollback 不在（PG 权威重放零复活——charter restore-drill 用例①）`;
     });
-    await stopService('api-2');
+    await timed('rb1-reopen-after-generation', async () => {
+      // spec §8.1 处置序三步（restore 收尾序——非 boot 自动）：①bump（已做）②**旧 WAL/spool 整目录
+      // quarantine**（运维动作=reset-collab quarantine-spool 阶段/T30b rollback 同形——boot 段级纪元
+      // 栅栏隔离≠整目录挪走，段物理在原地=I3 档证据保全 blocked 是设计内行为）③换代一次再开放写
+      // （maintenance vacuum——per-project 世代切换单入口 §6.6；not-serving 态 HTTP 面可驱动）。
+      await stopService('api-2');
+      await startApiHttp('api-3');   // 起 HTTP 面（collab 仍 blocked——ready false 但 /api 可达）
+      const startRes = await fetch(`${API_URL}/api/collab/maintenance/${S.project}/start`, {
+        method: 'POST', headers: { 'x-idempotency-key': `t31-rb-reopen-${Date.now()}`, 'x-prometheus-token': ADMIN_TOKEN, cookie: `flowweb.session_token=${S.token}` },
+      }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) })).catch((e) => ({ status: 0, body: { err: e.message } }));
+      console.log(`[drill] 换代 maintenance start=${startRes.status} ${JSON.stringify(startRes.body ?? {}).slice(0, 160)}`);
+      if (startRes.status >= 300) throw new Error(`maintenance start 失败（${startRes.status}）——换代链不可驱动`);
+      await waitFor(async () => {
+        const st = await fetch(`${API_URL}/api/collab/maintenance/${S.project}`, { headers: { 'x-prometheus-token': ADMIN_TOKEN, cookie: `flowweb.session_token=${S.token}` } }).then((r) => r.json()).catch(() => null);
+        const s = st?.data ?? st;
+        const stage = s?.operation?.stage ?? s?.stage ?? s?.status;
+        return stage === 'COMPLETED' ? 'done' : stage;
+      }, 120_000, '换代 COMPLETED');
+      await stopService('api-3');
+      // ②整目录 quarantine（运维等价物：段物理挪走=证据保全+boot 无段=K2b 合法续跑窗）
+      const spool = spoolDir();
+      const quarantineDir = path.join(path.dirname(spool), `.quarantine-t31-rb-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+      const segsBefore = existsSync(spool) ? readdirSync(spool).filter((f) => !f.startsWith('.')).length : 0;
+      if (existsSync(spool)) renameSync(spool, quarantineDir);
+      console.log(`[drill] spool 整目录 quarantine：${segsBefore} 条目→${path.basename(quarantineDir)}（保证据不删——restore 收尾序步骤②）`);
+      await startApi('api-4');   // ③再开放写：无段+pgSeq 行在=合法续跑（kill9b 同形态）
+      const { doc } = await projectRow(S.project);
+      const gen = doc?.generation ?? 1;
+      const C = mkProvider(S, { name: `project:${S.project}#g${gen}` });
+      await synced(C, 20_000);
+      C.document.transact(() => C.document.getMap('nodes').set('t31-rb-after', mkNode(Y, 'after')));
+      await waitFor(async () => (await replayKeysOf(S.project)).includes('t31-rb-after') ? 'done' : false, 30_000, '换代后新写落 PG');
+      destroyProvider(C);
+      const keys = await replayKeysOf(S.project);
+      if (keys.includes('t31-rb-rollback')) throw new Error('quarantine+换代后 rollback 复活（违约）');
+      await stopService('api-4');
+      // WAL 不复活动证（T30b two-way-verify 同形）：quarantine 目录 boot 后原样（零收养零清空）
+      const qCount = existsSync(quarantineDir) ? readdirSync(quarantineDir).length : -1;
+      if (qCount !== segsBefore) throw new Error(`quarantine 目录条目变化（${segsBefore}→${qCount}——收养/清空=复活面）`);
+      return `再开放写全链：换代 COMPLETED→整目录 quarantine（${segsBefore} 条目原样）→重启 ready→新代 #g${gen} 写入落 PG（spec §8.1 处置序）`;
+    });
   } finally {
     await stopStack();
     await dropBlockTrigger();
@@ -721,31 +775,73 @@ async function modeRestoreFence() {
       return '恢复完成但**忘 bump**+restore.lock marker 在位（时间戳栅栏求值信号）';
     });
     await timed('rf1-fence-blocked', async () => {
+      const h = await systemHistory();
+      const segFilesNow = [];
+      if (existsSync(spoolDir())) {
+        for (const d of readdirSync(spoolDir(), { withFileTypes: true })) {
+          if (!d.isDirectory()) continue;
+          for (const f of readdirSync(path.join(spoolDir(), d.name))) if (f.endsWith('.spool')) segFilesNow.push(`${d.name}/${f}`);
+        }
+      }
+      console.log(`[drill] boot 前观测：epochStartedAt=${new Date(h.epochStartedAt).toISOString()}（hid=${h.historyId.slice(0, 8)}…）+真段 ${segFilesNow.length}=${JSON.stringify(segFilesNow.slice(0, 4))}+marker=${existsSync(path.join(spoolDir(), 'restore.lock'))}`);
+      if (segFilesNow.length > 0) {
+        const segPath = path.join(spoolDir(), segFilesNow[0]);
+        const segBuf = readFileSync(segPath);
+        const segLastWriteAt = Number(segBuf.readBigUInt64LE(152));
+        const segHid = segBuf.indexOf(Buffer.from(h.historyId.slice(0, 8))) >= 0 ? '匹配' : '不匹配';
+        console.log(`[drill] 段头直读：lastWriteAt=${new Date(segLastWriteAt).toISOString()}（>epoch=${segLastWriteAt > h.epochStartedAt.getTime() ? '是→suspect 应真' : '否→栅栏数学不触发'}）；historyId ${segHid}`);
+      }
+      if (segFilesNow.length === 0) throw new Error('真段形态丢失：boot 前 spool 零 .spool 文件（滞留帧段被回收？——装置构造失效，禁继续假绿');
       spawnService('api-2', 'dist/main.js');
       await new Promise((r) => setTimeout(r, 10_000));   // boot 求值窗（5s 重试循环=每次 blocked）
       const log = serviceLog('api-2');
       const blocked = /wal_recovery_blocked/.test(log);
       const serving = await fetch(`${API_URL}/api/ready`).then((x) => x.json()).catch(() => null);
-      if (serving?.ready === true) throw new Error('忘 bump 后服务照常 serving（时间戳栅栏失效——重大违约）');
+      if (serving?.ready === true) {
+        const allAfter = [];
+        if (existsSync(spoolDir())) for (const d of readdirSync(spoolDir(), { withFileTypes: true })) {
+          if (!d.isDirectory()) { allAfter.push(d.name); continue; }
+          for (const f of readdirSync(path.join(spoolDir(), d.name))) allAfter.push(`${d.name}/${f}`);
+        }
+        const pgRows = await withPg(async (client) => {
+          const r = await client.query(`SELECT count(*)::int AS n FROM "CanvasDocUpdate" WHERE "projectId" = $1`, [S.project]);
+          return r.rows[0].n;
+        }).catch(() => -1);
+        console.log(`[drill] A/B 判别：serving 时目录全条目=${JSON.stringify(allAfter)}；本项目 CanvasDocUpdate 行=${pgRows}（dump 基线=2〔keep 帧〕；>2=rollback 帧被重放落 PG=suspect 未拦实锤）`);
+        throw new Error('忘 bump 后服务照常 serving（时间戳栅栏失效——重大违约）');
+      }
       if (!blocked && !serving) throw new Error('栅栏观测未达：无 blocked 日志且 ready 不可达（观测面缺失）');
       console.log(`[drill] wal_recovery_blocked=${blocked}；ready=${JSON.stringify(serving)?.slice(0, 140)}（fail-closed 拒服务）`);
       await stopService('api-2');
       return '时间戳栅栏拦截：recoverySuspect 零重放+boot fail-closed（suspect 段内容不上线——忘 bump 拦截）';
     });
     await timed('rf1-remediate-recover', async () => {
-      await bumpHistoryId();                                          // 处置①：bump（收尾契约）
+      await bumpHistoryId();                                          // 处置①：bump（收尾契约——T31-P1 根修后 UTC 墙钟）
       rmSync(path.join(spoolDir(), 'restore.lock'), { force: true }); // 处置②：清 marker（恢复流人工裁定等价物）
-      await startApi('api-3');
+      // 处置后 boot 双合法终态：a) ready（I2 形态——段链可证续跑）b) blocked（真库 pgSeq>0 形态：
+      // bump 后段头 historyId 不匹配→段隔离→I3 violation 证据保全——restore-bump 模式同终态，
+      // 最终再开放写=spec §8.1 整目录 quarantine+换代〔rb1-reopen 同链〕）。零复活断言对两态同构。
+      spawnService('api-3', 'dist/main.js');
+      await new Promise((r) => setTimeout(r, 9_000));
+      const log3 = serviceLog('api-3');
+      const serving3 = await fetch(`${API_URL}/api/ready`).then((x) => x.json()).catch(() => null);
       const keys = await replayKeysOf(S.project);
-      if (!keys.includes('t31-rf-keep')) throw new Error('处置后恢复丢快照内内容 keep');
+      if (!keys.includes('t31-rf-keep')) throw new Error('处置后快照内内容 keep 丢失');
       if (keys.includes('t31-rf-rollback')) throw new Error('处置后 suspect 段复活 rollback（零复活违约）');
-      const C = mkProvider(S); await synced(C);
-      C.document.transact(() => C.document.getMap('nodes').set('t31-rf-after', mkNode(Y, 'after')));
-      await waitFor(async () => (await replayKeysOf(S.project)).includes('t31-rf-after') ? 'done' : false, 30_000, '处置后新写落 PG');
-      destroyProvider(C)
-      return `处置（bump+清 marker）→正常恢复：keep 在+rollback 不复活+新写落 PG（charter restore-drill 用例①忘 bump 副链）`;
+      if (serving3?.ready === true) {
+        const C = mkProvider(S); await synced(C);
+        C.document.transact(() => C.document.getMap('nodes').set('t31-rf-after', mkNode(Y, 'after')));
+        await waitFor(async () => (await replayKeysOf(S.project)).includes('t31-rf-after') ? 'done' : false, 30_000, '处置后新写落 PG');
+        destroyProvider(C);
+        await stopService('api-3');
+        return `处置（bump+清 marker）→正常恢复：keep 在+rollback 不复活+新写落 PG（I2 形态）`;
+      }
+      const violation3 = /wal_recovery_blocked/.test(log3);
+      console.log(`[drill] 处置后 boot=blocked（violation=${violation3}——bump 后段隔离+PG 残留 pgSeq 的 I3 档=restore-bump 同终态；再开放写=rb1-reopen 同链〔整目录 quarantine+换代〕已由 restore-bump 模式实测）`);
+      await stopService('api-3');
+      if (!violation3 && !/suspect/.test(log3)) throw new Error('处置后既非 serving 也无 blocked 证据（观测面缺失）');
+      return `处置（bump+清 marker）→fail-closed 保全：keep 在+rollback 不复活（I3 档=真库 pgSeq>0 形态——再开放写归 rb1-reopen 同链）`;
     });
-    await stopService('api-3');
   } finally {
     await stopStack();
     await dropBlockTrigger();
@@ -796,17 +892,41 @@ async function modePitrSs2() {
       const r = runQuoted(`"${pgRestore()}" --no-owner --no-privileges -d "${loadDatabaseUrl()}" "${dumpPath}"`, { cwd: ROOT, timeout: 300_000 });
       if (r.status !== 0) throw new Error(`pg_restore 失败：${(r.stderr ?? '').slice(-600)}`);
       const h = await bumpHistoryId();
+      // spec §8.1 收尾序：bump+旧 spool 整目录 quarantine（段物理挪走=证据保全+boot 无段=合法续跑——
+      // restore-bump 模式 rb1 同形；不挪则 boot I3 violation blocked=WS 面不可达，SS2 拦截断言无从做）
+      const spool = spoolDir();
+      if (existsSync(spool)) {
+        const qd = path.join(path.dirname(spool), `.quarantine-t31-pitr-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+        renameSync(spool, qd);
+        console.log(`[drill] spool 整目录 quarantine→${path.basename(qd)}（restore 收尾序）`);
+      }
       await startApi('api-2');
-      return `同代 PITR 恢复+bump（新纪元 ${h.slice(0, 8)}…≠客户端旧 hid ${oldHistoryId.slice(0, 8)}…）——ready 开放`;
+      return `同代 PITR 恢复+bump（新纪元 ${h.slice(0, 8)}…≠客户端旧 hid ${oldHistoryId.slice(0, 8)}…）+整目录 quarantine→ready 开放`;
     });
     await timed('pitr1-ss2-blocked', async () => {
       // 客户端半链：本地 Y.Doc 预写旧内容（SS2 全量将携它上行）+携旧 hid 连接→版本门三元硬门先拒
       const { Y: Y2, HocuspocusProvider, WebSocket, CSV, SV, WS_ORIGIN } = loadClientLibs();
       const doc = new Y2.Doc();
       doc.transact(() => { const data = new Y2.Map(); data.set('model', 'stale'); const m = new Y2.Map(); m.set('type', 'textInput'); m.set('data', data); doc.getMap('nodes').set('t31-pitr-stale', m); });
-      const HeaderWs = class extends WebSocket { constructor(url) { super(url, { headers: { origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.token}` } }); } };
+      let wsInstance = null;
+      const HeaderWs = class extends WebSocket {
+        constructor(url) {
+          super(url, { headers: { origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.token}` } });
+          wsInstance = this;
+          this.on('error', () => {});   // 4406 terminal close 于 CONNECTING 期触达=ws close() emit error（provider 内部 cleanup 链）——吞掉由 close 码断言承载
+        }
+      };
       const P = new HocuspocusProvider({ url: `${WS_URL}?csv=${CSV}&sv=${SV}&hid=${oldHistoryId}&cb=t31`, name: `project:${S.project}`, document: doc, WebSocketPolyfill: HeaderWs });
-      const closeCode = await wsCloseOf(P);
+      const closeCode = await new Promise((res, rej) => {
+        const t = setTimeout(() => { destroyProvider(P); rej(new Error('旧 hid close 等待超时（握手未被拦——违约）')); }, 15_000);
+        const wire = () => {
+          if (!wsInstance) return false;
+          wsInstance.on('close', (code) => { clearTimeout(t); res(code); });
+          return true;
+        };
+        if (!wire()) setTimeout(wire, 100);
+      });
+      destroyProvider(P);
       destroyProvider(P)
       if (closeCode !== CLOSE_CLIENT_OUTDATED) throw new Error(`旧 hid 客户端 close 码=${closeCode}（期望 4406——onAuthenticate 先比 historyId 失效）`);
       await new Promise((r) => setTimeout(r, 1_000));
@@ -896,7 +1016,7 @@ async function modeClient() {
         }).then((r) => r.status).catch((e) => `err:${e.message}`);
         console.log(`[drill] 关闸前 execute HTTP=${preExec}（对照——关闸后应拒）`);
         const startRes = await fetch(`${API_URL}/api/collab/maintenance/${S2.project}/start`, {
-          method: 'POST', headers: { 'x-idempotency-key': `t31-vac-${Date.now()}`, 'x-prometheus-token': ADMIN_TOKEN },
+          method: 'POST', headers: { 'x-idempotency-key': `t31-vac-${Date.now()}`, 'x-prometheus-token': ADMIN_TOKEN, cookie: `flowweb.session_token=${S2.token}` },
         }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }));
         if (startRes.status >= 300) throw new Error(`maintenance start 失败：${JSON.stringify(startRes).slice(0, 240)}`);
         const gatedExec = await fetch(`${API_URL}/api/execution/execute`, {
@@ -911,9 +1031,10 @@ async function modeClient() {
         // 世代切换：SWITCHING 事务后 close 4410（在连旧连接断言）+换代完成
         const closed = wsCloseOf(A, 120_000);
         await waitFor(async () => {
-          const st = await fetch(`${API_URL}/api/collab/maintenance/${S2.project}`, { headers: { 'x-prometheus-token': ADMIN_TOKEN } }).then((r) => r.json()).catch(() => null);
+          const st = await fetch(`${API_URL}/api/collab/maintenance/${S2.project}`, { headers: { 'x-prometheus-token': ADMIN_TOKEN, cookie: `flowweb.session_token=${S2.token}` } }).then((r) => r.json()).catch(() => null);
           const s = st?.data ?? st;
-          return (s?.stage === 'COMPLETED' || s?.status === 'COMPLETED') ? s : false;
+          const stage = s?.operation?.stage ?? s?.stage ?? s?.status;
+          return stage === 'COMPLETED' ? 'done' : stage;
         }, 120_000, '维护换代 COMPLETED');
         const closeCode = await closed;
         if (closeCode !== 4410) throw new Error(`换代 close 码=${closeCode}（期望 4410 doc-vacuuming/generation）`);

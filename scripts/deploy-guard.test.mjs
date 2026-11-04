@@ -391,3 +391,22 @@ test('T30b 红⑨：feed 追平断言归 drill 装置（node.deleted〔FEED_TOMB
   const execSrc = SMOKE_SRC_30B.slice(SMOKE_SRC_30B.indexOf('// apps/api/scripts/exec-smoke.mjs'));
   assert.doesNotMatch(execSrc, /events\?after=0/, 'exec-smoke 不承载 feed 枚举断言（两进程形态 worker 终态走 doc.exec 旧通道——run17 实弹裁定）');
 });
+
+// ===== Y1c T31：restore 收尾 bump 的 epoch 写入时区形态锚（T31 演练 P-1 根修——先红后绿） =====
+// 缺陷形态（T31 restore-fence 演练实弹挖出）：SystemHistory.epochStartedAt 列=timestamp without time zone
+// （Prisma DateTime 缺省），SQL `now()` 写入按 DB 会话时区（生产 Asia/Shanghai）转墙钟存储——
+// Prisma 读侧按 UTC 解释墙钟 ⇒ epoch 漂移 +UTC 偏移量（+8h）。后果：忘 bump 场景的时间戳栅栏
+// （段头 lastWriteAt>epochStartedAt 触发 recoverySuspect）对「epoch 后 8h 内写入的段」全部失效——
+// 恢复后立即重启的段恰在此窗 ⇒ suspect 不触发 ⇒ 旧段正常重放=已回滚内容复活面（spec §4.4 忘 bump
+// 拦截双保险失效）。根修=写入侧单源 UTC 墙钟（now() AT TIME ZONE 'utc'）。
+test('T31-P1 红①：reset-collab bump SQL 必须写 UTC 墙钟（now() AT TIME ZONE \'utc\'——timestamp 无时区列的写入单源；裸 now()=会话时区墙钟=读侧 +UTC 偏移漂移）', () => {
+  const src = readFileSync(pathResolve(pathFileURLToPath(import.meta.url), '../reset-collab.mjs'), 'utf8');
+  const bumpFn = src.slice(src.indexOf('async function stageBumpHistory'));
+  const bumpSql = /UPDATE "SystemHistory"[^;]+/.exec(bumpFn)?.[0] ?? '';
+  assert.match(bumpSql, /AT TIME ZONE 'utc'/i, 'bump epochStartedAt 写入=UTC 墙钟（修前红：裸 now() 会话时区漂移）');
+});
+test('T31-P1 红②：T31 演练装置 bumpHistoryId 同律（装置 bump 与产品工具同形——AT TIME ZONE \'utc\'）', () => {
+  const src = readFileSync(pathResolve(pathFileURLToPath(import.meta.url), '../drill-fault.mjs'), 'utf8');
+  const bumpSql = /UPDATE "SystemHistory"[^;]+/.exec(src)?.[0] ?? '';
+  assert.match(bumpSql, /AT TIME ZONE 'utc'/i, 'drill-fault bump 同源形态（演练装置=产品工具语义等价）');
+});

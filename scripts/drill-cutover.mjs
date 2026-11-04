@@ -601,7 +601,8 @@ async function modeRollback() {
   await timed('bump-and-quarantine', async () => {
     // restore 契约收尾（spec §4.4）：bump historyId（单事务）→旧 spool/WAL 整目录 quarantine（T13 栅栏）
     const h = await withPg(async (client) => {
-      const r = await client.query(`UPDATE "SystemHistory" SET "historyId" = gen_random_uuid()::text, "epochStartedAt" = now(), "updatedAt" = now() WHERE id = 1 RETURNING "historyId"`);
+      // T31-P1 根修随批：epoch 写入=UTC 墙钟（reset-collab bump 同源——裸 now() 会话时区漂移缺陷）
+      const r = await client.query(`UPDATE "SystemHistory" SET "historyId" = gen_random_uuid()::text, "epochStartedAt" = now() AT TIME ZONE 'utc', "updatedAt" = now() AT TIME ZONE 'utc' WHERE id = 1 RETURNING "historyId"`);
       if (r.rows.length !== 1) throw new Error('SystemHistory id=1 行缺失（恢复不完整）');
       return r.rows[0].historyId;
     });
