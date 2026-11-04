@@ -64,10 +64,13 @@ Y1c T31 故障演练矩阵记录（本地实弹——P4 重启裁定②「实弹
        行级关闸后新执行被拒 →受理端点拒 HTTP 503 MAINTENANCE_ACTIVE（check-then-act 收口——事务内
                             FOR SHARE 复核）✓+旧连接维护语义 close（4413 FREEZING freeze 闸——
                             t27 红①语义；4410 事务后 close=t27 int 红⑤承载）✓
-   G9 clientID 并发同键     发现②（登记缺口）：t24-clientid-binding spec 单测链（actor 直调——僵尸/
-                            接管/碰撞/SS2 四态）全绿而真 WS 实弹接管 close 未观测（awareness 帧/
-                            帧提交两驱动形态均试，run2-6 五轮）——接线面疑点移交 Controller 核实；
-                            契约承载=既有 spec 四态
+   G9 clientID 并发同键     发现②（终定案＝装置形态限界）：t24-clientid-binding spec 单测链（actor
+                            直调——僵尸/接管/碰撞/SS2 四态）全绿而真 WS 实弹接管 close 未观测
+                            （awareness 帧/帧提交两驱动，run2-6 五轮）——专项调查定案：真客户端
+                            synced 形态下 yjs 自防轮换先行（second doc apply 服务端同 clientID
+                            structs 即 generateNewClientId＝四元不同键，服务端正确不执法）；
+                            接管执法真链由 harness e2e 场景1（裸 ws 手搓帧）验证正常——
+                            close 1008 clientid-superseded+second 帧落 PG（见【三】终定案文本）
    G10 L2 毒帧×水位窗       发现③（登记）：container-replacement 帧（cl1 run7-9 形态）走 L2 毒帧链
                             （4411 ✓）但截断窗 pgSeq(2)>appliedSeq(0) 时 truncate/close failed→
                             walHealthy fail-stop 熔断（单实例停收）——行为=超 fail-closed（不静默）
@@ -139,6 +142,20 @@ Y1c T31 故障演练矩阵记录（本地实弹——P4 重启裁定②「实弹
       接线链逐跳核完整（gateway:471→frame-gate:53/92→actor:1121-1130 conn 真值传递）→动态时序/路径
       疑点确认，专项调查派发（真栈中间层用例补位——actor 直调 unit 与全栈 drill 之间的 gateway 层）；
       契约承载暂=t24 四态单测。
+      **专项调查终定案（发现②收口）＝装置形态限界——非真缺陷非接线缺口**。真栈中间层用例
+      （collab-harness/collab-t24-clientid-single-active.e2e-spec.ts——真 gateway+真 cookie 认证+
+      真装载+裸 ws 手搓 sync 协议帧〔hocuspocus Auth 握手先行+lib0 线格式内联〕，绕开客户端 yjs
+      库行为）两场景全绿：场景1 同 clientID 双连接先后提交同 doc 连续增量帧→first 被 close 1008
+      'clientid-superseded'+second 帧照常落 PG（重放在档）+second 不关＝**接管执法真 WS 全链正常**
+      （38⑰「旧连接活跃→先 close 旧再纳新」达成）；场景2 真双 provider synced 形态（drill cl2 同款）
+      复现未观测根因＝**yjs 客户端自防轮换**（yjs 13.6 transaction：非本地事务推进本 doc clientID
+      clock→generateNewClientId——运行时日志 "Changed the client-id because another client seems
+      to be using it" 实证）：second doc synced 时 apply 服务端 SS2（含 first 同 clientID structs）
+      即轮换，second 帧以新 clientID 提交＝四元 (pid,gen,uid,client) 不同键＝合法多设备形态，服务端
+      正确不执法。即「同 clientID 并发帧」经真客户端 synced 形态**构造不出**（客户端库先自愈），唯一
+      可达服务端的形态＝未 sync 先发帧/恶意手搓帧——场景1 验证该形态执法正常。drill cl2「20s 无
+      接管 close」＝合法行为非缺口；红锚承载＝e2e 场景1（真 WS 层第五态——t24 单测四态之外），
+      分歧钉子＝e2e 场景2（轮换实证断言）。
   发现③（登记移交→**双评审两疑点闭合**）L2 毒帧×水位窗→walHealthy 全实例熔断：container-replacement
       帧在 pgSeq>appliedSeq 窗触发「truncate/close failed: watermark」→walHealthy fail-stop（单帧
       毒帧=全实例停收）。超 fail-closed（不静默）但与 spec §4.3「隔离当前文档」的作用域（per-doc vs
@@ -200,7 +217,19 @@ Y1c T31 故障演练矩阵记录（本地实弹——P4 重启裁定②「实弹
      =日志观测项非硬断言，硬断言四项守住核心契约）
   复验：--client 复跑 51.2s EXIT=0（cl1 5.5s/cl2 20.8s〔新判别锚过〕/cl3 8.9s）。
 
-【七】终态 commit 链
+【八】发现②专项调查收口（2026-11-04，移交三项之二）
+    真栈中间层用例 collab-harness/collab-t24-clientid-single-active.e2e-spec.ts 两场景：
+    场景1 接管红锚（裸 ws 手搓 sync 帧——真 gateway+真 cookie 认证+真装载+真 actor drain；
+    hocuspocus 4.6 认证握手=Auth 消息先行〔无此帧 onAuthenticate 不触发〕+lib0 线格式内联
+    varUint/varStr）：close 1008 'clientid-superseded'+second 帧落 PG+PG 重放在档+second 不关。
+    场景2 分歧钉子（真 provider synced——drill cl2 同款）：yjs 自防轮换实证断言
+    （secondDoc.clientID!==987654321）+first 3s 无 close＝drill 未观测根因钉死。
+    回归：新 e2e 2/2+provider-convergence 6/6（int 池 26.8s）+t24 单测族 24/24+尺寸门+
+    verify:fast 16 步 PASS（census 33/33——.e2e-spec 命名不匹配 census 排除正则，归
+    collab-harness 目录级排除〔provider-convergence 同形态〕）。
+
+【九】终态 commit 链（勘正：上批「【七】终态 commit 链」与【七】双评审补登重号——本批起顺延编号）
   73ee0728〔装置+红组 9 例+kill9 族实弹绿〕→3ac21213〔恢复族三模式+P-1 根修（epoch 时区漂移）
   +deploy-guard 44/44〕→90a47691〔客户端族（cl1/cl2 登记缺口/cl3 换代全链）〕→f1e17ba8〔infra
-  三档+worker-crash〕→〔本批：charter 证据+红⑩+演练记录+plan 批注〕。
+  三档+worker-crash〕→〔615a9fb2：charter 证据+红⑩+演练记录+plan 批注+双评审 P2 收口微批〕→
+  〔本批：发现②专项收口——harness e2e 红锚+分歧钉子+演练记录终定案〕。
