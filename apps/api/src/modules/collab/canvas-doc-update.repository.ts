@@ -141,6 +141,22 @@ export class CanvasDocUpdateRepository {
     return true;
   }
 
+  /** T30b 根修 B：cas-miss 分支的同内容幂等回查（**按 updateHash 任意 seq**——与 0-行两分桶同判据）。
+   *  盲区链（gate-collab S1 重连稳定红实弹）：进程重启后 spool 水位三元未重建 ⇒ actor 首刷
+   *  expectedPgSeq=0 而 PG pgSeq>0 ⇒ CAS 恒 cas-miss；客户端重连同字节帧（空 SS2 更新〔空 doc
+   *  SS2 差分恒 2 字节〕/幂等重试）以新 seq INSERT 被 @@updateHash 唯一吞行（inserted=0）⇒ PK
+   *  回查（seq=新 seq）必缺行 → fenced → selfIsolate → 卸载拒绝/re-listen 死锁。行集 updateHash
+   *  全在档=同内容已落定（真 fenced/计数器重置纪产**新内容新 hash** 不在此档）——放行 adopt 重定基。 */
+  private async verifyRowsLandedByHash(projectId: string, rows: ReadonlyArray<{ updateHash: string }>): Promise<boolean> {
+    for (const r of rows) {
+      const exists = await this.prisma.$queryRaw<{ seq: bigint }[]>`
+        SELECT seq FROM "CanvasDocUpdate"
+        WHERE "projectId" = ${projectId}::text AND "updateHash" = ${r.updateHash}::char(64) LIMIT 1`;
+      if (exists.length === 0) return false;
+    }
+    return true;
+  }
+
   async appendBatch(projectId: string, rows: ReadonlyArray<{
     generation: number; firstWalSeq: bigint; lastWalSeq: bigint; frameCount: number;
     updateHash: string; update: Uint8Array; actorRanges?: unknown;
@@ -239,7 +255,11 @@ export class CanvasDocUpdateRepository {
       // lease「批内失→adopt/建档前复得」翻覆窗下，旧序（先提交水位再 partialOk）会把 pgSeq 推过
       // 缺行后折 fenced 返回=DB 恢复基线污染（重启从 pgSeq 起放跳过缺行）。行缺=按 fenced 档，
       // 水位零触碰（fenced 返回保 WAL 副本，自愈重发收敛）。
-      if (!(await this.verifyRowsLanded(projectId, rows))) return this.fencedClassify(projectId);
+      if (!(await this.verifyRowsLanded(projectId, rows))) {
+        // T30b 根修 B：PK 缺行先按 updateHash 复查（任意 seq）——同内容幂等吞行形态（重启窗首刷
+        // cas-miss+同字节重发）放行 adopt 重定基；hash 亦缺=真 fenced（新内容零在档）。
+        if (!(await this.verifyRowsLandedByHash(projectId, rows))) return this.fencedClassify(projectId);
+      }
       if (row.length === 0) {
         // 懒建档（genesis 双路之外的老项目首写——行不在与 fenced 不可区分，单写者下 INSERT 幂等收敛；
         // updatedAt=Prisma @updatedAt 无 DB 默认——raw INSERT 须显式给值。Y1c T11：state/stateSeq 列

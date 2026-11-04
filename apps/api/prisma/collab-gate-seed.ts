@@ -78,8 +78,13 @@ async function main() {
   await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: COLLAB_GATE.projectId } });
   await prisma.canvasDoc.upsert({
     where: { projectId: COLLAB_GATE.projectId },
-    update: {},
-    create: { projectId: COLLAB_GATE.projectId },
+    // T30b 根修 A1：行清残必须连同水位归零——旧 update:{} 保 pgSeq 产「水位越过空行集」失真态
+    //（boot 回灌重落旧 seq 行再被清残 ⇒ 计数器/dedup 与 PG 前缀打架 ⇒ C1② tripwire/fenced
+    // ⇒ selfIsolate 死锁——gate-collab S1 稳定红实弹链）；快照重写(0,0)+水位 0=自洽空 doc。
+    // +currentSnapshotRev 归零（同族缺口：前任 run 的 compact 推指针后，快照清残不回指针 ⇒
+    // 装载按指针寻快照缺失折空+行集已清=空 hydrate——specb-perf 首开 0 节点实弹）。
+    update: { pgSeq: 0n, walCheckpointSeq: 0n, currentSnapshotRev: 0n },
+    create: { projectId: COLLAB_GATE.projectId, pgSeq: 0n, walCheckpointSeq: 0n },
   });
   // Y1c T11（快照权威）：doc 态种子落 CanvasDocSnapshot(g,0,0)（头行零 doc 态列；指针
   // currentSnapshotRev=0 默认与 (g,0) 对齐——装载=快照+增量尾）；stateHash=SHA-256（genesis 同口径）

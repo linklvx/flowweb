@@ -153,6 +153,27 @@ describe('Y1c T9 六红组①-⑥（spool-first 写管线核心——红→绿�
     expect(await spool.peek('p1')).toHaveLength(0);   // confirm 段回收（磁盘不留重复帧）
   }, 20_000);
 
+  // ── T30b 根修 A2 红锚：spool 层 dedup 命中（跨重启 adoption 形态）＝旧 walSeq 返回 ⇒ 不得建 PG flush 条目 ──
+  // 实弹链（gate-collab S1 稳定红根因之一）：进程 A 帧已 fsync 未 confirm 即死 → 进程 B boot 回灌落行
+  // （pgSeq→该 seq）→ reconciler 收养段入 spool dedup 索引 → 客户端重连同字节重发（空 SS2 更新恒同
+  // 字节）→ spool dedup 命中返回**旧 walSeq**（≤pgSeq）→ 旧实现照建 AppliedEntry 进 appliedQueue →
+  // flushPrefixToPg 以 CAS 形态落旧 seq 行 → C1② tripwire（行已被清/compact 回收）或 updateHash 吞行
+  // fenced → selfIsolate → re-listen 死锁。修=actor 对 spool dedup 命中帧：apply（活 doc 补内容——
+  // adoption 窗）+noop ACK（ACK 铁律——原 frameId/walSeq）+零 PG flush 条目（原帧落定归其自身生命周期
+  // /恢复链）。与 actor 自有 dedupMap「命中 applied=no-op」同语义，补跨重启缝。
+  it('T30b-A2：spool dedup 命中（adoption 形态旧 walSeq）→ apply+noop ACK+不建 PG flush 条目（红=旧 walSeq 进 appliedQueue 触发 flush）', async () => {
+    const spool = makeSpool();
+    const doc = new Y.Doc();
+    const { actor, repo } = buildActor(spool, doc);
+    const f = frameSetting('p1', 'a2-dup', 'x');
+    // 白盒播种 spool dedup 索引（adoptSilentForeignSegments 同形——收养帧入索引；:724 先例）
+    (spool as unknown as { dedupInsert(p: string, h: string, id: string, s: bigint): void }).dedupInsert('p1', sha256hex(f), 'adopted-seg:0', 5n);
+    const r = await actor.submit('p1', f, makeConn(), 'update');
+    expect(r).toMatchObject({ walSeq: 5n, noop: true });   // ACK=原 frameId/walSeq+noop（不烧新 seq）
+    expect((doc.getMap('nodes') as Y.Map<unknown>).get('a2-dup')).toBeTruthy();   // apply 仍发生（adoption 窗活 doc 补内容）
+    expect(repo.appendBatch).not.toHaveBeenCalled();       // 红：旧实现=旧 walSeq AppliedEntry→flushApplied→repo.appendBatch（旧 seq CAS 落行=tripwire/fenced 链入口）
+  }, 20_000);
+
   it('红④：pre-apply 语义——submit resolve 时 doc 已含帧内容（apply 归 actor；库随后重放幂等零事件）', async () => {
     const spool = makeSpool();
     const doc = new Y.Doc();

@@ -544,6 +544,9 @@ export class CollabPersistenceService {
       return;
     }
     const t = await this.spool.appendTracked(projectId, payload);   // WAL-first（BOI：新家先落定）
+    // 注记（T30b A2）：dedup 命中形态（t.dedup=true——旧 walSeq 返回）此处**照旧走 PG 落定**——本
+    // 通道=in-process 维护重试面（原帧落定失败才重发，PG 落定仍欠），旧 walSeq>内存 pgSeq 恒安全；
+    // 跨重启 adoption 形态的 noop 语义归 actor 消费面（production sink 恒在——本回退仅直构/测试）。
     // 熔断面②（T16 承继）：open 期 PG 腿首行短路（零 PG 等待）——帧已 WAL 安全未 confirm，
     // throw 交退避梯（half-open 放行=本次即探测）
     if (this.pgBreaker.isOpen()) throw Object.assign(new Error('maintenance pg-breaker open'), { pgBreakerOpen: true, pgPending: true });

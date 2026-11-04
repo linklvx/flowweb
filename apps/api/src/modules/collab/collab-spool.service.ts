@@ -65,8 +65,11 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { projectDocName } from './doc-name.util';
 
 export interface SpoolFrame { frameId: string; payload: Uint8Array; walSeq: bigint }
-/** T9 actor/维护通道单帧追加结果（walSeq 随帧返回——PG 批行 seq 口径）。 */
-export interface WalAppendedFrame { frameId: string; walSeq: bigint }
+/** T9 actor/维护通道单帧追加结果（walSeq 随帧返回——PG 批行 seq 口径）。
+ *  T30b 根修 A2：dedup=true ⇒ 本结果为去重命中（返回**原帧 frameId/walSeq**，零新写零烧号）——
+ *  跨重启 adoption 形态下旧 walSeq 可能≤CanvasDoc.pgSeq（原帧已落定/行已被 compact 回收），消费方
+ *  （actor connection 帧）据此走 noop 语义，禁以旧 seq 建 PG flush 条目（C1② tripwire/fenced 链）。 */
+export interface WalAppendedFrame { frameId: string; walSeq: bigint; dedup?: boolean }
 
 /** Y1c T27 收尾微批 M-b：replayAll **调用域**派生 memo（spool 每次 replayAll 调用新建、derive 回调
  *  解释——per-project opaque 槽位）。轮间复用=「已提交前缀基线」内存 clone 派生（loadForHydration
@@ -720,7 +723,7 @@ export class CollabSpoolService {
       if (this.overCapacityFlag) throw new Error('spool capacity exceeded');
       const hashHex = frameHashOf(payload).toString('hex');
       const hit = this.dedupLookup(projectId, hashHex);
-      if (hit != null) return { frameId: hit.frameId, walSeq: hit.walSeq };   // 命中 applied=no-op 确认（原帧已 fsync）
+      if (hit != null) return { frameId: hit.frameId, walSeq: hit.walSeq, dedup: true };   // 命中 applied=no-op 确认（原帧已 fsync；dedup 标记=T30b A2——旧 walSeq 禁再建 PG 落定面）
       const t = await this.appendRaw(projectId, payload);
       this.dedupInsert(projectId, hashHex, t.frameId, t.walSeq);   // 入索引（重发幂等命中面——append() 同款）
       return t;
@@ -769,7 +772,7 @@ export class CollabSpoolService {
     for (let i = 0; i < payloads.length; i++) {
       const hashHex = frameHashOf(payloads[i]).toString('hex');
       const hit = this.dedupLookup(projectId, hashHex);
-      if (hit != null) results[i] = { frameId: hit.frameId, walSeq: hit.walSeq };
+      if (hit != null) results[i] = { frameId: hit.frameId, walSeq: hit.walSeq, dedup: true };
       else writes.push({ idx: i, payload: payloads[i], hashHex });
     }
     if (writes.length === 0) return results;   // 整批命中——零写零 seq（容量不挡）

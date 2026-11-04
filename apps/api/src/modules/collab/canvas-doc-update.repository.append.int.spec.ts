@@ -51,6 +51,36 @@ maybe('appendBatch（真 PG——Y1c T9 新表形态）', () => {
     ).rejects.toMatchObject({ code: 'P2002' });
   });
 
+  // ── T30b 根修 B 红锚：重启窗 cas-miss + 同 updateHash 吞行 = 幂等 ok（红=旧 fenced）──
+  // 实弹链（gate-collab S1 重连稳定红根因）：进程重启后 spool 水位三元未重建 ⇒ actor 首刷
+  // expectedPgSeq=0 而 PG pgSeq>0 ⇒ CAS 恒 cas-miss；客户端重连同字节帧（空 SS2 更新恒同
+  // updateHash）以新 seq INSERT 被 @@updateHash 唯一吞行（inserted=0）⇒ cas-miss 分支 PK 回查
+  // （seq=新 seq）必缺行 → fencedClassify → fenced → selfIsolate → 卸载拒绝/re-listen 死锁。
+  // 修=cas-miss 分支回查 hash 感知：行集 updateHash 全在档（任意 seq）=同内容幂等重发——放行
+  // adopt 重定基（与 0-行两分桶「updateHash 已在=幂等 no-op」同语义，补 cas-miss 形态盲区）。
+  it('T30b-B：重启窗首刷 cas-miss（expected=0 vs pgSeq>0）+同 updateHash 吞行=幂等 ok+adopt 重定基（红=旧 fenced）', async () => {
+    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
+    await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
+    await prisma.canvasDoc.create({
+      data: { projectId: PID, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n },
+    });
+    try {
+      // 前任进程已落定：帧 walSeq=12（pgSeq 0→12）
+      const d = new Y.Doc(); d.getMap('nodes').set('restart-dup', 1);
+      const u = Y.encodeStateAsUpdate(d);
+      const r0 = await repo.appendBatch(PID, [seedRow(u, 12n)], { expectedPgSeq: 0n, newPgSeq: 12n, walCheckpointSeq: 12n });
+      expect(r0).toEqual({ ok: true, rows: 1 });
+      // 新进程首刷：expected=0（水位未重建）⇒ cas-miss；同字节重发帧（同 updateHash、新 seq 13）⇒ INSERT 吞行
+      const r1 = await repo.appendBatch(PID, [seedRow(u, 13n)], { expectedPgSeq: 0n, newPgSeq: 13n, walCheckpointSeq: 13n });
+      expect(r1).toEqual({ ok: true, rows: 0 });   // 红：旧=cas-miss 分支 PK 回查缺行→fenced（S1 重连 fencing 链）
+      expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } })).toBe(1);   // 行集不变（吞行幂等）
+      expect(await repo.readWatermark(PID)).toMatchObject({ pgSeq: 13n });   // adopt 重定基（幂等水位推进——0-行桶同语义）
+    } finally {
+      await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
+      await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
+    }
+  });
+
   it('C1（T10 收口）facet A 真 PG：租约易主窗 CAS 形态——INSERT/UPDATE 全被 fence 拦，pgSeq 不推进+返回 fenced（红=旧实现水位越过未插入行=恢复基线污染）', async () => {
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
     await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });

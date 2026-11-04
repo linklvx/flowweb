@@ -92,8 +92,9 @@ async function ensureCanvas(projectId: string, doc: Y.Doc, userId: string, teamI
   await prisma.canvasDocSnapshot.deleteMany({ where: { projectId } });
   await prisma.canvasDoc.upsert({
     where: { projectId },
-    update: {},
-    create: { projectId },
+    // T30b 根修 A1：行清残连同水位+快照指针归零（同 collab-gate-seed——保 pgSeq/指针产失真态，详注见彼处）
+    update: { pgSeq: 0n, walCheckpointSeq: 0n, currentSnapshotRev: 0n },
+    create: { projectId, pgSeq: 0n, walCheckpointSeq: 0n },
   });
   // Y1c T11（快照权威）：doc 态种子落 CanvasDocSnapshot(g,0,0)（头行零 doc 态列；指针
   // currentSnapshotRev=0 默认与 (g,0) 对齐——装载=快照+增量尾）；stateHash=SHA-256（genesis 同口径）

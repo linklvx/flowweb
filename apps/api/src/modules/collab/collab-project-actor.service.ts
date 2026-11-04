@@ -1328,8 +1328,12 @@ export class CollabProjectActorService {
           return;
         }
         // appliedSeq=walSeq（apply 成功）+FrameEffects 取走（apply 后 actor 临界区内为准——修正 #1）
-        st.appliedSeq = walSeq;
-        this.spool.noteApplied(pid, walSeq);
+        // T30b 根修 A2：spool dedup 命中帧（跨重启 adoption 形态）不推进 own 水位（外来 seq 非本进程写前缀）
+        const spoolDedupHit = appended[k].dedup === true;
+        if (!spoolDedupHit) {
+          st.appliedSeq = walSeq;
+          this.spool.noteApplied(pid, walSeq);
+        }
         this.settleDedup(pid, item.hashHex, walSeq);
         const effects = collector.take();
         for (const e of effects) frameEffectsTotal.inc({ kind: e.kind });
@@ -1337,6 +1341,18 @@ export class CollabProjectActorService {
         // Y1c T24（收口 I-5）：NORMALIZE 异常增量计数（graph_anomaly_total{kind}——读模型屏蔽面
         // maskGraphAnomalies 同一纯函数，六 kind 全覆盖；读侧屏蔽=doc-codec toReadModel 同语义）
         this.noteGraphAnomalies(pid, st, document, effects);
+        // T30b 根修 A2：spool dedup 命中（返回原帧 frameId/walSeq——ACK 铁律）＝apply+read-model
+        // 索引照常（adoption 窗活 doc 补内容）+noop ACK，**不建 applied 条目**——旧 walSeq 可能
+        // ≤CanvasDoc.pgSeq（原帧已落定/行已被 compact 回收），CAS 落旧 seq 行=C1② tripwire/
+        // updateHash 吞行 fenced →selfIsolate→re-listen 死锁（gate-collab S1 稳定红实弹链）；
+        // 帧的 PG 落定归原帧自身生命周期/恢复链（boot replayAll/reconciler 回灌）。与自有 dedupMap
+        // 「命中 applied=no-op 确认」同语义——补跨重启（adoption 播种索引）缝。
+        if (spoolDedupHit) {
+          entries[k] = undefined;
+          actorFrameOutcomeTotal.inc({ outcome: 'noop-dedup' });
+          this.resolveItem(item, { walSeq, noop: true });
+          continue;
+        }
         entries[k] = this.mkAppliedEntry(pid, item, appended[k].frameId, walSeq, effects);
         actorFrameOutcomeTotal.inc({ outcome: 'applied' });
         this.resolveItem(item, { walSeq });   // 逐帧 resolve（beforeSync await——ACK 时帧必已 fsync+apply）
