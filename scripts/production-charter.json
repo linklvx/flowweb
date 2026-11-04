@@ -63,7 +63,7 @@
       "owner": "FlowWeb Dev",
       "date": "2026-11-03",
       "status": "pending",
-      "evidence": "建议数值待用户裁定后定案（production 前必过；发布前不得有 TBD——T33 口径）"
+      "evidence": "T33 负载基准实测对照（2026-11-05 gate-evidence/t33-load-benchmark.txt 本地实弹 full profile）：save barrier p95=137ms≤2s ✓（硬门同源值达标）；恢复 RTO=9.96s≤30min ✓（kill→重启→回灌归零全链）；feed lag p95=171ms。月可用性≥99.5%=单机无 HA 诚实目标（无实测可用性数据——需运行期观测累计）。数值定案（含月可用性采纳否）归用户裁定——改档裁决仍归用户，本卡只落实测 evidence"
     },
     {
       "id": "doc-append-gap-alert",
@@ -78,26 +78,26 @@
       "requirement": "HTTP seed 端点维持废止态；重开须新评审",
       "owner": "FlowWeb Dev",
       "date": "2026-11-03",
-      "status": "armed",
+      "status": "waived",
       "trigger": {
         "coldP95Ms": 3000,
         "loopBlockMs": 50,
         "note": "cold p95>3s 或 loop block>50ms 实测超标→重开评审（runbook §14 尾注）"
       },
-      "evidence": "production 前须 T33 基准实测裁决：未超标→waived+实测数据；超标→passed（实施）"
+      "evidence": "T33 实测裁决（2026-11-05 gate-evidence/t33-load-benchmark.txt）：10k 节点冷加载 cold p95=441ms＜3s（触发线 6.8×余量；分轴=connect/synced 393ms+read model 52ms+服务端装载 250ms）；事件循环阻塞峰值=0ms＜50ms——触发条件未达，waived（实测豁免——runbook §14 废止线维持废止；固定 Linux runner 复测归 ci.yml load-bench-hard release 前实弹）"
     },
     {
       "id": "exec-input-bundle",
       "requirement": "ExecutionInput 迁对象存储 bundle（触发达标才须实施）",
       "owner": "FlowWeb Dev",
       "date": "2026-11-03",
-      "status": "armed",
+      "status": "waived",
       "trigger": {
         "inputTableGt": "20GB",
         "over2MiBRatioGt": "5%",
         "note": "input 表>20GB 或 >2MiB 占比>5%→须实施"
       },
-      "evidence": "production 前须实测裁决：未达标→waived+实测数据；达标→passed（实施）"
+      "evidence": "T33 实测裁决（2026-11-05）：ExecutionInput 表 44 行/ΣrawBytes 13.1KB/ΣstoredBytes 6.1KB（brotli 后）/raw>2MiB 行数 0（占比 0%）——距 20GB 门槛六个数量级、>2MiB 占比距 5% 门槛 5 个数量级，触发条件未达，waived（实测豁免）。再裁周期=下次 T33 硬门跑批（固定 runner 档随跑）"
     },
     {
       "id": "frame-audit",

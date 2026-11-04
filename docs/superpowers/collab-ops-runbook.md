@@ -635,7 +635,7 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 
 **状态语义**：`pending`=生产流量开放前必过（未实施）；`armed`=触发条件待实测裁决（production 前须裁为 waived[实测未超标+数据]或 passed[已实施]；`frame-audit` 特例=合规需求确认→na[确认记录]或 passed）；`passed`=达标有证据；`waived`=实测豁免（必须有 evidence）；`na`=不适用（须确认记录）。
 
-**项状态快照（2026-11-03，以 JSON 为准）**：passed×1（ha-decision=单机无 HA 诚实口径）；pending×8（pitr/pg-sync-commit/minio-versioning/restore-drill/replay-canary/slo/doc-append-gap-alert/project-erasure/retention-worker 中除 armed 外）；armed×3（http-seed/exec-input-bundle/frame-audit）。
+**项状态快照（2026-11-05 T33 实测裁决后，以 JSON 为准）**：passed×1（ha-decision=单机无 HA 诚实口径）；pending×9（pitr/pg-sync-commit/minio-versioning/restore-drill/replay-canary/slo/doc-append-gap-alert/project-erasure/retention-worker+frame-audit）；waived×2（http-seed/exec-input-bundle——T33 实测触发条件未达豁免，evidence 见 JSON 各项）；armed×1（frame-audit）。
 
 **开放生产流量操作序**（本批=P4 交付线出口，实际操作时点由用户指令）：
 1. 逐项裁决 13 项：pending→passed（实施+证据落 evidence）；armed→waived（实测数据）或 passed；frame-audit→na（合规确认记录）或 passed。
