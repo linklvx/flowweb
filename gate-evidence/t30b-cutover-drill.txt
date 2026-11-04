@@ -97,9 +97,29 @@ RTO 依据=scripts/production-charter.json pitr 项 RTO≤30min（1800000ms）
 【五】验证矩阵
   演练三模式全绿（耗时见【一】）；node --test scripts/deploy-guard.test.mjs 42/42；
   api tsc strict 0 错；T24 version-gate 族 12/12；T25 recovery-import int 11/11 复跑绿
-  （8MiB 路由档语义未损）；collab-smoke/exec-smoke 在演练内实弹绿；gate-collab=见下行补登
-  （GATE-COLLAB: PASS — playwright collab-recovery 全绿，2026-11-04 收尾跑〔占位行若空以
-   实跑结果为准——本行在 gate-collab 完成后由后续 commit 更新〕）。
+  （8MiB 路由档语义未损）；collab-smoke/exec-smoke 在演练内实弹绿。
+  GATE-COLLAB 收尾跑（2026-11-04，独立跑 10.3min）：**23 passed / 0 failed / 7 skipped
+  （EXIT=0）**——skip=geometry T1/T1b/T2c/T3/T4/T5a/T11 既有 skipIf 形态归位。
+  收尾跑首战全红（21 failed——S1 起 appendBatch walSeq reset tripwire/actor fenced→
+  selfIsolate→卸载拒绝→re-listen「documents 未卸载」死锁→3001 不可达全灭）；前任判
+  P-2（709290f5）回归——复现实验证伪（**仅 revert P-2 复跑同链仍红**；P-2 在 gate 场景
+  休眠——csv=3 全匹配零 deny 路径；前任单跑绿=重启竞态胜出）。真根四件全修（红锚先行
+  →绿，commit 6cbe2ac0+f901208a）：
+  ① 三 fixture seed「增量行清残」保 pgSeq/currentSnapshotRev（A1：水位越过空行集+
+     指针寻缺失快照折空=空 hydrate——后者 specb-perf 首开 0 节点，clean HEAD 复跑同红
+     实证=预存缺口）；
+  ② repo appendBatch 重启窗首刷 cas-miss 分支 PK 回查盲于 updateHash 幂等吞行（空 doc
+     SS2 恒 2 字节全端同 hash）→fenced→死锁（B：hash 感知回查+adopt 重定基——S1 重连
+     确定性红主根）；
+  ③ 跨重启 reconciler 收养段播种 spool dedup→同字节重发命中返回旧 walSeq（≤pgSeq）→
+     actor 照建 PG flush 条件→C1② tripwire 同链（A2：WalAppendedFrame+dedup 标记+actor
+     noop ACK 零 flush 条目——ACK 铁律保持）；
+  ④ T17/T18 公开快照白名单剥组 data.cells vs FE StoryboardGroupRenderer 读 data.cells
+     （格位真源=子 slot 未接——specb-public 宫格 0 img；T17 后 gate 均早夭未跑达，断链
+     潜伏）——renderer cells 缺席自 cellNodes 派生（deriveStoryboardCells 单源）+
+     renderCanvas cellNodes 透传 slot。
+  ⑦两向版本门结论面不受影响（P-2 保留在 HEAD——本收尾只证其非回归源；csv=2/4+旧 hid
+  →4406 行为经本批全量绿回授复证）。
 
 【六】演练工件
   装置=scripts/drill-cutover.mjs；状态交接=backups/t30b-drill-state.json（gitignored）；
