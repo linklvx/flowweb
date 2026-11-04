@@ -1,0 +1,183 @@
+Y1c T31 故障演练矩阵记录（本地实弹——P4 重启裁定②「实弹环境=本地」）
+日期：2026-11-04 · 装置=scripts/drill-fault.mjs（七模式）· 机器=win32 本地（PG 16.13 服务/Redis/MinIO）
+耐久契约权威=spec §4.3/§4.4/§8.1/§8.3（v5.4）；四判据=fail-closed/隔离恢复/零静默丢弃/水位不越
+──────────────────────────────────────────────────────────────────────────────
+
+【一】演练矩阵覆盖表（形态→装置/映射→结果→四判据符合性）
+
+  A. kill -9 每阶段（卡文①）
+   A1 spool/apply 阶段      映射：t10-g2 int ③（fsync 前/后两档）+t13-kill9 process P1-P3
+                            （真子进程 SIGKILL 轨）+t13-g6a int I3/I4（8MiB SS2/多项目 actor）——
+                            G6a/G2 门承载，不重复装置化
+   A2 批提交阶段            实弹 --kill9 k9a：PG 批滞留触发器（y31_drill_block）=确定性 kill 窗
+                            →taskkill /F（SIGKILL 等价）→重启回灌：重放 ⊇ 已接受集 12 键+零重复
+                            +PG 行落定 ✓〔fail-closed=批不越触发器拒/隔离恢复=重启 recoverScan 回灌/
+                            零静默丢弃=spool 承载帧全数恢复/水位不越=updateHash 幂等〕
+   A3 快照阶段              映射：t10-g2 int ⑤⑥（snapshot 已发布+WAL 未清/达清理条件——G2 门）
+   A4 维护阶段              映射：t27-kill9 process int（K[stage] kill -9 后重跑续至 COMPLETED+
+                            SWITCHING 事务后 kill roll-forward——T27 门承载）
+   A5 毒帧阶段              映射：t10-g2 int ⑦（applied 前缀落 PG+截断+4411+seq 复用不留洞）+
+                            t13 K6/spike；装置 cl1 的 container-replacement 形态实弹走 L2 毒帧链
+                            （见发现③注记）
+   A6 barrier flush 阶段    实弹 --kill9 k9b：save barrier 回执未达窗 kill→重启重发同 nonce→
+                            Durable 回执 committedSeq=3 无 error+目标帧落 PG ✓〔nonce 幂等+零静默丢弃〕
+
+  B. PG failover            实弹 --infra 档1：本机无管理员权限停 PG 服务（形态偏差 D-2）→装置内置
+                            PG 前置 TCP proxy+DSN 改写注入（DATABASE_URL→127.0.0.1:15432），proxy
+                            kill=api 视角主库不可达：ready=pg-down fail-closed ✓+停机窗写入 Spooled
+                            承接（pending.spoolFiles=1，零静默丢弃）→proxy 重起=恢复→x1/x2 回灌全落
+                            +零重复 ✓〔隔离恢复〕——breaker 面（Y0b-5 T16）单测承载+实弹端到端复证
+
+  C. 网络分区               实弹 --infra 档2：TCP proxy 挂起（静默分区不 RST 不 FIN——形态偏差 D-3）
+                            →分区窗 A 本地写+B 直连写并行→resumeAll 恢复转发→A pending 上行落 PG+
+                            B 收敛（15s 内）✓〔零静默丢弃+隔离恢复〕——含「断网重连 B3 形态」双端收敛
+
+  D. 磁盘满                 实弹 --infra 档3：COLLAB_SPOOL_CAPACITY_BYTES=4KB 容量闸（软件等价——
+                            形态偏差 D-4；真 ENOSPC 不可注入 Windows）→超限窗 fail-closed 拒收形态
+                            （非静默丢）→容量恢复 8/8 全落定 ✓〔fail-closed〕；ENOSPC 档 seam=
+                            t10-g2 ⑨ int 映射
+
+  E. OOM                    映射登记（形态偏差 D-5）：kill -9 语义等价（本地无 OOM killer/内存配额面；
+                            A2 同链承载「进程死亡后恢复」）+RSS trip 谓词=heap-pressure 既有单测
+                            （check-ecosystem 算术门 33/33）
+
+  F. 时钟偏移               --restore-fence 承载（时间戳栅栏=时钟偏移敏感面的可注入形态）：段头
+                            lastWriteAt>epochStartedAt 求值+restore.lock marker 门控——见 H2
+
+  G. 客户端形态族
+   G1 双浏览器/多标签       实弹承载：装置全程双 provider 形态（collab-smoke A/B 同族+infra 档2
+                            A/B 双端+kill9/restore 各模式多客户端）——广播互见/收敛断言遍布
+   G2 IDB blocked           映射登记（形态偏差 D-8）：web 侧 v5-11 降级面（服务端无观测面）——
+                            web 测试池承载
+   G3 断网重连              实弹 --infra 档2（分区→恢复→pending 上行+SV 同步收敛）✓
+   G4 拒帧恢复              实弹 --client cl1：node-key frame-local DENY 4411→服务端 doc 不变
+                            （拒帧节点零落定）→重连合法帧恢复落 PG ✓〔B 场景恢复入口〕
+   G5 reset 后重连（B3）    映射+实弹复证：T30b 两向 4406（旧 hid/csv 档）+--pitr-ss2 旧 hid→4406
+                            同链 ✓
+   G6 vacuum 换代离线重连   实弹 --client cl3：维护换代 COMPLETED（generation 0→1）+旧 name
+                            （project:X 无 #g）重连 synced 永不达成（auth generation mismatch 拒装载
+                            ——不装载/不 SS1/不上行）✓+新代 #g1 接入 ✓〔S2 语料实弹=vacuum-stale
+                            -client spec 机制层+真 WS 端到端〕
+   G7 feedSeq 提交顺序交错  映射：feedseq-commit-order int（a 裸 sequence 复现+①②③④ 行锁/锁序/
+                            abort 回收全档）——T22 G5 门承载
+   G8 世代切换旧连接发送+   实弹 --client cl3：维护 REQUESTED 行级关闸（maintenanceId 同事务写）
+       行级关闸后新执行被拒 →受理端点拒 HTTP 503 MAINTENANCE_ACTIVE（check-then-act 收口——事务内
+                            FOR SHARE 复核）✓+旧连接维护语义 close（4413 FREEZING freeze 闸——
+                            t27 红①语义；4410 事务后 close=t27 int 红⑤承载）✓
+   G9 clientID 并发同键     发现②（登记缺口）：t24-clientid-binding spec 单测链（actor 直调——僵尸/
+                            接管/碰撞/SS2 四态）全绿而真 WS 实弹接管 close 未观测（awareness 帧/
+                            帧提交两驱动形态均试，run2-6 五轮）——接线面疑点移交 Controller 核实；
+                            契约承载=既有 spec 四态
+   G10 L2 毒帧×水位窗       发现③（登记）：container-replacement 帧（cl1 run7-9 形态）走 L2 毒帧链
+                            （4411 ✓）但截断窗 pgSeq(2)>appliedSeq(0) 时 truncate/close failed→
+                            walHealthy fail-stop 熔断（单实例停收）——行为=超 fail-closed（不静默）
+                            但「单帧毒帧→全实例熔断」的恢复面（重启即复现？）归 Controller 核实
+                            是否属预期档位（spec §4.3 毒帧=「隔离当前文档」vs 实测全实例停收）
+
+  H. 恢复类（charter restore-drill 证据①②）
+   H1 pg_dump 恢复→bump→   实弹 --restore-bump（40.4s）：真段形态构造（dump 后帧滞留 spool）→
+      旧 WAL 段 quarantine   pg_restore 回快照时点→bump→boot fail-closed（I3 档：旧段纪元栅栏全隔离
+      不复活+忘 bump 栅栏     +PG 残留 pgSeq>链尾=证据保全禁截断——T13 Q-I4 有意设计）+内容级零复活
+                            （keep 在/rollback 不在）→spec §8.1 处置序全链（换代 COMPLETED→整目录
+                            quarantine 7 条目原样→重启 ready→新代 #g1 写入落 PG）✓
+                            忘 bump 副链 --restore-fence（43.1s）：restore.lock marker 在位+未 bump→
+                            时间戳栅栏 recoverySuspect 零重放+boot fail-closed（suspects 上报）→
+                            处置（bump+清 marker）→零复活 ✓〔fail-closed+隔离恢复+零复活〕
+   H2 同代 PITR→SS2 拦截    实弹 --pitr-ss2（31.0s）：恢复+bump+整目录 quarantine（收尾序）→ready→
+                            客户端本地 doc 预写旧内容+携旧 hid 重连→onAuthenticate 先比 historyId→
+                            4406 terminal close（全量上行不到达服务端）+服务端重放零复活（stale/
+                            rollback 均不在）+新客户端首连放行（hid 缺省）+写入落 PG ✓
+                            〔charter 用例②=主备切换 Durable 不丢的单机档：Durable 内容不丢面由
+                            H1 的 keep 在+恢复后新写承载〕
+
+  I. worker/text 链
+   I1 外部生成成功后崩溃   实弹 --worker-crash（30.4s）：stub 收到外呼（x-idempotency-key 已带=write-
+      重试零重复副作用       ahead 键外呼前落库）即 kill api（崩溃窗=外部成功/本地未提交——形态注记
+                            D-6：text 链承载于 api 进程）→重启重试→三断言全过：外呼恰 1 次+幂等键
+                            恒同 1 个+台账 reserve/settle 各恰 1 行+余额恰扣一次（9/10）+intent 恰一行
+                            SUCCEEDED ✓〔spec 偏离 36-④⑥ text 链锚〕
+
+  J. doc 卸载×PG 故障      实弹 --infra 档1 同链承载：停机窗在连客户端断开（destroy 触发卸载路径）
+                            ×PG 不可达——恢复后帧由回灌承接（x2 零丢失）✓；卸载 drain 纪律单测=
+                            t10/persist-status 既有（beforeUnloadDocument applied>pg 拒卸载）
+
+  K. fsync EIO fail-stop   映射登记（形态偏差 D-7）：真 EIO 不可注入 Windows——subclass seam=
+                            t13 K6 单测承载（walHealthy=false 停收不截断+重启恢复扫描裁定）；
+                            t10-g2 ⑨ 承载可恢复档（截断复用 seq）
+
+【二】耗时表（七模式全绿——日志 backups/t31-logs/）
+
+  --kill9          51.8s（终形态复验）  k9a 3571/1016/662/9572 + k9b 8710/641/9869
+  --infra          84.6s   failover 5102/1/4562/23866/713 + 分区 11451 + 容量闸 23553
+  --restore-bump   40.4s   4492/200/697/1744/8050/49/9828
+  --restore-fence  43.1s   4492/201/684/1751/10693/9758
+  --pitr-ss2       31.0s   4526/193/665/8471/1073/79
+  --client         54.4s   cl1 5621 + cl2 20823 + cl3 11828（run15 EXIT=0）
+  --worker-crash   30.4s   264/6287/7776
+
+【三】问题清单（实弹发现）
+
+  P-1（已根修 3ac21213）restore 收尾 bump 的 epochStartedAt 时区漂移致忘 bump 时间戳栅栏 8h 窗
+      失效：SystemHistory.epochStartedAt 列=timestamp without time zone（Prisma DateTime 缺省），
+      SQL now() 写入按 DB 会话时区（Asia/Shanghai）墙钟存储，Prisma 读侧按 UTC 解释=+8h 漂移→
+      忘 bump 场景「段 lastWriteAt>epochStartedAt 触发 recoverySuspect」判定对 epoch 后 8h 内段
+      全部漏拦（恢复后立即重启的旧段恰在窗内→正常重放=已回滚内容复活面）。复现：restore-fence
+      run1-3/5/6 实弹 serving 漏拦+rollback 帧落 PG（CanvasDocUpdate 行=3 实锤）；定位链=装置
+      段头直读 vs dist 临时观测补丁（evaluateTimestampFence=true 而 hdrLastWriteAt<epochMs 的
+      28800000ms 差）→ DB timezone=Asia/Shanghai+列型 timestamp without tz 实证。根修=写入单源
+      UTC 墙钟（now() AT TIME ZONE 'utc'——reset-collab bump〔产品工具〕/drill-cutover rollback
+      随批/drill-fault 装置三处）；红锚 deploy-guard T31-P1 红①红②（先红 42/44 后绿 44/44）；
+      根修后 restore-fence 实弹复证 blocked 拦截全绿。存量数据：现库 epoch 已新形态 bump 自愈；
+      生产升级=下次 bump 起新形态（恢复窗内 8h 漂移面在 bump 前暴露——runbook §16 步④ reset
+      收尾序覆盖）。
+  发现②（登记移交）clientID 单活跃真 WS 接管 close 未观测：t24-clientid-binding spec 单测链全绿
+      （actor 直调四态）而装置实弹（同 doc.clientID 双 provider+awareness 写+帧提交两驱动）20s
+      无接管 close。接线面疑点（gateway→actor 的 clientId 提取或帧时序）移交 Controller；契约
+      承载=既有 spec 四态。
+  发现③（登记移交）L2 毒帧×水位窗→walHealthy 全实例熔断：container-replacement 帧在
+      pgSeq>appliedSeq 窗触发「truncate/close failed: watermark」→walHealthy fail-stop（单帧
+      毒帧=全实例停收，重启即复现）。超 fail-closed（不静默）但与 spec §4.3「隔离当前文档」
+      的作用域（per-doc vs 全实例）存疑——归 Controller 核实档位。
+  发现④（装置演化非缺陷）maintenance 端点 401=全局 AuthGuard 非 public 路径要求 session
+      cookie（admin token 之外）——装置补 cookie 后通；runbook 维护调用面注记（admin token+
+      session 双凭据形态）。
+
+【四】形态偏差登记（本地实弹=本地形态——诚实登记；T30b D-1..D-7 先例）
+  D-1 PG failover=装置前置 TCP proxy+DSN 改写注入（proxy kill=api 视角主库不可达）——本机无
+     管理员权限停 PG 服务（sc stop 拒/taskkill 服务进程拒）；无备库集群切换形态（charter「主备
+     切换 Durable 不丢」单机档=主库本地提交口径的恢复验证——restore-bump 承载）
+  D-2 「服务 stop」的时序形态差异：proxy kill=瞬断（无 fast shutdown 的优雅排空窗）——排空窗
+     行为由 kill9 矩阵承载
+  D-3 网络分区=装置内置 TCP proxy 挂起（静默不 RST 不 FIN）——本地无 iptable/物理分区面
+  D-4 磁盘满=COLLAB_SPOOL_CAPACITY_BYTES 容量闸（软件等价）——真 ENOSPC 不可注入 Windows；
+     ENOSPC 档 seam=t10-g2 ⑨ int 承载
+  D-5 OOM=kill -9 语义等价（本地无 OOM killer/内存配额面）；RSS trip=heap-pressure 单测+生态门
+  D-6 「worker 崩溃」=承载 text 执行链的 api 进程（两进程形态下 text 链 HTTP execute 在 api 进程
+     直调——崩溃语义等价：进程死亡无清理）
+  D-7 fsync EIO fail-stop=不可注入真 EIO——subclass seam=t13 K6 单测承载
+  D-8 IDB blocked/quota=web 侧降级面（服务端无观测面）——web 测试池映射
+  D-9 真系统时钟偏移未注入（需管理员+影响全机）——时间戳栅栏的可注入形态（lastWriteAt vs
+     epoch 求值）由 restore-fence 承载
+  D-10 cl3 维护 run 首跑 DRAINING 超时 FAILED 可达（前档遗留 pending 时）——resume roll-forward
+     人工序实弹（属产品序非偏差，注记）
+
+【五】验证矩阵（全绿）
+  装置七模式实弹全绿（EXIT=0）：kill9×2〔首跑 53.9s+终形态复验 51.8s〕/infra 84.6s/restore-bump
+    40.4s/restore-fence 43.1s〔P-1 根修后〕/pitr-ss2 31.0s/client 54.4s/worker-crash 30.4s
+  scripts 全池 node --test scripts/*.test.mjs=274/274（含 deploy-guard 44/44〔T31-P1 红①红②+
+    charter 判据 T29 族〕+drill-fault.test.mjs 10/10〔红①-⑩〕+verify-chain⑥防漂移面同步
+    drill-fault.test.mjs 入 manifest）
+  pre-commit verify:fast 12 步 PASS×4 commit（check-collab-census 33/33 内含）
+  charter restore-drill 项 evidence 落位（首次 drill 已执行——dev-test 形态全绿+生产季度 drill
+    仍 pending 归 T34 发布门前；deploy-guard T29 族 44/44 复验不回归）
+
+【六】演练工件
+  装置=scripts/drill-fault.mjs（七模式+--confirm 破坏性守卫+FAULT_MODES 机器承载）；测试组=
+  scripts/drill-fault.test.mjs（10 例红组）；进程日志=backups/t31-logs/；快照=backups/t31-
+  restore-* / t31-pitr-*.dump（gitignored）；隔离目录=apps/api/.data/.quarantine-t31-*（gitignored，
+  证据保全不删）；会话级运行日志=/d/tmp/t31-*.log。
+
+【七】终态 commit 链
+  73ee0728〔装置+红组 9 例+kill9 族实弹绿〕→3ac21213〔恢复族三模式+P-1 根修（epoch 时区漂移）
+  +deploy-guard 44/44〕→90a47691〔客户端族（cl1/cl2 登记缺口/cl3 换代全链）〕→f1e17ba8〔infra
+  三档+worker-crash〕→〔本批：charter 证据+红⑩+演练记录+plan 批注〕。

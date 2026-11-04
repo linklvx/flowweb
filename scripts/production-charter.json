@@ -39,7 +39,7 @@
       "owner": "FlowWeb Dev",
       "date": "2026-11-03",
       "status": "pending",
-      "evidence": "首次 drill 未执行（production 前必过）"
+      "evidence": "首次 drill 已执行（2026-11-04，本地 dev-test 形态——T31 演练装置 scripts/drill-fault.mjs 实弹全绿〔commit 3ac21213〕）：①pg_dump 恢复→bump historyId→旧 WAL 真段 quarantine 不复活（内容级：rollback 帧零复活）+spec §8.1 处置序全链（bump→整目录 quarantine→换代一次→再开放写）+忘 bump+restore.lock→时间戳栅栏 recoverySuspect 拦截 fail-closed〔T31-P1 epoch 时区漂移根修后实测——修前 8h 窗漏拦缺陷实弹复现并根修（now() AT TIME ZONE 'utc'）〕；②同代 PITR 恢复→bump→客户端携旧 hid+SS2 旧内容重连→onAuthenticate 先比 historyId→4406 terminal close+服务端重放零复活+新客户端首连放行。生产环境季度 drill 仍 pending——服务器形态复演归 T34 发布门前（runbook §16 序）。"
     },
     {
       "id": "replay-canary",

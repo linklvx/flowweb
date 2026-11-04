@@ -79,5 +79,9 @@ test('T31 红⑨：client 模式源文本锚（拒帧 4411 恢复/vacuum 换代�
   assert.match(src, /generation|doc-vacuuming/, 'vacuum 换代离线重连（旧 #g=auth generation mismatch 不装载）');
   assert.match(src, /clientid|clientID/, 'clientID 并发同键（僵尸+新连接单活跃）');
 });
-// （红⑩ charter restore-drill 证据锚：随 commit③ 落 evidence 时同批加入——先红〔evidence 无装置引用〕后绿，
-//   避免装置骨架期长期红灯挡 verify:fast。）
+test('T31 红⑩：charter restore-drill 证据缺口由本装置两用例落证据（T29 埋点 evidence 缺口=①pg_dump 恢复 WAL 不复活+忘 bump 栅栏 ②同代 PITR SS2 拦截——改 charter 须 deploy-guard 44/44 不回归）', async () => {
+  const charter = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'production-charter.json'), 'utf8'));
+  const item = charter.items.find((i) => i.id === 'restore-drill');
+  assert.ok(item, 'restore-drill 项在档');
+  assert.match(item.evidence, /drill-fault/, 'evidence 引用本装置（restore-bump/restore-fence/pitr-ss2 实弹）');
+});
