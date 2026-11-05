@@ -160,7 +160,11 @@ async function portKill(ports) {
   }
 }
 async function startApi(name = 'api', extraEnv = {}) {
-  spawnService(name, 'dist/main.js', extraEnv);
+  // Z93 根修（run #78/#80/#81 铁证：ApiCallerService onModuleInit 外呼密钥 fail-closed 拒绝经进程
+  // 兜底吞掉〔进程不退出〕→app.listen 永不完成→ready 90s 超时）：全新库无 AIModel 行+CI 无
+  // PROVIDER_*_API_KEY。bench 七场景=纯 yjs 协作面零 AI 执行——注入 E2E 同款显式豁免档
+  //（collab-core job 演练族同款 COLLAB_FAKE_AI=1 先例；本地 dev 库有密钥行故从未暴露）。
+  spawnService(name, 'dist/main.js', { COLLAB_FAKE_AI: '1', ...extraEnv });
   await waitFor(async () => {
     const r = await fetch(`${API_URL}/api/ready`).then((x) => x.json()).catch(() => null);
     return r?.ready === true ? 'done' : false;
