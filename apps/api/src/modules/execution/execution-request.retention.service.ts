@@ -6,8 +6,10 @@
 //  ①request 扫面（红⑤）：过期未执行（ADMITTED∧expiresAt<now）claim ≤50（FOR UPDATE SKIP LOCKED）
 //    +同事务 voidForExecutionRequestInTx（CAS 让位幂等）——小批多 tick 排空由 poller 间隔驱动；
 //  ②input 扫面（红①）：ExecutionInput 过期∧父行终态（COMPLETED/FAILED/VOIDED）判别双档——
-//    非过期/非终态零触碰；批内 DELETE 循环至空（loop-to-empty）；
-//  ③stuck 扫面（红②）：ADMITTED∧expiresAt<now / EXECUTING∧GenerationIntent MIN(deadlineAt)<now
+//    非过期/非终态零触碰；批内 DELETE 循环至空（loop-to-empty）+**每 tick 批数上界**（P0#1：cap 出口
+//    提交部分进度——防 60s tick 事务预算超限全回滚活锁）；
+//  ③stuck 扫面（红②）：ADMITTED∧expiresAt<now / EXECUTING∧GenerationIntent MIN(deadlineAt)<now /
+//    EXECUTING∧无 RUNNING intent（P1#2 孤儿档——intent 全终态后收口链中断的观测盲区补全）
 //    ——stuck 口径=**request 侧** expiresAt（15min）/deadlineAt（非 input 侧 30d——input 只按终态
 //    过滤）；计数+告警**不删**（poller 消费面）。
 // scope ACTIVE 过滤（R15/C1 两删面）：join CanvasProject.lifecycleState='ACTIVE'+Team.status='ACTIVE'
@@ -24,9 +26,11 @@ import { TeamCreditService } from '../team/team-credit.service';
 export const RETENTION_REQUEST_CLAIM_BATCH = 50;
 /** input 扫面单批删除行数（loop-to-empty 批内 DELETE——同 tick 内循环至空）。 */
 export const RETENTION_INPUT_DELETE_BATCH = 500;
-
-/** raw SQL 事务客户端最小结构面（扫面消费——$queryRaw 语义锚）。 */
-type SweepTx = { $queryRaw: <T = unknown>(q: TemplateStringsArray, ...values: unknown[]) => Promise<T> };
+/** input 扫面每 tick 批数上界（P0#1 活锁根修）：loop-to-empty 无批数上界 ⇔ 单 tick 待删量超 60s
+ *  tick 事务预算（TICK_TX_TIMEOUT_MS）⇒ 超时全回滚+下 tick 从零重做=sweeper 永久排不空且零观测；
+ *  达上界即 cap 出口（capped=true——poller 按需 count 回填 backlog gauge），每 tick 提交部分进度、
+ *  跨 tick 单调排空（200×500=10 万行/tick 上界，超限下 tick 续——测试经 maxBatches 参数注入小 cap）。 */
+export const RETENTION_INPUT_MAX_BATCHES_PER_TICK = 200;
 
 @Injectable()
 export class ExecutionRequestRetentionService {
@@ -61,11 +65,15 @@ export class ExecutionRequestRetentionService {
   /**
    * input 扫面（红①判别双档）：过期∧父行终态行批删循环至空；**未过期零触碰+非终态零触碰**
    * （expiresAt<now ∧ state∈终态——双谓词缺一不删；受理/终态保留窗见 :449 受理写+终态重写口径）。
-   * scope ACTIVE 过滤（DELETING/DISBANDING 行集零触碰）。返回删除行数。
+   * scope ACTIVE 过滤（DELETING/DISBANDING 行集零触碰）。返回 {deleted, capped}——capped=true=
+   * 每 tick 批数上界出口（P0#1：残余行下 tick 续，backlog count 由 poller 回填观测）。
    */
-  async sweepExpiredInputsInTx(tx: Prisma.TransactionClient): Promise<number> {
+  async sweepExpiredInputsInTx(
+    tx: Prisma.TransactionClient,
+    maxBatches: number = RETENTION_INPUT_MAX_BATCHES_PER_TICK,
+  ): Promise<{ deleted: number; capped: boolean }> {
     let deleted = 0;
-    for (;;) {
+    for (let batch = 0; batch < maxBatches; batch += 1) {
       const rows = await tx.$queryRaw<{ requestId: string }[]>`
         DELETE FROM "ExecutionInput"
         WHERE "requestId" IN (
@@ -79,20 +87,23 @@ export class ExecutionRequestRetentionService {
         )
         RETURNING "requestId"`;
       deleted += rows.length;
-      if (rows.length < RETENTION_INPUT_DELETE_BATCH) break;   // 批不满=排空（loop-to-empty 出口）
+      if (rows.length < RETENTION_INPUT_DELETE_BATCH) return { deleted, capped: false };   // 批不满=排空（loop-to-empty 出口）
     }
-    return deleted;
+    return { deleted, capped: true };   // 批数上界出口（cap——残余行下 tick 续，跨 tick 单调排空）
   }
 
   /**
-   * stuck 扫面（红②——只读计数+告警不删）：按状态分两档（stuck 口径=request 侧 expiresAt 15min/
+   * stuck 扫面（红②——只读计数+告警不删）：按状态分三档（stuck 口径=request 侧 expiresAt 15min/
    * deadlineAt——非 input 侧 30d）：
    *  - admitted：ADMITTED∧expiresAt<now（受理窗 15min 已过仍未 claim——本 tick request 扫面将 void，
    *    计数为在飞积压到达信号；持续增量=void 收口链滞留）；
    *  - executing：EXECUTING∧其 RUNNING GenerationIntent MIN(deadlineAt)<now（外呼硬截止已过仍
-   *    EXECUTING——retention 不触碰，人工/收口链处置）。scope ACTIVE 同判（擦除期行不告警）。
+   *    EXECUTING——retention 不触碰，人工/收口链处置）。
+   *  - orphan（P1#2 观测盲区补全）：EXECUTING∧**无任何 RUNNING intent**（intent 全终态后 api 死在
+   *    finalization 前的孤儿——原 INNER JOIN RUNNING 谓词零计数档；与 executing 档谓词互斥不双计）。
+   *    scope ACTIVE 同判（擦除期行不告警）。
    */
-  async countStuckInTx(tx: SweepTx): Promise<{ admitted: number; executing: number }> {
+  async countStuckInTx(tx: Prisma.TransactionClient): Promise<{ admitted: number; executing: number; orphan: number }> {
     const admittedRows = await tx.$queryRaw<{ n: number }[]>`
       SELECT COUNT(*)::int AS n FROM "ExecutionRequest" r
       JOIN "CanvasProject" p ON p."id" = r."projectId" AND p."lifecycleState" = 'ACTIVE'
@@ -104,7 +115,19 @@ export class ExecutionRequestRetentionService {
       JOIN "CanvasProject" p ON p."id" = r."projectId" AND p."lifecycleState" = 'ACTIVE'
       JOIN "Team" t ON t."id" = r."teamId" AND t."status" = 'ACTIVE'
       WHERE r."state" = 'EXECUTING' AND g."deadlineAt" < (now() AT TIME ZONE 'UTC')`;
-    return { admitted: Number(admittedRows[0]?.n ?? 0), executing: Number(executingRows[0]?.n ?? 0) };
+    const orphanRows = await tx.$queryRaw<{ n: number }[]>`
+      SELECT COUNT(*)::int AS n FROM "ExecutionRequest" r
+      JOIN "CanvasProject" p ON p."id" = r."projectId" AND p."lifecycleState" = 'ACTIVE'
+      JOIN "Team" t ON t."id" = r."teamId" AND t."status" = 'ACTIVE'
+      WHERE r."state" = 'EXECUTING' AND NOT EXISTS (
+        SELECT 1 FROM "GenerationIntent" g
+        WHERE g."executionRequestId" = r."id" AND g."status" = 'RUNNING'
+      )`;
+    return {
+      admitted: Number(admittedRows[0]?.n ?? 0),
+      executing: Number(executingRows[0]?.n ?? 0),
+      orphan: Number(orphanRows[0]?.n ?? 0),
+    };
   }
 
   /** request 面积压按需 count（红⑤ backlog 观测——claim 满批时 poller 调用；scope ACTIVE 同判）。 */
@@ -114,6 +137,18 @@ export class ExecutionRequestRetentionService {
       JOIN "CanvasProject" p ON p."id" = r."projectId" AND p."lifecycleState" = 'ACTIVE'
       JOIN "Team" t ON t."id" = r."teamId" AND t."status" = 'ACTIVE'
       WHERE r."state" = 'ADMITTED' AND r."expiresAt" < (now() AT TIME ZONE 'UTC')`;
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  /** input 面积压按需 count（P0#1 cap 出口残余行——poller 回填 backlog gauge；
+   *  谓词/scope 同 sweepExpiredInputsInTx：过期∧父行终态∧scope ACTIVE）。 */
+  async countExpiredTerminalInputBacklog(): Promise<number> {
+    const rows = await this.prisma.$queryRaw<{ n: number }[]>`
+      SELECT COUNT(*)::int AS n FROM "ExecutionInput" i
+      JOIN "ExecutionRequest" r ON r."id" = i."requestId"
+      JOIN "CanvasProject" p ON p."id" = r."projectId" AND p."lifecycleState" = 'ACTIVE'
+      JOIN "Team" t ON t."id" = r."teamId" AND t."status" = 'ACTIVE'
+      WHERE i."expiresAt" < (now() AT TIME ZONE 'UTC') AND r."state" IN ('COMPLETED', 'FAILED', 'VOIDED')`;
     return Number(rows[0]?.n ?? 0);
   }
 }

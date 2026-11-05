@@ -7,7 +7,8 @@
 //    lastSeq<100k ⇒ boundary 负数恒不命中=时间窗单判）；
 //  - 7d 时间窗=createdAt<(now() AT TIME ZONE 'UTC')−7d（Prisma timestamp 列=UTC 墙钟——裸 now()
 //    受会话时区 Asia/Shanghai +08 影响窗口平移 8h，实测同因）。
-// 批内 DELETE ... RETURNING octet_length 循环至空（loop-to-empty——poller tick 事务内消费）。
+// 批内 DELETE ... RETURNING octet_length 循环至空（loop-to-empty——poller tick 事务内消费）+
+// 每 tick 非空删除批数上界（P0#1 cap 出口——部分进度提交、跨 tick 单调排空；空批不计防多项目饥饿）。
 // scope ACTIVE 过滤（C1）：join CanvasProject.lifecycleState='ACTIVE'+Team.status='ACTIVE'
 // （DELETING/DISBANDING 零触碰——擦除中项目行集与 retention 不相交）。
 // minRetainedSeq 推进=api 旧 sweep 语义原样（现存最小 feedSeq−1；全删空=lastSeq 快照档；
@@ -21,17 +22,27 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 /** event 扫面单批删除行数（loop-to-empty——同 tick 内循环至空）。 */
 export const RUNTIME_EVENT_DELETE_BATCH = 500;
+/** event 扫面每 tick 批数上界（P0#1 活锁根修）：loop-to-empty 无批数上界 ⇔ 单 tick 待删量超 60s tick
+ *  事务预算（TICK_TX_TIMEOUT_MS）⇒ 超时全回滚+下 tick 从零重做=sweeper 永久排不空且零观测；达上界
+ *  即 cap 出口（capped=true——poller 按需 count 回填 backlog gauge），每 tick 提交部分进度、跨 tick
+ *  单调排空（200 非空批×500=10 万行/tick 上界）。**空批不计**：ACTIVE 项目首扫免费——cap 只界删除
+ *  工作量（防 >200 项目时空批烧穿 cap ⇒ 尾部项目永久饥饿——非空计数跨 tick 单调收敛）。 */
+export const RUNTIME_EVENT_MAX_BATCHES_PER_TICK = 200;
 
 @Injectable()
 export class RuntimeFeedRetentionService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   /**
-   * 单轮事件清理（poller tick 事务内）：ACTIVE 项目逐个批删至空+推进 minRetainedSeq。
-   * 返回 {deleted, deletedBytes, projects}——deletedBytes=删除批 RETURNING octet_length 和
-   * （runtime_feed_bytes 计数器维护素材；projects=有删除行的项目数）。
+   * 单轮事件清理（poller tick 事务内）：ACTIVE 项目逐个批删至空+推进 minRetainedSeq，**每 tick 非空
+   * 删除批数上界**（P0#1 cap——达界即 capped=true 出口：当前及余下项目 minRetainedSeq 不推进，下 tick
+   * 收敛）。返回 {deleted, deletedBytes, projects, capped}——deletedBytes=删除批 RETURNING octet_length
+   * 和（runtime_feed_bytes 计数器维护素材；projects=有删除行的项目数；capped=cap 出口信号）。
    */
-  async sweepEventsInTx(tx: Prisma.TransactionClient): Promise<{ deleted: number; deletedBytes: number; projects: number }> {
+  async sweepEventsInTx(
+    tx: Prisma.TransactionClient,
+    maxBatches: number = RUNTIME_EVENT_MAX_BATCHES_PER_TICK,
+  ): Promise<{ deleted: number; deletedBytes: number; projects: number; capped: boolean }> {
     const projects = await tx.$queryRaw<{ projectId: string; lastSeq: bigint }[]>`
       SELECT f."projectId", f."lastSeq" FROM "RuntimeFeedCursor" f
       JOIN "CanvasProject" p ON p."id" = f."projectId" AND p."lifecycleState" = 'ACTIVE'
@@ -39,10 +50,13 @@ export class RuntimeFeedRetentionService {
     let deleted = 0;
     let deletedBytes = 0;
     let touched = 0;
+    let batches = 0;            // 每 tick 非空删除批计数（cap 界——空批不计）
+    let capped = false;
     for (const p of projects) {
       const boundary = p.lastSeq - BigInt(RUNTIME_EVENT_RETENTION_MAX_PER_PROJECT);   // 100k 边界法（负数恒不命中）
       let batchDeleted = 0;
       for (;;) {
+        if (batches >= maxBatches) { capped = true; break; }   // cap 出口（残余下 tick 续——部分进度已计 deleted）
         const rows = await tx.$queryRaw<{ bytes: number }[]>`
           DELETE FROM "RuntimeEvent"
           WHERE "id" IN (
@@ -56,10 +70,12 @@ export class RuntimeFeedRetentionService {
           RETURNING octet_length(payload::text) AS bytes`;
         batchDeleted += rows.length;
         deletedBytes += rows.reduce((s, r) => s + Number(r.bytes), 0);
-        if (rows.length < RUNTIME_EVENT_DELETE_BATCH) break;   // 批不满=排空（loop-to-empty 出口）
+        if (rows.length > 0) batches += 1;                    // 空批不计（项目首扫免费——cap 只界删除工作量）
+        if (rows.length < RUNTIME_EVENT_DELETE_BATCH) break;   // 批不满=该项目排空（loop-to-empty 出口）
       }
       deleted += batchDeleted;
       if (batchDeleted > 0) touched += 1;
+      if (capped) break;   // cap 出口：当前项目 minRetainedSeq 不推进（下 tick 重算收敛）
       // minRetainedSeq=现存最小 feedSeq−1（全删空=lastSeq——api 旧 sweep 语义原样对拍）
       const minRow = await tx.runtimeEvent.findFirst({ where: { projectId: p.projectId }, orderBy: { feedSeq: 'asc' }, select: { feedSeq: true } });
       const minRetained = minRow ? minRow.feedSeq - 1n : p.lastSeq;
@@ -68,7 +84,21 @@ export class RuntimeFeedRetentionService {
         await tx.runtimeFeedCursor.updateMany({ where: { projectId: p.projectId }, data: { minRetainedSeq: minRetained } });
       }
     }
-    return { deleted, deletedBytes, projects: touched };
+    return { deleted, deletedBytes, projects: touched, capped };
+  }
+
+  /** event 面积压按需 count（P0#1 cap 出口残余行——poller 回填 backlog gauge）：保留窗外残余
+   *  （feedSeq≤lastSeq−100k 边界法 ∨ 7d 时间窗，谓词同 sweep）∧ scope ACTIVE∧有 cursor 项目域
+   *  （无 cursor 项目不在 sweep 扫面——count 同域防虚高）。 */
+  async countRetentionBacklog(): Promise<number> {
+    const rows = await this.prisma.$queryRaw<{ n: number }[]>`
+      SELECT COUNT(*)::int AS n FROM "RuntimeEvent" e
+      JOIN "RuntimeFeedCursor" f ON f."projectId" = e."projectId"
+      JOIN "CanvasProject" p ON p."id" = e."projectId" AND p."lifecycleState" = 'ACTIVE'
+      JOIN "Team" t ON t."id" = p."teamId" AND t."status" = 'ACTIVE'
+      WHERE e."feedSeq" <= (f."lastSeq" - ${RUNTIME_EVENT_RETENTION_MAX_PER_PROJECT})
+        OR e."createdAt" < ((now() AT TIME ZONE 'UTC') - (${RUNTIME_EVENT_RETENTION_DAYS} * interval '1 day'))`;
+    return Number(rows[0]?.n ?? 0);
   }
 
   /** boot 基线（runtime_feed_bytes 计数器维护——全表 SUM 仅此一次：此后删除批累减，
@@ -85,6 +115,8 @@ export class RuntimeFeedRetentionService {
  * RuntimeFeedService.snapshotEnvelope 只折 RuntimeEvent（:266-289）⇒ 被清节点静默空白；
  * 真源（NodeExecution——PG 权威行）在场的缺槽节点集显式返回（envelope.retention.unknownNodeIds），
  * 「从未执行」与「已执行但事件被清理」可区分（客户端 unknown≠idle——shared RUNTIME_STORE 契约）。
+ * 【评审登记】unknownNodeIds 无界增长面：事件全清理而真源全在场的长寿命项目 ⇒ 集合=历史全员节点
+ * （envelope 膨胀观测项——暂不设界，容量压力再裁）。
  */
 export function retentionUnknownNodeIds(
   foldedNodes: Readonly<Record<string, RuntimeNodeProjectionEntry>>,

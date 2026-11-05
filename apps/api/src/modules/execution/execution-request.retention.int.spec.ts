@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ExecutionRequestRetentionService } from './execution-request.retention.service';
+import { ExecutionRequestRetentionService, RETENTION_INPUT_DELETE_BATCH } from './execution-request.retention.service';
 import { ExecutionRequestService } from './execution-request.service';
 import { ValidationService } from './validation.service';
 import { TopologyService } from './topology.service';
@@ -102,7 +102,7 @@ const sweepRequests = () => prisma.$transaction((tx) => retention.sweepExpiredIn
     await insertRequest({ id: c, projectId: PID, state: 'ADMITTED', inputAgeMs: DAY, requestExpiresAtMs: 3600_000 });   // 留（非终态——request expiresAt 未来，不污染后续 stuck/claim 计数）
     await insertRequest({ id: d, projectId: PID_DELETING, state: 'COMPLETED', inputAgeMs: DAY });    // 留（DELETING scope）
 
-    const deleted = await sweepInputs();
+    const deleted = (await sweepInputs()).deleted;   // C1-1 P0#1 返回改 {deleted, capped}——计数面取 deleted
     expect(deleted).toBeGreaterThanOrEqual(1);   // 共库共享 dev 库——计数面取下界，判别双档以行命运断言
     expect(await prisma.executionInput.findUnique({ where: { requestId: a } })).toBeNull();       // 过期∧终态 → 删
     expect(await prisma.executionInput.findUnique({ where: { requestId: b } })).not.toBeNull();    // 未过期 → 零触碰
@@ -123,11 +123,11 @@ const sweepRequests = () => prisma.$transaction((tx) => retention.sweepExpiredIn
     expect(input.expiresAt.getTime()).toBeGreaterThan(Date.now() + 29 * DAY);
     expect(input.expiresAt.getTime()).toBeLessThan(Date.now() + 31 * DAY);
 
-    expect(await sweepInputs()).toBeGreaterThanOrEqual(0);   // 终态后 <30d：本行不删（计数面下界=共享库其他victim不计）
+    expect((await sweepInputs()).deleted).toBeGreaterThanOrEqual(0);   // 终态后 <30d：本行不删（计数面下界=共享库其他victim不计）
     expect(await prisma.executionInput.findUnique({ where: { requestId: r } })).not.toBeNull();   // 行命运：不删
 
     await prisma.executionInput.update({ where: { requestId: r }, data: { expiresAt: new Date(Date.now() - 1000) } });   // 模拟终态后 30d
-    expect(await sweepInputs()).toBeGreaterThanOrEqual(1);
+    expect((await sweepInputs()).deleted).toBeGreaterThanOrEqual(1);
     expect(await prisma.executionInput.findUnique({ where: { requestId: r } })).toBeNull();       // 行命运：终态后 30d → 删
   });
 
@@ -195,11 +195,82 @@ const sweepRequests = () => prisma.$transaction((tx) => retention.sweepExpiredIn
       .toBeGreaterThan(Date.now() + 29 * DAY);   // VOIDED 终态重写（红① 口径在 void 面的实证）
   });
 
+  // ── P1#2：stuck 孤儿档（观测盲区补全——原 INNER JOIN RUNNING 谓词零计数档）─────────────
+  it('红② 孤儿档：EXECUTING∧无 RUNNING intent → EXECUTING_ORPHAN 档计数+1；RUNNING intent 在场不进该档；告警不删', async () => {
+    const baseline = await prisma.$transaction((tx) => retention.countStuckInTx(tx));   // 共享 dev 库——全局计数取基线差
+    const orphan = randomUUID();
+    const withRunning = randomUUID();
+    reqIds.push(orphan, withRunning);
+    // 孤儿：EXECUTING∧无 RUNNING intent（intent 全终态后 api 死在 finalization 前的收口链中断档）
+    await insertRequest({ id: orphan, projectId: PID, state: 'EXECUTING', inputAgeMs: 0 });
+    // 对照：EXECUTING∧RUNNING intent 在场 → 不进孤儿档
+    await insertRequest({ id: withRunning, projectId: PID, state: 'EXECUTING', inputAgeMs: 0 });
+    const iid = randomUUID();
+    intentIds.push(iid);
+    await prisma.generationIntent.create({ data: {
+      id: iid, projectId: PID, nodeId: `n-${iid.slice(0, 8)}`, userId: UID, teamId: TID,
+      intentId: `iid-${iid}`, kind: 'text', paramsHash: 'c'.repeat(64), status: 'RUNNING',
+      creditCost: 0, idemKey: `idem-${iid}`, heartbeatAt: new Date(Date.now() - 3600_000),
+      deadlineAt: new Date(Date.now() + 3600_000), execSeq: BigInt(Date.now()) + BigInt(intentIds.length),
+      executionRequestId: withRunning,
+    } });
+
+    const stuck = await prisma.$transaction((tx) => retention.countStuckInTx(tx));
+    expect(stuck.orphan - baseline.orphan).toBe(1);   // 孤儿 → EXECUTING_ORPHAN 档恰 +1（RUNNING 在场对照不进档）
+    // 告警不删：孤儿行原样在档（stuck 面只读——处置归人工/收口链）
+    expect(await prisma.executionRequest.count({ where: { id: { in: [orphan, withRunning] } } })).toBe(2);
+  });
+
+  // ── P0#1：loop-to-empty 批数上界（活锁根修——cap 出口+部分进度跨 tick 单调排空）─────────
+  it('红① cap：input 扫面每 tick 批数上界——首 tick 恰 cap 批出口+部分进度已提交（残余在库）+backlog count 回填+第二 tick 续排空', async () => {
+    const backlogBefore = await retention.countExpiredTerminalInputBacklog();   // 共享 dev 库——按需 count 取基线差（望远镜：同窗外域删除与本域残余抵消）
+    const N = RETENTION_INPUT_DELETE_BATCH + 100;   // >1 批积压：cap=1 首 tick 恰 500、残余 100
+    const capIds = Array.from({ length: N }, () => randomUUID());
+    reqIds.push(...capIds);
+    const past = new Date(Date.now() - 1000);
+    await prisma.executionRequest.createMany({ data: capIds.map((id) => ({
+      id, requestId: `req-${id}`, projectId: PID, generation: 0, historyId: HISTORY_ID,
+      docSeq: 0n, frozenDocSeq: 0n, userId: UID, teamId: TID, kind: 'text', state: 'COMPLETED',
+      reservedCredit: 0, totalCredit: 0, planHash: 'a'.repeat(64), inputHash: 'b'.repeat(64), expiresAt: past,
+    })) });
+    await prisma.executionInput.createMany({ data: capIds.map((id) => ({
+      requestId: id, encoding: 'json+brotli', content: Buffer.from('x'), contentHash: 'b'.repeat(64),
+      rawBytes: 1, storedBytes: 1, schemaVersion: 4, expiresAt: past,
+    })) });
+    inputIds.push(...capIds);
+
+    // 首 tick：小 cap 注入=1 批（生产默认 200——可测性注入）——恰删 1 批、cap 出口、残余在库（部分进度已提交）
+    const first = await prisma.$transaction((tx) => retention.sweepExpiredInputsInTx(tx, 1));
+    expect(first.deleted).toBe(RETENTION_INPUT_DELETE_BATCH);   // 恰 1 批=500（cap 即批实绩）
+    expect(first.capped).toBe(true);                           // cap 出口（≠排空出口——残余行下 tick 续）
+    expect(await prisma.executionInput.count({ where: { requestId: { in: capIds } } }))
+      .toBeGreaterThanOrEqual(N - RETENTION_INPUT_DELETE_BATCH);   // 残余行仍在库（事务提交=部分进度落盘）
+    // cap 出口 ⇒ backlog gauge 回填素材（poller 消费面）：按需 count 基线差恰=本域残余（外域同窗删除被基线吸收）
+    expect(await retention.countExpiredTerminalInputBacklog())
+      .toBe(backlogBefore + (N - RETENTION_INPUT_DELETE_BATCH));
+
+    // 第二 tick：续排空（残余 100<1 批 ⇒ 非 cap 出口——跨 tick 单调排空收敛）
+    const second = await prisma.$transaction((tx) => retention.sweepExpiredInputsInTx(tx, 1));
+    expect(second.capped).toBe(false);
+    expect(await prisma.executionInput.count({ where: { requestId: { in: capIds } } })).toBe(0);   // 排空
+  });
+
+  // ── Minor#6：终态迁移状态 CAS 谓词（非 EXECUTING 行不被覆盖——并发让位者已终态/已 void）───
+  it('红（Minor#6）transitionRequestTerminal 状态 CAS：非 EXECUTING 行零触碰（迟到终态写不覆盖已终态行）', async () => {
+    const done = randomUUID();
+    reqIds.push(done);
+    // 双 worker 并发域：首者已 COMPLETED 收口——次者（:690 CAS 让位续跑者）迟到的终态写不得覆盖
+    await insertRequest({ id: done, projectId: PID, state: 'COMPLETED', inputAgeMs: 0 });
+    await requests.transitionRequestTerminal(done, 'FAILED');
+    expect((await prisma.executionRequest.findUniqueOrThrow({ where: { id: done } })).state).toBe('COMPLETED');   // 状态 CAS 0 命中——原终态不动
+  });
+
   // ── 红③：FAILED→删 input→同 requestId replay 幂等返回原值不读 input ─────────────────────
   it('红③：FAILED→input 扫面删→同 requestId replay 幂等返回原值（不读 input）', async () => {
     const r = randomUUID();
     reqIds.push(r);
-    await insertRequest({ id: r, projectId: PID, state: 'ADMITTED', inputAgeMs: 0 });
+    // Minor#6 态域修正：生产终态写域=EXECUTING（:690 ADMITTED→EXECUTING CAS 抢占先行）——夹具直插终态写域
+    await insertRequest({ id: r, projectId: PID, state: 'EXECUTING', inputAgeMs: 0 });
     // 幂等身份域基线（plan 集与 replay nodeIds 同集）
     await prisma.executionNodePlan.createMany({ data: [
       { requestId: r, nodeId: 'n1', order: 0, type: 'textGen', paramsHash: 'd'.repeat(64), status: 'SETTLED' },
@@ -207,7 +278,7 @@ const sweepRequests = () => prisma.$transaction((tx) => retention.sweepExpiredIn
     ] });
     await requests.transitionRequestTerminal(r, 'FAILED');
     await prisma.executionInput.update({ where: { requestId: r }, data: { expiresAt: new Date(Date.now() - 1000) } });
-    expect(await sweepInputs()).toBeGreaterThanOrEqual(1);   // FAILED 终态+过期 → input 已删（含本行）
+    expect((await sweepInputs()).deleted).toBeGreaterThanOrEqual(1);   // FAILED 终态+过期 → input 已删（含本行）
     expect(await prisma.executionInput.findUnique({ where: { requestId: r } })).toBeNull();   // 行命运：本行已删
 
     // replay：同 (projectId,requestId) 在档 → 幂等返回原值（:309-332 只读 request/plans——不读 input）

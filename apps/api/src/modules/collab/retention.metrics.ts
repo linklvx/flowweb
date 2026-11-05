@@ -24,21 +24,23 @@ export const retentionDeletedRowsTotal = new Counter({
   registers: [register],
 });
 
-/** 扫面积压行数（gauge——按需 count：request 面 claim 满批 ⇒ 积压可能未尽，count 回填真实余量；
- *  runtime_event 面 loop-to-empty 恒清零。观测 THRESHOLDS gauge-max 消费——持续高位=排空链异常）。 */
+/** 扫面积压行数（gauge——按需 count：request 面 claim 满批/input·event 两 loop-to-empty 面 cap 出口
+ *  （P0#1 每 tick 批数上界）⇒ 积压可能未尽，count 回填真实余量；cap 未触=正常排空=归零（每 tick
+ *  部分进度提交、跨 tick 单调排空）。观测 THRESHOLDS gauge-max 消费——持续高位=排空链异常）。 */
 export const retentionBacklogRows = new Gauge({
   name: 'retention_backlog_rows',
-  help: 'C1 retention 扫面积压行数（table=execution_request 过期未执行待 void 批——claim 满批时按需 count 回填，≤50/tick 多 tick 排空/runtime_event loop-to-empty 恒清零；持续高位=排空链异常信号）',
+  help: 'C1 retention 扫面积压行数（table=execution_request 过期未执行待 void 批——claim 满批时按需 count 回填/execution_input 过期∧终态批删残余/runtime_event 保留期外事件残余——两面 cap 出口按需 count 回填，≤批界/tick 部分进度跨 tick 单调排空；持续高位=排空链异常信号）',
   labelNames: ['table'],
   registers: [register],
 });
 
 /** stuck 请求计数（红②——告警不删：stuck 口径=request 侧 expiresAt 15min/deadlineAt，
  *  非 input 侧 30d〔input 只按终态过滤〕；state=ADMITTED 过期未 claim/EXECUTING 过 GenerationIntent
- *  MIN(deadlineAt)——资金在飞收口链滞留信号）。 */
+ *  MIN(deadlineAt)/EXECUTING_ORPHAN=EXECUTING∧无 RUNNING intent（P1#2 孤儿档——intent 全终态后
+ *  收口链中断的观测盲区补全）——资金在飞收口链滞留信号）。 */
 export const retentionStuckRequestsTotal = new Counter({
   name: 'retention_stuck_requests_total',
-  help: 'C1（红②）stuck 请求计数（state=ADMITTED 过期未 claim/EXECUTING 过 GenerationIntent deadline——告警不删；stuck 口径=request 侧 expiresAt 15min/deadlineAt 非 input 侧 30d）',
+  help: 'C1（红②）stuck 请求计数（state=ADMITTED 过期未 claim/EXECUTING 过 GenerationIntent deadline/EXECUTING_ORPHAN 无 RUNNING intent 孤儿——告警不删；stuck 口径=request 侧 expiresAt 15min/deadlineAt 非 input 侧 30d）',
   labelNames: ['state'],
   registers: [register],
 });

@@ -10,7 +10,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { register } from 'prom-client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { RuntimeFeedRetentionService } from './runtime-feed.retention.service';
+import { RuntimeFeedRetentionService, RUNTIME_EVENT_DELETE_BATCH } from './runtime-feed.retention.service';
 import { RuntimeFeedService } from './runtime-feed.service';
 import './retention.metrics';   // 副作用注册（runtime_feed_bytes 迁入面——零 projectId 标签断言载体）
 import { RUNTIME_EVENT_RETENTION_DAYS, RUNTIME_EVENT_RETENTION_MAX_PER_PROJECT } from '@flowweb/shared';
@@ -24,6 +24,7 @@ const DAY = 24 * 3600_000;
 const PID = `int-c11-feed-${Date.now()}`;
 const PID8 = `${PID}-8d`;
 const PID_DEL = `${PID}-del`;
+const PID_CAP = `${PID}-cap`;   // P0#1 cap 夹具项目（600 陈旧行——cap 出口/残余/续排空）
 const UID = `int-c11-feed-owner-${Date.now()}`;
 
 const sweepEvents = () => prisma.$transaction((tx) => feedRetention.sweepEventsInTx(tx));
@@ -49,7 +50,7 @@ const mkExec = (projectId: string, nodeId: string) => ({
   }, 20_000);
 
   afterAll(async () => {
-    for (const pid of [PID, PID8, PID_DEL]) {
+    for (const pid of [PID, PID8, PID_DEL, PID_CAP]) {
       await prisma.runtimeEvent.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
       await prisma.runtimeFeedCursor.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
       await prisma.nodeExecution.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
@@ -148,5 +149,26 @@ const mkExec = (projectId: string, nodeId: string) => ({
     expect(m!.labelNames ?? []).toEqual([]);   // projectId 标签删除断言
     const baseline = await feedRetention.bytesBaseline();
     expect(baseline).toBeGreaterThanOrEqual(0);   // boot SUM 一次（此后删除批累减——api 每 SUM 扫废止）
+  });
+
+  it('红⑦ cap：event 扫面每 tick 批数上界——首 tick 恰 cap 批出口+部分进度已提交（残余在库）+backlog count 回填+第二 tick 续排空', async () => {
+    // 夹具：PID_CAP 600 行 8d 陈旧（>1 批——cap=1 首 tick 恰 500、残余 100）；其余项目界内新鲜=零贡献
+    await prisma.canvasProject.create({ data: { id: PID_CAP, name: PID_CAP, teamId: TID, userId: UID } });
+    await prisma.runtimeFeedCursor.create({ data: { projectId: PID_CAP, lastSeq: 600n, minRetainedSeq: 0n } });
+    await prisma.runtimeEvent.createMany({ data: Array.from({ length: 600 }, (_, i) => mkEvent(PID_CAP, i + 1, 8 * DAY, `n-cap-${i}`)) });
+
+    // 首 tick：小 cap 注入=1 批（生产默认 200——可测性注入）——恰删 1 批、cap 出口、残余在库（部分进度已提交）
+    const first = await prisma.$transaction((tx) => feedRetention.sweepEventsInTx(tx, 1));
+    expect(first.deleted).toBe(RUNTIME_EVENT_DELETE_BATCH);   // 恰 1 批=500（per-project 批界——外域不占本批）
+    expect(first.capped).toBe(true);                           // cap 出口（≠排空出口——残余行下 tick 续）
+    expect(await prisma.runtimeEvent.count({ where: { projectId: PID_CAP } })).toBe(600 - RUNTIME_EVENT_DELETE_BATCH);
+    // cap 出口 ⇒ backlog gauge 回填素材（poller 消费面）：按需 count=保留窗外残余恰 100（其余项目界内新鲜零贡献）
+    expect(await feedRetention.countRetentionBacklog()).toBe(600 - RUNTIME_EVENT_DELETE_BATCH);
+
+    // 第二 tick：续排空（残余 100<1 批 ⇒ 非 cap 出口——跨 tick 单调排空收敛；全删空=minRetainedSeq lastSeq 快照档）
+    const second = await prisma.$transaction((tx) => feedRetention.sweepEventsInTx(tx, 1));
+    expect(second.capped).toBe(false);
+    expect(await prisma.runtimeEvent.count({ where: { projectId: PID_CAP } })).toBe(0);   // 排空
+    expect((await prisma.runtimeFeedCursor.findUniqueOrThrow({ where: { projectId: PID_CAP } })).minRetainedSeq).toBe(600n);
   });
 });

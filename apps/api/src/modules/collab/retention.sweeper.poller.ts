@@ -4,10 +4,13 @@
 // 每 tick 主体跑在**一个事务**内（Controller 裁定 1）：
 //  ①首句 `pg_try_advisory_xact_lock(hashtext('flowweb:retention'))`——失败 ⇒ 双 worker 并发 tick 单飞
 //    让位（红④：xact 域=事务结束释放 ⇒ 同事务内第二取锁者必然失败）→ skip+计数；
-//  ②stuck 扫面（红②——只读计数+告警不删）→ ③request 扫面（红⑤：claim ≤50 FOR UPDATE SKIP LOCKED
-//    +同事务 voidForExecutionRequestInTx）→ ④input 扫面（红①：loop-to-empty 批删）→ ⑤event 扫面
-//    （红⑦：loop-to-empty+minRetainedSeq 推进+bytes 素材）。
-// 多 tick 排空由本 poller 间隔驱动（红⑤ 1000 行积压≈20 tick）；连续失败 ≥3 ⇒ 退避窗跳过（红⑤后半）。
+//  ②stuck 扫面（红②——只读计数+告警不删；P1#2 孤儿档 EXECUTING∧无 RUNNING intent）→ ③request 扫面
+//    （红⑤：claim ≤50 FOR UPDATE SKIP LOCKED+同事务 voidForExecutionRequestInTx）→ ④input 扫面
+//    （红①：loop-to-empty 批删+**每 tick 批数上界**——P0#1）→ ⑤event 扫面（红⑦：loop-to-empty+cap
+//    +minRetainedSeq 推进+bytes 素材）。
+// 多 tick 排空由本 poller 间隔驱动（红⑤ 1000 行积压≈20 tick；P0#1 两 loop-to-empty 面 cap 出口
+// ⇒ 每 tick 提交部分进度、跨 tick 单调排空+backlog 按需 count 回填——防 60s tick 事务预算超限
+// 全回滚活锁的「静默死亡」）；连续失败 ≥3 ⇒ 退避窗（红⑤后半——扫面成功重置在观测块前，Minor#4）。
 // 指标全挂 **tick 事务提交后**（回滚不虚计）；计数面=retention.metrics.ts 单源（source=worker 3002）。
 // tick 词表注记：本 poller 不入 CollabJobCursor（shared COLLAB_JOB_CURSOR_JOBS——单飞走 advisory
 // 锁无游标消费）。
@@ -79,15 +82,15 @@ export class RetentionSweeperPoller implements OnModuleInit, OnApplicationShutdo
         const lock = await rawTx.$queryRaw<{ ok: boolean }[]>`
           SELECT pg_try_advisory_xact_lock(hashtext(${RETENTION_ADVISORY_KEY})) AS ok`;
         if (!lock[0]?.ok) return { skipped: true as const };
-        // 红② stuck 扫面（只读计数——告警不删）
+        // 红② stuck 扫面（只读计数——告警不删；P1#2 孤儿档=EXECUTING∧无 RUNNING intent）
         const stuck = await this.requestRetention.countStuckInTx(rawTx);
         // 红⑤ request 扫面（claim ≤50+同事务 void）
         const request = await this.requestRetention.sweepExpiredInTx(rawTx);
-        // 红① input 扫面（loop-to-empty 批删）
-        const inputDeleted = await this.requestRetention.sweepExpiredInputsInTx(rawTx);
-        // 红⑦ event 扫面（loop-to-empty+minRetainedSeq 推进+bytes 素材）
+        // 红① input 扫面（loop-to-empty 批删+每 tick 批数上界——P0#1 cap 出口）
+        const input = await this.requestRetention.sweepExpiredInputsInTx(rawTx);
+        // 红⑦ event 扫面（loop-to-empty+minRetainedSeq 推进+bytes 素材+cap 出口）
         const events = await this.feedRetention.sweepEventsInTx(rawTx);
-        return { skipped: false as const, stuck, request, inputDeleted, events };
+        return { skipped: false as const, stuck, request, input, events };
       }, { timeout: TICK_TX_TIMEOUT_MS, maxWait: 10_000 });
       if (stats.skipped) {
         retentionSweeperTickTotal.inc({ result: 'skip-singleflight' });
@@ -96,25 +99,34 @@ export class RetentionSweeperPoller implements OnModuleInit, OnApplicationShutdo
       // 提交后计数（tx 回滚不虚计——计数面与删除面同生共死）
       retentionSweeperTickTotal.inc({ result: 'ok' });
       if (stats.request.voided > 0) retentionVoidTotal.inc(stats.request.voided);
-      if (stats.inputDeleted > 0) retentionDeletedRowsTotal.inc({ table: 'execution_input' }, stats.inputDeleted);
+      if (stats.input.deleted > 0) retentionDeletedRowsTotal.inc({ table: 'execution_input' }, stats.input.deleted);
       if (stats.events.deleted > 0) retentionDeletedRowsTotal.inc({ table: 'runtime_event' }, stats.events.deleted);
-      if (stats.stuck.admitted > 0 || stats.stuck.executing > 0) {
+      if (stats.stuck.admitted > 0 || stats.stuck.executing > 0 || stats.stuck.orphan > 0) {
         retentionStuckRequestsTotal.inc({ state: 'ADMITTED' }, stats.stuck.admitted);
         retentionStuckRequestsTotal.inc({ state: 'EXECUTING' }, stats.stuck.executing);
-        this.logger.warn(`retention stuck：admitted=${stats.stuck.admitted}（过期未 claim——本 tick request 扫面 void 批）、executing=${stats.stuck.executing}（过 GenerationIntent deadline——告警不删，人工/收口链处置）`);
+        retentionStuckRequestsTotal.inc({ state: 'EXECUTING_ORPHAN' }, stats.stuck.orphan);
+        this.logger.warn(`retention stuck：admitted=${stats.stuck.admitted}（过期未 claim——本 tick request 扫面 void 批）、executing=${stats.stuck.executing}（过 GenerationIntent deadline）、orphan=${stats.stuck.orphan}（EXECUTING∧无 RUNNING intent——收口链中断孤儿；告警不删，人工/收口链处置）`);
       }
-      // backlog 按需 count（红⑤观测面）：claim 满批 ⇒ 积压可能未尽（count 回填真实余量）；
-      // event 面 loop-to-empty 恒清零。
+      // Minor#4：扫面成功重置**在观测块前**（tx 已提交——观测块抛错不得误武装退避/误计连续失败；
+      // 观测失败进 catch 后 consecutiveErrors=1 恒不达 CONSECUTIVE_FAIL_EXIT=3）
+      this.consecutiveErrors = 0;
+      this.backoffUntil = 0;
+      // backlog 按需 count（观测面）：request 面 claim 满批/两 loop-to-empty 面 cap 出口（P0#1）⇒ 积压
+      // 可能未尽，count 回填真实余量（「静默死亡」观测半边）；cap 未触=正常排空=归零（每 tick 部分进度
+      // 提交——跨 tick 单调排空，持续高位=排空链异常信号）。
       retentionBacklogRows.set({ table: 'execution_request' }, stats.request.claimed >= RETENTION_REQUEST_CLAIM_BATCH
         ? await this.requestRetention.countExpiredAdmittedBacklog() : 0);
-      retentionBacklogRows.set({ table: 'runtime_event' }, 0);
-      // runtime_feed_bytes 计数器维护：基线−累计删除（gauge 低估方向漂移+重启重播种——metrics 注记）
+      retentionBacklogRows.set({ table: 'execution_input' }, stats.input.capped
+        ? await this.requestRetention.countExpiredTerminalInputBacklog() : 0);
+      retentionBacklogRows.set({ table: 'runtime_event' }, stats.events.capped
+        ? await this.feedRetention.countRetentionBacklog() : 0);
+      // runtime_feed_bytes 计数器维护：基线−累计删除（gauge 低估方向漂移+重启重播种——metrics 注记）。
+      // 【Minor#3 双实例登记】advisory 单飞保 tick 互斥但**不分派所有权** ⇒ 双 worker 实例部署各持独立
+      // 基线/累减——本 gauge 仅单实例部署可信（多实例=各实例低估值，容量观测安全方向低估）。
       if (this.feedBytesBaseline !== null && stats.events.deletedBytes > 0) {
         this.feedBytesDeleted += stats.events.deletedBytes;
         runtimeFeedBytes.set(this.feedBytesBaseline - this.feedBytesDeleted);
       }
-      this.consecutiveErrors = 0;
-      this.backoffUntil = 0;
     } catch (e) {
       this.consecutiveErrors += 1;
       retentionSweeperTickTotal.inc({ result: 'error' });

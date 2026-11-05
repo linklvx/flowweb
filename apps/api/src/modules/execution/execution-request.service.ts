@@ -534,7 +534,9 @@ export class ExecutionRequestService {
 
   // ═══ 终态迁移（C1-1 红① 终态重写口径——spec §6.1）══════════════════════════════════════
 
-  /** ExecutionRequest 终态迁移（COMPLETED|FAILED）：状态 CAS+**同事务 UPDATE ExecutionInput
+  /** ExecutionRequest 终态迁移（COMPLETED|FAILED）：状态 CAS（**updateMany state=EXECUTING 谓词**——
+   *  Minor#6：非 EXECUTING 行零触碰，双 worker 并发让位续跑者迟到的终态写不覆盖已终态/已 void 行；
+   *  态域=:690 ADMITTED→EXECUTING CAS 抢占先行）+**同事务 UPDATE ExecutionInput
    *  expiresAt=now+30d**（:449 受理写=now+30d 的语义修正——长任务受理后久未终态时受理窗早已过期，
    *  终态即删缺口根除：expiresAt 在终态迁移点重写 ⇒ 删除恒在终态后 30d，与任务时长无关；红①夹具=
    *  受理 31 天后才终态 → 终态后 30d 才删）。30d 单源=shared collab/retention.ts
@@ -542,7 +544,7 @@ export class ExecutionRequestService {
    *  （VOIDED 档同事务同款重写）。ExecutionService :817 终态收口唯一消费面（remaining===0 分支）。 */
   async transitionRequestTerminal(requestId: string, state: 'COMPLETED' | 'FAILED'): Promise<void> {
     await this.prisma.$transaction([
-      this.prisma.executionRequest.updateMany({ where: { id: requestId }, data: { state } }),
+      this.prisma.executionRequest.updateMany({ where: { id: requestId, state: REQ_STATE.EXECUTING }, data: { state } }),
       // 时钟纪律：now() 按 UTC 墙钟折算（Prisma 写入的 timestamp 列=UTC 墙钟——裸 now() 受会话时区
       // 〔Asia/Shanghai +08〕影响保留窗平移 8h；对拍点=team-credit voidForExecutionRequestInTx 同款）
       this.prisma.$executeRaw`

@@ -22,13 +22,15 @@ const buildTx = (lockOk: boolean) => ({
 
 const buildFaces = () => ({
   requestRetention: {
-    countStuckInTx: vi.fn(async () => ({ admitted: 0, executing: 0 })),
+    countStuckInTx: vi.fn(async () => ({ admitted: 0, executing: 0, orphan: 0 })),
     sweepExpiredInTx: vi.fn(async () => ({ claimed: 0, voided: 0 })),
-    sweepExpiredInputsInTx: vi.fn(async () => 0),
+    sweepExpiredInputsInTx: vi.fn(async () => ({ deleted: 0, capped: false })),
     countExpiredAdmittedBacklog: vi.fn(async () => 0),
+    countExpiredTerminalInputBacklog: vi.fn(async () => 0),
   },
   feedRetention: {
-    sweepEventsInTx: vi.fn(async () => ({ deleted: 0, deletedBytes: 0, projects: 0 })),
+    sweepEventsInTx: vi.fn(async () => ({ deleted: 0, deletedBytes: 0, projects: 0, capped: false })),
+    countRetentionBacklog: vi.fn(async () => 0),
     bytesBaseline: vi.fn(async () => 12345),
   },
 });
@@ -69,9 +71,9 @@ describe('C1-1 RetentionSweeperPoller（unit——tick 编排）', () => {
     const backlogBefore = await metricValue('retention_backlog_rows', { table: 'execution_request' });
     const { poller, faces, tx } = buildPoller(true);
     faces.requestRetention.sweepExpiredInTx.mockResolvedValue({ claimed: RETENTION_REQUEST_CLAIM_BATCH, voided: 3 });
-    faces.requestRetention.sweepExpiredInputsInTx.mockResolvedValue(7);
-    faces.feedRetention.sweepEventsInTx.mockResolvedValue({ deleted: 9, deletedBytes: 512, projects: 1 });
-    faces.requestRetention.countStuckInTx.mockResolvedValue({ admitted: 2, executing: 1 });
+    faces.requestRetention.sweepExpiredInputsInTx.mockResolvedValue({ deleted: 7, capped: false });
+    faces.feedRetention.sweepEventsInTx.mockResolvedValue({ deleted: 9, deletedBytes: 512, projects: 1, capped: false });
+    faces.requestRetention.countStuckInTx.mockResolvedValue({ admitted: 2, executing: 1, orphan: 0 });
     faces.requestRetention.countExpiredAdmittedBacklog.mockResolvedValue(4242);
     await poller.tick();
     // 同一 tx 实例贯穿四扫面（Controller 裁定 1：每 tick 主体一个事务）
@@ -106,11 +108,13 @@ describe('C1-1 RetentionSweeperPoller（unit——tick 编排）', () => {
       requestRetention: {
         countStuckInTx: vi.fn(async () => { throw new Error('db down'); }),
         sweepExpiredInTx: vi.fn(async () => ({ claimed: 0, voided: 0 })),
-        sweepExpiredInputsInTx: vi.fn(async () => 0),
+        sweepExpiredInputsInTx: vi.fn(async () => ({ deleted: 0, capped: false })),
         countExpiredAdmittedBacklog: vi.fn(async () => 0),
+        countExpiredTerminalInputBacklog: vi.fn(async () => 0),
       },
       feedRetention: {
-        sweepEventsInTx: vi.fn(async () => ({ deleted: 0, deletedBytes: 0, projects: 0 })),
+        sweepEventsInTx: vi.fn(async () => ({ deleted: 0, deletedBytes: 0, projects: 0, capped: false })),
+        countRetentionBacklog: vi.fn(async () => 0),
         bytesBaseline: vi.fn(async () => 0),
       },
     };
@@ -167,5 +171,48 @@ describe('C1-1 RetentionSweeperPoller（unit——tick 编排）', () => {
     await poller2.onModuleInit();
     expect((poller2 as unknown as { timer: unknown }).timer).not.toBeNull();
     await poller2.onApplicationShutdown();
+  });
+
+  it('红① cap 出口 ⇒ input/event 两面 backlog 按需 count 回填 gauge；cap 未触 ⇒ 零触发+归零', async () => {
+    const { poller, faces } = buildPoller(true);
+    faces.requestRetention.sweepExpiredInTx.mockResolvedValue({ claimed: 0, voided: 0 });
+    faces.requestRetention.sweepExpiredInputsInTx.mockResolvedValue({ deleted: 700, capped: true });   // input 面 cap 出口
+    faces.requestRetention.countExpiredTerminalInputBacklog.mockResolvedValue(777);
+    faces.feedRetention.sweepEventsInTx.mockResolvedValue({ deleted: 900, deletedBytes: 0, projects: 1, capped: true });   // event 面 cap 出口
+    faces.feedRetention.countRetentionBacklog.mockResolvedValue(888);
+    await poller.tick();
+    // cap 出口 ⇒ 两面按需 count 各恰一次（残余行回填 backlog gauge——「静默死亡」观测半边）
+    expect(faces.requestRetention.countExpiredTerminalInputBacklog).toHaveBeenCalledTimes(1);
+    expect(faces.feedRetention.countRetentionBacklog).toHaveBeenCalledTimes(1);
+    expect(await metricValue('retention_backlog_rows', { table: 'execution_input' })).toBe(777);
+    expect(await metricValue('retention_backlog_rows', { table: 'runtime_event' })).toBe(888);
+    // cap 未触（capped=false）⇒ 两面按需 count 零触发+gauge 归零（正常排空不挂观测）
+    faces.requestRetention.sweepExpiredInputsInTx.mockResolvedValue({ deleted: 3, capped: false });
+    faces.feedRetention.sweepEventsInTx.mockResolvedValue({ deleted: 4, deletedBytes: 0, projects: 0, capped: false });
+    await poller.tick();
+    expect(faces.requestRetention.countExpiredTerminalInputBacklog).toHaveBeenCalledTimes(1);   // 未再触发
+    expect(faces.feedRetention.countRetentionBacklog).toHaveBeenCalledTimes(1);
+    expect(await metricValue('retention_backlog_rows', { table: 'execution_input' })).toBe(0);
+    expect(await metricValue('retention_backlog_rows', { table: 'runtime_event' })).toBe(0);
+  });
+
+  it('红② 孤儿档：EXECUTING∧无 RUNNING intent ⇒ retention_stuck_requests_total{state=EXECUTING_ORPHAN} 计数', async () => {
+    const before = await metricValue('retention_stuck_requests_total', { state: 'EXECUTING_ORPHAN' });
+    const { poller, faces } = buildPoller(true);
+    faces.requestRetention.countStuckInTx.mockResolvedValue({ admitted: 0, executing: 0, orphan: 2 });
+    await poller.tick();
+    expect(await metricValue('retention_stuck_requests_total', { state: 'EXECUTING_ORPHAN' })).toBeGreaterThanOrEqual(before + 2);
+  });
+
+  it('Minor#4 观测块抛错不武装退避：tx 提交成功+backlog count reject ⇒ 连续 3 tick 恒不武装（重置在观测块前——观测失败≠扫面失败）', async () => {
+    const skipBefore = await metricValue('retention_sweeper_tick_total', { result: 'skip-backoff' });
+    const { poller, faces } = buildPoller(true);
+    faces.requestRetention.sweepExpiredInTx.mockResolvedValue({ claimed: RETENTION_REQUEST_CLAIM_BATCH, voided: 0 });   // 满批 ⇒ backlog 按需 count 触发面
+    faces.requestRetention.countExpiredAdmittedBacklog.mockRejectedValue(new Error('count obs down'));   // 观测块抛错（tx 已提交成功）
+    await poller.tick();   // err 1（tx 成功——观测失败）
+    await poller.tick();   // err 2
+    await poller.tick();   // err 3——缺陷形态下退避武装（连续计数未按「扫面成功」重置）；修复后每轮重置=1 ⇒ 恒不武装
+    expect((poller as unknown as { backoffUntil: number }).backoffUntil).toBe(0);   // 未武装（consecutiveErrors 每轮在观测块前重置）
+    expect(await metricValue('retention_sweeper_tick_total', { result: 'skip-backoff' })).toBe(skipBefore);   // 零 skip-backoff 增量
   });
 });

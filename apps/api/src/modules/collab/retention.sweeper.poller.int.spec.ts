@@ -104,11 +104,13 @@ const expiredAdmitted = (ids: readonly string[]) =>
     }
     expect(await expiredAdmitted(reqIds)).toBe(N_BACKLOG);
 
-    // 首 tick：claim 批界恰 ≤50（红⑤ 小批断言——积压 1000 行只动 50）
+    // 首 tick：claim 批界 ≤50（红⑤ 小批断言——外域过期行被同窗 claim 吸收时本域份额<50：≤ 断言假红免疫，
+    // 全员 VOIDED 总量断言（:121）已兜底正确性）
     await poller.tick();
     const afterFirst = await expiredAdmitted(reqIds);
-    expect(N_BACKLOG - afterFirst).toBe(RETENTION_REQUEST_CLAIM_BATCH);   // 恰 50（批上界即批实绩）
-    expect(await prisma.executionRequest.count({ where: { id: { in: reqIds }, state: 'VOIDED' } })).toBe(RETENTION_REQUEST_CLAIM_BATCH);
+    expect(N_BACKLOG - afterFirst).toBeLessThanOrEqual(RETENTION_REQUEST_CLAIM_BATCH);   // ≤批上界（本域份额）
+    expect(await prisma.executionRequest.count({ where: { id: { in: reqIds }, state: 'VOIDED' } }))
+      .toBeLessThanOrEqual(RETENTION_REQUEST_CLAIM_BATCH);   // 同窗 claim 吸收 ⇒ VOIDED≤50（强不变式由 :121 总量断言兜底）
 
     // 多 tick 排空（poller 间隔驱动——int 直连循环收敛；上界=1000/50+余量）
     let ticks = 1;

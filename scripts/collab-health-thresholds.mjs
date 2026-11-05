@@ -126,11 +126,11 @@ export const THRESHOLDS = {
   // ===== C1（生产就绪收尾批·retention worker——红② stuck/红⑤ backlog 观测面；source=worker 3002） =====
   retention_stuck_requests_total: {
     level: 'P1', kind: 'counter-delta', delta: 0, rounds: 2,
-    note: 'C1 红②：stuck 请求增量（state=ADMITTED 过期未 claim/EXECUTING 过 GenerationIntent MIN(deadlineAt)——告警不删，资金在飞收口链滞留信号；连续 2 轮（10min）排除 claim 批内瞬态。stuck 口径=request 侧 expiresAt 15min/deadlineAt 非 input 侧 30d。〔待校准〕',
+    note: 'C1 红②：stuck 请求增量（state=ADMITTED 过期未 claim/EXECUTING 过 GenerationIntent MIN(deadlineAt)——告警不删，资金在飞收口链滞留信号；连续 2 轮（10min）排除 claim 批内瞬态。stuck 口径=request 侧 expiresAt 15min/deadlineAt 非 input 侧 30d。第三档 EXECUTING_ORPHAN=EXECUTING∧无 RUNNING intent（intent 全终态后收口链中断的孤儿——C1-1 评审观测盲区补全档）。〔待校准〕',
   },
   retention_backlog_rows: {
     level: 'P1', kind: 'gauge-max', value: 5_000,
-    note: 'C1 红⑤：request 面积压行数（过期未执行待 void——claim ≤50/tick 多 tick 排空；1000 行积压 ≈20 tick ≈20min 排空，持续 >5000=排空链异常量级或 void 路径失败。〔待校准〕）',
+    note: 'C1 红⑤：request 面积压行数（过期未执行待 void——claim ≤50/tick 多 tick 排空；1000 行积压 ≈20 tick ≈20min 排空，持续 >5000=排空链异常量级或 void 路径失败。input/runtime_event 两 table 值=cap 出口残余（P0#1 每 tick 批数上界观测——每 tick 部分进度跨 tick 单调排空；持续高位同判排空链异常）。〔待校准〕）',
   },
 };
 
