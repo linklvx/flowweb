@@ -313,4 +313,52 @@ maybe('C3-0 红⓪-b T30b 吞行侧表+兼容核验（真 PG——侧表行落�
     // ★红（purgeBelow 未接线侧表删）：侧表行残留
     expect(await prisma.canvasDocCoalesced.count({ where: { projectId: PID } }), 'purgeBelow 同 seq 区间顺带删侧表行').toBe(0);
   });
+
+  // ── C3-0 评审 I-2：PK 冲突幂等重放落自指侧表行（恢复链 kill 窗）──
+  // 恢复链形态：appendBatch 提交后、spool.confirm 前崩溃 → replayAll 重放已落定帧（同 seq 同 hash）→
+  // INSERT 被 **PK** 冲突吞（非 hash 吞）→ sourceSeq SELECT 按 hash 查到**行自身**（src[0].seq==lastWalSeq）
+  // → 旧实现落 (seq=X, sourceSeq=X) 自指行——记录的不是真衔接断点（审计断点区间 [2,..] 假覆盖污染）。
+  // 判别式：sourceSeq==lastWalSeq 恰为 PK 幂等重放（真吞行必异 seq）。
+  it('评审 I-2 红：PK 幂等重放（同 seq 同 hash 已落定帧重发）不落侧表自指行——恢复链 replayAll 口径零侧表行', async () => {
+    const f = mkFrames();
+    await prisma.canvasDoc.create({ data: { projectId: PID, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n } });
+    const r1 = await repo.appendBatch(PID, [seedRow(f.uA, 1n)], { expectedPgSeq: 0n, newPgSeq: 1n, walCheckpointSeq: 1n });
+    expect(r1).toEqual({ ok: true, rows: 1 });
+    expect(await prisma.canvasDocCoalesced.count({ where: { projectId: PID } })).toBe(0);   // 正常批零侧表
+
+    // kill 窗重放：同帧（同 seq 1 同 hash）回灌 catch-up 形态重发 → PK 冲突吞行（RETURNING 空）
+    const r2 = await repo.appendBatch(PID, [seedRow(f.uA, 1n)], { expectedPgSeq: null, newPgSeq: 1n, walCheckpointSeq: 1n });
+    expect(r2).toEqual({ ok: true, rows: 0 });   // 幂等重放 ok（0-行桶契约）
+    // ★红（无 PK 重放判别式）：sourceSeq SELECT 按 hash 查到行自身 → 侧表落 (seq=1, sourceSeq=1) 自指行
+    expect(await prisma.canvasDocCoalesced.count({ where: { projectId: PID } }), 'PK 幂等重放不落侧表自指行（sourceSeq==lastWalSeq 判别）').toBe(0);
+
+    // 真 T30b 吞行（异 seq 同 hash）仍落侧表（I-2 守卫不误伤——红⓪-b 同判据回归面）
+    const r3 = await repo.appendBatch(PID, [seedRow(f.uA, 2n)], { expectedPgSeq: null, newPgSeq: 2n, walCheckpointSeq: 2n });
+    expect(r3).toEqual({ ok: true, rows: 0 });
+    const side = await prisma.canvasDocCoalesced.findMany({ where: { projectId: PID } });
+    expect(side.length, '真吞行（异 seq）侧表照落').toBe(1);
+    expect(side[0]).toMatchObject({ seq: 2n, sourceSeq: 1n, reason: 't30b-coalesced' });
+  });
+
+  // ── C3-0 评审 I-1：vacuumReplace 换代不删旧代侧表行（生命周期契约缺口）──
+  // 主表按 projectId 整删**全部代**行（行集=被删集等价——换代语义），侧表生命周期须同域随删：
+  // 否则旧代侧表行无清理路径（purgeBelow 是 generation 域、C4-3 是 scope 域——换代两域均不覆盖）。
+  it('评审 I-1 红：vacuumReplace 换代整删主表全部代行——侧表同域随删（含他代 generation 行）零残留', async () => {
+    await seedT30bState();   // 布景：gen1 行 seq 1/2/4 + 侧表 (3→source1)
+    expect(await prisma.canvasDocCoalesced.count({ where: { projectId: PID } })).toBe(1);
+    // 他代残留形态（「旧代幸存」布景——vacuum 前代侧表行）
+    await prisma.canvasDocCoalesced.create({
+      data: { projectId: PID, generation: 0, seq: 99n, updateHash: 'g0' + '0'.repeat(61), sourceSeq: 98n, reason: 't30b-coalesced' },
+    });
+    expect(await prisma.canvasDocCoalesced.count({ where: { projectId: PID } })).toBe(2);
+
+    // ⑥ vacuumReplace（t12-vacuum int ① 直调惯例：expectedRowCount=锁内实读行数 3、expectedGeneration=头行 1）
+    const replaced = await repo.vacuumReplace(PID, Buffer.from([0x1]), 3, 1);
+    expect('aborted' in replaced).toBe(false);
+    expect(!('aborted' in replaced) && replaced.generation).toBe(2);
+    // 主表全部代整删（既有契约回归面）
+    expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } })).toBe(0);
+    // ★红（侧表无换代清理路径）：gen0+gen1 侧表行残留
+    expect(await prisma.canvasDocCoalesced.count({ where: { projectId: PID } }), 'vacuumReplace 换代侧表同域随删（全代零残留）').toBe(0);
+  });
 });

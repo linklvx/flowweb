@@ -598,6 +598,8 @@ describe('I1.2 vacuumReplace 锁内 generation 复核（expectedGeneration——
           findUnique: vi.fn().mockResolvedValue(null),
           upsert: vi.fn(async () => { writes.upsertSnap += 1; }),
         },
+        // C3-0 评审 I-1：vacuumReplace 换代侧表同域随删（tx.canvasDocCoalesced.deleteMany——mock 随生产面）
+        canvasDocCoalesced: { deleteMany: vi.fn() },
       })),
     };
     return { repo: new CanvasDocUpdateRepository(prisma as any), writes };

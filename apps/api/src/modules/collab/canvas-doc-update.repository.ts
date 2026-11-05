@@ -231,7 +231,9 @@ export class CanvasDocUpdateRepository {
               SELECT seq FROM "CanvasDocUpdate"
               WHERE "projectId" = ${projectId}::text AND generation = ${r.generation}::int AND "updateHash" = ${r.updateHash}::char(64)
               LIMIT 1`;
-            if (src.length > 0) {
+            if (src.length > 0 && src[0].seq !== r.lastWalSeq) {
+              // C3-0 评审 I-2：sourceSeq==lastWalSeq 恰为 PK 幂等重放（恢复链 kill 窗 replayAll 重放
+              // 已落定帧——INSERT 被 PK 吞、hash 查到行自身）——真吞行必异 seq，自指行不落侧表。
               await tx.$executeRaw`
                 INSERT INTO "CanvasDocCoalesced" ("projectId", generation, seq, "updateHash", "sourceSeq", reason, "createdAt")
                 SELECT ${projectId}::text, ${r.generation}::int, ${r.lastWalSeq}::bigint, ${r.updateHash}::char(64), ${src[0].seq}::bigint, 't30b-coalesced', now()
@@ -542,6 +544,9 @@ export class CanvasDocUpdateRepository {
         });
         // 锁内实读=该项目全部增量行（append-only+compact 排队）——按 projectId 整删（行集=被删集等价）
         await tx.canvasDocUpdate.deleteMany({ where: { projectId } });
+        // C3-0 评审 I-1：换代语义=主表全代整删——侧表同域随删（生命周期契约：purgeBelow 是 generation
+        // 域、C4-3 是 scope 域，换代两域均不覆盖旧代侧表行；注释登记于 schema CanvasDocCoalesced 头注同源）。
+        await tx.canvasDocCoalesced.deleteMany({ where: { projectId } });
         if (inTx) await inTx(tx);
         return { generation };
       },
