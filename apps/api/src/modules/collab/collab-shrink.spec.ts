@@ -779,6 +779,9 @@ function buildVacuumPrismaTx(rows: Array<{ id: string; seq: bigint }>) {
       findUnique: vi.fn(async () => ({ stateSeq: 0n })),
       upsert: snapUpsert,
     },
+    // C3-0 评审 I-1：vacuumReplace 换代侧表同域随删（tx.canvasDocCoalesced.deleteMany——repo.spec 同款
+    // mock 随生产面；本 mock 漏面为 C3-0 批遗留红，此处补齐委托面）
+    canvasDocCoalesced: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     // Y1c T27：SWITCHING inTx 钩消费面（stage 写与换代 DB 族同事务——真空 tx mock 增面）
     maintenanceOperation: { updateMany: vi.fn(async () => ({ count: 1 })) },
     docAuditEvent: { create: vi.fn(async () => ({})) },

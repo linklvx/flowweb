@@ -160,6 +160,10 @@ export const envSchema = z.object({
   // 使用点 retention.sweeper.poller RETENTION_SWEEP_INTERVAL_MS=60_000——防双源 P3 同款；COMPACT_POLL_
   // INTERVAL_MS 同族：stuck/过期面分钟级收敛即达，非部署档位）。
   RETENTION_SWEEP_INTERVAL_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
+  // C3-1（生产就绪收尾批·doc-append-gap-alert）：append 审计 worker 轮询周期——zod 只验形态不写 default
+  //（默认值落使用点 collab-append-audit.worker DOC_APPEND_AUDIT_INTERVAL_MS=300_000——retention 同族
+  //防双源；gap 检出延迟=分钟级粒度非部署档位）。
+  DOC_APPEND_AUDIT_INTERVAL_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_SWEEP_ENABLED: z.preprocess(blankToUnset, z.enum(['true', 'false']).optional()),
   COLLAB_SPOOL_DIR: z.preprocess(blankToUnset, z.string().min(1).optional()),
   COLLAB_SPOOL_CAPACITY_BYTES: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),

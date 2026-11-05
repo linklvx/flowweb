@@ -926,6 +926,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - CORS_ORIGIN
 - DASHSCOPE_API_KEY
 - DATABASE_URL
+- DOC_APPEND_AUDIT_INTERVAL_MS
 - EXEC_DEADLINE_EDIT_MS
 - EXEC_DEADLINE_IMAGE_MS
 - EXEC_DEADLINE_LIGHTING_MS
@@ -993,6 +994,9 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_actor_drain_batch_total
 - collab_actor_frame_outcome_total
 - collab_actor_poison_frame_total
+- collab_append_audit_last_run_unix_seconds
+- collab_append_audit_purge_stale_total
+- collab_append_audit_tick_total
 - collab_auth_inflight
 - collab_auth_reject_total
 - collab_auth_timeout_total
@@ -1001,6 +1005,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_awareness_reject_total
 - collab_awareness_stripped_total
 - collab_bytes_rate_exceeded_total
+- collab_doc_append_gap_current
 - collab_doc_export_fresh_total
 - collab_doc_residue_bytes
 - collab_doc_shrink_duration_seconds
@@ -1067,6 +1072,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_write_rejected_total
 - collab_write_session_release_timeout_total
 - collab_ws_close_total
+- doc_append_gap_total
 - doc_compaction_duration_seconds
 - doc_delivery_applied_unpersisted
 - doc_delivery_lag_seconds

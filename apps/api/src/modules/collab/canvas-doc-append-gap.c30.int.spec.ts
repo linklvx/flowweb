@@ -25,55 +25,18 @@ import { canvasDocName } from './doc-name.util';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import { seedRow } from '../../test-utils/canvas-doc-row';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
+// C3-1（M-2 单源对齐）：审计三断言 JS 夹面自本文件内联形态迁 test-utils/append-audit（c31 SQL 版对拍
+// 双消费面共享单源；C3-0 评审 M-1/m-3 两端侧表豁免随迁落位——本文件夹具全为严格边界形态，豁免面
+// 加宽不影响绿）。
+import { assertAppendAuditThree } from '../../test-utils/append-audit';
 
 const hasDb = !!process.env.DATABASE_URL;
 const maybe = hasDb ? describe : describe.skip;
 
 const noopLogger = { log: () => {}, warn: () => {}, error: () => {}, debug: () => {}, verbose: () => {}, fatal: () => {} } as unknown as Logger;
 
-/** C3-0 审计三断言夹面（C3-1 SQL 本体的 JS 断言形态参照——同判据不同载体）：
- *  聚合域=(projectId,generation) 行 seq>stateSeq（指针快照 stateSeq——折空 0）：
- *  a) 行内密度 frameCount==lastWalSeq−firstWalSeq+1；
- *  b) 行间衔接 next.firstWalSeq==cur.lastWalSeq+1 ∨ 断点区间 [cur.lastWalSeq+1, next.firstWalSeq−1]
- *     全部存在 CanvasDocCoalesced 记录；
- *  c) 边界 min(firstWalSeq)==stateSeq+1 ∧ max(lastWalSeq)==pgSeq。 */
-async function assertAppendAuditThree(prisma: PrismaClient, pid: string): Promise<void> {
-  const head = await prisma.canvasDoc.findUnique({
-    where: { projectId: pid },
-    select: { generation: true, pgSeq: true, currentSnapshotRev: true },
-  });
-  expect(head, 'CanvasDoc 行在（夹具布景）').toBeTruthy();
-  if (!head) return;
-  const snap = await prisma.canvasDocSnapshot.findUnique({
-    where: { projectId_generation_snapshotRev: { projectId: pid, generation: head.generation, snapshotRev: head.currentSnapshotRev } },
-    select: { stateSeq: true },
-  });
-  const stateSeq = snap?.stateSeq ?? 0n;
-  const rows = await prisma.$queryRaw<{ firstWalSeq: bigint; lastWalSeq: bigint; frameCount: number }[]>`
-    SELECT "firstWalSeq", seq AS "lastWalSeq", "frameCount" FROM "CanvasDocUpdate"
-    WHERE "projectId" = ${pid}::text AND generation = ${head.generation}::int AND seq > ${stateSeq}::bigint
-    ORDER BY seq ASC`;
-  const coalesced = new Set((await prisma.$queryRaw<{ seq: bigint }[]>`
-    SELECT seq FROM "CanvasDocCoalesced"
-    WHERE "projectId" = ${pid}::text AND generation = ${head.generation}::int`).map((r) => r.seq));
-  for (const r of rows) {
-    // a) 行内密度
-    expect(BigInt(r.frameCount), `行内密度违例 seq=${r.lastWalSeq}（frameCount≠lastWalSeq−firstWalSeq+1）`).toBe(r.lastWalSeq - r.firstWalSeq + 1n);
-  }
-  for (let i = 1; i < rows.length; i++) {
-    const cur = rows[i - 1]!, next = rows[i]!;
-    // b) 行间衔接：断点区间全在侧表
-    for (let s = cur.lastWalSeq + 1n; s < next.firstWalSeq; s++) {
-      expect(coalesced.has(s), `行间断点 seq=${s} 应有 CanvasDocCoalesced 记录（行 ${cur.lastWalSeq}→${next.firstWalSeq}）`).toBe(true);
-    }
-  }
-  if (rows.length > 0) {
-    // c) 边界
-    expect(rows[0]!.firstWalSeq, '边界违例：min(firstWalSeq)≠stateSeq+1').toBe(stateSeq + 1n);
-    expect(rows[rows.length - 1]!.lastWalSeq, '边界违例：max(lastWalSeq)≠pgSeq').toBe(head.pgSeq);
-  }
-}
-
+// ★红④（maintenance/dedup 夹具 CI 常驻）：assertAppendAuditThree JS 夹面（C3-1 起迁 test-utils/append-audit
+// 单源——本 spec 红⓪-a 诊断形态随每轮 int:CI 对拍三断言一致；形态漂移即红）。
 /** gen1 头+rev0 快照（stateSeq 0）+pgSeq 0 布景——boot 播种形态（spool 三元 seedWalSeqFromPg(0)）。 */
 async function seedDocRow(prisma: PrismaClient, pid: string): Promise<void> {
   const state0 = Buffer.from(Y.encodeStateAsUpdate(createCanvasDoc()));

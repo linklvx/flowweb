@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { THRESHOLDS, resolveSpoolCapacityBytes, resolveMaxResidentBytes, NOT_SERVING_P0_MS, SMS_THROTTLE_MS, WORKER_METRIC_CHECKS, WORKER_PRESENCE_CHECK } from './collab-health-thresholds.mjs';
+import { THRESHOLDS, resolveSpoolCapacityBytes, resolveMaxResidentBytes, NOT_SERVING_P0_MS, SMS_THROTTLE_MS, WORKER_METRIC_CHECKS, WORKER_PRESENCE_CHECK, AUDIT_WORKER_CHECKS } from './collab-health-thresholds.mjs';
 import { readEnvFile } from './lib/env-file.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -148,6 +148,54 @@ export function evaluate(sample, last, now, env) {
         }
         const v = wm.get(name, { role: 'worker' }) ?? 0;
         if (v > t.value) findings.push({ check: name, level: t.level, detail: `worker ${v} > ${t.value}（${t.note}）` });
+      }
+
+      // —— C3-1（doc-append-gap-alert）：worker 3002 端点审计族（族源=collab-append-audit.metrics.ts 非
+      //    collectDefaultMetrics——THRESHOLDS it1 键域外；THRESHOLDS 三键=charter 阈值声明面〔api 3000 恒 0
+      //    死键，retention 同款〕，本段=3002 采集的操作判定路径）。跨 run 状态键带 w3002: 前缀——与 api 侧
+      //    THRESHOLDS 循环的同名 counters 键隔离。五判：
+      //    ①族缺席 ⇒ 缺样本 unobservable P1（audit worker 未装配/未注册——审计停跑不可观测）；
+      //    ②样本年龄（红⑥ worker 停跑——进程活而审计 tick 死的半死面；进程死=worker-metrics-unreachable
+      //      P0 既有承担）：now−last_run_unix_seconds>15min ⇒ P1；
+      //    ③新 gap 边沿窗口增量（charter increase(doc_append_gap_total[5m])>0——counter 回落=worker 重启
+      //      重基线不误报〔红⑦〕）⇒ P0；
+      //    ④current>0 持续（rounds 2——悬而未决断链；新 gap 已由 counter 边沿计过）⇒ P1；
+      //    ⑤purge 义务年龄窗口增量（红② compact 收敛链卡死独立告警）⇒ P1。——
+      const audit = AUDIT_WORKER_CHECKS;
+      const lastRunFamily = wm.samples.filter((s) => s.name === audit.lastRunGauge);
+      if (lastRunFamily.length === 0) {
+        findings.push({ check: `${audit.lastRunGauge}-unobservable`, level: 'P1', detail: `worker 3000/3002 缺 ${audit.lastRunGauge} 族样本（audit worker 未装配/未注册——缺样本 unobservable：append 审计停跑不可观测；分诊 runbook §6：查 worker.module 平铺注册/pm2 worker 日志 grep append 审计）` });
+      } else {
+        const lastRun = lastRunFamily[0].value;
+        const ageMs = now - lastRun * 1000;
+        if (ageMs > audit.lastRunStaleMs) {
+          findings.push({ check: 'collab-append-audit-stale', level: 'P1', detail: `append 审计 tick 样本年龄 ${Math.floor(ageMs / 1000)}s > ${Math.floor(audit.lastRunStaleMs / 1000)}s（worker 进程活〔3002 可达〕而审计链停跑——红⑥ 半死面：error tick 不推进样本即升龄〔进程死=worker-metrics-unreachable P0〕；分诊 runbook §6）` });
+        }
+      }
+      const gapKey = `w3002:${audit.gapCounter}`;
+      const gapRaw = wm.sum(audit.gapCounter);
+      nextLast.counters[gapKey] = gapRaw;
+      const gapPrev = last?.counters?.[gapKey];
+      if (gapPrev === undefined) {
+        findings.push(insuff(audit.gapCounter, 'worker 3002 新 gap 边沿两样本差不可算'));
+      } else if (gapRaw > gapPrev) {
+        findings.push({ check: audit.gapCounter, level: 'P0', detail: `worker 3002 新 gap 边沿窗口增量 +${gapRaw - gapPrev}（append 行集断链三断言违例且 CanvasDocCoalesced 无覆盖——装载尾静默丢数据前兆；charter 0 丢失口径；分诊 runbook §6：worker 日志 grep「doc append gap 审计违例」取结构化 {projectId,generation,stateSeq,pgSeq,violations}）` });
+      }
+      const curVal = wm.get(audit.currentGauge) ?? 0;
+      const curKey = `w3002:${audit.currentGauge}`;
+      const curRounds = curVal > 0 ? (last?.rounds?.[curKey] ?? 0) + 1 : 0;
+      nextLast.rounds[curKey] = curRounds;
+      if (curVal > 0 && curRounds >= 2) {
+        findings.push({ check: audit.currentGauge, level: 'P1', detail: `${curVal} 对 (project,generation) 在 gap 持续第 ${curRounds} 轮（悬而未决断链——新 gap 已由 ${audit.gapCounter} 边沿计过〔SMS 已发〕；本 gauge=修复进展观测面，分诊 runbook §6）` });
+      }
+      const purgeKey = `w3002:${audit.purgeStaleCounter}`;
+      const purgeRaw = wm.sum(audit.purgeStaleCounter);
+      nextLast.counters[purgeKey] = purgeRaw;
+      const purgePrev = last?.counters?.[purgeKey];
+      if (purgePrev === undefined) {
+        findings.push(insuff(audit.purgeStaleCounter, 'worker 3002 purge 义务年龄两样本差不可算'));
+      } else if (purgeRaw > purgePrev) {
+        findings.push({ check: audit.purgeStaleCounter, level: 'P1', detail: `worker 3002 purge 义务年龄告警窗口增量 +${purgeRaw - purgePrev}（purgeBelowSeq 持续非空>30min——compact resumePurges 收敛链卡死独立告警，不被审计三断言吞掉；分诊 runbook §6）` });
       }
     }
   }

@@ -107,6 +107,9 @@ describe('Y0c T26 worker.module——结构面（Z131 闭包纯净的模块侧�
     const { CollabCompactPoller } = await import('./modules/collab/collab-compact.poller');
     expect(syms, 'providers 应含 CanvasDocUpdateRepository').toContain(CanvasDocUpdateRepository);
     expect(syms, 'providers 应含 CollabCompactPoller').toContain(CollabCompactPoller);
+    // C3-1（doc-append-gap-alert）：append 审计 poller 平铺（api 进程零注册——worker 唯一审计触发面）
+    const { CollabAppendAuditWorker } = await import('./modules/collab/collab-append-audit.worker');
+    expect(syms, 'providers 应含 CollabAppendAuditWorker').toContain(CollabAppendAuditWorker);
   });
 });
 

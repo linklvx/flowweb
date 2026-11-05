@@ -132,6 +132,23 @@ export const THRESHOLDS = {
     level: 'P1', kind: 'gauge-max', value: 5_000,
     note: 'C1 红⑤：request 面积压行数（过期未执行待 void——claim ≤50/tick 多 tick 排空；1000 行积压 ≈20 tick ≈20min 排空，持续 >5000=排空链异常量级或 void 路径失败。input/runtime_event 两 table 值=cap 出口残余（P0#1 每 tick 批数上界观测——每 tick 部分进度跨 tick 单调排空；持续高位同判排空链异常）。〔待校准〕）',
   },
+
+  // ===== C3（生产就绪收尾批·doc-append-gap-alert——append 审计 worker 面；source=worker 3002：
+  //        CollabAppendAuditWorker 仅 worker 进程装配〔api 3000 无此族=本表条目恒 0 死键，retention 同款
+  //        声明面〕；3002 采集的操作判定路径=check-collab-health evaluate AUDIT_WORKER_CHECKS 段——两指标
+  //        语义注记 runbook §6） =====
+  doc_append_gap_total: {
+    level: 'P0', kind: 'counter-delta', delta: 0,
+    note: 'C3 红①：append 审计新 gap 边沿计数（(project,generation) false→true 才 inc——CollabJobCursor.lastGap 持久判重；持续 gap 不重发、worker 重启不重基线）——charter doc-append-gap-alert：increase(doc_append_gap_total[5m])>0（0 丢失口径）；增量>0=行集断链三断言违例且 CanvasDocCoalesced 无覆盖=装载尾静默丢数据前兆。source=worker 3002',
+  },
+  collab_doc_append_gap_current: {
+    level: 'P1', kind: 'gauge-max', value: 0, rounds: 2,
+    note: 'C3：当前在 gap (project,generation) 对数（每 tick 重算自 lastGap 持久态——跨批旋转全域计数）——0=全修复/无 gap；持续>0=悬而未决断链（新 gap 已由 doc_append_gap_total 边沿计过，本 gauge=修复进展观测面）。source=worker 3002',
+  },
+  collab_append_audit_purge_stale_total: {
+    level: 'P1', kind: 'counter-delta', delta: 0,
+    note: 'C3 红②：purge 义务年龄告警边沿计数（purgeBelowSeq 持续非空>30min——compact resumePurges 收敛链卡死的独立告警通道，不被审计三断言吞掉；衰减/修复即清不复发）。source=worker 3002',
+  },
 };
 
 /** Y0c T29-II（Z130③/Z116/R6a）：worker 3002 端点族阈值——「巡检即采集面」（Z134 无 Prometheus
@@ -166,6 +183,19 @@ export function resolveMaxResidentBytes(env) {
   const n = Number(env.COLLAB_MAX_RESIDENT_BYTES);
   return n > 0 ? n : 402_653_184;
 }
+
+/** C3-1（doc-append-gap-alert）：worker 3002 端点审计族检查参数——check-collab-health evaluate 消费
+ *  （独立于 THRESHOLDS：端点=3002 非 3000、族源=*.metrics.ts〔collab-append-audit.metrics.ts〕非
+ *  collectDefaultMetrics——THRESHOLDS it1 键域外；本表+THRESHOLDS 三键=charter 阈值单源声明面）。
+ *  lastRunGauge：样本年龄判定（红⑥ worker 停跑——error tick 不推进 last_run 即升龄；进程死=
+ *  worker-metrics-unreachable P0 既有承担，本判据=进程活而审计 tick 死的半死面）；stale 阈值=15min（3 tick 窗）。 */
+export const AUDIT_WORKER_CHECKS = {
+  lastRunGauge: 'collab_append_audit_last_run_unix_seconds',
+  lastRunStaleMs: 15 * 60_000,
+  gapCounter: 'doc_append_gap_total',
+  currentGauge: 'collab_doc_append_gap_current',
+  purgeStaleCounter: 'collab_append_audit_purge_stale_total',
+};
 
 /** not-serving 持续>1min → P0（/api/ready reason 面——非指标驱动，同模块单源）。 */
 export const NOT_SERVING_P0_MS = 60_000;

@@ -95,12 +95,17 @@ import { EmitPort, WorkerEmitPort } from './modules/gateway/emit.port';
 //    Http 面，census ⑰ 不破。API 进程不注册——compact 触发面在 api 侧经 maybeCompact 原位承接） ──
 import { CanvasDocUpdateRepository } from './modules/collab/canvas-doc-update.repository';
 import { CollabCompactPoller } from './modules/collab/collab-compact.poller';
-// ── C1-1（生产就绪收尾批）：retention sweeper DB poller——worker 三扫面（request claim+void/input
-//    批删/event 批删）+stuck 计数，advisory xact 单飞一个事务内；api 侧 timer/武装已移除（api 进程
+// ── C1-1（生产就绪收尾批）：retention sweeper DB poller——worker 三扫面（request claim+void/input 批删/
+//    event 批删）+stuck 计数，advisory xact 单飞一个事务内；api 侧 timer/武装已移除（api 进程
 //    零注册——census ⑰ 闭包纯度=prisma/shared/prom-client/team-credit，零 controller/Http 面） ──
 import { ExecutionRequestRetentionService } from './modules/execution/execution-request.retention.service';
 import { RuntimeFeedRetentionService } from './modules/collab/runtime-feed.retention.service';
 import { RetentionSweeperPoller } from './modules/collab/retention.sweeper.poller';
+// ── C3-1（生产就绪收尾批·doc-append-gap-alert）：append 审计 DB poller——每 5min tick 单事务
+//    （advisory 单飞+轮转游标批选择+单条 SQL CTE 三断批内审计+游标回写）；新 gap 边沿 inc+current gauge
+//    +purge 义务年龄告警；api 进程零注册（census ⑰ 闭包纯度=prisma/shared/prom-client/sentry-scrub，
+//    零 controller/Http 面——retention 同族平铺先例） ──
+import { CollabAppendAuditWorker } from './modules/collab/collab-append-audit.worker';
 
 const env = validateEnv();
 
@@ -197,6 +202,9 @@ const env = validateEnv();
     ExecutionRequestRetentionService,
     RuntimeFeedRetentionService,
     RetentionSweeperPoller,
+    // C3-1（生产就绪收尾批·doc-append-gap-alert）：append 审计 poller（每 5min tick——boot 首 tick
+    // +轮转游标批选择+SQL CTE 三断言审计+新 gap 边沿 inc/purge 义务年龄告警；api 进程零注册）
+    CollabAppendAuditWorker,
     // ── recharge 域（PAYMENT_PROVIDER 工厂=RechargeModule 同款 verbatim——close-expired/active-query 消费面） ──
     {
       provide: 'PAYMENT_PROVIDER',

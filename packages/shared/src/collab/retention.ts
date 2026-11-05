@@ -13,10 +13,14 @@ export const EXEC_INPUT_RETENTION_AFTER_FINAL_DAYS = 30 as const;
 export const RUNTIME_EVENT_RETENTION_DAYS = 7 as const;
 export const RUNTIME_EVENT_RETENTION_MAX_PER_PROJECT = 100_000 as const;
 
+/** C3-1 worker append 审计 tick 的 job 键（消费面=apps/api collab-append-audit.worker——CollabJobCursor
+ *  行主键；命名常量先于词表存在，词表自本常量派生〔值域随批增列登记〕）。 */
+export const DOC_APPEND_GAP_AUDIT_JOB = 'doc-append-gap-audit' as const;
+
 /** tick 词表（CollabJobCursor.job 值域单源——迁移笔一〔C1-0〕建表，值域随批增列登记）：
  *  - 'doc-append-gap-audit'：C3 worker append 审计 tick（每 5min——lastKey 按 projectId 轮转
  *    ［尾部项目饿死根除］+lastGap 存 (project,generation) 边沿状态［新 gap 边沿才 inc］）。
  *  注：C1 retention sweep tick 不在本表——单飞走 `pg_try_advisory_xact_lock(hashtext(
  *  'flowweb:retention'))`（红④），无游标消费。 */
-export const COLLAB_JOB_CURSOR_JOBS = ['doc-append-gap-audit'] as const;
+export const COLLAB_JOB_CURSOR_JOBS = [DOC_APPEND_GAP_AUDIT_JOB] as const;
 export type CollabJobCursorJob = (typeof COLLAB_JOB_CURSOR_JOBS)[number];

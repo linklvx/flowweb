@@ -39,6 +39,26 @@ export interface HydrationRow {
   currentSnapshotRev?: bigint | null;
 }
 
+/** C3-1（plan Task C3-1——doc-append-gap-alert）：append 审计违例行（SQL UNION 投影——列名随 SQL
+ *  snake_case）：kind=a-density（行内密度）/b-link（行间衔接断点缺侧表覆盖）/c-head/c-tail（边界两端
+ *  缺侧表覆盖）——c-* 越界形态（号位越过水位，区间空无豁免面）missing_count/sample 全 null。
+ *  契约 10 形态注记：本类型与方法居 repository（快照水位 token 唯一生产容许域——worker 等 collab 外零引用；
+ *  SQL 投影别名 snapshotFloor 即为此形态——消费面不触源列名）。
+ *  M-2 单源对齐：语义与 test-utils/append-audit JS 夹面一致——c31 int 夹具双跑两版对拍钉死。 */
+export interface AppendAuditViolation {
+  projectId: string;
+  generation: number;
+  /** 指针快照水位（SQL 别名 snapshotFloor——worker 消费面契约 10 零 token 形态） */
+  snapshotFloor: bigint;
+  pgSeq: bigint;
+  kind: 'a-density' | 'b-link' | 'c-head' | 'c-tail';
+  row_seq: bigint | null;
+  missing_count: bigint | null;
+  missing_sample: readonly bigint[] | null;
+  note: string;
+}
+
+
 @Injectable()
 export class CanvasDocUpdateRepository {
   private readonly logger = new Logger(CanvasDocUpdateRepository.name);
@@ -719,6 +739,128 @@ export class CanvasDocUpdateRepository {
       DELETE FROM "CanvasDocCoalesced"
       WHERE "projectId" = ${projectId}::text AND generation = ${generation}::int AND seq <= ${belowSeq}::bigint`;
     return deleted;
+  }
+
+  /** C3-1 单条 SQL CTE 审计（红① 三断言+两端侧表豁免——消费方=CollabAppendAuditWorker tick③）。
+   *  聚合域=(projectId,generation) 行 seq>stateSeq（指针快照折空 0）：
+   *   a) 行内密度 frameCount==seq−firstWalSeq+1；
+   *   b) 行间衔接 next.firstWalSeq==cur.lastWalSeq+1 ∨ 断点区间 [cur+1, next.first−1] 全在
+   *     CanvasDocCoalesced（missing_count=区间长度−覆盖数——索引区间扫；missing_sample≤20 惰性展开；
+   *     next.first≤cur+1 重叠形态区间空=不判〔JS 夹面同判——号位碰撞归 walSeq tripwire 域〕）；
+   *   c) 边界 min(first)==stateSeq+1 ∧ max(last)==pgSeq——**两端侧表豁免**（C3-0 评审 M-1/m-3 裁定）：
+   *     首端缺行→[stateSeq+1, min(first)−1] 全在侧表即豁免（M-1：compact 后重启窗同字节重发→stateSeq+1
+   *     号位帧被吞→侧表已覆盖但存活行 min(first)=stateSeq+2）；尾端缺行→[max(last)+1, pgSeq] 全在侧表
+   *     即豁免（I-2：尾吞行 pgSeq>存活行 max(last)，侧表覆盖该号位）；区间空（min(first)<stateSeq+1 /
+   *     max(last)>pgSeq=号位越界/行越水位）无豁免面=真违例（c_*_inv 档）。
+   *  行集空（全吞/全 purge）→ c 不判（JS 夹面 if(rows.length>0) 同判）。红② purge 延迟窗：旧行被
+   *  seq>stateSeq 过滤不参与（零假阳性非 skip）。只读——advisory 单飞/游标回写归 worker tick 域。
+   *  输出量界：per 密度违例行/per 衔接对/边界各 1 行（缺失区间不逐 seq 展开——样本+计数）。 */
+  static async auditAppendBatch(tx: Prisma.TransactionClient, ids: readonly string[], missingSampleCap = 20): Promise<AppendAuditViolation[]> {
+    if (ids.length === 0) return [];
+    return tx.$queryRaw<AppendAuditViolation[]>`
+      WITH heads AS (
+        SELECT d."projectId", d.generation, d."pgSeq", COALESCE(s."stateSeq", 0) AS "snapshotFloor"
+        FROM "CanvasDoc" d
+        LEFT JOIN "CanvasDocSnapshot" s
+          ON s."projectId" = d."projectId" AND s.generation = d.generation AND s."snapshotRev" = d."currentSnapshotRev"
+        WHERE d."projectId" = ANY(${ids}::text[])
+      ),
+      tail AS (
+        SELECT u."projectId", u.generation, u.seq, u."firstWalSeq", u."frameCount", h."snapshotFloor", h."pgSeq"
+        FROM "CanvasDocUpdate" u
+        JOIN heads h ON h."projectId" = u."projectId" AND h.generation = u.generation
+        WHERE u.seq > h."snapshotFloor"
+      ),
+      a_density AS (
+        SELECT "projectId", generation, seq, "firstWalSeq", "frameCount", "snapshotFloor", "pgSeq"
+        FROM tail WHERE "frameCount" <> seq - "firstWalSeq" + 1
+      ),
+      b_pairs AS (
+        SELECT "projectId", generation, seq AS cur_last, "snapshotFloor", "pgSeq",
+               LEAD("firstWalSeq") OVER w AS next_first
+        FROM tail
+        WINDOW w AS (PARTITION BY "projectId", generation ORDER BY seq)
+      ),
+      b_gaps AS (
+        SELECT * FROM b_pairs WHERE next_first IS NOT NULL AND next_first <> cur_last + 1
+      ),
+      b_link AS (
+        SELECT p."projectId", p.generation, p."snapshotFloor", p."pgSeq", p.cur_last, p.next_first,
+          (p.next_first - p.cur_last - 1) - (SELECT count(*) FROM "CanvasDocCoalesced" c
+            WHERE c."projectId" = p."projectId" AND c.generation = p.generation
+              AND c.seq > p.cur_last AND c.seq < p.next_first) AS missing_count,
+          (SELECT COALESCE(array_agg(g.s ORDER BY g.s), '{}'::bigint[])
+            FROM (SELECT s FROM generate_series(p.cur_last + 1, p.next_first - 1) AS gs(s) LIMIT ${missingSampleCap}) g
+            LEFT JOIN "CanvasDocCoalesced" c
+              ON c."projectId" = p."projectId" AND c.generation = p.generation AND c.seq = g.s
+            WHERE c."projectId" IS NULL) AS missing_sample
+        FROM b_gaps p
+      ),
+      c_bounds AS (
+        SELECT h."projectId", h.generation, h."snapshotFloor", h."pgSeq",
+               MIN(t."firstWalSeq") AS min_first, MAX(t.seq) AS max_last
+        FROM heads h
+        JOIN tail t ON t."projectId" = h."projectId" AND t.generation = h.generation
+        GROUP BY h."projectId", h.generation, h."snapshotFloor", h."pgSeq"
+      ),
+      c_head_inv AS (
+        SELECT "projectId", generation, "snapshotFloor", "pgSeq", min_first FROM c_bounds WHERE min_first < "snapshotFloor" + 1
+      ),
+      c_head AS (
+        SELECT b."projectId", b.generation, b."snapshotFloor", b."pgSeq", b.min_first,
+          (b.min_first - 1 - b."snapshotFloor") - (SELECT count(*) FROM "CanvasDocCoalesced" c
+            WHERE c."projectId" = b."projectId" AND c.generation = b.generation
+              AND c.seq >= b."snapshotFloor" + 1 AND c.seq <= b.min_first - 1) AS missing_count,
+          (SELECT COALESCE(array_agg(g.s ORDER BY g.s), '{}'::bigint[])
+            FROM (SELECT s FROM generate_series(b."snapshotFloor" + 1, b.min_first - 1) AS gs(s) LIMIT ${missingSampleCap}) g
+            LEFT JOIN "CanvasDocCoalesced" c
+              ON c."projectId" = b."projectId" AND c.generation = b.generation AND c.seq = g.s
+            WHERE c."projectId" IS NULL) AS missing_sample
+        FROM c_bounds b WHERE b.min_first > b."snapshotFloor" + 1
+      ),
+      c_tail_inv AS (
+        SELECT "projectId", generation, "snapshotFloor", "pgSeq", max_last FROM c_bounds WHERE max_last > "pgSeq"
+      ),
+      c_tail AS (
+        SELECT b."projectId", b.generation, b."snapshotFloor", b."pgSeq", b.max_last,
+          (b."pgSeq" - b.max_last) - (SELECT count(*) FROM "CanvasDocCoalesced" c
+            WHERE c."projectId" = b."projectId" AND c.generation = b.generation
+              AND c.seq > b.max_last AND c.seq <= b."pgSeq") AS missing_count,
+          (SELECT COALESCE(array_agg(g.s ORDER BY g.s), '{}'::bigint[])
+            FROM (SELECT s FROM generate_series(b.max_last + 1, b."pgSeq") AS gs(s) LIMIT ${missingSampleCap}) g
+            LEFT JOIN "CanvasDocCoalesced" c
+              ON c."projectId" = b."projectId" AND c.generation = b.generation AND c.seq = g.s
+            WHERE c."projectId" IS NULL) AS missing_sample
+        FROM c_bounds b WHERE b.max_last < b."pgSeq"
+      )
+      SELECT v."projectId", v.generation, v."snapshotFloor", v."pgSeq", v.kind, v.row_seq, v.missing_count, v.missing_sample, v.note
+      FROM (
+        SELECT "projectId", generation, "snapshotFloor", "pgSeq", 'a-density' AS kind, seq AS row_seq,
+               NULL::bigint AS missing_count, NULL::bigint[] AS missing_sample,
+               format('frameCount=%s ≠ seq−firstWalSeq+1（firstWalSeq=%s）', "frameCount", "firstWalSeq") AS note
+        FROM a_density
+        UNION ALL
+        SELECT "projectId", generation, "snapshotFloor", "pgSeq", 'b-link', NULL AS row_seq, missing_count, missing_sample,
+               format('行间断点区间 [%s,%s] 缺 CanvasDocCoalesced 覆盖（行尾=%s→行首=%s）', cur_last + 1, next_first - 1, cur_last, next_first)
+        FROM b_link WHERE missing_count > 0
+        UNION ALL
+        SELECT "projectId", generation, "snapshotFloor", "pgSeq", 'c-head', NULL, NULL::bigint, NULL::bigint[],
+               format('首端违例：min(firstWalSeq)=%s 越过快照水位+1=%s（号位越界无豁免面）', min_first, "snapshotFloor" + 1)
+        FROM c_head_inv
+        UNION ALL
+        SELECT "projectId", generation, "snapshotFloor", "pgSeq", 'c-head', NULL, missing_count, missing_sample,
+               format('首端豁免区间 [%s,%s] 缺覆盖（min(firstWalSeq)=%s≠快照水位+1）', "snapshotFloor" + 1, min_first - 1, min_first)
+        FROM c_head WHERE missing_count > 0
+        UNION ALL
+        SELECT "projectId", generation, "snapshotFloor", "pgSeq", 'c-tail', NULL, NULL::bigint, NULL::bigint[],
+               format('尾端违例：max(lastWalSeq)=%s 越过 pgSeq=%s（行越水位无豁免面）', max_last, "pgSeq")
+        FROM c_tail_inv
+        UNION ALL
+        SELECT "projectId", generation, "snapshotFloor", "pgSeq", 'c-tail', NULL, missing_count, missing_sample,
+               format('尾端豁免区间 [%s,%s] 缺覆盖（max(lastWalSeq)=%s≠pgSeq）', max_last + 1, "pgSeq", max_last)
+        FROM c_tail WHERE missing_count > 0
+      ) v
+      ORDER BY v."projectId", v.generation, v.kind, v.row_seq`;
   }
 
   /** T11 保留策略：当前代 2 份（指针行+其前一 rev）+旧代各最终 1 份（新快照发布后删旧）。

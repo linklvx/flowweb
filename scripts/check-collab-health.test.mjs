@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectMetricFiles, extractMetricNames } from './check-spec-consistency.mjs';
-import { THRESHOLDS, resolveSpoolCapacityBytes } from './collab-health-thresholds.mjs';
+import { THRESHOLDS, resolveSpoolCapacityBytes, AUDIT_WORKER_CHECKS } from './collab-health-thresholds.mjs';
 import { parsePromText, evaluate, runCheck } from './check-collab-health.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -29,6 +29,18 @@ test('阈值表单源断言：THRESHOLDS 键 ⊆ 实际注册指标名（*.metri
   // Y0c T20：heap 闸按常驻重标（Z73/Z126①——常驻集=预期态：冷 doc 拒绝期 tripped=1 是合法降级非异常，
   // P0「静默降级」定性不再成立——降 P1 分诊面；双进程阈值重标归片 D 内存实测）
   assert.equal(THRESHOLDS['collab_overload_state']?.level, 'P1', 'collab_overload_state 重标 P1（常驻化后合法降级面）');
+  // C3（doc-append-gap-alert）：charter 阈值钉——increase(doc_append_gap_total[5m])>0 ⇒ P0 counter-delta delta:0
+  //（声明面=THRESHOLDS〔api 3000 恒 0 死键——source=worker 3002，retention 同款〕；操作判定路径=evaluate
+  // AUDIT_WORKER_CHECKS 段读 worker 3002 采集——两指标语义注记 runbook §6）
+  assert.equal(THRESHOLDS['doc_append_gap_total']?.level, 'P0', 'doc_append_gap_total 必须 P0（charter 0 丢失口径）');
+  assert.equal(THRESHOLDS['doc_append_gap_total']?.kind, 'counter-delta');
+  assert.equal(THRESHOLDS['doc_append_gap_total']?.delta, 0);
+  assert.equal(THRESHOLDS['collab_doc_append_gap_current']?.level, 'P1', 'collab_doc_append_gap_current 持续阈值 P1');
+  assert.equal(THRESHOLDS['collab_append_audit_purge_stale_total']?.level, 'P1', 'purge 义务年龄告警 P1');
+  assert.equal(AUDIT_WORKER_CHECKS.gapCounter, 'doc_append_gap_total');
+  assert.equal(AUDIT_WORKER_CHECKS.currentGauge, 'collab_doc_append_gap_current');
+  assert.equal(AUDIT_WORKER_CHECKS.purgeStaleCounter, 'collab_append_audit_purge_stale_total');
+  assert.equal(AUDIT_WORKER_CHECKS.lastRunGauge, 'collab_append_audit_last_run_unix_seconds');
 });
 
 // ===== it 2：P0 命中→exit 2+SMS 恰一条+per-check 节流 =====
@@ -74,11 +86,17 @@ const HEALTHY_WORKERS = {
   'ai-result-download': { registered: 1, waiting: 0 },
 };
 
-/** worker 3002 端点健康 prom 文本（Z116 分集：所读族样本恒带 role="worker"） */
+/** worker 3002 端点健康 prom 文本（Z116 分集：所读族样本恒带 role="worker"；
+ *  C3-1 审计族健康基线——last_run unix s=1000 ⇒ 样本年龄 age=now(1_000_000ms)−1000s×1000=0 恒 fresh）。 */
 function workerPromText(overrides = {}) {
   const base = {
     'nodejs_eventloop_lag_seconds{role="worker"}': 0.002,
     'process_tree_rss_bytes{role="worker"}': 209715200,
+    // C3-1（AUDIT_WORKER_CHECKS）：append 审计族健康基线
+    'collab_append_audit_last_run_unix_seconds{role="worker"}': 1000,
+    'doc_append_gap_total{role="worker"}': 0,
+    'collab_doc_append_gap_current{role="worker"}': 0,
+    'collab_append_audit_purge_stale_total{role="worker"}': 0,
     ...overrides,
   };
   return Object.entries(base).map(([k, v]) => `${k} ${v}`).join('\n') + '\n';
@@ -586,4 +604,73 @@ test('T29-II R6e（Z148④）：yjs_degraded_docs >0 单轮 WARN（P1）/连续 
   // yjs_updates_rows_total（gauge-max 无 rounds——瞬时 WARN）
   const rows = evaluate({ ...base, metrics: parsePromText(promText({ yjs_updates_rows_total: 100_001 })) }, null, 1_000_000, {});
   assert.ok(rows.findings.some((f) => f.level === 'P1' && f.check === 'yjs_updates_rows_total'), '行数超阈 → P1 预警（观测项非机制项）');
+});
+
+// ===== C3-1（doc-append-gap-alert）：worker 3002 审计族检查（AUDIT_WORKER_CHECKS 消费面——红⑥⑦ 先红） =====
+
+/** C3 审计族跨 run 基线（w3002: 键=worker 3002 审计段状态；无前缀同名键=api 侧 THRESHOLDS 循环基线
+ *  〔api 3000 无此族折 0〕——两段同名指标状态键以 w3002: 前缀隔离，两侧基线都预建） */
+const C3_LAST = (over = {}) => ({
+  ts: 0, overload_tripped: 0, not_serving_since: null, zero_conn_last: null,
+  counters: {
+    'w3002:doc_append_gap_total': 0, 'w3002:collab_append_audit_purge_stale_total': 0,
+    doc_append_gap_total: 0, collab_append_audit_purge_stale_total: 0,   // api 侧 THRESHOLDS 循环（0 采样折 0）
+    ...over,
+  },
+  rounds: {},
+});
+
+test('C3 红⑥：audit 族缺席（audit worker 未装配）⇒ P1 缺样本 unobservable；last_run 样本年龄>15min ⇒ P1 stale（worker 停跑半死面→health 红 exit 1；进程死=worker-metrics-unreachable P0 既有承担）；fresh ⇒ 零 audit findings', () => {
+  // ① 族缺席（worker.module 缺 CollabAppendAuditWorker 注册形态——3002 无审计族）
+  const absentText = 'nodejs_eventloop_lag_seconds{role="worker"} 0.002\nprocess_tree_rss_bytes{role="worker"} 209715200\n';
+  const absent = evaluate(workerSample(absentText), null, 1_000_000, {});
+  assert.ok(absent.findings.some((f) => f.level === 'P1' && /unobservable/.test(f.detail)),
+    `audit 族缺席 ⇒ P1 缺样本 unobservable（实得 ${JSON.stringify(absent.findings)}）`);
+  // ② 样本年龄：last_run=99（s）→ age=901s > 15min ⇒ P1（worker 进程活而审计 tick 死——红⑥ 半死面；
+  //    进程死=worker-metrics-unreachable P0 既有承担——exit 2+SMS，本档=审计链专用侦测）
+  const stale = evaluate(workerSample(workerPromText({ 'collab_append_audit_last_run_unix_seconds{role="worker"}': 99 })), null, 1_000_000, {});
+  assert.ok(stale.findings.some((f) => f.level === 'P1' && f.check === 'collab-append-audit-stale'),
+    `样本年龄>15min ⇒ P1 stale（实得 ${JSON.stringify(stale.findings)}）`);
+  // ③ fresh（=1000s ⇒ age 0）+ 两侧基线已建 ⇒ 零 audit findings（age/stale/current/gap/purge 全静默）
+  const fresh = evaluate(workerSample(workerPromText()), C3_LAST(), 1_000_000, {});
+  const auditFindings = fresh.findings.filter((f) => /append|doc_append|append_audit/.test(f.check + f.detail));
+  assert.deepEqual(auditFindings, [], `fresh 审计族零 findings（实得 ${JSON.stringify(auditFindings)}）`);
+});
+
+test('C3 红⑦：doc_append_gap_total 窗口增量 ⇒ P0；counter 回落（worker 重启）重基线不误报；current>0 连续 2 轮 ⇒ P1+回落解除；purge_stale 增量 ⇒ P1', () => {
+  // 窗口增量 +1 ⇒ P0（charter increase([5m])>0——0 丢失口径）
+  const g = evaluate(workerSample(workerPromText({ 'doc_append_gap_total{role="worker"}': 1 })), C3_LAST(), 1_000_000, {});
+  assert.ok(g.findings.some((f) => f.level === 'P0' && f.check === 'doc_append_gap_total'), `窗口增量 ⇒ P0（实得 ${JSON.stringify(g.findings)}）`);
+  // 回落（基线 3 → 当前 0=worker 重启）重基线不误报
+  const back = evaluate(workerSample(workerPromText()), C3_LAST({ 'w3002:doc_append_gap_total': 3 }), 1_000_000, {});
+  assert.ok(!back.findings.some((f) => f.check === 'doc_append_gap_total' && !f.insufficient), '回落重基线不误报');
+  // current>0：第 1 轮记录不即红、第 2 轮 P1、回落解除
+  const cur = workerPromText({ 'collab_doc_append_gap_current{role="worker"}': 2 });
+  const c1 = evaluate(workerSample(cur), C3_LAST(), 1_000_000, {});
+  assert.ok(!c1.findings.some((f) => f.check === 'collab_doc_append_gap_current' && !f.insufficient), 'current 第 1 轮不即红（悬而未决排除瞬态）');
+  const c2 = evaluate(workerSample(cur), c1.nextLast, 1_000_000 + 300_000, {});
+  assert.ok(c2.findings.some((f) => f.level === 'P1' && f.check === 'collab_doc_append_gap_current'), 'current 持续第 2 轮 ⇒ P1');
+  const c3 = evaluate(workerSample(workerPromText()), c2.nextLast, 1_000_000 + 600_000, {});
+  assert.ok(!c3.findings.some((f) => f.check === 'collab_doc_append_gap_current' && !f.insufficient), 'current 回落解除');
+  // purge 义务年龄窗口增量 ⇒ P1（红②——独立告警通道）
+  const p = evaluate(workerSample(workerPromText({ 'collab_append_audit_purge_stale_total{role="worker"}': 1 })), C3_LAST(), 1_000_000, {});
+  assert.ok(p.findings.some((f) => f.level === 'P1' && f.check === 'collab_append_audit_purge_stale_total'), 'purge 义务年龄增量 ⇒ P1');
+});
+
+test('C3 红⑦：P0 → exit 2+SMS 恰一条（[P0]doc_append_gap_total——阈值触发→真实发送链路穿 runCheck；SMS 实弹=服务器侧测试号码+演练标签，runbook §6 演练行）', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'collab-health-c3-'));
+  const sent = [];
+  const smsSender = async (check, text) => { sent.push({ check, text }); };
+  // run1 建基线（双端点健康——审计族 fresh）
+  const r1 = await runCheck({ now: 1_000_000, fetchImpl: makeFetch({ metricsText: promText(), workerMetricsText: workerPromText() }), stateDir, env: {}, smsSender });
+  assert.equal(r1.exitCode, 1, '首跑 insuff（预期 P1）');
+  // run2：worker 3002 doc_append_gap_total 0→1（新 gap 边沿）⇒ P0 → SMS 恰一条
+  const r2 = await runCheck({ now: 1_000_000 + 300_000, fetchImpl: makeFetch({ metricsText: promText(), workerMetricsText: workerPromText({ 'doc_append_gap_total{role="worker"}': 1 }) }), stateDir, env: {}, smsSender });
+  assert.equal(r2.exitCode, 2, 'P0 ⇒ exit 2');
+  const p0 = r2.findings.filter((f) => f.level === 'P0');
+  assert.equal(p0.length, 1, `恰一个 P0（实得 ${JSON.stringify(p0)}）`);
+  assert.equal(p0[0].check, 'doc_append_gap_total');
+  assert.equal(sent.length, 1, 'SMS 恰一条');
+  assert.match(sent[0].text, /doc_append_gap_total/);
+  fs.rmSync(stateDir, { recursive: true, force: true });
 });
