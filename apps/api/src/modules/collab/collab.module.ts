@@ -31,6 +31,7 @@ import { CollabMaintenanceService } from './collab-maintenance.service';   // Y1
 import { CollabMaintenanceController } from './collab-maintenance.controller';   // Y1c T27：REST 控制面（admin guard+幂等键）
 import { CollabShrinkService } from './collab-shrink.service';
 import { CollabCompactPoller } from './collab-compact.poller';   // Y1c T12：dev role=all compact 轮询面装配（硬输入 #4）
+import { CollabReplayCanaryPoller, CANARY_SERVING_PROBE, CANARY_MAINTENANCE_PROBE } from './collab-replay-canary.poller';   // C2-2a：canary 捕获 poller（api 进程——withFrozenPrefix 活 doc 载体）
 import { TelemetryController } from './telemetry.controller';
 import { TelemetryService } from './telemetry.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -85,6 +86,12 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
     // 原缺失=启动续跑 resumePurges/周期扫描在该形态无人执行（ExecutionDaemonModule.register 的
     // api|all 装配/worker 空同款门控；Z48 安全方向：漏设/异常值永不静默装配）。
     ...(process.env.COLLAB_ROLE === 'all' ? [CollabCompactPoller] : []),
+    // C2-2a（plan Task C2-2 捕获侧）：canary 捕获 poller——**api 进程**装配（role api|all；worker
+    // 无活 doc/withFrozenPrefix 面不装配——compact poller 的 worker 装配镜像形态）。probe 两 token
+    // useExisting 转发既有 provider（gateway serving 判定+maintenance freeze 面——结构满足接口）。
+    { provide: CANARY_SERVING_PROBE, useExisting: CollabGateway },
+    { provide: CANARY_MAINTENANCE_PROBE, useExisting: CollabMaintenanceService },
+    ...(process.env.COLLAB_ROLE !== 'worker' ? [CollabReplayCanaryPoller] : []),
   ],
   // Y0c T13b：exports += CollabWritePort（写端口面）。CollabDocumentService 既有 exports 原样保留——
   // Y0c T25 实况（偏离 21 处置）：跨模块 4 直注文件仍在（video-work.service〔readCanvasSnapshotCached

@@ -636,11 +636,18 @@ describe('I1.2 vacuumReplace 锁内 generation 复核（expectedGeneration——
     const prisma = {
       $transaction: vi.fn((fn: any) => fn({
         $executeRaw: vi.fn().mockResolvedValue([]),   // advisory lock
-        // C2-1：vacuumReplace 前置 OpsGate 两行 FOR SHARE 校验（lockProject 后首读——mock 随生产面）
-        $queryRaw: vi.fn().mockResolvedValue([
-          { projectId: '', state: 'OPEN' },
-          { projectId: 'p1', state: 'OPEN' },
-        ]),
+        // C2-1：vacuumReplace 前置 OpsGate 两行 FOR SHARE 校验（lockProject 后首读——mock 随生产面）；
+        // C2-2a：canary pin 存活谓词读（gate 后首读——按 SQL 形状分派，无 pin 放行）
+        $queryRaw: vi.fn(async (strings: any) => {
+          const sql = Array.isArray(strings) ? strings.join('?') : String(strings);
+          if (sql.includes('"CollabOpsGate"')) {
+            return [
+              { projectId: '', state: 'OPEN' },
+              { projectId: 'p1', state: 'OPEN' },
+            ];
+          }
+          return [];   // CanaryPin 存活检查=零 pin 放行（红⑤-b defer 档归 c22a int 真 PG 面）
+        }),
         canvasDocUpdate: {
           findMany: vi.fn().mockResolvedValue([]),    // 锁内实读行集（expectedRowCount=0 对齐）
           deleteMany: vi.fn(async () => { writes.deleteMany += 1; }),

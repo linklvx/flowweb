@@ -602,6 +602,7 @@ const ENCODE_WHITELIST = {
   'apps/api/src/modules/collab/collab-recovery-import.service.ts': 3,   // Y1c T25：recovery import 候选 clone 快照/temp diff/commitDiff 三点（唯一 clone 场所——§3.2）
   'apps/api/src/modules/collab/collab-maintenance.service.ts': 1,   // Y1c T27：维护 REBUILDING canonical 新代快照编码（fresh clientID rebuild payload——§6.6）
   'apps/api/src/modules/collab/collab-project-actor.service.ts': 1,   // Y1c T27 收尾 M-b：replay derive 基线 clone 编码（memo 轮间复用——load 档）
+  'apps/api/src/modules/collab/collab-replay-canary.service.ts': 1,   // C2-2a：canary 捕获 canonical hash 编码（冻结临界区活 doc encodeStateAsUpdate——compact stateHash 同口径，快照权威读非装载面）
 };
 
 const results = [];
@@ -1168,6 +1169,9 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-append-audit.worker.ts': {   // C3-1（生产就绪收尾批·doc-append-gap-alert）：worker append 审计轮询周期键（DOC_APPEND_AUDIT_INTERVAL_MS——COMPACT_POLL_INTERVAL_MS/RETENTION_SWEEP_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、Number()||默认缺省档 300_000、消费面=worker 轮询周期非部署档位）
       DOC_APPEND_AUDIT_INTERVAL_MS: 1,
     },
+    'apps/api/src/modules/collab/collab-replay-canary.poller.ts': {   // C2-2a（生产就绪收尾批·replay-canary 捕获侧）：canary 捕获 poller api 进程轮询周期键（CANARY_POLL_INTERVAL_MS——COMPACT_POLL_INTERVAL_MS/RETENTION_SWEEP_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、Number()||默认缺省档 60_000、消费面=api 轮询周期非部署档位）
+      CANARY_POLL_INTERVAL_MS: 1,
+    },
     'apps/api/src/modules/collab/project-lock.ts': {   // C1-0 写锁门禁激活判据（函数内 writeGateActive 惰性——测试态判定非部署档位：VITEST=vitest 进程标记、NODE_ENV=test 档；消费面=PrismaService 测试态自包裹+门禁断言直通判别）
       VITEST: 1, NODE_ENV: 1,
     },
@@ -1187,8 +1191,8 @@ if (isMain()) {
       COLLAB_MAX_DOC_BYTES: 1, COLLAB_MAX_TX_BYTES: 1, COLLAB_MSG_RATE_PER_CONN: 1, COLLAB_BYTES_RATE_PER_CONN: 1,
       COLLAB_MAX_RESIDENT_DOC_BYTES: 1,   // Y1c T10（偏离 38⑤）：maxResidentDocBytes 驻留上界（load 入口闸——默认 384MiB 落使用点）
     },
-    'apps/api/src/modules/collab/collab.module.ts': {   // T34 整改：uF装配期（三 token useValue→useFactory；REDIS_CLIENT uF 既有）；Y1c T12 +COLLAB_ROLE（role=all compact 轮询面装配门——ExecutionDaemonModule.register 同族）
-      COLLAB_PORT: 1, COLLAB_TIMEOUT: 1, REDIS_URL: 1, COLLAB_ROLE: 1,
+    'apps/api/src/modules/collab/collab.module.ts': {   // T34 整改：uF装配期（三 token useValue→useFactory；REDIS_CLIENT uF 既有）；Y1c T12 +COLLAB_ROLE（role=all compact 轮询面装配门——ExecutionDaemonModule.register 同族）；C2-2a +1（role api|all canary 捕获 poller 装配门——compact 镜像形态）
+      COLLAB_PORT: 1, COLLAB_TIMEOUT: 1, REDIS_URL: 1, COLLAB_ROLE: 2,
     },
     'apps/api/src/modules/collab/worker-write-auth.guard.ts': {   // 方法内（canActivate 惰性——同上）
       WORKER_WRITE_TOKEN: 1, NODE_ENV: 1,

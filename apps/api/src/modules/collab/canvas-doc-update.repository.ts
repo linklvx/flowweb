@@ -487,6 +487,42 @@ export class CanvasDocUpdateRepository {
     return this.prisma.canvasDocUpdate.count({ where: { projectId } });
   }
 
+  /** C2-2a（plan Task C2-2 捕获侧）：canary pin 坐标读面（worker verify 重放输入——C2-2b 消费；
+   *  红⑤-a 断言「pin 存活期仍可读」同面）。快照 PK 行（缺行=genesis 回退折空 state）+增量区间
+   *  (stateSeq, pgSeqAt] 分页尾——pin 坐标由捕获协议② 保证 stateSeq≤pgSeqAt∧行存活（pin 存活
+   *  谓词挡 prune/purge）。单 RR 事务（readConsistent 同族——指针快照+尾集一致快照读）。 */
+  async readAt(
+    projectId: string,
+    generation: number,
+    snapshotRev: bigint,
+    pgSeqAt: bigint,
+  ): Promise<{ state: Buffer | null; stateSeq: bigint; updates: Buffer[] }> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const snap = await tx.canvasDocSnapshot.findUnique({
+          where: { projectId_generation_snapshotRev: { projectId, generation, snapshotRev } },
+          select: { state: true, stateSeq: true },
+        });
+        const state = snap?.state ?? null;   // genesis 回退坐标（rev 0）行缺=折空全量重放（readConsistent 防御同判）
+        const updates: Buffer[] = [];
+        let cursor = snap?.stateSeq ?? 0n;
+        for (;;) {
+          const page = await tx.$queryRaw<{ seq: bigint; update: Buffer }[]>`
+            SELECT seq, update FROM "CanvasDocUpdate"
+            WHERE "projectId" = ${projectId}::text AND generation = ${generation}::int
+              AND seq > ${cursor}::bigint AND seq <= ${pgSeqAt}::bigint
+            ORDER BY seq ASC LIMIT ${CanvasDocUpdateRepository.PAGE_ROWS}`;
+          if (page.length === 0) break;
+          for (const r of page) updates.push(r.update);
+          cursor = page[page.length - 1].seq;
+          if (page.length < CanvasDocUpdateRepository.PAGE_ROWS) break;
+        }
+        return { state, stateSeq: snap?.stateSeq ?? 0n, updates };
+      },
+      { isolationLevel: 'RepeatableRead', timeout: 8_000, maxWait: 2_000 },
+    );
+  }
+
   /** Y0b-4 T9a（Q-U v6 报告1 P1-2/报告2 G-3）：vacuum ⑥ 单事务——快照代际替换。
    *  首行 lockProject（T10 后仅 vacuumReplace 消费——T27 状态机化收口）；被删增量行精确
    *  取号基准=锁内实读行集（禁 0/GREATEST 包装——canvas-doc-insert-ratchet 红线）；expected
@@ -516,7 +552,7 @@ export class CanvasDocUpdateRepository {
     /** Y1c T27：同事务钩（SWITCHING stage 写与换代 DB 族同生共死——appendBatch inTx 先例；
      *  消费方=CollabMaintenanceService.switchingStage）。 */
     inTx?: (tx: Prisma.TransactionClient) => Promise<void>,
-  ): Promise<{ generation: number } | { aborted: 'generation-drift'; dbGeneration: number } | { aborted: 'gate-frozen' }> {
+  ): Promise<{ generation: number } | { aborted: 'generation-drift'; dbGeneration: number } | { aborted: 'gate-frozen' } | { aborted: 'canary-pin-active' }> {
     let gateReject: OpsGateCompactReject | null = null;   // C2-1：前置 gate 检查拒档（提交后计数）
     const r = await this.prisma.$transaction(
       async (tx) => {
@@ -529,6 +565,13 @@ export class CanvasDocUpdateRepository {
           gateReject = gate.result;
           return { aborted: 'gate-frozen' as const };
         }
+        // C2-2a（红⑤-b）：canary pin 存活谓词进 vacuumReplace 事务——换代整删增量行+快照换代会
+        // 使 pin 坐标 (generation,snapshotRev,pgSeqAt] 全域失锚（readAt 撕裂），pin 存活期 defer
+        // 本轮（先于任何写=零换代零删行；pin TTL 15min 上界——defer 非死锁，过期后重试照常）。
+        const pin = await tx.$queryRaw<{ x: number }[]>`
+          SELECT 1 AS x FROM "CanaryPin"
+          WHERE "projectId" = ${projectId}::text AND "expiresAt" > now() LIMIT 1`;
+        if (pin.length > 0) return { aborted: 'canary-pin-active' as const };
         const liveRows = await tx.canvasDocUpdate.findMany({
           where: { projectId },
           orderBy: { seq: 'asc' },
@@ -756,10 +799,17 @@ export class CanvasDocUpdateRepository {
   async purgeBelow(projectId: string, generation: number, belowSeq: bigint): Promise<number> {
     let deleted = 0;
     for (;;) {
+      // C2-2a（红⑤-a）：pin 存活谓词进删除语句——canary pin 保护区间 (stateSeq, pgSeqAt] 的增量行
+      // 不删（readAt 重放输入面；捕获窗 FOR SHARE 使 pin 先于本 purge 可见）；区间外行照常批删。
       const r = await this.prisma.$queryRaw<{ n: number }[]>`
         WITH victims AS (
-          SELECT ctid FROM "CanvasDocUpdate"
-          WHERE "projectId" = ${projectId}::text AND generation = ${generation}::int AND seq <= ${belowSeq}::bigint
+          SELECT ctid FROM "CanvasDocUpdate" u
+          WHERE u."projectId" = ${projectId}::text AND u.generation = ${generation}::int AND u.seq <= ${belowSeq}::bigint
+            AND NOT EXISTS (
+              SELECT 1 FROM "CanaryPin" p
+              WHERE p."projectId" = u."projectId" AND p."expiresAt" > now()
+                AND u.seq > p."stateSeq" AND u.seq <= p."pgSeqAt"
+            )
           ORDER BY seq ASC LIMIT ${CanvasDocUpdateRepository.PURGE_BATCH_ROWS}
         )
         DELETE FROM "CanvasDocUpdate" WHERE ctid IN (SELECT ctid FROM victims) RETURNING 1`;
@@ -770,9 +820,15 @@ export class CanvasDocUpdateRepository {
     // C3-0：侧表同 seq 区间顺带删（seq<=belowSeq——被吞行随其号段清理，审计行间衔接断点覆盖面
     // 随之退役；侧表基数=吞行频度故单语句无批删必要，PK 前缀 (projectId,generation,seq) 走索引）。
     // 擦除随 scope 批删归 C4-3（介质 registry 将列 CanvasDocCoalesced——本处仅 compact 清理域）。
+    // C2-2a：pin 存活谓词同域（审计覆盖行随保护区间一致幸存——C3 审计域与 pin 读域连贯）。
     await this.prisma.$executeRaw`
-      DELETE FROM "CanvasDocCoalesced"
-      WHERE "projectId" = ${projectId}::text AND generation = ${generation}::int AND seq <= ${belowSeq}::bigint`;
+      DELETE FROM "CanvasDocCoalesced" c
+      WHERE c."projectId" = ${projectId}::text AND c.generation = ${generation}::int AND c.seq <= ${belowSeq}::bigint
+        AND NOT EXISTS (
+          SELECT 1 FROM "CanaryPin" p
+          WHERE p."projectId" = c."projectId" AND p."expiresAt" > now()
+            AND c.seq > p."stateSeq" AND c.seq <= p."pgSeqAt"
+        )`;
     return deleted;
   }
 
@@ -899,7 +955,9 @@ export class CanvasDocUpdateRepository {
   }
 
   /** T11 保留策略：当前代 2 份（指针行+其前一 rev）+旧代各最终 1 份（新快照发布后删旧）。
-   *  指针行恒保留（两式删除域均排除 top 集合；currentSnapshotRev∈当代 top-1）。 */
+   *  指针行恒保留（两式删除域均排除 top 集合；currentSnapshotRev∈当代 top-1）。
+   *  C2-2a（红⑤-a）：pin 存活谓词进删除语句——canary pin 坐标引用的快照行不删（readAt 快照 PK
+   *  读面；pinned 快照落出 top-2 的发布窗内由本谓词幸存，pin 过期后下轮 resumePurges 收敛）。 */
   async pruneSnapshots(projectId: string, currentGeneration: number, currentRev: bigint): Promise<void> {
     // 当代：保留 top-2 rev（指针+前一发布）
     await this.prisma.$executeRaw`
@@ -911,6 +969,11 @@ export class CanvasDocUpdateRepository {
             WHERE "projectId" = ${projectId}::text AND generation = ${currentGeneration}::int
             ORDER BY "snapshotRev" DESC LIMIT 2
           ) t
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM "CanaryPin" p
+          WHERE p."projectId" = s."projectId" AND p.generation = s.generation
+            AND p."snapshotRev" = s."snapshotRev" AND p."expiresAt" > now()
         )`;
     // 旧代：各代保留最大 rev 一份（vacuum 换代后的历史代快照收敛）
     await this.prisma.$executeRaw`
@@ -919,6 +982,11 @@ export class CanvasDocUpdateRepository {
         AND s."snapshotRev" < (
           SELECT MAX(s2."snapshotRev") FROM "CanvasDocSnapshot" s2
           WHERE s2."projectId" = s."projectId" AND s2.generation = s.generation
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM "CanaryPin" p
+          WHERE p."projectId" = s."projectId" AND p.generation = s.generation
+            AND p."snapshotRev" = s."snapshotRev" AND p."expiresAt" > now()
         )`;
     void currentRev;   // 指针行∈当代 top-1（rev 单调=pgSeq）——显式钉锚：删除域结构性排除指针行
   }
@@ -927,11 +995,19 @@ export class CanvasDocUpdateRepository {
    *  （义务闭环）。防随时间单调增长的空转扫描：resumePurges 的 NOT NULL 全量扫描在无衰减语义下
    *  恒命中全部已发布 doc（每 doc 每次发布 GREATEST 落定一次，永不清理）；衰减后稳态 boot/tick
    *  扫描=仅 kill 窗残留义务。幂等（WHERE IS NOT NULL——0 行 no-op）；换代竞态窗（vacuum 置
-   *  null 后本 UPDATE 0 行）无害。 */
+   *  null 后本 UPDATE 0 行）无害。
+   *  C2-2a（红⑤-a）：pin 保护残余守卫——purgeBelow 被 pin 存活谓词跳过区间后仍有 ≤purgeBelowSeq
+   *  行在场 ⇒ 不衰减（义务由 resumePurges 每 tick 续跑，pin 过期后收敛——「义务衰减+保护行滞留
+   *  到无人再扫」的半闭环根除：compact ① empty 早退〔指针已覆盖 pgSeq〕不再触 ④，义务是唯一
+   *  续跑通道）。 */
   private async dischargePurgeObligation(projectId: string, generation: number): Promise<void> {
     await this.prisma.$executeRaw`
-      UPDATE "CanvasDoc" SET "purgeBelowSeq" = NULL
-      WHERE "projectId" = ${projectId}::text AND generation = ${generation}::int AND "purgeBelowSeq" IS NOT NULL`;
+      UPDATE "CanvasDoc" d SET "purgeBelowSeq" = NULL
+      WHERE d."projectId" = ${projectId}::text AND d.generation = ${generation}::int AND d."purgeBelowSeq" IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM "CanvasDocUpdate" u
+          WHERE u."projectId" = d."projectId" AND u.generation = d.generation AND u.seq <= d."purgeBelowSeq"
+        )`;
   }
 
   /** T11 启动续跑（kill 在指针发布后/分批删完成前 ⇒ 重启不丢清理义务）：扫全部 purgeBelowSeq 已

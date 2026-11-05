@@ -172,6 +172,13 @@ export const THRESHOLDS = {
     ],
     note: 'C2-1：OpsGate FROZEN 行最老冻结年龄秒（全局 max——MIN(frozenAt) 聚合无 projectId 标签）；P1@1h=分诊+解冻 ack 处置窗（runbook §14 归 C2-3）/P0@6h=canary 冻结悬置 6h 未 ack 升级。source=worker 3002（api 3000 恒 0 死键——retention/C3 同款声明面）；操作判定路径=evaluate OPS_GATE_CHECKS 段读 3002 同值单源（tiers 值派生自 OPS_GATE_CHECKS 禁手抄）',
   },
+
+  // ===== C2-2a（生产就绪收尾批·replay-canary 捕获侧——plan「pin_retry_total 告警」；source=api 3000：
+  //        CollabReplayCanaryPoller 仅 api 进程装配——捕获面与活 doc/withFrozenPrefix 同进程） =====
+  collab_canary_pin_retry_total: {
+    level: 'P1', kind: 'counter-delta', delta: 0,
+    note: 'C2-2a：canary pin 建立失败计数（漂移守卫/pendingStructs 非空/落库异常——失败 pin 即删不残留，poller 下轮重捕）；增量>0=捕获链异常（冻结预算不足/布景漂移/CanaryPin 表异常）持续重试信号，分诊：collab_canary_poll_tick_total{result} 分布+pin_retry 关联样本。其余 canary 告警条目（skip_lag/doc_pg_lag/last_check_age）归 C2-2b。source=api 3000',
+  },
 };
 
 /** Y0c T29-II（Z130③/Z116/R6a）：worker 3002 端点族阈值——「巡检即采集面」（Z134 无 Prometheus

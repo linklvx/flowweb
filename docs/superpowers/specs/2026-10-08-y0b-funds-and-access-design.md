@@ -890,6 +890,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 ```yaml
 - API_BIND_ADDR
 - BETTER_AUTH_URL
+- CANARY_POLL_INTERVAL_MS
 - COLLAB_ADMIN_TOKEN
 - COLLAB_ALLOWED_ORIGINS
 - COLLAB_AUTH_ATTEMPTS_PER_MIN
@@ -1005,6 +1006,10 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_awareness_reject_total
 - collab_awareness_stripped_total
 - collab_bytes_rate_exceeded_total
+- collab_canary_capture_ms
+- collab_canary_hash_skipped_total
+- collab_canary_pin_retry_total
+- collab_canary_poll_tick_total
 - collab_doc_append_gap_current
 - collab_doc_export_fresh_total
 - collab_doc_residue_bytes

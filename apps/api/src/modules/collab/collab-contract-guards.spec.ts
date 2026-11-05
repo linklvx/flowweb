@@ -31,6 +31,9 @@ describe('Y0a-1 冻结契约扫描', () => {
   //     stateSeq token 仅允许建行字面形态）。拆除时点：state 列族随 T9/T10/T11 拆除切片同步收口豁免。 ──
   const Y1C_CARRIER_HEAD_READER = 'canvas-doc-head.ts';
   const Y1C_GENESIS = 'canvas-doc-genesis.ts';
+  // C2-2a 登记：canary 捕获协议读面——stateSeq token=pin 坐标语义（快照选择 SELECT 列+CanaryPin
+  // 坐标列——快照权威读非 CanvasDoc 态列写者，正向形态锚见下 it）。
+  const C2_CANARY_CAPTURE = 'collab-replay-canary.service.ts';
 
   it('契约 1：装载读唯一入口——collab 生产文件（repository 外）不得直查 CanvasDoc+CanvasDocUpdate 拼装载', () => {
     for (const f of prodFiles) {
@@ -56,8 +59,16 @@ describe('Y0a-1 冻结契约扫描', () => {
   it('契约 10：stateSeq 唯一写者=compact 事务——repository 外零引用', () => {
     for (const f of prodFiles) {
       if (f.name === Y1C_GENESIS) continue;   // Y1c T7 登记：genesis 建头（形态锚见下 it——仅建行字面）
+      if (f.name === C2_CANARY_CAPTURE) continue;   // C2-2a 登记：canary 坐标读面（形态锚见下 it）
       expect(f.src, f.name).not.toMatch(/stateSeq/);
     }
+  });
+  it('契约 10 C2-2a 正向锚：collab-replay-canary.service.ts 的 stateSeq token=pin 坐标读面（快照选择 SELECT+CanaryPin 坐标列）——零 CanvasDoc 态列写、零装载拼装', () => {
+    const f = prodFiles.find((f) => f.name === C2_CANARY_CAPTURE)!;
+    // 快照坐标选择在位（stateSeq≤pgSeqAt 谓词——C2-2 捕获协议②）
+    expect(f.src).toMatch(/"stateSeq" <= \$\{args\.pgSeqAt\}::bigint/);
+    // 非 CanvasDoc 态列写者（无 CanvasDoc INSERT/UPDATE）；非第二装载实现（无增量尾装载拼装）
+    expect(f.src).not.toMatch(/INSERT INTO "CanvasDoc"|UPDATE "CanvasDoc"|canvasDocUpdate/);
   });
   it('契约 10 Y1c T7 形态锚（Y1c T11 快照权威收口）：canvas-doc-genesis.ts 的 stateSeq token 全部=建行字面 `stateSeq: 0n,`（无读/无 CAS 更新/无注释提及）', () => {
     const gen = prodFiles.find((f) => f.name === Y1C_GENESIS)!;

@@ -31,6 +31,8 @@ import { TopologyService } from '../execution/topology.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
+import { freezeOpsGateCompact } from './collab-ops-gate.service';   // 骑手#4（C2-1 评审 Minor#4）：switchingStage gate-frozen 分支直接测试
+import { OPS_GATE_COMPACT } from './project-governance.service';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';   // Y1c T27 收口红④：CLI 源词法面（doc-shape 静态门先例）
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -325,6 +327,40 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
     expect(head?.generation).toBe(0);
     expect(maintenance.isFrozen(PID)).toBe(false);
     expect((await prisma.maintenanceOperation.findUnique({ where: { maintenanceId: req.maintenanceId } }))?.stage).toBe('ABORTED');
+  });
+
+  it('骑手#4（C2-1 评审 Minor#4）freeze gate：FROZEN 期 run → REBUILDING 前净 abort——{result:"aborted"}+detail reason 含 gate-frozen（switchingStage :413 分支现类型携带无直接测试）', async () => {
+    await freezeOpsGateCompact(prisma, { projectId: PID, frozenBy: 't27-rider4', reason: 'gate-frozen abort drill' });
+    try {
+      const req = await maintenance.request({ projectId: PID, idempotencyKey: `k-${randomUUID()}`, requestedBy: 'int', source: 'rest' });
+      if (!req.ok) throw new Error('request 失败');
+      const run = await maintenance.run(req.maintenanceId, { drainBudgetMs: 3_000 });
+      expect(run).toMatchObject({ result: 'aborted', detail: 'gate-frozen' });   // ABORTED detail 如实分档（非 drift）
+      expect((await prisma.maintenanceOperation.findUnique({ where: { maintenanceId: req.maintenanceId } }))?.stage).toBe('ABORTED');
+      // 净 abort：零换代+关闸解除（解冻恢复）
+      const head = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID }, select: { generation: true, maintenanceId: true } });
+      expect(head.generation).toBe(0);
+      expect(head.maintenanceId).toBeNull();
+    } finally {
+      await prisma.$executeRaw`UPDATE "CollabOpsGate" SET "state" = 'OPEN' WHERE "gate" = ${OPS_GATE_COMPACT} AND "projectId" = ${PID}::text`;
+    }
+  });
+
+  it('C2-2a 红⑤-b 映射：pin 存活期 run → {result:"aborted"}+detail=canary-pin-active（switchingStage canary-pin-active 分支）', async () => {
+    await prisma.$executeRaw`
+      INSERT INTO "CanaryPin" ("projectId", status, generation, "snapshotRev", "stateSeq", "pgSeqAt", "hashVersion", "leaseUntil", "expiresAt")
+      VALUES (${PID}::text, 'READY', 0::int, 0::bigint, 0::bigint, 2::bigint, 1::int, now() + interval '15 minutes', now() + interval '15 minutes')`;
+    try {
+      const req = await maintenance.request({ projectId: PID, idempotencyKey: `k-${randomUUID()}`, requestedBy: 'int', source: 'rest' });
+      if (!req.ok) throw new Error('request 失败');
+      const run = await maintenance.run(req.maintenanceId, { drainBudgetMs: 3_000 });
+      expect(run).toMatchObject({ result: 'aborted', detail: 'canary-pin-active' });   // defer 本轮（TTL 15min 上界非死锁）
+      const head = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID }, select: { generation: true, maintenanceId: true } });
+      expect(head.generation).toBe(0);   // 零换代
+      expect(head.maintenanceId).toBeNull();
+    } finally {
+      await prisma.canaryPin.deleteMany({ where: { projectId: PID } });
+    }
   });
 
   it('红②（服务侧同判定）无租约直写拒：lease 行持有=appendBatch fenced（CLI 直写同谓词——子进程级真跑见 kill9 套件）', async () => {

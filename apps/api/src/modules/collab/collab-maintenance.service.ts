@@ -390,7 +390,7 @@ export class CollabMaintenanceService {
 
   /** SWITCHING 段动作：单 PG 事务（vacuumReplace DB 族+同事务 stage 写）→提交后 close 4410+切 WAL+清进程态。
    *  幂等：generation≥target=前次提交已落 → 跳重切只做事务后动作。 */
-  private async switchingStage(pid: string, maintenanceId: string, sourceGeneration: number, targetGeneration: number, payload: { state: Buffer; updateRowCount: number }): Promise<{ ok: true } | { ok: false; reason: 'generation-drift' | 'gate-frozen' }> {
+  private async switchingStage(pid: string, maintenanceId: string, sourceGeneration: number, targetGeneration: number, payload: { state: Buffer; updateRowCount: number }): Promise<{ ok: true } | { ok: false; reason: 'generation-drift' | 'gate-frozen' | 'canary-pin-active' }> {
     const live = await readCanvasDocHead(this.prisma, pid);
     if (live.status === 'found' && live.row.generation >= targetGeneration) {
       // 前次 SWITCHING 已提交（崩溃窗 roll-forward）——只补事务后动作
@@ -411,6 +411,9 @@ export class CollabMaintenanceService {
       // C2-1：换代前置 OpsGate 拒（FROZEN/fail-closed）——非 drift 档（解冻 ack 前重试恒拒；
       // ABORTED detail 如实分档，运维分诊=冻结处置序 runbook §14）
       if (replaced.aborted === 'gate-frozen') return { ok: false, reason: 'gate-frozen' };
+      // C2-2a（红⑤-b）：canary pin 存活期换代 defer 本轮——非 drift 档（pin TTL 15min 上界；
+      // 维护重请求即可重试——ABORTED 净退出解冻，运维分诊=pin TTL/续租面〔verify 归 C2-2b〕）
+      if (replaced.aborted === 'canary-pin-active') return { ok: false, reason: 'canary-pin-active' };
       // 锁内 generation 复核漂移（跨进程 CLI 换代竞态窗）——pre-SWITCHING 净 abort 档
       if (replaced.dbGeneration >= targetGeneration) {
         await this.postSwitchActions(pid, replaced.dbGeneration);   // M-5(spec)：4410 载荷=DB 真值

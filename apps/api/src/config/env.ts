@@ -164,6 +164,10 @@ export const envSchema = z.object({
   //（默认值落使用点 collab-append-audit.worker DOC_APPEND_AUDIT_INTERVAL_MS=300_000——retention 同族
   //防双源；gap 检出延迟=分钟级粒度非部署档位）。
   DOC_APPEND_AUDIT_INTERVAL_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
+  // C2-2a（生产就绪收尾批·replay-canary 捕获侧）：canary 捕获 poller api 进程轮询周期——zod 只验
+  // 形态不写 default（默认值落使用点 collab-replay-canary.poller CANARY_POLL_INTERVAL_MS=60_000——
+  // COMPACT_POLL/RETENTION_SWEEP 同族防双源；覆盖节奏 N=ceil(active×1.25/24) 排程归 C2-2b 非本键）。
+  CANARY_POLL_INTERVAL_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_SWEEP_ENABLED: z.preprocess(blankToUnset, z.enum(['true', 'false']).optional()),
   COLLAB_SPOOL_DIR: z.preprocess(blankToUnset, z.string().min(1).optional()),
   COLLAB_SPOOL_CAPACITY_BYTES: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
