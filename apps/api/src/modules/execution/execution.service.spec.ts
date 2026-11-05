@@ -105,7 +105,7 @@ describe('ExecutionService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ExecutionService,
-        { provide: ExecutionRequestService, useValue: { loadForExecution: vi.fn(), admit: vi.fn(), sweepExpired: vi.fn() } },   // Y1c T21（冻结路径 spec 最小装置）
+        { provide: ExecutionRequestService, useValue: { loadForExecution: vi.fn(), admit: vi.fn() } },   // Y1c T21（冻结路径 spec 最小装置）
         { provide: PrismaService, useValue: prisma },
         { provide: TopologyService, useValue: topology },
         { provide: ValidationService, useValue: validation },
