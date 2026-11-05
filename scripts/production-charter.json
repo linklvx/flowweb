@@ -62,8 +62,8 @@
       "requirement": "SLO 数值定案并登记（建议锚：月可用性≥99.5%（单机无 HA 诚实目标）+ 编辑保存 Durable（save barrier）p95≤2s（T33 硬门同值）+ 恢复 RTO≤30min）",
       "owner": "FlowWeb Dev",
       "date": "2026-11-03",
-      "status": "pending",
-      "evidence": "T33 负载基准实测对照（2026-11-05 gate-evidence/t33-load-benchmark.txt 本地实弹 full profile）：save barrier p95=137ms≤2s ✓（硬门同源值达标）；恢复 RTO=9.96s≤30min ✓（kill→重启→回灌归零全链）；feed lag p95=171ms。月可用性≥99.5%=单机无 HA 诚实目标（无实测可用性数据——需运行期观测累计）。数值定案（含月可用性采纳否）归用户裁定——改档裁决仍归用户，本卡只落实测 evidence"
+      "status": "passed",
+      "evidence": "用户裁定采纳建议值（2026-11-05 确认点⑤终出口后续裁「全部确认」）：月可用性≥99.5%（单机无 HA 诚实目标——运行期观测累计口径）+编辑保存 Durable（save barrier）p95≤2s+恢复 RTO≤30min。T33 实测对照（gate-evidence/t33-load-benchmark.txt：本地档 save barrier p95=137ms≤2s ✓/RTO=9.96s≤30min ✓/feed lag p95=171ms；Linux 固定 runner 权威档【六】：barrier 158ms/RTO 10.07s——两档均达标）。月可用性数值=目标锚非实测声明（需运行期累计）。改档裁决承袭：trafficTier 维持 dev-test（开放生产流量前置=其余 charter 项闭环+显式改档留痕）"
     },
     {
       "id": "doc-append-gap-alert",

@@ -797,6 +797,10 @@ async function exportRecoveryEnvelope(opts: { download?: boolean } = {}): Promis
 async function resyncFull(): Promise<void> {
   if (resyncInFlight) return;   // 在飞者持有相位（其 finally endResync 释放——M-2：禁早退者误释在飞守卫）
   if (!session) { supervisor.endResync(); return; }   // T25b 收口 M-2：无会话早退档同步释放（防御直调面——dispatch 守卫前置后本分支常规不可达）
+  const startSession = session;   // 会话同一性锚（隔离根修 2026-11-05）：导出/清缓存为真异步——await 间隙
+  // 会话可已被 teardown（unmount/destroyCollab/下一 initCollab），闭包 pid/meta 的 initCollab 续跑
+  // =复活已拆会话（生产面：卸载期泄漏重连；测试面：跨用例 socket 构造污染+resyncInFlight 滞真
+  // 使相位让位失效——CI #84 两 attempt 同例确定性根因）。
   resyncInFlight = true;
   try {
     recordCollabDiag('ws_status', { reason: 'recovery-resync' });
@@ -807,7 +811,9 @@ async function resyncFull(): Promise<void> {
       collabSchemaVersion: session.collabSchemaVersion,
     };
     await exportRecoveryEnvelope();
+    if (session !== startSession) return;   // 会话已拆/已换代——链终止（finally 归位相位与单飞位）
     try { await localCache?.deleteOwnRecord(); } catch { /* fail-soft——记录留存时 boot 并集再拒再 resync（有界循环） */ }
+    if (session !== startSession) return;   // 同上：deleteOwnRecord await 间隙同守卫
     denyPreserveAcrossInit = true;   // resync 环内 deny 计数保序（见 initCollab 边界复位注）
     await initCollab(pid, meta);   // 内含 teardownSession（旧 provider/doc 拆除）
   } catch {

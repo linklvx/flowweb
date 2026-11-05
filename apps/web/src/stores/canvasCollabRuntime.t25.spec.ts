@@ -121,6 +121,13 @@ async function driveToSynced(pid = 'p1', meta: runtime.CollabSessionMeta = META)
   return p;
 }
 
+/** t25 族根修泵（2026-11-05 提前开窗）：resync/escape/resume 链的 export sha256+IDB 为真异步——
+ *  固定 advance 窗在慢机/满载下不足以冲刷（CI #84 两 attempt 同例确定性+本地满池成员轮换红的
+ *  共同形态）。vi.waitFor 轮询面逐轮真 await=事件循环真转，链必达后谓词成立。 */
+async function pumpUntil(pred: () => boolean, label: string): Promise<void> {
+  await vi.waitFor(() => { if (!pred()) throw new Error(label); }, { timeout: 10_000, interval: 50 });
+}
+
 const docStatus = (rev: number, generation?: number) => JSON.stringify({
   type: 'doc-status', rev, writeFrozen: false,
   ...(generation !== undefined ? { generation } : {}),
@@ -292,8 +299,12 @@ describe('T25 重复 DENY 逃生口', () => {
     let p = await driveToSynced();
     for (let i = 0; i < 3; i++) {
       p.emit('close', { event: { code: 4411, reason: 'frame-malformed' } });
-      await vi.advanceTimersByTimeAsync(50);
-      p = lastInstance();
+      if (i < 2) {   // 前 2 次=resync 重建（泵至新 provider——链完成才计下一轮 deny，时序确定）
+        await pumpUntil(() => lastInstance() !== p, 'resync 重建未达');
+        p = lastInstance();
+      } else {       // 第 3 次=escape（setState 在其异步导出后——泵至电平落位）
+        await pumpUntil(() => useCanvasStore.getState().recoveryPending?.kind === 'deny-escape', 'deny-escape 电平未达');
+      }
     }
     const st = useCanvasStore.getState();
     expect(st.recoveryPending).toMatchObject({ kind: 'deny-escape' });
@@ -339,12 +350,10 @@ describe('T25 收口批 C-1(quality)：resync-full 毒帧重连窗（排程同�
     // 释放闸→resync 完成（fresh doc 重建——新 provider connectOnce 恰一次）
     exportGate.gate.release();
     exportGate.gate = null;
-    // 窗内零 timer（排程已同步取消）——advanceTimersByTimeAsync 无 timer 即无微任务冲刷点：
-    // 先 advance(0) 冲刷 gate-release 微任务链，再放宽窗（0ms 档 + 1s 兜底）
-    await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(1_000);
+    // 重建完成=确定性等待（CI #84 直证：固定 advance 窗在慢机/满载下不足以冲刷真异步链
+    // 〔export sha256+IDB→initCollab〕——vi.waitFor 轮询面逐轮真 await=事件循环真转，链必达）
+    await vi.waitFor(() => { expect(lastInstance()).not.toBe(p); }, { timeout: 10_000, interval: 50 });
     const p2 = lastInstance();
-    expect(p2).not.toBe(p);
     expect(p2.cfg.document).not.toBe(d1);
   });
 });
@@ -439,6 +448,37 @@ describe('T25b M-R1：resync 相位守卫（kickNow/assertHealthy 让位+teardow
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(1_000);
   }, 60_000);   // 满池并行载下 fake-timer 冲刷窗真实耗时超 vitest 默认 5s；本机高载态 20s 仍间歇超（registered-flakes 负载敏感族），60s 真实钟上界自愈带宽
+});
+
+// ══════════ T25 隔离根修（CI run #84 attempt1/2 同三例确定性——2026-11-05 提前开窗） ══════════
+// 机制：resyncFull 悬挂真异步链（导出 sha256/IDB 真异步）跨用例边界续跑——用例 afterEach
+// destroyCollab 拆会话后，链的 initCollab 以闭包 pid/meta **复活已拆会话**（新 provider 构造
+// 污染下一用例 socketsConstructed〔mr1-2 2≠1 直证〕+ resyncInFlight 滞真使下一用例 dispatch
+// 守卫跳过 beginResync=相位让位失效〔watchdog 不让位连排程〕+ closeout-1 慢机重建窗不足双红
+// 同源）。生产同形=卸载期 resync 链复活会话（泄漏重连面）——根修=resyncFull 会话同一性守卫。
+describe('T25 隔离根修：resync 在飞链的会话同一性（destroy 后禁复活）', () => {
+  it('★iso-1 在飞 resync 期 destroyCollab→释放闸排水后零新 provider 构造+resyncInFlight 归位（修前：悬挂链 initCollab 复活会话=跨用例 socket 泄漏源）', async () => {
+    setSupervisorJitterForTest(() => 0);
+    const p = await driveToSynced();
+    (p.cfg.document as Y.Doc).getMap('nodes').set('n-poison', seedNode('poison'));
+    let release!: () => void;
+    exportGate.gate = { promise: new Promise<void>((r) => { release = r; }), release: () => release() };
+    const before = FakeHocuspocusProvider.socketsConstructed();
+    p.emit('close', { event: { code: 4411, reason: 'frame-malformed' } });
+    await vi.advanceTimersByTimeAsync(50);     // resyncFull 已入导出 await（链悬挂于闸）
+    await runtime.destroyCollab();             // 用例收尾同款拆链（session=null——afterEach 时序同构）
+    release();
+    exportGate.gate = null;
+    // 排水：悬挂链复活点=export 返回后的续段——多轮 advance 冲刷真异步（本地快机 3-5 轮即达，
+    // 上界 60 轮给慢机/满载裕量；修前链完成 initCollab 构造新 provider=sockets +1）
+    let socketsAfterDestroy = FakeHocuspocusProvider.socketsConstructed();
+    for (let i = 0; i < 60; i++) {
+      await vi.advanceTimersByTimeAsync(25);
+      socketsAfterDestroy = FakeHocuspocusProvider.socketsConstructed();
+      if (socketsAfterDestroy > before) break;   // 修前形态：复活即现形（红锚快路径）
+    }
+    expect(socketsAfterDestroy).toBe(before);   // 修前：+1（红）
+  }, 30_000);
 });
 
 // ══════════ T25b M-R4：4406 恢复序列逐档降级（export 抛错不得跳过清 h/purge/通告） ══════════
@@ -542,8 +582,12 @@ describe('T25b B1/B4：恢复裁定面数据源+出口', () => {
     for (let i = 0; i < 3; i++) {
       (p.cfg.document as Y.Doc).getMap('nodes').set(`n-draft-${i}`, seedNode(`draft-${i}`));   // 每轮在当期 doc 写内容（resync 重建后 fresh doc——保证第 3 次进入时信封非空）
       p.emit('close', { event: { code: 4411, reason: 'frame-malformed' } });
-      await vi.advanceTimersByTimeAsync(50);
-      p = lastInstance();   // resync 重建后迭代新实例（④ 用例同款）
+      if (i < 2) {
+        await pumpUntil(() => lastInstance() !== p, 'resync 重建未达');   // 泵至链完成（原 50ms 固定窗=族红形态）
+        p = lastInstance();
+      } else {
+        await pumpUntil(() => useCanvasStore.getState().recoveryPending?.kind === 'deny-escape', 'deny-escape 电平未达');
+      }
     }
     const st = useCanvasStore.getState();
     expect(st.recoveryPending?.kind).toBe('deny-escape');
@@ -559,16 +603,19 @@ describe('T25b B1/B4：恢复裁定面数据源+出口', () => {
     for (let i = 0; i < 3; i++) {
       (p2.cfg.document as Y.Doc).getMap('nodes').set(`n-dr-${i}`, seedNode(`dr-${i}`));
       p2.emit('close', { event: { code: 4411, reason: 'frame-malformed' } });
-      await vi.advanceTimersByTimeAsync(50);
-      p2 = lastInstance();
+      if (i < 2) {
+        await pumpUntil(() => lastInstance() !== p2, 'resync 重建未达');
+        p2 = lastInstance();
+      } else {
+        await pumpUntil(() => useCanvasStore.getState().recoveryPending?.kind === 'deny-escape', 'deny-escape 电平未达');
+      }
     }
     expect(useCanvasStore.getState().recoveryPending?.kind).toBe('deny-escape');
     useCanvasStore.setState({ draftMergeAnomalies: { 'duplicate-order': 2 } });   // spec M-5：B2 电平预置（随恢复出口复位断言面）
-    // fire-and-forget+泵进（resumeFromRecovery→resyncFull→initCollab 的 hydration gate 在
-    // 测试装置下需事件泵——await 直挂=假死；createProvider 先于 gate=重建可达后即断言）
+    // fire-and-forget+泵至 fresh provider（原固定 300ms 窗=族红同形态；电平双清在 resume 入口
+    // 同步段——重建达即可断言）
     void runtime.resumeFromRecovery();
-    await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(300);
+    await pumpUntil(() => lastInstance() !== p2, 'resume 重建未达');
     // 修前形态：supervisor.resume+connectOnce 连旧 provider（lastInstance 不变+旧 doc 存活=被拒帧重放面）
     const p3 = lastInstance();
     expect(p3).not.toBe(p2);   // ★fresh provider 重建（resyncFull 同款导出→清记录→initCollab）
