@@ -1,0 +1,51 @@
+# T34 manifest 重认证跑批清单（按 manifest case 命令目标文件归组——整文件跑 ⊇ 逐 -t 定向）
+# 形态: <组名>|<命令（cwd 相对 ROOT；api=cd apps/api&&、web=cd apps/web&&、shared=cd packages/shared&&）>
+# ── int 池（DATABASE_URL 已 export）──
+g2-t10-g2-int|cd apps/api && npx vitest run -c vitest.int.config.ts src/modules/collab/collab-t10-g2.int.spec.ts
+g2-c1a-append-int|cd apps/api && npx vitest run -c vitest.int.config.ts src/modules/collab/canvas-doc-update.repository.append.int.spec.ts
+g4-req-t21-int|cd apps/api && npx vitest run -c vitest.int.config.ts src/modules/execution/execution-request.t21-g4.int.spec.ts
+g4-frozen-t21-int|cd apps/api && npx vitest run -c vitest.int.config.ts src/modules/execution/execution-frozen.t21-c1.int.spec.ts
+g5-t22-delivery-int|cd apps/api && npx vitest run -c vitest.int.config.ts src/modules/collab/collab-t22-delivery-switch.int.spec.ts
+g5-t22-feed-int|cd apps/api && npx vitest run -c vitest.int.config.ts src/modules/collab/runtime-feed.t22-g5.int.spec.ts
+g5-c14-poller-convergence|cd apps/api && npx vitest run -c vitest.int.config.ts src/modules/media-delivery/projection-outbox.poller.int.spec.ts src/modules/collab/collab-harness/provider-convergence.e2e-spec.ts
+g6a-t13-g6a-int|cd apps/api && npx vitest run -c vitest.int.config.ts src/modules/collab/collab-t13-g6a.int.spec.ts
+# ── api 默认池 ──
+g2-c1b-g4-c11-repo|cd apps/api && npx vitest run src/modules/collab/canvas-doc-update.repository.spec.ts
+g2-b1-u1-g6a-reg-barrier|cd apps/api && npx vitest run src/modules/collab/collab-t10-barrier-unload.spec.ts
+g4-c6-freeze|cd apps/api && npx vitest run src/modules/collab/collab-project-actor.t21-freeze.spec.ts
+g5-c5-static|cd apps/api && npx vitest run src/modules/collab/runtime-feed.t22-static.spec.ts
+g5-c17-closeout|cd apps/api && npx vitest run src/modules/collab/runtime-feed.t22-closeout.spec.ts
+g5-c18-actor-t28|cd apps/api && npx vitest run src/modules/collab/collab-project-actor.spec.ts
+g6a-reg-apply-order|cd apps/api && npx vitest run src/modules/collab/collab-hocuspocus-apply-order-contract.spec.ts
+g6a-k-spec|cd apps/api && npx vitest run src/modules/collab/collab-t13-g6a.spec.ts
+g6a-m3-spool|cd apps/api && npx vitest run src/modules/collab/collab-spool-wal.spec.ts
+g6a-p-kill9|cd apps/api && npx vitest run src/modules/collab/collab-t13-kill9.process.spec.ts
+# ── G3 api 面 ──
+g3-c8-xml-l1|cd apps/api && npx vitest run src/modules/collab/collab-t16-xml-l1.spec.ts
+g3-c16-api-readers|cd apps/api && npx vitest run src/modules/collab/read-model-census.fixtures.spec.ts src/modules/collab/read-model-exit.t19.spec.ts
+# ── web ──
+g3-c1-c6-dual-end|cd apps/web && npx vitest run src/collab/t16-g3-dual-end.spec.ts
+g3-c7-parity|cd apps/web && npx vitest run src/collab/xmlSchemaParity.spec.ts
+g3-c9-t16-domains|cd apps/web && npx vitest run src/stores/canvasIntents.t16-xml-domains.spec.ts
+g3-c11-t15|cd apps/web && npx vitest run src/stores/canvasIntents.t15-text-domains.spec.ts
+g3-c12-t17|cd apps/web && npx vitest run src/stores/canvasIntents.t17-array-domains.spec.ts
+g3-c13-undo|cd apps/web && npx vitest run src/stores/canvasUndo.test.ts
+g3-c14-nested|cd apps/web && npx vitest run src/stores/canvasUndo.nested-scope.spec.ts
+g3-c15-runtime|cd apps/web && npx vitest run src/stores/canvasCollabRuntime.t18.spec.ts
+g3-c16-web-readers|cd apps/web && npx vitest run src/collab/read-model-census.fixtures.spec.ts
+g4-c9-c14-barrier|cd apps/web && npx vitest run src/stores/canvasCollabRuntime.t21-barrier.spec.ts
+g5-c11-c12-stores|cd apps/web && npx vitest run src/stores/runtimeStore.t22.spec.ts src/stores/canvasCollabRuntime.execView.spec.ts
+g5-c15-wiring|cd apps/web && npx vitest run src/stores/runtimeFeedWiring.spec.ts
+g5-c16-overlay|cd apps/web && npx vitest run src/pages/canvas/components/nodes/runtimeArtifactOverlay.spec.tsx
+# ── shared ──
+g3-c10-xml-schema|cd packages/shared && npx vitest run src/canvas/xml-schema.spec.ts
+g3-c16-shared-readers|cd packages/shared && npx vitest run src/collab/read-model-census.spec.ts
+g2-f7-shared|cd packages/shared && npx vitest run src/constants/collab-close-code.test.ts src/collab/recovery-flow.spec.ts
+g5-c10-shared-event|cd packages/shared && npx vitest run src/collab/runtime-event.spec.ts
+# ── G3 GATES-static ──
+g3-gates-census|node scripts/check-collab-census.mjs
+g3-gates-module-size|node scripts/check-collab-module-size.mjs
+g3-gates-facade|node scripts/check-collab-test-facade.mjs
+g3-gates-plan-anchors|node scripts/check-plan-anchors.mjs
+g3-gates-exact-pins|node scripts/check-exact-pins.mjs
+g3-gates-verify-fast|node scripts/verify-chain.mjs --tier=fast
