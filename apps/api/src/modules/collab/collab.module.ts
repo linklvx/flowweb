@@ -6,7 +6,7 @@ import { CollabDocRegistryService } from './collab-doc-registry.service';
 import { CollabSessionGuardService } from './collab-session-guard.service';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabLifecycleObserverService } from './collab-lifecycle-observer.service';   // Y1c T26：生命周期义务观察器
-import { RuntimeFeedService } from './runtime-feed.service';   // Y1c T22（G5）：RuntimeEvent feed 写面+游标读面+保留期 worker
+import { RuntimeFeedService } from './runtime-feed.service';   // Y1c T22（G5）：RuntimeEvent feed 写面+游标读面（C1-1：保留期清理已迁 worker RuntimeFeedRetentionService——api 零 timer）
 import { RuntimeFeedController } from './runtime-feed.controller';   // Y1c T22：feed HTTP 游标端点（唯一交付通道）
 import { CollabRecoveryImportService } from './collab-recovery-import.service';   // Y1c T25：recovery import 服务面（DraftEnvelope 唯一接受路径）
 import { CollabRecoveryImportController } from './collab-recovery-import.controller';   // Y1c T25：POST :projectId/recovery-import（OWNER/EDITOR+8MiB+幂等）
@@ -67,7 +67,7 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
     CollabSessionGuardService,
     CollabProjectActorService,   // Y1c T9（偏离 38③）：spool-first 写管线核心（gateway 尾参 @Optional 注入+bindHost 后置绑定；单例=与 gateway 自建路径同一 spool/repo 实例面）
     CollabLifecycleObserverService,   // Y1c T26：生命周期义务观察器（帧↔义务同事务+genesis 播种+DeliveryFence 权威——actor 尾参注入）
-    RuntimeFeedService,   // Y1c T22（G5）：RuntimeEvent 写入（feedSeq upsert 行锁）+游标/快照读面+保留期 worker（CollabDocumentService writeExecStatus/deliverArtifact 消费）
+    RuntimeFeedService,   // Y1c T22（G5）：RuntimeEvent 写入（feedSeq upsert 行锁）+游标/快照读面（C1-1：保留期 worker 已迁出——CollabDocumentService writeExecStatus/deliverArtifact 消费）
     CollabRecoveryImportService,   // Y1c T25：DraftEnvelope 恢复导入（候选 doc 全量校验+origin=import——唯一 clone 场所）
     LifecycleObligationSweeper,   // Y1c T22：义务队列消费（FEED_TOMBSTONE→node.deleted 事件投递+NODE_DELETED 三清扫——#11 SKIP LOCKED 租约）
     CollabFrameGateService,   // Y1c T9（偏离 38①③）：guardSyncFrame 收编重写（DI 注入=gateway 尾参同款；gate 消费 DR/actor 直引）   // Y0c T41（W3b/B2）：SessionGuard 域 service（连接鉴权/限流/awareness 判定单一所有者——限流四桶/认证防线三层/连接寿命标识台账/awareness 归属双索引/writeFreeze 冻结层单源/heap 采样闸〔RC3〕/sweep 复验；gateway 尾参 @Optional 注入+bindHost 后置绑定，B1/W3a 同款；SG→DR 构造直引〔RC4 connected/RC2 老化清理〕，DR→SG 能力经 DR host 缝 gateway 侧转发 sg.*〔DR 文件两波零改动〕；单例=与 gateway 自建路径同一 sessionSvc/perm/pgBreaker/persistence/docRegistry 实例面）

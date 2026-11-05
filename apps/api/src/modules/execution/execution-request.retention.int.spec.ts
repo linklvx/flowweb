@@ -43,7 +43,7 @@ let TID = '';
 let HISTORY_ID = '';
 const reqIds: string[] = [];
 const inputIds: string[] = [];
-let intentIds: string[] = [];
+const intentIds: string[] = [];
 
 /** 直插 ExecutionRequest+ExecutionInput（无 FK 纯列——requestId/input 一对一）。requestExpiresAtMs
  *  默认 1h 前过期（stuck/claim 夹具）；传正值=未来（非终态保留行不污染后续 stuck 计数）。 */
