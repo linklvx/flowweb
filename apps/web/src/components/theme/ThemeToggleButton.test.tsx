@@ -2,6 +2,12 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
+// 超时带宽（2026-11-05 根修，registered-flakes 族销案）：满载池 CPU 饥饿下本文件两例墙钟可达
+// 5820ms＞5000 默认（webfull1 实录）——超时弃测后**被弃异步体仍续跑**（vitest 不杀 promise），
+// 迟到的 render() 落进下一用例窗内注入第二个同 aria 按钮=多元素连锁红（test 2 的假根因）。
+// 拉带宽消触发面（t25/mr1-2 60s 同款先例；本用例本体亚秒级——20s=10× 裕量）。
+vi.setConfig({ testTimeout: 20_000 });
+
 describe('ThemeToggleButton', () => {
   beforeEach(() => {
     vi.resetModules();

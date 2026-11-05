@@ -131,3 +131,14 @@
   首绿**（doc-gate/test/gitleaks/collab-core 四 job success）。本族历史登记（2026-10-27 T27 首登/
   11-03/04 T30b 扩枚举/11-05 T34 三击/11-05 CI 终验两批）全部销案归档；ThemeToggleButton 族
   （T32 登记①）维持登记——本地高载形态、CI 未红，不在本次开窗范围。
+
+- 2026-11-05（Y1c ThemeToggleButton 族根修销案+specb-perf A/B 收口）：①Theme 族机制解剖（webfull1
+  实录+CI #78 签名比对）——test1=**墙钟超时**（满载池 CPU 饥饿下 5820ms＞5000 默认，非断言红）；
+  test2 多元素=超时弃测后**被弃异步体迟到续跑**（vitest 不杀 promise——`await import→render()` 迟到
+  落进下一用例窗、读的恰是 test2 的 localStorage='light'→注入第二个同 aria 按钮）。修=testTimeout
+  20s 文件级带宽（t25/mr1-2 60s 先例）；RTL afterEach 清理救不了迟到注入（清理先于迟到体）——不做
+  无证据基建改动。验证=全池 382/382 ×2 连跑全绿。②specb-perf「reconcile≤5ms」A/B 收口：clean HEAD
+  （已提交态）静机 gate 定向 ×3 全绿——2.8/2.5/2.2ms（峰值=预算 56%）+历史独立跑 2.8ms 同值→
+  **「clean-HEAD 不复现」定性成立**，超限观察=负载窗环境态，5ms 预算冻结维持、处置（隔离重跑绿
+  即过）维持。v4.1 基线对照腿=worktree 环境受阻观察（gate-managed dist 对同库同凭证 401 而同树
+  tsx 源码 201——dist/src 运行时差异待专窗；非 perf 信号，A/B 核心结论不受影响）。
