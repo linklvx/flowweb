@@ -1195,8 +1195,8 @@ if (isMain()) {
       COLLAB_MAX_DOC_BYTES: 1, COLLAB_MAX_TX_BYTES: 1, COLLAB_MSG_RATE_PER_CONN: 1, COLLAB_BYTES_RATE_PER_CONN: 1,
       COLLAB_MAX_RESIDENT_DOC_BYTES: 1,   // Y1c T10（偏离 38⑤）：maxResidentDocBytes 驻留上界（load 入口闸——默认 384MiB 落使用点）
     },
-    'apps/api/src/modules/collab/collab.module.ts': {   // T34 整改：uF装配期（三 token useValue→useFactory；REDIS_CLIENT uF 既有）；Y1c T12 +COLLAB_ROLE（role=all compact 轮询面装配门——ExecutionDaemonModule.register 同族）；C2-2a +1（role api|all canary 捕获 poller 装配门——compact 镜像形态）；C2-2b +1（Minor#2 负向排除改正向白名单——?? COLLAB_ROLE_DEFAULT 双读）
-      COLLAB_PORT: 1, COLLAB_TIMEOUT: 1, REDIS_URL: 1, COLLAB_ROLE: 3,
+    'apps/api/src/modules/collab/collab.module.ts': {   // T34 整改：uF装配期（三 token useValue→useFactory；REDIS_CLIENT uF 既有）；Y1c T12 +COLLAB_ROLE（role=all compact 轮询面装配门——ExecutionDaemonModule.register 同族）；C2-2a +1（role api|all canary 捕获 poller 装配门——compact 镜像形态）；C2-2b Minor 清理 Important#1：COLLAB_ROLE 3→2（canary 装配门双读归一 normalizeCollabRole 单源单读）
+      COLLAB_PORT: 1, COLLAB_TIMEOUT: 1, REDIS_URL: 1, COLLAB_ROLE: 2,
     },
     'apps/api/src/modules/collab/worker-write-auth.guard.ts': {   // 方法内（canActivate 惰性——同上）
       WORKER_WRITE_TOKEN: 1, NODE_ENV: 1,

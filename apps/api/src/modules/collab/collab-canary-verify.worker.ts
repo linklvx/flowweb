@@ -40,7 +40,7 @@ import { Prisma } from '@prisma/client';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
-import { createCanvasDoc } from './canvas-doc.factory';
+import { createCanvasDoc, hasPendingStructs } from './canvas-doc.factory';
 import { captureCollabException } from '../../utils/sentry-scrub';
 import { projectDocName } from './doc-name.util';
 import { freezeOpsGateCompact } from './collab-ops-gate.service';
@@ -198,14 +198,18 @@ export class CollabCanaryVerifyWorker implements OnModuleInit, OnApplicationShut
       collabCanaryCheckedTotal.inc({ result: 'skip-generation' });
       // 换代：旧代增量行已整删（readAt 折空=假阳性根除）——stale pin 删+cursor generation 重置
       await this.deletePin(pin);
-      await writeCanaryCursor(this.prisma, pid, pin.docGeneration ?? pin.pinGeneration, 'skip-generation', CANARY_VERIFY_INTERVAL_MS / 1000).catch(() => undefined);
+      await writeCanaryCursor(this.prisma, pid, pin.docGeneration ?? pin.pinGeneration, 'skip-generation', CANARY_VERIFY_INTERVAL_MS / 1000).catch((e) => {
+        this.logger.warn(`canary cursor write failed for ${pid}（skip-generation）: ${(e as Error).message}（游标下轮补写）`);   // C2-2b 评审 Minor#2：与 poller writeCursor 全档 warn 口对齐
+      });
       return;
     }
     if (pin.hashVersion !== CANARY_HASH_VERSION || pin.stateVector == null) {
       collabCanaryCheckedTotal.inc({ result: 'skip-stale-pin' });
       // 旧版 hash 口径不可比（红⑦ hashVersion 演进不误报）/捕获 ④ 遗漏 SV 的布景异常——重捕
       await this.deletePin(pin);
-      await writeCanaryCursor(this.prisma, pid, pin.pinGeneration, 'skip-stale-pin', CANARY_VERIFY_INTERVAL_MS / 1000).catch(() => undefined);
+      await writeCanaryCursor(this.prisma, pid, pin.pinGeneration, 'skip-stale-pin', CANARY_VERIFY_INTERVAL_MS / 1000).catch((e) => {
+        this.logger.warn(`canary cursor write failed for ${pid}（skip-stale-pin）: ${(e as Error).message}（游标下轮补写）`);   // C2-2b 评审 Minor#2：同上对齐
+      });
       return;
     }
     // ③ readAt（pin 坐标锚定——捕获后新帧 pgSeqAt>坐标不入重放面）+重放
@@ -219,7 +223,7 @@ export class CollabCanaryVerifyWorker implements OnModuleInit, OnApplicationShut
         return;
       }
       doc = replayPgSnapshot(read.state, read.updates, CANARY_VERIFY_BUDGET_MS);
-      if (doc.store.pendingStructs !== null) {
+      if (hasPendingStructs(doc)) {   // C2-2b 评审 Minor#3：yjs 内部 API 直取收编单源 helper（骑手#7 抽取件）
         // 重放帧不完整（缺 struct 引用）——删行注入/prune 竞态同判：先于比对拦截（skip_retry 不误报）
         doc.destroy();
         collabCanaryCheckedTotal.inc({ result: 'skip-prune' });
@@ -242,10 +246,10 @@ export class CollabCanaryVerifyWorker implements OnModuleInit, OnApplicationShut
     //   的降级档〔超限捕获/存量 pin〕由辅助承载，登记盲区））——判定与副作用（freeze/delete）分离
     let verdict: CanaryVerifyResult;
     if (pin.hashSkipped) {
-      // 超限捕获档：hash 不可比——摘要深比（捕获超限档摘要亦空=SV 同代辅助降级承载）
-      verdict = pin.semanticDigest != null
-        ? (semanticDocDigest(doc) === pin.semanticDigest ? 'semantic-equal' : 'mismatch')
-        : (svMutuallySupported(pin.stateVector, doc) ? 'semantic-equal' : 'mismatch');
+      // 超限捕获档：hash/digest **双跳过**（捕获④ canonical 超限 ⇒ 摘要同跳过——hashSkipped ∧
+      // digest≠null 为生产不可达组合，评审 Minor#4 删非空分支）——SV 同代辅助降级承载（delete-only
+      // 盲区在超限档保留=10k doc 预算护栏代价，hash_skipped_total 观测覆盖）
+      verdict = svMutuallySupported(pin.stateVector, doc) ? 'semantic-equal' : 'mismatch';
     } else if (pin.contentHash == null || canonical == null) {
       verdict = 'skip-stale-pin';   // 防御档：非 hashSkipped 而 contentHash 空/重放超尺寸=布景异常不比对
     } else if (seedStateHash(canonical) === pin.contentHash) {

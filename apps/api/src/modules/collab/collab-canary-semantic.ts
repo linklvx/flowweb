@@ -24,7 +24,10 @@ function stableStringify(value: unknown): string {
 }
 
 /** nodes+edges 两根 canonical JSON 视图（语义比对真值面——两根必须齐：节点复活/边丢失均为语义
- *  不等；「同逻辑状态不同 integration order」下两视图恒等〔deleteSet/tombstone 不进视图〕）。 */
+ *  不等；「同逻辑状态不同 integration order」下两视图恒等〔deleteSet/tombstone 不进视图〕）。
+ *  【未来根不变量（C2-2b 评审 Minor#6）】客户端新增可写根（vacuum U-2 守恒面明确预留未知未来根）
+ *  时**必须**同步扩本视图两根列表——否则该根数据丢失在 canary 侧降归 hash-encoding-mismatch
+ *  只计数不 freeze（digest 判据对未覆盖根不敏感）。 */
 export function canonicalDocView(doc: Y.Doc): string {
   return (['nodes', 'edges'] as const)
     .map((r) => `${r}:${stableStringify(Object.fromEntries(doc.getMap(r).entries()))}`)

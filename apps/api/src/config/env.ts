@@ -53,18 +53,23 @@ export function withConnectionLimit(databaseUrl: string, role: CollabRole): stri
   return url.toString();
 }
 
+/** COLLAB_ROLE 归一单源：词表内取值/其余（未设、空串、非法值）回落 COLLAB_ROLE_DEFAULT——非法值的拒启
+ *  归 validateEnv zod（本函数不新增失败面）。模块装配门（collab.module canary poller 等）**必须**走本
+ *  归一而非裸 process.env ?? 默认——空串非 nullish 会绕过回落静默丢装配（C2-2b 质量评审 Important#1）。 */
+export function normalizeCollabRole(raw: string | undefined): CollabRole {
+  return (COLLAB_ROLE_VALUES as readonly string[]).includes(raw ?? '')
+    ? (raw as CollabRole)
+    : COLLAB_ROLE_DEFAULT;
+}
+
 /** 引导层调用位（main.ts/main-worker.ts dotenv config() 后立即）：按 env.COLLAB_ROLE 重写
  *  env.DATABASE_URL。整对象传递（census ㉒ 无按键 process.env 裸读——单源入口同形态）。
- *  role 归一：词表内取值/其余（未设、空串、非法值）回落 COLLAB_ROLE_DEFAULT——非法值的拒启
- *  归 validateEnv zod（本函数不新增失败面）；DATABASE_URL 缺失/非法 URL ⇒ no-op 原样保留
+ *  role 归一见 normalizeCollabRole；DATABASE_URL 缺失/非法 URL ⇒ no-op 原样保留
  *  （z.string().url() 拒启是唯一失败面）。重复调用幂等（searchParams.set 替换语义）。 */
 export function applyDatabaseUrlConnectionLimit(env: NodeJS.ProcessEnv): void {
   const raw = env.DATABASE_URL;
   if (!raw) return;
-  const roleRaw = env.COLLAB_ROLE;
-  const role: CollabRole = (COLLAB_ROLE_VALUES as readonly string[]).includes(roleRaw ?? '')
-    ? (roleRaw as CollabRole)
-    : COLLAB_ROLE_DEFAULT;
+  const role = normalizeCollabRole(env.COLLAB_ROLE);
   try {
     env.DATABASE_URL = withConnectionLimit(raw, role);
   } catch {
