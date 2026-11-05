@@ -70,8 +70,8 @@
       "requirement": "doc_append_gap_total 告警规则在告警链常驻（建议规则：increase(doc_append_gap_total[5m])>0 告警）",
       "owner": "FlowWeb Dev",
       "date": "2026-11-03",
-      "status": "pending",
-      "evidence": "告警链未实装（runbook §6 现状=日志轮转/磁盘水位/swap 水位/开机自检四项，无 Prometheus 告警通道）；阈值已裁定=采纳建议值 increase(doc_append_gap_total[5m])>0（2026-11-05 用户裁定——5 分钟窗内出现任何 gap 即告警，零丢失口径）；告警链实施归生产就绪收尾批"
+      "status": "passed",
+      "evidence": "已实装（2026-11-06 C3 卡 commits f4f40d36..026b73b7）：阈值=charter 裁定值 increase(doc_append_gap_total[5m])>0 落地（THRESHOLDS counter-delta delta:0 **P0**/exit 2+SMS——check-collab-health.test 32/32 机器钉死含 exit 2+SMS 恰一条+counter 回落重基线不误报）；审计面=SQL CTE 三断言全项目轮转（行内密度/行间衔接∨CanvasDocCoalesced 覆盖豁免/边界+两端侧表豁免〔M-1 首吞行/I-2 尾吞行形态〕——注入真注入红/判别双档，c31 int 14/14 真 PG）+T30b 吞行侧表写入（红⓪-b 3/3）+maintenance/dedup 夹具 CI 常驻（红⓪-a 真 actor 全链——形态漂移即红）+purge 延迟窗零假阳性不 skip+purge 义务年龄独立告警（30min 边沿）+skip 面（无 doc/非 ACTIVE 计数不入册）+轮转游标（CollabJobCursor.lastKey 按 projectId——尾部项目饿死根除）+新 gap 边沿 inc（lastGap 持久判重——重启不重基线）+gauge current 全域计数+worker 停跑三档分诊（进程死 P0 既有/半死 P1 样本年龄/族缺席 unobservable P1）；**SMS 实弹限制诚实登记**：本地无 TENCENT_SMS_* 凭据——测试面已钉 P0→exit 2→SMS 恰一条全链（注入 sender），真实网络实弹=runbook §6 五步手工演练（测试号码+演练标签+回执归档）留服务器窗执行（与 charter 告警值班归服务器窗裁定一致）；验证：verify FULL 31/31+c31 int 14/14+c30 5/5+api 单测 3060+check-collab-health 32/32+census 33/33"
     },
     {
       "id": "http-seed",
