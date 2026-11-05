@@ -71,7 +71,7 @@
       "owner": "FlowWeb Dev",
       "date": "2026-11-03",
       "status": "pending",
-      "evidence": "告警链未实装（runbook §6 现状=日志轮转/磁盘水位/swap 水位/开机自检四项，无 Prometheus 告警通道）；阈值建议待用户裁定"
+      "evidence": "告警链未实装（runbook §6 现状=日志轮转/磁盘水位/swap 水位/开机自检四项，无 Prometheus 告警通道）；阈值已裁定=采纳建议值 increase(doc_append_gap_total[5m])>0（2026-11-05 用户裁定——5 分钟窗内出现任何 gap 即告警，零丢失口径）；告警链实施归生产就绪收尾批"
     },
     {
       "id": "http-seed",
@@ -104,12 +104,12 @@
       "requirement": "逐帧审计表（DocAuditEvent 全帧落表）——合规需求确认驱动",
       "owner": "FlowWeb Dev",
       "date": "2026-11-03",
-      "status": "armed",
+      "status": "na",
       "trigger": {
         "complianceNeed": "owner 确认有无逐帧审计合规需求",
         "note": "无合规需求→na+确认记录；有→passed（实施）"
       },
-      "evidence": "合规需求待 owner 确认（production 前必裁）"
+      "evidence": "owner 裁定无逐帧审计合规需求（2026-11-05 用户裁定「无合规需求」）——按 trigger 规则登记 na＋确认记录（本条即确认记录）；DocAuditEvent 全帧落表不实施（如未来合规需求变化须重开裁定）"
     },
     {
       "id": "project-erasure",
