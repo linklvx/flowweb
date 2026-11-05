@@ -30,6 +30,8 @@ export async function cleanupProjectFixture(prisma: PrismaClient, projectId: str
   await prisma.canvasDoc.deleteMany({ where: { projectId } });
   // Y1c T7：RuntimeFeedCursor 无 FK（feed 平面计数行——卡文表形）：项目清理须显式删行；
   // CanvasDocSnapshot 经 FK Cascade 随 doc/项目行删除。
+  // C3-0：CanvasDocCoalesced 同为纯列业务平面（无 FK——schema 注释）：吞行侧表行随项目清理显式删。
+  await prisma.canvasDocCoalesced.deleteMany({ where: { projectId } });
   await prisma.runtimeFeedCursor.deleteMany({ where: { projectId } });
   await prisma.canvasProject.deleteMany({ where: { id: projectId } });
 }

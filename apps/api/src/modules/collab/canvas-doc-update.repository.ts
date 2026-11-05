@@ -158,6 +158,12 @@ export class CanvasDocUpdateRepository {
     return true;
   }
 
+  /** C3-0（T30b 吞行侧表）：行插入循环内 RETURNING 空=该帧行被 ON CONFLICT 吞（主形态=
+   *  @@updateHash 幂等命中——同内容帧新 seq 重发）→ 同事务 INSERT CanvasDocCoalesced
+   *  （seq=r.lastWalSeq、sourceSeq=在档同 hash 行 seq〔「重定基」目标行——行间衔接断点覆盖载体〕、
+   *  reason='t30b-coalesced'，ON CONFLICT DO NOTHING 幂等）。lease fence 同族（契约 16）：fence
+   *  拦下的零行不记侧表（内容未收敛、帧留 WAL 未 confirm 由恢复链重发，租约复得后重放才落）；
+   *  同 hash 在档行不可得（fence/跨代异帙形态）=不记（本批由下方 PK/hash 回查折 fenced 档）。 */
   async appendBatch(projectId: string, rows: ReadonlyArray<{
     generation: number; firstWalSeq: bigint; lastWalSeq: bigint; frameCount: number;
     updateHash: string; update: Uint8Array; actorRanges?: unknown;
@@ -218,6 +224,22 @@ export class CanvasDocUpdateRepository {
           ON CONFLICT DO NOTHING
           RETURNING seq`;
           n += res.length;
+          // C3-0：RETURNING 空帧行（updateHash 幂等吞行）→ 同事务写侧表（ON CONFLICT DO NOTHING 幂等
+          // ——重发不双计；sourceSeq=在档同 hash 行 seq；头注 C3-0 块全文）。同 hash 在档行不可得=不记。
+          if (res.length === 0) {
+            const src = await tx.$queryRaw<{ seq: bigint }[]>`
+              SELECT seq FROM "CanvasDocUpdate"
+              WHERE "projectId" = ${projectId}::text AND generation = ${r.generation}::int AND "updateHash" = ${r.updateHash}::char(64)
+              LIMIT 1`;
+            if (src.length > 0) {
+              await tx.$executeRaw`
+                INSERT INTO "CanvasDocCoalesced" ("projectId", generation, seq, "updateHash", "sourceSeq", reason, "createdAt")
+                SELECT ${projectId}::text, ${r.generation}::int, ${r.lastWalSeq}::bigint, ${r.updateHash}::char(64), ${src[0].seq}::bigint, 't30b-coalesced', now()
+                WHERE EXISTS (SELECT 1 FROM "CollabLease"
+                               WHERE scope = 'primary' AND owner = ${owner})
+                ON CONFLICT DO NOTHING`;
+            }
+          }
         }
         // Y1c T26：帧前缀同事务钩（帧↔义务原子——inTx 写失败=整事务回滚，帧行/水位/义务三方同生共死；
         // 调用方=actor flushPrefixToPg 闭包注入 CollabLifecycleObserverService.persistFramesInTx）
@@ -683,8 +705,15 @@ export class CanvasDocUpdateRepository {
         DELETE FROM "CanvasDocUpdate" WHERE ctid IN (SELECT ctid FROM victims) RETURNING 1`;
       const n = r.length;
       deleted += n;
-      if (n < CanvasDocUpdateRepository.PURGE_BATCH_ROWS) return deleted;
+      if (n < CanvasDocUpdateRepository.PURGE_BATCH_ROWS) break;
     }
+    // C3-0：侧表同 seq 区间顺带删（seq<=belowSeq——被吞行随其号段清理，审计行间衔接断点覆盖面
+    // 随之退役；侧表基数=吞行频度故单语句无批删必要，PK 前缀 (projectId,generation,seq) 走索引）。
+    // 擦除随 scope 批删归 C4-3（介质 registry 将列 CanvasDocCoalesced——本处仅 compact 清理域）。
+    await this.prisma.$executeRaw`
+      DELETE FROM "CanvasDocCoalesced"
+      WHERE "projectId" = ${projectId}::text AND generation = ${generation}::int AND seq <= ${belowSeq}::bigint`;
+    return deleted;
   }
 
   /** T11 保留策略：当前代 2 份（指针行+其前一 rev）+旧代各最终 1 份（新快照发布后删旧）。
