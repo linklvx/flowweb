@@ -163,3 +163,6 @@ export * from './collab/read-model-census';
 // runtime-event 原址抽出再导出）+tick 词表（CollabJobCursor.job 值域）——C1 retention worker/C3 audit
 // tick 消费；契约测试=collab/*.spec.ts（常量精确值由既有 runtime-event.spec/execution-request.spec 原位锁）。
 export * from './collab/retention';
+// C2-0（plan Task C2-0——生产就绪收尾批）：CanvasProject.origin 值域单源（'user'/'clone'——谱系；
+// 写点单源=api collab/project-governance.service.ts ensureProjectGovernance）。
+export * from './collab/project-origin';

@@ -1719,6 +1719,35 @@ if (isMain()) {
     report('㉟', `read-model-census.json 索引门（T19——29 条目/29 fixture/shapeHash 复算+五 token 族词法对账 ${Object.values(READ_MODEL_READER_LEXICAL).reduce((a, b) => a + b, 0)} 点/${Object.keys(READ_MODEL_READER_LEXICAL).length} 文件；未分类新增即红）`, details.length === 0, details);
   }
 
+  // ㊱canvasProject.create 调用点必经 governance（C2-0 plan Task C2-0——schema 闭包扫不到调用路径，
+  // CI census 执法）：CanvasProject 建行面生产调用点两处（ProjectService.create /api/projects 第一
+  // 路径+CanvasService.create 第二创建路径——直建 project+Template+genesis 不经 ProjectService），
+  // 每调用文件内 ensureProjectGovernance 调用数须 ≥ canvasProject.create 调用数（漏接=该路径项目
+  // compact 永久 fail-closed——C2-1 OpsGate 两行校验缺项目行即拒）。防扫描腐烂锚：两已知路径文件
+  // 必在命中面（改名/迁移载体=有意动作，同步本白名单）。
+  {
+    const GOVERNANCE_WIRED_FILES = [
+      'apps/api/src/modules/project/project.service.ts',
+      'apps/api/src/modules/canvas/canvas.service.ts',
+    ];
+    const details = [];
+    const createHits = new Map();   // rel file → canvasProject.create 调用数
+    for (const p of files) {
+      const n = (byFile.get(p).stripped.match(/\.canvasProject\.create\s*\(/g) ?? []).length;
+      if (n) createHits.set(relOf(p), n);
+    }
+    for (const [f, n] of createHits) {
+      const p = files.find((x) => relOf(x) === f);
+      const govs = (byFile.get(p).stripped.match(/\bensureProjectGovernance\s*\(/g) ?? []).length;
+      if (govs < n) details.push(`${f}: canvasProject.create ×${n} 但 ensureProjectGovernance ×${govs}——漏接（该路径项目 compact 永久 fail-closed）`);
+    }
+    for (const f of GOVERNANCE_WIRED_FILES) {
+      if (!createHits.has(f)) details.push(`已知创建路径消失 ${f}（canvasProject.create 零命中——载体迁移/改名须同步 GOVERNANCE_WIRED_FILES）`);
+    }
+    const total = [...createHits.values()].reduce((a, b) => a + b, 0);
+    report('㊱', `canvasProject.create 调用点必经 governance（C2-0——${total} 调用点/${createHits.size} 文件全 wired；定义面=collab/project-governance.service.ts）`, details.length === 0 && total >= 1, details);
+  }
+
   const failed = results.filter((r) => !r.pass);
   console.log(`\ncheck-collab-census: ${results.length - failed.length}/${results.length} PASS`);
   if (failed.length) { console.error(`check-collab-census FAIL: ${failed.map((f) => f.id).join(' ')}`); process.exit(1); }

@@ -1,6 +1,6 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import * as Y from 'yjs';
-import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
+import { CANVAS_DOC_SCHEMA_VERSION, CANVAS_PROJECT_ORIGIN_USER } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FolderService } from '../folder/folder.service';
 import { TemplateService } from '../template/template.service';
@@ -8,6 +8,7 @@ import { TeamService } from '../team/team.service';
 import { assertTeamMember } from '../team/team.util';
 import { createCanvasDoc } from '../collab/canvas-doc.factory';
 import { ensureCanvasDocHead } from '../collab/canvas-doc-genesis';
+import { ensureProjectGovernance } from '../collab/project-governance.service';
 
 @Injectable()
 export class CanvasService {
@@ -40,6 +41,10 @@ export class CanvasService {
       const project = await tx.canvasProject.create({
         data: { name: finalName, userId, teamId: teamIdResolved },
       });
+      // C2-0（生产就绪收尾批）：governance 必经——第二创建路径（直建 project+Template+genesis 不经
+      //  ProjectService；两路径行为分叉=Canvas 建 Template/ProjectService 不建，governance 共用不分叉）
+      //  ——OpsGate 项目行+origin 单源写点（漏接=该路径项目 compact 永久 fail-closed；census ㊱ 执法）。
+      await ensureProjectGovernance(tx, { projectId: project.id, origin: CANVAS_PROJECT_ORIGIN_USER });
       const template = await tx.template.create({
         data: { name: finalName, userId, teamId: teamIdResolved, projectId: project.id, folderId },
       });

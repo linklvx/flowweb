@@ -33,6 +33,7 @@ describe('CanvasService', () => {
         findMany: vi.fn().mockResolvedValue([]),
         create: vi.fn().mockResolvedValue({ id: 't1' }),
       },
+      $executeRaw: vi.fn().mockResolvedValue(0),   // C2-0：governance 两 SQL（团队化用例 fn(prisma) 直通 tx）
       ...genesisHeadMocks(),   // Y1c T7：团队化用例 fn(prisma) 直通 tx——顶层 mock 亦需头集面
       $transaction: vi.fn(),
     };
@@ -53,7 +54,9 @@ describe('CanvasService', () => {
   describe('create', () => {
     it('事务创建 CanvasProject + Template，返回 templateId/projectId/name', async () => {
       prisma.folder.findFirst.mockResolvedValue({ id: 'f1' });
+      const execRaw = vi.fn().mockResolvedValue(0);
       prisma.$transaction.mockImplementation(async (fn: any) => fn({
+        $executeRaw: execRaw,
         team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
         canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
         template: { create: vi.fn().mockResolvedValue({ id: 't1' }) },
@@ -61,6 +64,14 @@ describe('CanvasService', () => {
       }));
       const result = await service.create('新画布', 'f1', 'u1');
       expect(result).toEqual(expect.objectContaining({ templateId: 't1', projectId: 'p1', name: '新画布', teamId: 'team1' }));
+      // C2-0：governance 必经——OpsGate 项目行 INSERT（'compact',p1,'OPEN'）+origin 谱系 UPDATE 同事务
+      expect(execRaw).toHaveBeenCalledTimes(2);
+      expect(String(execRaw.mock.calls[0][0])).toContain('INSERT INTO "CollabOpsGate"');
+      expect(execRaw.mock.calls[0][1]).toBe('compact');
+      expect(execRaw.mock.calls[0][2]).toBe('p1');
+      expect(String(execRaw.mock.calls[1][0])).toContain('UPDATE "CanvasProject"');
+      expect(execRaw.mock.calls[1][2]).toBe('p1');
+      expect(execRaw.mock.calls[1][1]).toBe('user');
       expect(templateService.clearCache).toHaveBeenCalled();
       expect(folderService.touch).toHaveBeenCalledWith(['f1']);
     });
@@ -68,6 +79,7 @@ describe('CanvasService', () => {
     it('Y0b-5 T5：世代可见通道随行——collabGeneration=0（doc 懒建，新建确定性 0 代）+collabSchemaVersion+collabViewerUid（新建路径首会话同享四维缓存键通道）', async () => {
       prisma.folder.findFirst.mockResolvedValue({ id: 'f1' });
       prisma.$transaction.mockImplementation(async (fn: any) => fn({
+        $executeRaw: vi.fn().mockResolvedValue(0),   // C2-0：governance 两 SQL（OpsGate 行+origin）
         team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
         canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
         template: { create: vi.fn().mockResolvedValue({ id: 't1' }) },
@@ -82,6 +94,7 @@ describe('CanvasService', () => {
     it('事务内 Template 数据含 folderId', async () => {
       const templateCreate = vi.fn().mockResolvedValue({ id: 't1' });
       prisma.$transaction.mockImplementation(async (fn: any) => fn({
+        $executeRaw: vi.fn().mockResolvedValue(0),   // C2-0：governance 两 SQL（OpsGate 行+origin）
         team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
         canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
         template: { create: templateCreate },
@@ -102,6 +115,7 @@ describe('CanvasService', () => {
       prisma.folder.findFirst.mockResolvedValue({ id: 'f1' });
       const heads = genesisHeadMocks();
       prisma.$transaction.mockImplementation(async (fn: any) => fn({
+        $executeRaw: vi.fn().mockResolvedValue(0),   // C2-0：governance 两 SQL（OpsGate 行+origin）
         team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
         canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
         template: { create: vi.fn().mockResolvedValue({ id: 't1' }) },
@@ -139,6 +153,7 @@ describe('CanvasService', () => {
       heads.systemHistory.findUnique.mockResolvedValue(null);
       const templateCreate = vi.fn().mockResolvedValue({ id: 't1' });
       prisma.$transaction.mockImplementation(async (fn: any) => fn({
+        $executeRaw: vi.fn().mockResolvedValue(0),   // C2-0：governance 两 SQL（OpsGate 行+origin）
         team: { findFirst: vi.fn().mockResolvedValue({ id: 'team1' }) },
         canvasProject: { create: vi.fn().mockResolvedValue({ id: 'p1' }) },
         template: { create: templateCreate },
@@ -174,7 +189,9 @@ describe('CanvasService', () => {
       it('空名走编号：事务内取 advisory lock，无已有未命名 → 画布1', async () => {
         const tx = mockTx(['我的画布']);
         const result = await service.create('', null, 'u1');
-        expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+        // C2-0：advisory 1 + governance 2（OpsGate 行 INSERT+origin UPDATE）
+        expect(tx.$executeRaw).toHaveBeenCalledTimes(3);
+        expect(tx.$executeRaw.mock.calls.some((c) => String(c[0]).includes('pg_advisory_xact_lock'))).toBe(true);
         expect(tx.template.findMany).toHaveBeenCalledWith({ where: { teamId: 'team1' }, select: { name: true } });
         expect(tx.canvasProject.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '画布1' }) });
         expect(tx.template.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '画布1' }) });
@@ -194,10 +211,12 @@ describe('CanvasService', () => {
         expect(result.name).toBe('画布1');
       });
 
-      it('非空名不取锁、不查编号，原名创建', async () => {
+      it('非空名不取锁、不查编号，原名创建（governance 两 SQL 照走——C2-0 必经）', async () => {
         const tx = mockTx(['未命名项目1']);
         const result = await service.create('我的新画布', null, 'u1');
-        expect(tx.$executeRaw).not.toHaveBeenCalled();
+        // C2-0：非空名不取 advisory lock——$executeRaw 面只剩 governance 两 SQL
+        expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
+        expect(tx.$executeRaw.mock.calls.every((c) => !String(c[0]).includes('pg_advisory_xact_lock'))).toBe(true);
         expect(tx.template.findMany).not.toHaveBeenCalled();
         expect(tx.canvasProject.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '我的新画布' }) });
         expect(result.name).toBe('我的新画布');

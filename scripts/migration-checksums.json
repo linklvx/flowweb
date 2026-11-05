@@ -55,5 +55,8 @@
   },
   "20261105120000_c1_pen_one_retention_erasure": {
     "migration.sql": "3075fbf83875457124991c3793e0bc3176ff05f4bedaa18d313d8152a28df8d8"
+  },
+  "20261105130000_c2_pen_two_ops_gate_canary": {
+    "migration.sql": "5729cd96288b9c3cb26ffabc9454661edb4c77281c5ed23727c25468eeb1bfa7"
   }
 }

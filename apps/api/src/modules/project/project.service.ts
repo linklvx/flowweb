@@ -7,8 +7,9 @@ import { TeamFundsGateService } from '../team/team-funds-gate.service';
 import { toDocLike } from '../collab/doc-like.util';
 import { createCanvasDoc } from '../collab/canvas-doc.factory';
 import { ensureCanvasDocHead } from '../collab/canvas-doc-genesis';
-import { fillDoc, stripAuthorState, stripDerivedKeys, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
+import { fillDoc, stripAuthorState, stripDerivedKeys, CANVAS_DOC_SCHEMA_VERSION, CANVAS_PROJECT_ORIGIN_USER } from '@flowweb/shared';
 import { assertTeamMember } from '../team/team.util';
+import { ensureProjectGovernance } from '../collab/project-governance.service';
 
 interface NodeInput {
   id: string;
@@ -51,6 +52,10 @@ export class ProjectService {
           teamId: teamIdResolved,
         },
       });
+      // C2-0（生产就绪收尾批）：governance 必经——OpsGate ('compact',pid,'OPEN') 项目行+origin
+      //  谱系单源写点（同事务原子；漏接=该路径项目 compact 永久 fail-closed〔C2-1 两行校验缺项目行
+      //  即拒〕——census ㊱ 调用点执法）。
+      await ensureProjectGovernance(tx, { projectId: created.id, origin: CANVAS_PROJECT_ORIGIN_USER });
       if (userId) {
         await tx.projectMember.create({
           data: { projectId: created.id, userId, role: 'PROJECT_OWNER' },

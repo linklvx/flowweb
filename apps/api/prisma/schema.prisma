@@ -1722,3 +1722,54 @@ model ProjectErasureRun {
   @@index([scopeType, scopeId])
   @@index([parentRunId])
 }
+
+// ══════ C2-0（生产就绪收尾批——迁移笔二）：OpsGate 哨兵+canary pin/游标 ══════
+// spec v5 §3 C2；governance 写点单源=apps/api/src/modules/collab/project-governance.service.ts
+// ensureProjectGovernance（OpsGate 项目行+origin 谱系——创建路径两处接线）；origin 值域单源=
+// packages/shared/src/collab/project-origin.ts。三档/两阶段读/freeze 归 C2-1，pin 消费归 C2-2。
+// 纪律：无 FK relation（承笔一——项目删除清理归 worker scope 批删：OpsGate 项目行/CanaryCursor/pin 行）。
+
+/// 运维闸门（复合 PK 哨兵：全局行 projectId='' + 每项目行）。state 值域（C2-1 消费）：
+/// OPEN|FROZEN——compact 发布事务两行校验（IN ('',pid) 行数==2 且全 OPEN，<2=fail-closed）；
+/// freeze=UPDATE 置 FROZEN+version+1。建路径行=governance（'compact',pid,'OPEN'），
+/// 存量回填+全局哨兵行=迁移笔二（行数校验 fail-closed 同笔）。
+model CollabOpsGate {
+  gate        String
+  projectId   String    @default("")
+  state       String    @default("OPEN")
+  version     BigInt    @default(0)
+  frozenAt    DateTime?
+  frozenBy    String?
+  unfrozenAt  DateTime?
+  reason      String?
+
+  @@id([gate, projectId])
+}
+
+/// canary 捕获 pin（C2-2 消费——表先落）：CAPTURING pin-first 捕获（leaseUntil 续租+expiresAt TTL
+/// 15min 过期清扫）→READY；worker verify 后 compare-and-delete（谓词 pgSeqAt/snapshotRev——TTL 过期
+/// 后误删新 pin 根除）。stateSeq=快照水位坐标；hashSkipped=尺寸阈值超限只取 SV 档。
+model CanaryPin {
+  projectId    String   @id
+  status       String   @default("CAPTURING")
+  generation   Int
+  snapshotRev  BigInt
+  stateSeq     BigInt
+  pgSeqAt      BigInt
+  contentHash  String?  @db.Char(64)
+  hashSkipped  Boolean  @default(false)
+  hashVersion  Int
+  stateVector  Bytes?
+  leaseUntil   DateTime
+  expiresAt    DateTime
+}
+
+/// canary 检查游标（C2-2 消费）：generation=换代游标重置（旧代游标永 skip 根除）；
+/// lastResult 值域随 C2-2 落定；nextDueAt=覆盖节奏 N=ceil(active×1.25/24) 排程。
+model CollabCanaryCursor {
+  projectId     String   @id
+  generation    Int
+  lastCheckedAt DateTime
+  lastResult    String
+  nextDueAt     DateTime
+}
