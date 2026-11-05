@@ -16,6 +16,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { RUNTIME_EVENT_RETENTION_DAYS, RUNTIME_EVENT_RETENTION_MAX_PER_PROJECT } from '@flowweb/shared';
+import type { RuntimeNodeProjectionEntry } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /** event 扫面单批删除行数（loop-to-empty——同 tick 内循环至空）。 */
@@ -77,4 +78,17 @@ export class RuntimeFeedRetentionService {
       SELECT COALESCE(SUM(octet_length(payload::text)), 0) AS bytes FROM "RuntimeEvent"`;
     return Number(rows[0]?.bytes ?? 0n);
   }
+}
+
+/**
+ * C1-1 红⑦ 投影 unknown 语义（纯函数）：**折叠缺槽∧真源在场**的节点集——retention 删事件后
+ * RuntimeFeedService.snapshotEnvelope 只折 RuntimeEvent（:266-289）⇒ 被清节点静默空白；
+ * 真源（NodeExecution——PG 权威行）在场的缺槽节点集显式返回（envelope.retention.unknownNodeIds），
+ * 「从未执行」与「已执行但事件被清理」可区分（客户端 unknown≠idle——shared RUNTIME_STORE 契约）。
+ */
+export function retentionUnknownNodeIds(
+  foldedNodes: Readonly<Record<string, RuntimeNodeProjectionEntry>>,
+  execRows: ReadonlyArray<{ nodeId: string }>,
+): string[] {
+  return execRows.filter((r) => !(r.nodeId in foldedNodes)).map((r) => r.nodeId);
 }

@@ -15,6 +15,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RuntimeFeedService, foldEventsToSnapshot, slotOfEvent, feedHintPayload } from './runtime-feed.service';
+import { RuntimeFeedRetentionService } from './runtime-feed.retention.service';   // C1-1：保留期清理迁 worker
 import { LifecycleObligationSweeper } from './lifecycle-obligation.sweeper';
 import { TeamCreditService } from '../team/team-credit.service';   // Y1c T23：EXEC_FINALIZE 消费构造（collect+drain 资金主体）
 import { CreditLedgerService } from '../team/credit-ledger.service';
@@ -22,6 +23,7 @@ import { CreditLedgerService } from '../team/credit-ledger.service';
 const hasDb = !!process.env.DATABASE_URL;
 const prisma = new PrismaClient();
 const feed = new RuntimeFeedService(prisma as unknown as PrismaService);
+const feedRetention = new RuntimeFeedRetentionService(prisma as unknown as PrismaService);   // C1-1：worker 扇面（api timer 已移除）
 const sweeper = new LifecycleObligationSweeper(prisma as unknown as PrismaService, feed);
 
 const PID = `int-t22-feed-${Date.now()}`;
@@ -146,9 +148,12 @@ let TID = '';
     const r = await feed.appendEvent(PID, 'exec.status', () => ({ nodeId: 'n-old', status: 'done', attempts: 1 }));
     await prisma.runtimeEvent.update({ where: { projectId_feedSeq: { projectId: PID, feedSeq: r.feedSeq } }, data: { createdAt: new Date(Date.now() - 8 * 24 * 3600_000) } });
     const before = await prisma.runtimeEvent.count({ where: { projectId: PID } });
-    await feed.sweepRetention();
+    // C1-1：sweepRetention 迁 worker RuntimeFeedRetentionService（poller tick 事务形态——api timer 移除）
+    const swept = await prisma.$transaction((tx) => feedRetention.sweepEventsInTx(tx));
+    expect(swept.deleted).toBe(1);   // 8d 陈旧行删（余行 7d 内保留）
+    expect(swept.deletedBytes).toBeGreaterThan(0);   // RETURNING octet_length bytes 素材（计数器维护面）
     const after = await prisma.runtimeEvent.count({ where: { projectId: PID } });
-    expect(after).toBe(before - 1);   // 8d 陈旧行删（余行 7d 内保留）
+    expect(after).toBe(before - 1);
     const minRow = await prisma.runtimeEvent.findFirst({ where: { projectId: PID }, orderBy: { feedSeq: 'asc' } });
     expect(await feed.minRetainedSeq(PID)).toBe(minRow!.feedSeq - 1n);
   });

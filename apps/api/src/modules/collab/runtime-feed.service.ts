@@ -1,7 +1,10 @@
 // apps/api/src/modules/collab/runtime-feed.service.ts
 // Y1c T22（plan v1.7 Task 22——spec v5.4 §7 Runtime Feed 平面，G5 门主体）：RuntimeEvent 写入
 // （feedSeq 分配=RuntimeFeedCursor upsert 行锁——分配序≡提交序）+HTTP 游标读面+首连快照折叠
-// +心跳 latestFeedSeq+保留期清理 worker（7d/100k 先到为准+minRetainedSeq+runtime_feed_bytes）。
+// +心跳 latestFeedSeq。
+// C1-1（生产就绪收尾批）：保留期清理 worker **迁出**（RuntimeFeedRetentionService——worker 进程
+// 扇面；api timer/武装移除=本服务零 setInterval）+首连快照增**显式 unknown 面**（红⑦——retention
+// 删事件后折叠缺槽但真源 NodeExecution 在场的节点集显式列出，非静默空白）。
 //
 // 锁序冻结（v5.4⑮+修正批 #10）：**业务行→counter（counter 恒最后拿）**；CanvasDoc 读=plain SELECT
 // **禁 FOR SHARE**（MVCC 快照读零阻塞——不与维护/快照互斥）。负控=静态锁序断言（本文件读 CanvasDoc
@@ -11,12 +14,10 @@
 // 唯一交付=HTTP 游标（spec §7）：stateless 通知/心跳只带 {type:'feed-hint',latestFeedSeq} 不带事件体
 // ——通知在业务事务提交后发（notifyProject——≤1 次/秒合并）；客户端单 reducer 拉取应用。
 // ExecutionOutbox=工作队列维持（**禁作 feed 日志**——可变队列使游标出洞）。
-import { Inject, Injectable, Logger, Optional, forwardRef } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { Gauge } from 'prom-client';
 import {
   EVENT_KINDS, RUNTIME_EVENT_PAYLOAD_MAX_BYTES,
-  RUNTIME_EVENT_RETENTION_DAYS, RUNTIME_EVENT_RETENTION_MAX_PER_PROJECT,
   runtimeEventPayloadPiiViolations, mergeRuntimeProjection,
   type RuntimeEventKind, type RuntimeEventPayload,
   type RuntimeProjection, type RuntimeNodeProjectionEntry,
@@ -25,6 +26,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { parseDocName } from './doc-name.util';
 import { CollabGateway } from './collab.gateway';
 import { CollabSessionGuardService } from './collab-session-guard.service';
+import { retentionUnknownNodeIds } from './runtime-feed.retention.service';
 
 /** feed-hint stateless 载荷（通知/心跳共用形态——不带事件体）。 */
 export const feedHintPayload = (latestFeedSeq: bigint | string): string =>
@@ -32,14 +34,6 @@ export const feedHintPayload = (latestFeedSeq: bigint | string): string =>
 
 /** 通知合并窗口（≤1 次/秒——spec §7「durable watermark 广播 ≤1 次/秒，仅辅助」）。 */
 const NOTIFY_THROTTLE_MS = 1_000;
-/** 保留期清理 worker 周期（小时级——非热路径）。 */
-const RETENTION_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
-
-const runtimeFeedBytes = new Gauge({
-  name: 'runtime_feed_bytes',
-  help: 'RuntimeEvent payload 存储字节（per-project gauge——保留期清理 worker 刷新；spec §7 runtime_feed_bytes）',
-  labelNames: ['projectId'] as const,
-});
 
 /** 事件 wire 行（BigInt 一律 String——§5.2）。 */
 export interface RuntimeEventWireRow {
@@ -52,12 +46,19 @@ export interface RuntimeEventWireRow {
   createdAtMs: number;
 }
 
-/** 首连快照信封（spec §7：{snapshot,cursor,minRetainedSeq,historyId}——cursor 三元 wire string）。 */
+/** 首连快照信封（spec §7：{snapshot,cursor,minRetainedSeq,historyId}——cursor 三元 wire string；
+ *  C1-1 红⑦ 增 retention 显式 unknown 面）。 */
 export interface RuntimeFeedSnapshotEnvelope {
   snapshot: RuntimeProjection;
   cursor: { historyId: string; generation: number; feedSeq: string };
   minRetainedSeq: string;
   historyId: string;
+  /**
+   * C1-1 红⑦ 显式 unknown 面：折叠缺槽但**真源在场**（NodeExecution/NodeArtifact——runtime 投影
+   *   的权威行存续）的节点集——retention 删事件后这些节点的投影=unknown（客户端 unknown≠idle：
+   *   生成按钮禁用），**非静默空白**（「从未执行」与「已执行但事件被清理」可区分）。null=无清除面。
+   */
+  retention: { unknownNodeIds: string[] } | null;
 }
 
 @Injectable()
@@ -65,7 +66,6 @@ export class RuntimeFeedService {
   private readonly logger = new Logger(RuntimeFeedService.name);
   /** per-project 通知节流（进程内——合并窗；通知丢失无害：心跳/次事件再追平）。 */
   private readonly lastNotifyAt = new Map<string, number>();
-  private retentionTimer: ReturnType<typeof setInterval> | null = null;
   /** 事务提交后通知回调（gateway 注入——sendStateless 广播；缺省 no-op 供测试/独立构造）。 */
   private notifySink: ((projectId: string, payload: string) => void) | null = null;
 
@@ -99,10 +99,7 @@ export class RuntimeFeedService {
       const seq = this.lastKnown.get(pid);
       return seq === undefined ? null : { latestFeedSeq: String(seq) };
     });
-    this.startRetentionWorker();
   }
-
-  onApplicationShutdown(): void { this.stopRetentionWorker(); }
 
   // ═══ 写入（业务事务内——counter 恒最后拿）════════════════════════════════════════════
 
@@ -279,68 +276,22 @@ export class RuntimeFeedService {
       const generation = docRows[0]?.generation ?? 0;
       const pgSeq = docRows[0]?.pgSeq ?? 0n;
       const projection = foldEventsToSnapshot(projectId, generation, events.map(toWire), pgSeq, lastSeq);
+      // C1-1 红⑦ 显式 unknown 面（真源=NodeExecution——PG 权威行存续；NodeArtifact 经由节点域间接
+      // 同判）：折叠缺槽的已执行节点显式列出（非静默空白——与「从未执行」可区分）。
+      // RR 同快照读（与 events 同语句快照——清除面与折叠面一致性由事务承担）。
+      const execRows = await tx.$queryRaw<{ nodeId: string }[]>`
+        SELECT "nodeId" FROM "NodeExecution" WHERE "projectId" = ${projectId}::text`;
+      const unknownNodeIds = retentionUnknownNodeIds(projection.nodes, execRows);
       return {
         snapshot: projection,
         cursor: { historyId, generation, feedSeq: lastSeq.toString() },
         minRetainedSeq: (cursorRow?.minRetainedSeq ?? 0n).toString(),
         historyId,
+        retention: unknownNodeIds.length > 0 ? { unknownNodeIds } : null,
       };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
-  // ═══ 保留期清理 worker（7d/100k 先到为准+minRetainedSeq+runtime_feed_bytes）════════════
-
-  startRetentionWorker(): void {
-    if (this.retentionTimer) return;
-    this.retentionTimer = setInterval(() => {
-      void this.sweepRetention().catch((e) => this.logger.warn(`runtime-feed retention sweep: ${(e as Error).message}`));
-    }, RETENTION_SWEEP_INTERVAL_MS);
-    this.retentionTimer.unref?.();
-  }
-
-  stopRetentionWorker(): void {
-    if (this.retentionTimer) clearInterval(this.retentionTimer);
-    this.retentionTimer = null;
-  }
-
-  /** 单轮清理：per-project 删 7d 前且超出 100k 尾部的行+推进 minRetainedSeq+刷新字节 gauge。 */
-  async sweepRetention(): Promise<{ projects: number; deleted: number }> {
-    const cutoff = new Date(Date.now() - RUNTIME_EVENT_RETENTION_DAYS * 24 * 3600_000);
-    const projects = await this.prisma.runtimeFeedCursor.findMany({ select: { projectId: true } });
-    let deleted = 0;
-    let touched = 0;
-    for (const p of projects) {
-      const pid = p.projectId;
-      const r = await this.prisma.$transaction(async (tx) => {
-        // 数基线（保留窗内计数——超 100k 部分按 feedSeq 升序删尾）
-        const total = await tx.runtimeEvent.count({ where: { projectId: pid } });
-        let delWhere: Prisma.RuntimeEventWhereInput;
-        if (total > RUNTIME_EVENT_RETENTION_MAX_PER_PROJECT) {
-          const excess = total - RUNTIME_EVENT_RETENTION_MAX_PER_PROJECT;
-          const kth = await tx.runtimeEvent.findMany({ where: { projectId: pid }, orderBy: { feedSeq: 'asc' }, skip: excess - 1, take: 1, select: { feedSeq: true } });
-          const kthSeq = kth[0]?.feedSeq ?? 0n;
-          delWhere = { projectId: pid, OR: [{ createdAt: { lt: cutoff } }, { feedSeq: { lte: kthSeq } }] };
-        } else {
-          delWhere = { projectId: pid, createdAt: { lt: cutoff } };
-        }
-        const d = await tx.runtimeEvent.deleteMany({ where: delWhere });
-        // minRetainedSeq=现存最小 feedSeq-1（全删空=lastSeq——快照档）
-        const minRow = await tx.runtimeEvent.findFirst({ where: { projectId: pid }, orderBy: { feedSeq: 'asc' }, select: { feedSeq: true } });
-        const cursor = await tx.runtimeFeedCursor.findUnique({ where: { projectId: pid } });
-        const minRetained = minRow ? minRow.feedSeq - 1n : (cursor?.lastSeq ?? 0n);
-        if ((cursor?.minRetainedSeq ?? 0n) !== minRetained) {
-          await tx.runtimeFeedCursor.updateMany({ where: { projectId: pid }, data: { minRetainedSeq: minRetained } });
-        }
-        return d.count;
-      });
-      if (r > 0) touched += 1;
-      deleted += r;
-      const sizeRow = await this.prisma.$queryRaw<{ bytes: bigint | null }[]>`
-        SELECT COALESCE(SUM(octet_length(payload::text)), 0) AS bytes FROM "RuntimeEvent" WHERE "projectId" = ${pid}::text`;
-      runtimeFeedBytes.set({ projectId: pid }, Number(sizeRow[0]?.bytes ?? 0n));
-    }
-    return { projects: touched, deleted };
-  }
 }
 
 // ── 纯函数（可测面）────────────────────────────────────────────────────────────────────
