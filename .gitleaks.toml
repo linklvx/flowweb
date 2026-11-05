@@ -40,6 +40,13 @@ regexes = [
 ]
 
 [[allowlists]]
+description = "T24 版本门 spec 假握手键（base64('some-sec-websocket-key')——t24 spec :126 双轨反查键控用例夹具常量，709290f5〔T30b P-2〕引入即触发 generic 检测红〔run 41940665917 gitleaks job〕；值级豁免=同文件真密钥仍红，RFC 6455 示例键同款先例）"
+regexTarget = "secret"
+regexes = [
+  '''c29tZS1zZWMtd2Vic29ja2V0LWtleQ==''',
+]
+
+[[allowlists]]
 description = "设计文档成员:行号引用序列误报（t41-b2-design.md §4.1「spoolStateForAuth :913/persistUnhealthy :947」——generic-api-key 把成员名:行号枚举判为密钥；值级豁免=同文件真密钥仍红，RFC 6455 示例键同款先例）"
 regexTarget = "secret"
 regexes = [

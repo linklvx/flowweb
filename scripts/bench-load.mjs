@@ -1035,4 +1035,10 @@ async function main() {
   }
   process.exit(exitCode);
 }
-if (import.meta.url === pathToFileURL(path.resolve(process.argv[1] ?? '')).href) main().catch((e) => { console.error(`[bench] 致命：${e?.stack ?? e}`); process.exit(2); });
+if (import.meta.url === pathToFileURL(path.resolve(process.argv[1] ?? '')).href) main().catch((e) => {
+  console.error(`[bench] 致命：${e?.stack ?? e}`);
+  // 观测面（run 41940665917 教训：CI 上 startApi ready 超时红仅栈零证据——spawned 服务日志只在
+  // 内存 buffer+落盘 backups/t33-logs，job 日志不携带）：致命时打出各存活进程日志尾（尾 4k×进程）。
+  for (const [name] of procs) console.error(`[bench] ${name} 日志尾：\n${serviceLog(name).slice(-4000)}`);
+  process.exit(2);
+});

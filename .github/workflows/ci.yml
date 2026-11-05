@@ -333,6 +333,10 @@ jobs:
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @flowweb/api exec prisma generate
+      # 首跑红根修（run 41940843779）：空库无 schema——bench fixtures 首个 user.create 即
+      # P2021（table does not exist；本地档库已迁移掩盖该缺口）。migrate deploy 幂等，
+      # 与 test/collab-core job 同款步。
+      - run: pnpm --filter @flowweb/api exec prisma migrate deploy
       - name: 负载基准 full profile（七场景硬门实弹——装置自带构建+分段落盘+超时上界）
         run: node scripts/bench-load.mjs --profile full --confirm --out gate-evidence/t33-load-benchmark.ci.jsonl
       - name: 上传跑批产物（bench JSON+JSONL 分段——runbook §17 落档面）

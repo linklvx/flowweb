@@ -46,6 +46,14 @@ const TERM_VIA_SIGNAL = process.platform !== 'win32';   // win32 kill('SIGTERM')
 const PKG_ROOT = resolve(here, '..', '..');   // here=scripts/*.mjs 文件路径——包根需上跳两级（URL '../.env' 与 path resolve 语义差异：URL 相对文件解析，path resolve 把文件段一并弹出）
 const DRILL_ENTRY = resolve(PKG_ROOT, 'dist-drill', 'scripts', 'collab-drill-server.js');
 const CSV = req('@flowweb/shared').CLIENT_PROTOCOL_VERSION;   // 单源解析（T18 硬切 bump=3 漏改本文件字面量→write-frozen 全链演练 CI 红〔onAuthenticate schema-outdated〕——collab-smoke.mjs 同款 req 先例，「字面量+bump 时随改」约定就此废弃）
+const SV = req('@flowweb/shared').CANVAS_DOC_SCHEMA_VERSION;   // T24 收口 M-1 三元门 sv 必带（缺 sv→4406 client-outdated——CI run 41940665917 演练族红根因；kill9-drill/soak 同批补）
+
+/** T24 准入矩阵+L2 双面合规的最小节点（type=已知类型+position Y.Map{x,y} 标量——旧裸键 'v'/'i'
+ *  =DENY node-key 拒→物化断言恒假红〔CI run 41940665917 根因族〕；断言面=nodes map 键集不变）。 */
+const mkDrillNode = (n) => new Y.Map([
+  ['type', 'group'],
+  ['position', new Y.Map([['x', n], ['y', n]])],
+]);
 
 // frozen-chain 配额档：maxDocBytes=40KB（softEnter=32KB/softExit=24KB——50KB 突发帧确定性越 soft，
 // 且 doc 总量 <SS2 闸 maxDocBytes+64KB=104KB，重连装载同步帧不撞 4404；maxTxBytes 保持默认 256KB）
@@ -141,7 +149,7 @@ function connectClient(h, projectId, { ydoc, tag } = {}) {
     }
   }
   const provider = new HocuspocusProvider({
-    url: `ws://127.0.0.1:${h.wsPort}?csv=${CSV}`, name: `project:${projectId}`, document: doc,
+    url: `ws://127.0.0.1:${h.wsPort}?csv=${CSV}&sv=${SV}`, name: `project:${projectId}`, document: doc,
     WebSocketPolyfill: HeaderWs,
   });
   provider.on('stateless', ({ payload }) => {
@@ -268,7 +276,7 @@ async function frozenChainMode(env) {
       if (m.writeFrozen !== false || m.quota.state !== 'ok') fail(`①${c.tag} 首快照应为未冻结 ok 态：${JSON.stringify(m)}`);
     }
     // 基线编辑落 PG（后续断言的重放基线）
-    A.doc.transact(() => A.doc.getMap('nodes').set('base-node', new Y.Map([['v', 1]])));
+    A.doc.transact(() => A.doc.getMap('nodes').set('base-node', mkDrillNode(1)));
     await waitReplayHas(prisma, S.project, ['base-node']);
 
     // ② POST /api/drain → 两 client 收 doc-status writeFrozen=true（quota.state 恒 ok——drain 不冒充 quota over）
@@ -280,7 +288,7 @@ async function frozenChainMode(env) {
       if (!c.connStatusLog.some((x) => x.msg.readOnly === true)) fail(`②${c.tag} 未收 conn-status readOnly=true（applyWriteFreeze 单源）`);
     }
     // 断言A：drain 后新编辑帧 readOnly 拒不物化（对端不可见+PG 不落行）
-    A.doc.transact(() => A.doc.getMap('nodes').set('frozen-node', new Y.Map([['v', 1]])));
+    A.doc.transact(() => A.doc.getMap('nodes').set('frozen-node', mkDrillNode(1)));
     await sleep(4_000);
     if (B.doc.getMap('nodes').has('frozen-node')) fail('断言A：drain 冻结期编辑帧物化到对端');
     if ((await replayKeys(prisma, S.project)).includes('frozen-node')) fail('断言A：drain 冻结期编辑帧落 PG');
@@ -300,7 +308,12 @@ async function frozenChainMode(env) {
     h = await startServer(hEnv); await h.ready;   // h2 归位同一 h 槽——中途 fail 的 finally 兜底 SIGKILL 覆盖两代实例
     const C = connectClient(h, S.project, { tag: 'C' });
     await C.synced;
-    C.doc.transact(() => C.doc.getMap('nodes').set('big-node', new Y.Map([['blob', 'x'.repeat(BIG_NODE_BYTES)]])));
+    C.doc.transact(() => C.doc.getMap('nodes').set('big-node', new Y.Map([
+      ['type', 'textInput'],
+      // 50KB 突发载荷=textInput.data.model（lww 标量——DOC_SCHEMA_V4 合法键；旧裸 'blob' 键=T24
+      // DENY node-key 拒）。quota 跳闸面=doc 字节总量，载体键位无碍。
+      ['data', new Y.Map([['model', 'x'.repeat(BIG_NODE_BYTES)]])],
+    ])));
     const overMsg = (await firstStatus(C, (x) => x.quota?.state === 'over', 10_000, '④quota over 通告（freezePending 广播）')).msg;
     await pollUntil(() => C.connStatusLog.some((x) => x.msg.readOnly === true), 8_000, 100, '④freezeQuota 落地（conn-status readOnly=true）');
     // ④b 权威快照定影：shrink recalibrate（纯校准）触发 force 广播（Y0b-4 T8 偏差③——dedup 键不含 bytes），
@@ -336,7 +349,7 @@ async function frozenChainMode(env) {
       if (tookMs > SHRINK_RELEASE_N_MS) fail(`⑥${c.tag} 解除耗时 ${tookMs}ms ≥ N=${SHRINK_RELEASE_N_MS}ms（spec:594 出口锚）`);
       if (!c.connStatusLog.some((x) => x.msg.readOnly === false)) fail(`⑥${c.tag} conn-status 未解除 readOnly`);
     }
-    A2.doc.transact(() => A2.doc.getMap('nodes').set('thaw-marker', new Y.Map([['v', 1]])));
+    A2.doc.transact(() => A2.doc.getMap('nodes').set('thaw-marker', mkDrillNode(1)));
     await pollUntil(() => B2.doc.getMap('nodes').has('thaw-marker'), 5_000, 50, '⑥thaw-marker 对端可见');
     await waitReplayHas(prisma, S.project, ['thaw-marker']);
 
@@ -364,14 +377,14 @@ async function midEditKill9Mode(env) {
     h = await startServer(env); await h.ready;
     const A = connectClient(h, S.project, { tag: 'A' });
     await A.synced;
-    A.doc.transact(() => A.doc.getMap('nodes').set('mid-base', new Y.Map([['v', 1]])));
+    A.doc.transact(() => A.doc.getMap('nodes').set('mid-base', mkDrillNode(1)));
     await waitReplayHas(prisma, S.project, ['mid-base']);   // store 链路自证（非静默断言基线）
 
     // 编辑流持续中（不等待静默/quiescence barrier——与既有 kill9 模式的结构差异点）直接 SIGKILL
     const stream = [];
     const timer = setInterval(() => {
       const key = `mid-${stream.length}`;
-      A.doc.transact(() => A.doc.getMap('nodes').set(key, new Y.Map([['i', stream.length]])));
+      A.doc.transact(() => A.doc.getMap('nodes').set(key, mkDrillNode(stream.length)));
       stream.push({ key, at: Date.now() });
     }, 120);
     await sleep(MID_EDIT_STREAM_MS);

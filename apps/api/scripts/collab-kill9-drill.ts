@@ -31,7 +31,7 @@ import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import WebSocket from 'ws';
 import { CanvasDocUpdateRepository } from '../src/modules/collab/canvas-doc-update.repository';
-import { CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
+import { CLIENT_PROTOCOL_VERSION, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { killProviderLateReconnect } from './lib/provider-late-reconnect-guard';   // R5'：@hocuspocus/provider v4 迟到重连定时器兜底（共享——禁内联副本；类型面经 .d.ts）
 
 const DATABASE_URL = process.env.DATABASE_URL ?? '';
@@ -155,8 +155,10 @@ interface DrillClient { provider: HocuspocusProvider; keys: string[]; destroy():
 async function connectWrite(h: DrillHandle, projectId: string, nodes: number): Promise<DrillClient> {
   const ydoc = new Y.Doc();
   // Y0b-3 T2：URL 无 query token（cookie-only）——凭据经 DrillHeaderWs 的 Origin+Cookie header；
-  // Y0b-3 T5 版本门：csv 必带（缺 csv=client-version-missing 恒拒——演练必挂）
-  const provider = new HocuspocusProvider({ url: `ws://127.0.0.1:${h.wsPort}?csv=${CLIENT_PROTOCOL_VERSION}`, name: `project:${projectId}`, document: ydoc, WebSocketPolyfill: DrillHeaderWs } as any);
+  // Y0b-3 T5 版本门：csv 必带（缺 csv=client-version-missing 恒拒——演练必挂）；T24 收口 M-1 三元门
+  // sv 同必带（缺 sv=NaN≠CANVAS_DOC_SCHEMA_VERSION→4406 client-outdated——CI run 41940665917 drill 红
+  // 根因；collab-smoke.mjs T30b sv 补同款漏改本文件）。
+  const provider = new HocuspocusProvider({ url: `ws://127.0.0.1:${h.wsPort}?csv=${CLIENT_PROTOCOL_VERSION}&sv=${CANVAS_DOC_SCHEMA_VERSION}`, name: `project:${projectId}`, document: ydoc, WebSocketPolyfill: DrillHeaderWs } as any);
   const keys: string[] = [];
   const entry: DrillClient = {
     provider,
@@ -175,7 +177,9 @@ async function connectWrite(h: DrillHandle, projectId: string, nodes: number): P
     const t = setTimeout(() => { entry.destroy(); rej(new Error('sync 超时')); }, 15_000);
     provider.on('synced', () => { clearTimeout(t); r(); });
   });
-  for (let i = 0; i < nodes; i++) ydoc.getMap('nodes').set(`drill-${i}`, new Y.Map([['x', i]]));
+  // T24 准入矩阵+L2 语义执法双面合规：节点=type（已知类型——L2 unknown-node-type 4411 拒）+
+  // position Y.Map{x,y} 标量（裸键〔旧 'x' 直挂〕=DENY node-key）。断言面=nodes map 键集不变。
+  for (let i = 0; i < nodes; i++) ydoc.getMap('nodes').set(`drill-${i}`, new Y.Map([['type', 'group'], ['position', new Y.Map([['x', i], ['y', i]])]]));
   keys.push(...[...ydoc.getMap('nodes').keys()]);
   await sleep(200);                     // 上行送达窗
   return entry;
@@ -261,20 +265,30 @@ async function kill9Mode(env: Record<string, string>, fault: boolean): Promise<v
   await stopServer(h2);
   if (seqAfter < seqBefore) fail(`kill9：行数反向下限失败（after=${seqAfter} < before=${seqBefore}——重启丢行）`);
   const missing = [...accepted].filter((k) => !replayed.has(k));
-  if (missing.length > 0) fail(`kill9-${fault ? 'fault' : 'normal'}：已接受集丢失 ${missing.length}/${accepted.size}：${missing.slice(0, 5).join(',')}…`);
+  if (missing.length > 0) {
+    console.error(`[TEMP-DIAG] seqBefore=${seqBefore} seqAfter=${seqAfter} replayed=${replayed.size}`);
+    console.error(`[TEMP-DIAG srvA-tail]\n${h.drillStdout().slice(-3000)}`);
+    console.error(`[TEMP-DIAG srvB-tail]\n${h2.drillStdout().slice(-3000)}`);
+    fail(`kill9-${fault ? 'fault' : 'normal'}：已接受集丢失 ${missing.length}/${accepted.size}：${missing.slice(0, 5).join(',')}…`);
+  }
   console.log(`DRILL PASS: kill9-${fault ? 'fault' : 'normal'} —— ${accepted.size} 节点 ⊇ 已接受集（RPO 故障腿 ${fault ? 'spool 覆盖' : '≤maxDebounce 窗口外'}）`);
 }
 
 async function sigtermMode(env: Record<string, string>): Promise<void> {
   const spoolFail = process.argv.includes('--spool-fail');
-  await createTrigger();                       // append 恒败→drain 走 force-spool 路径
+  await createTrigger();                       // append 恒败→受理走 force-spool（帧落 spool 段）
   await clearLeaseRow();                       // W19：清残留持行
-  const h = await startServer(spoolFail ? { ...env, DRILL_SPOOL_FAIL: '1' } : env);   // Y14：服务态注入（monkey-patch append 恒抛——overCapacityFlag 会被滞回解除支自清）
+  // Y1c spool-first 语义重推导（run 41940665917 CI 红根因族）：旧 Y14 DRILL_SPOOL_FAIL=1（spool.append
+  // 恒抛）在 Y0a「受理=内存队列」时代制造 drain 期 undrained；Y1c 受理即 spool fsync——恒抛会使受理
+  // 整体失败（批从未存在→drain_complete 0/0→ii 档断言恒红）。ii 档「不得声称 0」的诚实面在 Y1c 的
+  // 真位置=drain_complete.spoolResidual（X17 显式登记，防误读「全部落 PG」）：trigger-only 形态下
+  // 受理经 force-spool 落段、SIGTERM drain 的 PG 面恒败→残段必须被点名（files≥1）。
+  const h = await startServer(env);
   await h.ready;                               // X3：startServer env 已含 MINIO_INIT=skip
   const { destroy } = await connectWrite(h, PID, NODES);
   destroy();
-  await sleep(1_500);                          // store 失败已发生（批在队列）
-  if (!spoolFail) await dropTrigger();         // Y14b：仅非故障档 drop——让 drain 的 append 成功走 drain_complete；--spool-fail 档保持 trigger（append 恒败+spool 恒败=undrained 判据确定可达）
+  await sleep(1_500);                          // store 失败已发生（批经 force-spool 落段）
+  if (!spoolFail) await dropTrigger();         // Y14b：仅非故障档 drop——drain 的 append 成功走 drain_complete；--spool-fail 档保持 trigger（drain PG 面恒败=残段点名判据可达）
   // Y0a-3（必办⑤/Z8）：G-2a ii"draining 可见"——B4 修正后唯一可达序=SIGTERM 前 POST /api/drain
   //（Nest dispose 先于模块 shutdown——SIGTERM 后 ready 不可达）。drain 进演练面（Y0a-4 部署链预演）。
   const drainRes = await fetch(`http://127.0.0.1:${h.port}/api/drain`, { method: 'POST', headers: { 'x-prometheus-token': h.token } });
@@ -284,13 +298,15 @@ async function sigtermMode(env: Record<string, string>): Promise<void> {
     fail(`G-2a ii：ready 未转 draining（P6 优先级——两档统一值）：${JSON.stringify(drained)}`);
   if (TERM_VIA_SIGNAL) h.child.kill('SIGTERM');
   else h.child.send?.({ type: 'shutdown' });   // win32 主通道（SIGTERM=硬杀不可达 graceful——文件头探针实证）
-  const out = await new Promise<string>((r) => { h.child.once('exit', () => r(h.drillStdout() + h.drillStderr())); setTimeout(() => r(h.drillStdout() + h.drillStderr()), 30_000).unref?.(); });   // shutdown_undrained 走 logger.error=Nest 的 stderr（首轮仅搜 stdout=ii 档恒假红）
+  const out = await new Promise<string>((r) => { h.child.once('exit', () => r(h.drillStdout() + h.drillStderr())); setTimeout(() => r(h.drillStdout() + h.drillStderr()), 30_000).unref(); });   // shutdown 事件走 Nest logger=stdout/stderr 双搜
   const drainDone = /\{"event":"shutdown_drain_complete".*\}/.exec(out)?.[0];
   const undrained = /\{"event":"shutdown_undrained".*\}/.exec(out)?.[0];
   if (spoolFail) {
-    if (!undrained) fail(`sigterm --spool-fail：期望 shutdown_undrained 点名（G-2a ii 档——不得声称 0）\n${out.slice(-2000)}`);
-    const e = JSON.parse(undrained);
-    if (!(e.projects >= 1 && e.batches >= 1 && e.storeInFlight === e.projects)) fail(`undrained 与 storeInFlight 不一致：${undrained}`);   // Y5：projects 键名（docs 键恒 undefined→两档均红且报错指向错误方向）
+    if (!drainDone) fail(`sigterm --spool-fail：期望 shutdown_drain_complete（Y1c spool-first ii 档——内存归零+残段点名）\n${out.slice(-2000)}`);
+    const e = JSON.parse(drainDone);
+    if (!(e.pending.projects === 0 && e.pending.batches === 0)) fail(`ii 档 pending 非 0（内存未归零）：${drainDone}`);
+    if (!(e.spoolResidual.files >= 1)) fail(`ii 档 spoolResidual 未点名（不得声称 0——X17 诚实面）：${drainDone}`);
+    await dropTrigger();                       // 残段判据已收——撤触发器（后续模式不受污染）
   } else {
     if (!drainDone) fail(`sigterm：期望 shutdown_drain_complete（G-2a i 档）\n${out.slice(-2000)}`);
     const e = JSON.parse(drainDone);

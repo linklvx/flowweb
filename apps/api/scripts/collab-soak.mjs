@@ -45,6 +45,7 @@ const WS_ORIGIN = process.env.COLLAB_ALLOWED_ORIGINS?.split(',')[0]?.trim()
 // T19（P1#1④勘正根修）：CSV 从 shared dist 单源读——T18 双常量 bump=3 后字面量 2 未随改=soak
 // 全挂（schema-outdated 恒拒）；「bump 时随改」的字面量惯例自此退役（collab-smoke 同根修）。
 const CSV = req('@flowweb/shared').CLIENT_PROTOCOL_VERSION;
+const SV = req('@flowweb/shared').CANVAS_DOC_SCHEMA_VERSION;   // T24 收口 M-1 三元门 sv 必带（缺 sv→4406 client-outdated——kill9/write-frozen 同批补；soak 不在 CI 链，runbook §17 跑批前到位）
 const METRICS_URL = `${API}/metrics`;
 
 function parseArgs(argv) {
@@ -150,7 +151,7 @@ async function integrityProbe(ctx) {
  *  复用场景 session token；synced 超时/失败 ⇒ null（巡检降级为 skipped，不阻断装置）。 */
 async function probeSyncSv(pid) {
   const p = new HocuspocusProvider({
-    url: `${WS_URL}?csv=${CSV}&cb=soak-sc-probe`, name: `project:${pid}`, document: new Y.Doc(),
+    url: `${WS_URL}?csv=${CSV}&sv=${SV}&cb=soak-sc-probe`, name: `project:${pid}`, document: new Y.Doc(),
     WebSocketPolyfill: class extends HeaderWs {
       constructor(url) { super(url, { origin: WS_ORIGIN, cookie: `flowweb.session_token=${SCEN.token}` }); }
     },
@@ -235,7 +236,7 @@ async function runSoak() {
     for (let ci = 0; ci < OPTS.clients; ci++) {
       const cookie = { origin: WS_ORIGIN, cookie: `flowweb.session_token=${S.tokens[ci]}` };   // 各绑自己 session token
       const p = new HocuspocusProvider({
-        url: `${WS_URL}?csv=${CSV}&cb=soak`, name: `project:${projectIds[ci % OPTS.docs]}`, document: new Y.Doc(),
+        url: `${WS_URL}?csv=${CSV}&sv=${SV}&cb=soak`, name: `project:${projectIds[ci % OPTS.docs]}`, document: new Y.Doc(),
         WebSocketPolyfill: class extends HeaderWs { constructor(url) { super(url, cookie); } },
       });
       providers.push(p);
@@ -243,15 +244,18 @@ async function runSoak() {
       doc.on('update', (u) => {
         frameMaxBytes = Math.max(frameMaxBytes, u?.byteLength ?? 0);   // T19（P1#1③）：单帧字节上界（卡文 <128KB 断言面）
       });
-      // T19（评审#P1#1③ 追加）回显时延测量根修：原 update 回调全量遍历 soak map 找新 marker
-      // （O(N) 随编辑数线性涨——实测 10min 档 frameP95 173/196ms 主因=装置扫描开销非系统时延，
-      // 两档时间维度递增同形态证实）。改 map.observe keys delta（事件恰一次 O(delta)——测量真值化）。
-      const soakMap = doc.getMap('soak');
-      soakMap.observe((ev) => {
+      // T19（评审#P1#1③ 追加）回显时延测量根修：原 update 回调全量遍历找新 marker（O(N) 随编辑数
+      // 线性涨——实测 10min 档 frameP95 173/196ms 主因=装置扫描开销非系统时延，两档时间维度递增同
+      // 形态证实）。改 root map.observe keys delta（事件恰一次 O(delta)——测量真值化）。
+      // Y1c T24 矩阵迁移（CI run 41940665917 根因族）：自定义 'soak' 根=unknown-root DENY——marker
+      // 迁 nodes 根递增节点（type+position 信封——时延值载 position.x 标量；增长语义保持）。
+      const nodesMap = doc.getMap('nodes');
+      nodesMap.observe((ev) => {
         for (const [k, ch] of ev.keys) {
-          if (k.startsWith(`c${ci}#`) || ch.action === 'delete') continue;
+          if (!k.startsWith('churn-') || k.startsWith(`churn-c${ci}-`) || ch.action === 'delete') continue;
           // yjs 事件语义：'add' 档 ch.newValue===undefined（实测）——值从 map 现读（事件时序=read 可见）
-          const v = ch.newValue !== undefined ? ch.newValue : soakMap.get(k);
+          const node = nodesMap.get(k);
+          const v = node?.get?.('position')?.get?.('x');
           if (typeof v !== 'number') continue;
           frameLatencies.push(Date.now() - v);
         }
@@ -277,9 +281,11 @@ async function runSoak() {
         seeder.transact(() => {
           const nodes = seeder.getMap('nodes');
           for (let i = base; i < Math.min(base + CHUNK, OPTS.seedNodes); i += 1) {
+            // T24 矩阵迁移：type='text' 非 nodeType（unknown-node-type L2 4411）→'textInput'；
+            // content 字符串载荷=xml 容器位（container-replacement DENY）→只留 order（lww 合法键）。
             const n = new Y.Map();
-            n.set('type', 'text');
-            n.set('data', new Y.Map(Object.entries({ order: String(5000 + i * 10), content: `seed-${i}` })));
+            n.set('type', 'textInput');
+            n.set('data', new Y.Map(Object.entries({ order: String(5000 + i * 10) })));
             nodes.set(`sn-${i}`, n);
           }
         });
@@ -303,7 +309,10 @@ async function runSoak() {
         const p = providers[ci];
         if (!p.document) return;
         seq += 1; edits += 1;
-        p.document.transact(() => p.document.getMap('soak').set(`c${ci}#${seq}`, Date.now()));
+        p.document.transact(() => p.document.getMap('nodes').set(`churn-c${ci}-${seq}`, new Y.Map([
+          ['type', 'group'],
+          ['position', new Y.Map([['x', Date.now()], ['y', seq]])],
+        ])));
       }, OPTS.rate));
     }
 
@@ -443,7 +452,7 @@ async function seedScenario(prisma, ledger, stubPort, nNodes) {
   await prisma.pricingRule.create({ data: { id: SCEN.rule, nodeTypeId: SCEN.nt, modelId: SCEN.model, creditCost: 0, active: true } });
 
   const provider = new HocuspocusProvider({
-    url: `${WS_URL}?csv=${CSV}&cb=soak-sc`, name: `project:${project}`, document: new Y.Doc(),
+    url: `${WS_URL}?csv=${CSV}&sv=${SV}&cb=soak-sc`, name: `project:${project}`, document: new Y.Doc(),
     WebSocketPolyfill: class extends HeaderWs {
       constructor(url) { super(url, { origin: WS_ORIGIN, cookie: `flowweb.session_token=${SCEN.token}` }); }
     },
