@@ -155,7 +155,8 @@ model CanvasProject {
   teamId         String
   // C1-0（R15/R17 生产就绪收尾批）：lifecycleState=持久 fence 判据列（ACTIVE|DELETING——非 ACTIVE
   // 写路径拒绝〔fenceProject FOR SHARE 行锁读〕；状态机接线/HTTP 映射归 C4）+origin=谱系列
-  // （clone/draft——video-work clone/cleanDraftes 消费，C4 接线）。
+  // （值域单源 shared CANVAS_PROJECT_ORIGINS=['user','clone']——governance 单源写点〔C2-0 两创建
+  // 路径均 'user'〕；'clone' 谱系 video-work clone 接线+cleanDrafts 谓词消费，C4 接线）。
   lifecycleState String            @default("ACTIVE")
   origin         String?
   templates      Template[]
