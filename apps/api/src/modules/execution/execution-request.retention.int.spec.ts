@@ -223,7 +223,8 @@ const sweepRequests = () => prisma.$transaction((tx) => retention.sweepExpiredIn
 
   // ── P0#1：loop-to-empty 批数上界（活锁根修——cap 出口+部分进度跨 tick 单调排空）─────────
   it('红① cap：input 扫面每 tick 批数上界——首 tick 恰 cap 批出口+部分进度已提交（残余在库）+backlog count 回填+第二 tick 续排空', async () => {
-    const backlogBefore = await retention.countExpiredTerminalInputBacklog();   // 共享 dev 库——按需 count 取基线差（望远镜：同窗外域删除与本域残余抵消）
+    // scope 域内化（并行文件共享库隔离缝）：基线差与本域断言同域——外域残留行零贡献，断言确定性
+    const backlogBefore = await retention.countExpiredTerminalInputBacklog([PID]);   // 共享 dev 库——按需 count 取基线差（望远镜：同窗外域删除与本域残余抵消）
     const N = RETENTION_INPUT_DELETE_BATCH + 100;   // >1 批积压：cap=1 首 tick 恰 500、残余 100
     const capIds = Array.from({ length: N }, () => randomUUID());
     reqIds.push(...capIds);
@@ -239,18 +240,18 @@ const sweepRequests = () => prisma.$transaction((tx) => retention.sweepExpiredIn
     })) });
     inputIds.push(...capIds);
 
-    // 首 tick：小 cap 注入=1 批（生产默认 200——可测性注入）——恰删 1 批、cap 出口、残余在库（部分进度已提交）
-    const first = await prisma.$transaction((tx) => retention.sweepExpiredInputsInTx(tx, 1));
-    expect(first.deleted).toBe(RETENTION_INPUT_DELETE_BATCH);   // 恰 1 批=500（cap 即批实绩）
+    // 首 tick：小 cap 注入=1 批（生产默认 200——可测性注入）+scope 域内化——恰删 1 批、cap 出口、残余在库（部分进度已提交）
+    const first = await prisma.$transaction((tx) => retention.sweepExpiredInputsInTx(tx, 1, [PID]));
+    expect(first.deleted).toBe(RETENTION_INPUT_DELETE_BATCH);   // 恰 1 批=500（cap 即批实绩——scope 域内）
     expect(first.capped).toBe(true);                           // cap 出口（≠排空出口——残余行下 tick 续）
     expect(await prisma.executionInput.count({ where: { requestId: { in: capIds } } }))
       .toBeGreaterThanOrEqual(N - RETENTION_INPUT_DELETE_BATCH);   // 残余行仍在库（事务提交=部分进度落盘）
-    // cap 出口 ⇒ backlog gauge 回填素材（poller 消费面）：按需 count 基线差恰=本域残余（外域同窗删除被基线吸收）
-    expect(await retention.countExpiredTerminalInputBacklog())
+    // cap 出口 ⇒ backlog gauge 回填素材（poller 消费面）：按需 count 基线差恰=本域残余（scope 域内——外域零贡献）
+    expect(await retention.countExpiredTerminalInputBacklog([PID]))
       .toBe(backlogBefore + (N - RETENTION_INPUT_DELETE_BATCH));
 
-    // 第二 tick：续排空（残余 100<1 批 ⇒ 非 cap 出口——跨 tick 单调排空收敛）
-    const second = await prisma.$transaction((tx) => retention.sweepExpiredInputsInTx(tx, 1));
+    // 第二 tick：续排空（残余 100<1 批 ⇒ 非 cap 出口——跨 tick 单调排空收敛；scope 域内）
+    const second = await prisma.$transaction((tx) => retention.sweepExpiredInputsInTx(tx, 1, [PID]));
     expect(second.capped).toBe(false);
     expect(await prisma.executionInput.count({ where: { requestId: { in: capIds } } })).toBe(0);   // 排空
   });

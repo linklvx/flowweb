@@ -15,7 +15,7 @@
 // 无删除轮亦收敛——红⑦ 迁移前后对拍锚）。bytes 面：sweep 返回删除字节（计数器维护素材——
 // runtime_feed_bytes gauge 基线+累减在 poller；SUM 全表扫每轮废止）。
 import { Inject, Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { RUNTIME_EVENT_RETENTION_DAYS, RUNTIME_EVENT_RETENTION_MAX_PER_PROJECT } from '@flowweb/shared';
 import type { RuntimeNodeProjectionEntry } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -42,11 +42,18 @@ export class RuntimeFeedRetentionService {
   async sweepEventsInTx(
     tx: Prisma.TransactionClient,
     maxBatches: number = RUNTIME_EVENT_MAX_BATCHES_PER_TICK,
+    scopeProjectIds?: readonly string[],
   ): Promise<{ deleted: number; deletedBytes: number; projects: number; capped: boolean }> {
+    // scopeProjectIds=测试隔离缝（int 套件并行文件共享 dev 库——cap 断言域内化；生产调用方不传=全域，
+    // 与 maxBatches 同族可测性注入——红⑦ cap 用例依赖恰批出口/续排空断言，外域残留行进无序扫面即假红）
+    const scope = scopeProjectIds
+      ? Prisma.sql` AND f."projectId" = ANY(${scopeProjectIds}::text[])`
+      : Prisma.empty;
     const projects = await tx.$queryRaw<{ projectId: string; lastSeq: bigint }[]>`
       SELECT f."projectId", f."lastSeq" FROM "RuntimeFeedCursor" f
       JOIN "CanvasProject" p ON p."id" = f."projectId" AND p."lifecycleState" = 'ACTIVE'
-      JOIN "Team" t ON t."id" = p."teamId" AND t."status" = 'ACTIVE'`;
+      JOIN "Team" t ON t."id" = p."teamId" AND t."status" = 'ACTIVE'
+      WHERE true${scope}`;
     let deleted = 0;
     let deletedBytes = 0;
     let touched = 0;
@@ -90,14 +97,18 @@ export class RuntimeFeedRetentionService {
   /** event 面积压按需 count（P0#1 cap 出口残余行——poller 回填 backlog gauge）：保留窗外残余
    *  （feedSeq≤lastSeq−100k 边界法 ∨ 7d 时间窗，谓词同 sweep）∧ scope ACTIVE∧有 cursor 项目域
    *  （无 cursor 项目不在 sweep 扫面——count 同域防虚高）。 */
-  async countRetentionBacklog(): Promise<number> {
+  async countRetentionBacklog(scopeProjectIds?: readonly string[]): Promise<number> {
+    const scope = scopeProjectIds
+      ? Prisma.sql` AND e."projectId" = ANY(${scopeProjectIds}::text[])`
+      : Prisma.empty;
     const rows = await this.prisma.$queryRaw<{ n: number }[]>`
       SELECT COUNT(*)::int AS n FROM "RuntimeEvent" e
       JOIN "RuntimeFeedCursor" f ON f."projectId" = e."projectId"
       JOIN "CanvasProject" p ON p."id" = e."projectId" AND p."lifecycleState" = 'ACTIVE'
       JOIN "Team" t ON t."id" = p."teamId" AND t."status" = 'ACTIVE'
-      WHERE e."feedSeq" <= (f."lastSeq" - ${RUNTIME_EVENT_RETENTION_MAX_PER_PROJECT})
-        OR e."createdAt" < ((now() AT TIME ZONE 'UTC') - (${RUNTIME_EVENT_RETENTION_DAYS} * interval '1 day'))`;
+      WHERE true${scope}
+        AND (e."feedSeq" <= (f."lastSeq" - ${RUNTIME_EVENT_RETENTION_MAX_PER_PROJECT})
+          OR e."createdAt" < ((now() AT TIME ZONE 'UTC') - (${RUNTIME_EVENT_RETENTION_DAYS} * interval '1 day')))`;
     return Number(rows[0]?.n ?? 0);
   }
 

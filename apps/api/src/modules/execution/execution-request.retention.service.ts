@@ -18,7 +18,7 @@
 // ——裸 now()/timestamptz 参数在会话时区（Asia/Shanghai +08）换算会使窗口平移 8h（红② 夹具实测：
 // 未来 1h 的行被 `<now()` 命中——红先行拦截；typed Prisma 查询两端同源无此洞）。
 import { Inject, Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TeamCreditService } from '../team/team-credit.service';
 
@@ -71,7 +71,12 @@ export class ExecutionRequestRetentionService {
   async sweepExpiredInputsInTx(
     tx: Prisma.TransactionClient,
     maxBatches: number = RETENTION_INPUT_MAX_BATCHES_PER_TICK,
+    scopeProjectIds?: readonly string[],
   ): Promise<{ deleted: number; capped: boolean }> {
+    // scopeProjectIds=测试隔离缝（int 并行文件共享 dev 库——cap 断言域内化；生产不传=全域；maxBatches 同族）
+    const scope = scopeProjectIds
+      ? Prisma.sql` AND r."projectId" = ANY(${scopeProjectIds}::text[])`
+      : Prisma.empty;
     let deleted = 0;
     for (let batch = 0; batch < maxBatches; batch += 1) {
       const rows = await tx.$queryRaw<{ requestId: string }[]>`
@@ -81,7 +86,7 @@ export class ExecutionRequestRetentionService {
           JOIN "ExecutionRequest" r ON r."id" = i."requestId"
           JOIN "CanvasProject" p ON p."id" = r."projectId" AND p."lifecycleState" = 'ACTIVE'
           JOIN "Team" t ON t."id" = r."teamId" AND t."status" = 'ACTIVE'
-          WHERE i."expiresAt" < (now() AT TIME ZONE 'UTC') AND r."state" IN ('COMPLETED', 'FAILED', 'VOIDED')
+          WHERE i."expiresAt" < (now() AT TIME ZONE 'UTC') AND r."state" IN ('COMPLETED', 'FAILED', 'VOIDED')${scope}
           ORDER BY i."expiresAt" ASC
           LIMIT ${RETENTION_INPUT_DELETE_BATCH}
         )
@@ -142,13 +147,16 @@ export class ExecutionRequestRetentionService {
 
   /** input 面积压按需 count（P0#1 cap 出口残余行——poller 回填 backlog gauge；
    *  谓词/scope 同 sweepExpiredInputsInTx：过期∧父行终态∧scope ACTIVE）。 */
-  async countExpiredTerminalInputBacklog(): Promise<number> {
+  async countExpiredTerminalInputBacklog(scopeProjectIds?: readonly string[]): Promise<number> {
+    const scope = scopeProjectIds
+      ? Prisma.sql` AND r."projectId" = ANY(${scopeProjectIds}::text[])`
+      : Prisma.empty;
     const rows = await this.prisma.$queryRaw<{ n: number }[]>`
       SELECT COUNT(*)::int AS n FROM "ExecutionInput" i
       JOIN "ExecutionRequest" r ON r."id" = i."requestId"
       JOIN "CanvasProject" p ON p."id" = r."projectId" AND p."lifecycleState" = 'ACTIVE'
       JOIN "Team" t ON t."id" = r."teamId" AND t."status" = 'ACTIVE'
-      WHERE i."expiresAt" < (now() AT TIME ZONE 'UTC') AND r."state" IN ('COMPLETED', 'FAILED', 'VOIDED')`;
+      WHERE i."expiresAt" < (now() AT TIME ZONE 'UTC') AND r."state" IN ('COMPLETED', 'FAILED', 'VOIDED')${scope}`;
     return Number(rows[0]?.n ?? 0);
   }
 }
