@@ -174,7 +174,10 @@ function writeGateDelegate(model: string, delegate: object): object {
       }
       return async (...args: unknown[]) => {
         assertLockHeldForWrite(model, prop);
-        return (raw as (...a: unknown[]) => Promise<unknown>)(...args);
+        // 评审加固（2026-11-05 Important）：delegate 方法以 delegate 为 this 调用（.apply 显式绑定）——
+        // Prisma 5.22 model action 现为闭包捕获 client 无 this 依赖，属未成文外部不变量；红⓪ 的
+        // vi.fn stub 锁不住 this 面，C4-2 registry 填充后 guarded 写首穿此包装打真 Prisma。
+        return (raw as (...a: unknown[]) => Promise<unknown>).apply(delegate, args);
       };
     },
   });
