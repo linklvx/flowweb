@@ -89,3 +89,27 @@ Linux fsync 语义不同，硬门绝对阈值生产裁定以固定 Linux runner 
 机器形态口径：本档=win11/20C/32G 开发机（os 报数）；容量评估记忆（在线 3000~5000/活跃编辑 500~1000
 外推待 soak 校准）与本档数字的衔接：本档 10×10=100 并发连接/fsync 71.8/s 为单机单进程形态上限观测点，
 外推计算归容量评估线；固定 Linux runner 档基准=ci.yml load-bench-hard dispatch（release 前实弹）。
+
+【六】固定 Linux runner 权威档首跑（2026-11-05，CI run #85=41956828967，HEAD=fcee4116）
+
+ 机器=linux/x64 4C/16G node v22.23.4（ubuntu-latest 固定形态——与本档 win11/20C/32G 两线独立不混算）；
+ 工件=t33-load-bench-41956828967（artifact 13384027183：bench.json+JSONL 分段+装置日志）；
+ 终局=**verdict pass / hardBlocks 空**（九项不变量 9/9 PASS；唯一软 warn=timeouts 29/13411=0.22%＜1%
+ 雪崩带内——「无 TBD」合规工程化档）。
+
+ 关键数（硬门口径）：
+   walFsync p95=5ms（p99=10ms）≤20ms ✓（6715 样本/98.9 fsyncPerSec）
+   mixedFsync p95=10ms ≤20ms ✓   saveBarrier p95=158ms ≤2s ✓
+   coldLoad p95=848ms（connect 760+readModel 88）≤3s ✓
+   applyReplay p95=60ms ≤100ms ✓（装置口径 RTT 代理）
+   feedLag p95=229ms/max 229ms ≤30s ✓
+   recoveryRto=10071ms（kill 前已接受 96→重放回 96/96）≤5min ✓
+   错误面：http5xx=0/unhandled=0/unexpectedClose1011=0；预期码单列=4404×1+4412×38（4412=负载档
+   lease/write-freeze 预期族——错误率硬门以非预期码计零）
+   ss2Fanout budgetUtilization=0.427 ✓；sustained 120s 窗 framesRejected=0/spool 峰 8562B；
+   resources rssMax=579MB/cpuMax=24%/eventLoopLag=0/pgLockWait=0
+
+ 首跑红链（装置面三修后 PASS——详登记 t34-release-gate.txt【CI 终验】节）：#79 空库 P2021→补
+ migrate deploy；#80/#81 spawned api boot 挂起→Z93 外呼密钥 fail-closed（deadLogs 观测面取证）→
+ startApi 注入 COLLAB_FAKE_AI=1（bench 纯 yjs 面零 AI 执行=E2E 同款豁免档）；#83 观测盲区收口
+ （deadLogs 归档）。

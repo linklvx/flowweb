@@ -177,3 +177,39 @@ Y1c T34 发布门证据汇编（确认点⑤=全批终出口呈报包——plan 
   （commit==最终代码 72fc45d2+生产码零漂移）+registered red=0+charter dev-test 档诚实登记 PASS。
   用户确认点⑤=全批终出口：以上证据汇编呈报用户裁定（单机/dev-test/beta 限制+机损 RPO=PG 批延迟
   无 PITR+slo/月可用性待裁+开放生产流量改档前置 10 项闭环——**呈报停等，不代签**）。
+
+【七】CI 终验（2026-11-05，确认点⑤签认后 push+跟跑全记录——含四轮红全数根修）
+
+ push ①：85ebcbf9..a94c5d6f（45 commits，经代理）→#78 push+首次 dispatch #79。
+ 红清单与根修（全部装置面，零生产码触碰）：
+  R1 gitleaks Finding（t24 spec 假握手键，709290f5 引入）→值级豁免登记（RFC 6455 先例）→#80 绿。
+  R2 collab-core kill9/write-frozen 演练红（#76 起存量；表象两代：sync 超时/DrillHeaderWs 未处理
+     error 崩）→本地 fresh 库复现+close code 亲证=4406（sv 三元门漏改三装置）+4411 l2:unknown-
+     node-type（裸键写形状+缺 type）→sv 补齐+type/position 信封形状（G-2a ii 档同步 Y1c 重推导：
+     spool-first 下 undrained 不可达→诚实面=drain_complete.spoolResidual）→#80/#84 collab-core 绿。
+  R3 load-bench-hard 首跑 P2021（空库无 schema——job 漏配 migrate 步；本地库已迁移掩盖）→补步。
+  R4 test[22/31] bench-smoke 90s ready 超时（#78/#80/#81 三轮）→deadLogs 观测面两轮强化（#81 撞
+     「exit 先删 procs」盲区→#83 出栈）=**Z93 外呼密钥 fail-closed**（ApiCallerService onModuleInit
+     拒绝经进程兜底吞掉→app.listen 永不完成；全新库无 AIModel 行+CI 无 PROVIDER_*_API_KEY）→
+     startApi 注入 COLLAB_FAKE_AI=1（bench 纯 yjs 面零 AI 执行=E2E 同款豁免档；本地 fresh 库
+     〔无 AIModel 行=CI 同构〕复跑全过）。
+ 终态：
+  - **load-bench-hard=SUCCESS**（#85，fcee4116——固定 Linux runner 权威档首跑 PASS：verdict pass/
+    hardBlocks 空/9 不变量全过——数字登记 t33-load-benchmark.txt【六】节）。
+  - #84 push：gitleaks/collab-core/doc-gate 绿；test 红=[19/31] web-test=t25 族 3 例（登记家族池序
+    非确定性——#80 同位绿证非新伤）→按台账处置 rerun-failed-jobs（隔离重跑）终态见下行补登。
+  - dispatch run 级 failure 恒来自 e2e-collab 已知红（runner 无 MinIO——TD-26⑤ 登记，非新回归；
+    job 级 load-bench-hard 绿为权威判定面）。
+  - soak 装置随批迁 Y1c 矩阵（自定义根/裸键/type 'text' 三雷——迷你档全链 PASS 116 edits/
+    frameP99=26ms/connErrors=0）。
+
+【八】CI 终验终局（attempt2 补登，2026-11-05 03:05Z）
+
+  #84 attempt1/attempt2（rerun-failed-jobs）终态对照：collab-core/gitleaks/doc-gate 双双恒绿；
+  test 恒红=[19/31] web-test——**t25 族同三例两 attempt 确定性复现**（closeout-1〔provider 实例
+  未换新〕/closeout-2c/mr1-2〔排程 2≠1〕——CI 慢机上时序敏感形态稳定触发；本地间歇=池序、
+  CI=确定性——家族定性补强：同一登记项的两种触发面）。
+  终局裁定口径：**可修红全数归零**（本批四根修+collab-core/gitleaks/doc-gate/load-bench-hard
+  全绿）；唯一存续红=in-register 缓修项 t25 族（Controller 裁定根修=文件内用例间状态隔离——
+  复核窗承袭；**CI 阻塞性新证据=两 attempt 同例确定性，优先级应上调**）。required check=
+  collab-core（绿）——test job 非合并门。分支保护视角 master 可持续推送不受阻。

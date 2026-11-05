@@ -108,3 +108,17 @@
   （mr1-2+mr4-1）=环境态定性成立；run4 冷却后 31/31 全绿（web 4157/4157 族未复发——T24 终验/
   T28 复击「背靠背满载轮冷却后 PASS」同款先例）。处置=冷却重跑全链（本窗已达成单次连续全绿）；
   根修（文件内用例间状态隔离）维持 Controller 裁定项（T28 出口复核窗呈报承袭——本卡不越权）。
+
+- 2026-11-05（Y1c P4 CI 终验批登记——两族 CI/本地双面复发实录+CI 侧处置形态首立）：确认点⑤签认
+  后 push 终验窗。①t25 族 CI 面复发：run #84 web-test 唯一失败=t25.spec 三例（closeout-1/closeout-
+  2c/mr1-2）——#80 同位绿（池序非确定性）+本地 verify:full 同窗 t25.spec ★b1-1 单例红；族内成员
+  轮换形态与 10-28/11-03/11-05(T34) 三条登记吻合。②ThemeToggleButton 族本地复发：本机 verify:full
+  web-test 2 例（getByRole 多元素）+全套隔离复跑 1 文件 2 例红→定向连跑 2/2 绿（T32 登记①形态
+  原样）。处置=CI 侧首立 rerun-failed-jobs（隔离重跑绿即过——台账「隔离重跑」处置的 CI 等价形态，
+  run #84 attempt2 终态补登 t34-release-gate.txt【七】）；本地侧冷却+定向双绿维持既有口径。两族根修
+  维持 Controller 裁定项不越权（t25=文件内用例间状态隔离；Theme=高载池轮）。
+- 2026-11-05（Y1c P4 CI 终验批补登——t25 族 CI 确定性定性升级）：#84 test job attempt1/attempt2
+  （fresh runner×2）同三例复现（closeout-1/closeout-2c/mr1-2）——CI 慢机形态=确定性红非池序轮换
+  （本地间歇面维持池序定性）；断言形态=provider 实例同一性未换新+排程计数 2≠1（时序敏感）。
+  影响面=verify 链 [19/31] web-test 恒红（CI 侧）——**根修（文件内用例间状态隔离）优先级上调
+  建议：CI 阻塞性**（required check=collab-core 不受影响；本地 verify:full 经定向复跑口径可全绿）。

@@ -467,3 +467,22 @@ model MaintenanceOperation { maintenanceId String @id  projectId String
 **门禁总览（v1.7：manifest+负控机器判定——spec §9.1）**：工程门 G1=T7｜G2=T10（+barrier 接线+所有权切换验收）｜**G6a=T13（doc 平面）**｜G3=T16-T20（**含 XML L1**）｜G4=T21｜**G5=T22（=Feed/G6b，含 feedSeq 交错+空项目首事件+historyId cursor；前置=T26 义务观察器）**——gate-evidence manifest 机器判定+每门负控，不过=先改再写码。**用户确认点①=T5（T5a/b/c 三段）｜②=T14｜③=T20｜④=T28｜⑤=T34；执行门=T27 世代切换首跑+T30b 切换演练（维持）**。继承验收锚：genesis 双路=T7｜前缀/装载守卫=T10/T11｜富文本并发+XML L1=T16｜undo 栈上限=T18｜broken reader 零+census.json=T19｜受理冻结/frozenDocSeq 临界区/幂等受理/资金预留=T21｜义务先行=T26｜feed 可靠+提交顺序+四读径=T22｜退款/交付 fencing/text 链锚=T23｜准入 DENY/NORMALIZE/XML L2/版本门/clientID 单活跃=T24｜拒帧恢复用户裁定三场景=T25｜维护演练/行级关闸/事务后 close=T27｜切换演练一次性硬切=T30b｜发布门 manifest=T34。
 
 **旧任务处置映射**（v1.4→v1.5 见前注；v1.5→v1.6 见 git 存档；**v1.6→v1.7 第十轮定点修订——spec v5.4/偏离 38 为依据**）：T0=S1 验收改写（发送者回声/DirectConnection allowlist/in-flight 去重/origin 枚举九验收）+S4 actor 原型基线+census 补 withDoc 调用点；T2=+**resolvePromptText 单函数单测试（认账补落）**；T3=删 ownership 残留；T5a=+walCheckpointSeq 拆义/pending 区间/readOnly 短路/frameHash/WS 9MiB/版本门三元/4413/客户端半链/flush 节流；T5b=+SystemHistory 权威/FrameEffects·ProjectDocIndex 契约/requestId 内部 PK/historyId 列/planHash 不可变/资金预留/cursor upsert/actorRanges 单表示；T5c=+RuntimeProjection 类型 merge/用户裁定式三场景/nodeId 不重映射/四读径/census.json；T7=+SystemHistory 唯一权威（删 CanvasDoc.historyId）/walCheckpointSeq 改名/RuntimeFeedCursor genesis；T8=+段头 lastWriteAt/帧存 frameHash/EIO fail-stop；T9=**CollabProjectActor+所有权切换（onStoreDocument 链拆除）+in-flight promise map+readOnly 短路+pending 前移+入站上限**；T10=+flush 节流/beforeUnloadDocument 正名/maxResidentDocBytes/walCheckpointSeq CAS；T13=+EIO/时间戳栅栏/卸载演练；T16=+XML L1 同卡激活+PM schema 同源；T19=+census.json 索引+dev-only；T21=+frozenDocSeq 正确临界区（freeze=拿 mutex）/409 两类/资金 per-item/brotli；T22=+node-deleted 权威=DeliveryFence/taxonomy/cursor upsert/historyId cursor/四读径 BindMedia/锁序简化；T24=+XML L2/frame-local 措辞收窄（ProjectDocIndex 校验源）/clientID 单活跃；T25=+用户裁定式+nodeId 不重映射+4413；T26=**前移 T22 前**+复用同索引；T27=+行级关闸/事务后 close/T12 委托单入口；T29=+synchronous_commit/ProjectErasure/触发条件数字化挂 gate；T30/T30b=+一次性硬切+停全部 poller+本地缓存口径；T31=+EIO/同代恢复/clientID 实弹；T33=+错误率定义/echo_bytes/固定 runner；**P3 重排 T21→T26→T22**。其余任务卡（T1/T4/T11/T12/T14/T15/T17/T18/T20/T23/T28/T32/T34）维持 v1.6（T12 vacuumReplace 委托语义在 T27 落）。
+
+**确认点⑤终出口闭环批注（2026-11-05，用户签认「确认，继续执行对应步骤，推送并跟 CI 终验」）**：
+①push 85ebcbf9..a94c5d6f（45 commits）→CI 终验四轮红全数根修（详 t34-release-gate.txt【七】+registered-
+flakes 2026-11-05 CI 终验批登记）：R1 gitleaks 假键豁免（#80 绿）/R2 演练装置对齐 T24 矩阵（sv 三元门
+×3+裸键/缺 type 写形状+G-2a ii Y1c 重推导——collab-core #80/#84 绿）/R3 load-bench-hard 补 migrate 步/
+R4 bench-smoke ready 超时=Z93 fail-closed（deadLogs 两轮观测面强化取证→COLLAB_FAKE_AI=1 装置豁免）。
+②**load-bench-hard 固定 Linux runner 权威档首跑 PASS**（#85=fcee4116：verdict pass/hardBlocks 空/
+9 不变量全过/walFsync p95=5ms/冷载 848ms/save barrier 158ms/feed lag 229ms/RTO 10.07s/5xx=0——
+数字登记 t33-load-benchmark.txt【六】）。③本地等价门=verify:full 31 步（1-18 绿+19 web-test 两在册
+flake 族定向绿〔ThemeToggleButton 连跑 2/2+t25 族台账〕+20-31 续跑全绿）+kill9 七模式/write-frozen
+两模式/soak 迷你档 fresh 库全 PASS。④终 HEAD=fcee4116（装置批三 commit：4c04c45a+c26b29ee+fcee4116
+——零生产码触碰；release 门六 manifest 认证仍锚 72fc45d2〔manifest==生产码语义不受装置批影响〕）。
+⑤slo 数值与开放生产流量改档=维持呈报原状（用户未裁改档——dev-test 档维持；≥99.5% 建议值待后续运维窗
+定案）。
+
+**CI 终验终局补记（同日 attempt2 后）**：#84 rerun 同三例确定性复现（t25 族 CI 形态=确定性非轮换
+——登记项优先级上调建议：CI 阻塞性）；可修红全数归零（collab-core/gitleaks/doc-gate/
+load-bench-hard 四 job 绿）；required check=collab-core 绿=分支推送不受阻。t25 根修维持 Controller
+裁定归属（复核窗）——本批不越权重开。
