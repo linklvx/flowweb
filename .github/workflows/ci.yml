@@ -339,7 +339,8 @@ jobs:
       - run: pnpm --filter @flowweb/api exec prisma migrate deploy
       - name: 负载基准 full profile（七场景硬门实弹——装置自带构建+分段落盘+超时上界）
         run: node scripts/bench-load.mjs --profile full --confirm --out gate-evidence/t33-load-benchmark.ci.jsonl
-      - name: 上传跑批产物（bench JSON+JSONL 分段——runbook §17 落档面）
+      - name: 上传跑批产物（bench JSON+JSONL 分段+装置日志——runbook §17 落档面；#81 起 t33-logs
+          随工件——CI 上 spawned 服务崩溃栈 job 日志外第二取证面）
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -347,4 +348,5 @@ jobs:
           path: |
             gate-evidence/t33-load-benchmark.ci.jsonl
             gate-evidence/t33-load-benchmark.ci.bench.json
+            backups/t33-logs/
           if-no-files-found: warn

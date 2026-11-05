@@ -129,12 +129,15 @@ function spawnService(name, script, extraEnv = {}) {
   const pipe = (chunk) => { const s = String(chunk); buf.out = (buf.out + s).slice(-400_000); stream.write(s); };
   child.stdout.on('data', pipe);
   child.stderr.on('data', pipe);
-  child.on('exit', (code, signal) => { pipe(`[bench] ${name} 退出 code=${code} signal=${signal}\n`); procs.delete(name); });
+  // run #81 教训：CI 上 spawned api boot 即崩（exit 从 procs 删除——fatal 观测面遍历 procs 恒空=盲区）。
+  // 退出即归档终末日志（fatal 面打印 procs∪deadLogs——崩溃栈必达 job 日志）。
+  child.on('exit', (code, signal) => { pipe(`[bench] ${name} 退出 code=${code} signal=${signal}\n`); deadLogs.set(name, buf.out); procs.delete(name); });
   procs.set(name, { child, log: () => buf.out });
   console.log(`[bench] spawn ${name} pid=${child.pid} log=${logFile}`);
   return { child, log: () => buf.out };
 }
-function serviceLog(name) { return procs.get(name)?.log() ?? ''; }
+const deadLogs = new Map();
+function serviceLog(name) { return procs.get(name)?.log() ?? deadLogs.get(name) ?? ''; }
 async function stopService(name, timeoutMs = 20_000) {
   const entry = procs.get(name);
   if (!entry) return;
@@ -1038,7 +1041,9 @@ async function main() {
 if (import.meta.url === pathToFileURL(path.resolve(process.argv[1] ?? '')).href) main().catch((e) => {
   console.error(`[bench] 致命：${e?.stack ?? e}`);
   // 观测面（run 41940665917 教训：CI 上 startApi ready 超时红仅栈零证据——spawned 服务日志只在
-  // 内存 buffer+落盘 backups/t33-logs，job 日志不携带）：致命时打出各存活进程日志尾（尾 4k×进程）。
-  for (const [name] of procs) console.error(`[bench] ${name} 日志尾：\n${serviceLog(name).slice(-4000)}`);
+  // 内存 buffer+落盘 backups/t33-logs，job 日志不携带）：致命时打出各进程日志尾（存活+已退出
+  // 归档 deadLogs 并集——尾 4k×进程，崩溃栈必达）。
+  const names = new Set([...procs.keys(), ...deadLogs.keys()]);
+  for (const name of names) console.error(`[bench] ${name} 日志尾：\n${serviceLog(name).slice(-4000)}`);
   process.exit(2);
 });
