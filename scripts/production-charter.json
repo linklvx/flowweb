@@ -43,11 +43,11 @@
     },
     {
       "id": "replay-canary",
-      "requirement": "每小时 replay canary：snapshot+updates 重放 fresh doc，semanticEqual/SV 对比，不一致告警并冻结 compact",
+      "requirement": "每小时轮转 replay canary（全局每小时+每活跃项目 ≤24h）：snapshot+updates 重放 fresh doc，hash 主判+semanticEqual 语义兜底/SV 对比，不一致告警并冻结 compact（2026-11-05 用户裁定文本修订——N=ceil(active×1.25/24) 实现一致；skip_lag 承接=组合档：skip-lag 并发时 unflushed>30s 即时 P0，独立年龄卡死=T14 P1@120s 兜底）",
       "owner": "FlowWeb Dev",
       "date": "2026-11-03",
-      "status": "pending",
-      "evidence": "canary 未实装"
+      "status": "passed",
+      "evidence": "已实装（2026-11-06 C2 卡 commits 27e14d1f..8ae7cf2d 双评审全闭环）：捕获协议=CAPTURING pin-first 五步（CanvasDoc FOR SHARE+漂移守卫/快照选择 stateSeq≤pgSeqAt 最新+genesis rev0 回退/INSERT pin TTL 15min〔PG now() 单钟〕/SV+canonical hash〔seedStateHash 单源复用+8MiB 尺寸阈值 hashSkipped〕/READY 转换失败自清）——红④ 两态双断言（冻结临界区坐标不含在飞 5 帧/release 后含——真 actor 全链 int）+红⑤-a/b 创建窗+vacuum 竞态（pin 谓词三处+vacuumReplace FOR UPDATE 位次收口〔评审 P1 竞态修复+交错红测〕）；比对=worker verify（readAt 坐标锚定→replayPgSnapshot→hash 主判→**语义摘要深比兜底**〔nodes+edges 两根 canonical SHA-256 落 pin semanticDigest〔迁移笔三〕——P1 根修：Yjs delete 不进 SV，纯删除帧丢失由摘要判据捕获+delete-only 红测〕→mismatch→freeze 实弹〔CANARY_FREEZE_ENABLED 生产默认 true〕+Sentry+compare-and-delete 坐标谓词+TTL 续租）——红⑥a/b（integration order 语义兜底绿/注入删行改 payload 双注入→真 freeze+Sentry 恰一次+解冻 ack 演练 AuditLog+shadow 对照）+红⑦ 新帧/维护窗/hashVersion 不误报+红⑧ skip_lag 组合档（rounds:3+当轮组合 P0+wal P1）THRESHOLDS 全挂；OpsGate 三档+发布事务 FOR SHARE 两行校验+age-tier frozen_age P1@1h/P0@6h+解冻 ack admin 端点（AuditLog 同事务+afterState 三分型+break-glass remark 必填 int 5/5）；覆盖 SLO=N=ceil(active×1.25/24) 排程+min(N,8) 批+nextDueAt≈19h（评审数学核：active=200→18.2h≪24h）+last_check_age P1@24h+poller 饥饿根除；两路径 governance 红⓪（c20 int+回填 57==57+DO$$ 校验+census ㊱）；smoke --canary 实跑留证（gate-evidence/c23-canary-smoke.txt 两轮+删除帧轮换=纯删除帧常驻回归锚+拒绝档+指标留证 exit 0）+runbook §14.1 五步处置序+shadow→实弹切换序（≥7d 窗）；**限制诚实登记**：超限档（>8MiB）hash+digest 双跳过→SV 降级（delete-only 盲区在超限档保留——hash_skipped_total 观测）；freeze-delete 间崩溃 Sentry 重复窗（TTL 15min 内 ≤~15 条）；服务器 crontab 安装与 shadow→实弹切换时点归服务器窗；验证：verify FULL 31/31+int 75 文件/574+api 单测 3071+census 34/34+deploy-guard 44/44"
     },
     {
       "id": "ha-decision",
