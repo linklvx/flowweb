@@ -24,6 +24,7 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
 import { captureCanaryPin, CANARY_PIN_TTL_MS, writeCanaryCursor, CANARY_HASH_VERSION } from './collab-replay-canary.service';
+import { semanticDocDigest } from './collab-canary-semantic';
 import { CollabReplayCanaryPoller } from './collab-replay-canary.poller';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
@@ -185,6 +186,8 @@ maybe('C2-2a canary 捕获面（真 PG——红④⑤+捕获协议+poller）', (
       status: 'READY', generation: gen, snapshotRev: 0n, stateSeq: 0n, pgSeqAt: 2n,
       contentHash: expectedHash, hashSkipped: false, hashVersion: CANARY_HASH_VERSION,
     });
+    // C2-2b P1 修复：语义摘要落 pin（迁移笔三列）——独立复算同源（nodes+edges canonical JSON→SHA-256）
+    expect(pin!.semanticDigest).toBe(semanticDocDigest(doc));
     // TTL/lease 断言走 SQL 侧同钟比较（timestamp 列+raw now() 写入=会话钟面——JS 绝对比较跨时区漂移面；
     // 生产谓词〔sweep/capture/defer〕全 SQL 侧 now() 同钟自洽）
     const ttl = await prisma.$queryRaw<{ exp: number; lease: number }[]>`
@@ -218,6 +221,7 @@ maybe('C2-2a canary 捕获面（真 PG——红④⑤+捕获协议+poller）', (
     expect(r).toMatchObject({ ok: true, hashSkipped: true, contentHash: null });
     const pin = await prisma.canaryPin.findUnique({ where: { projectId: PID } });
     expect(pin).toMatchObject({ status: 'READY', hashSkipped: true, contentHash: null, stateSeq: 0n, pgSeqAt: 1n });
+    expect(pin!.semanticDigest).toBeNull();   // 超限档摘要同跳过（预算口径一致）——verify 降级 SV 同代辅助
     d.destroy();
   });
 

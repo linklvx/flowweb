@@ -52,13 +52,14 @@ export const collabCanaryPollTickTotal = new Counter({
 // 声明分工；THRESHOLDS 同名条目=声明面，操作判定路径=check-collab-health CANARY_CHECKS 段〕） ══
 
 /** verify 结果闭集计数（result 闭集——plan「verify 结果闭集」）：ok=hash 主判相等 / mismatch=语义
- *  不等（hash 红∧SV 互支失败——freeze 面）/ semantic-equal=hashSkipped 档 SV 互支成立 /
- *  hash-encoding-mismatch=hash 红而 SV 互支成立（编码序差异不 freeze）/ skip-prune=pin 过期窗
+ *  不等（hash 红∧语义摘要不等——freeze 面）/ semantic-equal=hashSkipped 档摘要相等（降级档
+ *  SV 同代辅助承载）/ hash-encoding-mismatch=hash 红而语义摘要相等（编码序差异不 freeze）/
+ *  skip-prune=pin 过期窗
  *  prune 竞态 / skip-generation=换代（cursor generation 重置）/ skip-maintenance=维护窗 /
  *  skip-lifecycle=擦除窗 / skip-stale-pin=hashVersion 演进 / skip-budget=重放预算超时 / error。 */
 export const collabCanaryCheckedTotal = new Counter({
   name: 'collab_canary_checked_total',
-  help: 'C2-2b canary worker verify 结果计数（result 闭集：ok/mismatch/semantic-equal/hash-encoding-mismatch/skip-prune/skip-generation/skip-maintenance/skip-lifecycle/skip-stale-pin/skip-budget/error——readAt 重放→hash 主判→SV 互支语义兜底→compare-and-delete；mismatch=freeze 实弹面；source=worker 3002）',
+  help: 'C2-2b canary worker verify 结果计数（result 闭集：ok/mismatch/semantic-equal/hash-encoding-mismatch/skip-prune/skip-generation/skip-maintenance/skip-lifecycle/skip-stale-pin/skip-budget/error——readAt 重放→hash 主判→语义摘要深比兜底（pin.semanticDigest nodes+edges canonical JSON SHA-256——Yjs delete 不进 SV，SV 互支=同代辅助非等价判据）→compare-and-delete；mismatch=freeze 实弹面；source=worker 3002）',
   labelNames: ['result'],
   registers: [register],
 });
@@ -73,11 +74,11 @@ export const collabCanaryLastCheckAge = new Gauge({
   registers: [register],
 });
 
-/** hash 编码差异计数（hash 红而 SV 互支成立——同 op 集不同编码形态，语义等不 freeze；持续增长=
- *  编码口径漂移/同钟篡改盲区观察面〔runbook §14 分诊〕——误报率观察窗的 shadow→实弹切换判据面）。 */
+/** hash 编码差异计数（hash 红而**语义摘要相等**——同逻辑态不同编码形态，语义等不 freeze；持续
+ *  增长=编码口径漂移观察面〔runbook §14 分诊〕——误报率观察窗的 shadow→实弹切换判据面）。 */
 export const collabCanaryHashEncodingMismatchTotal = new Counter({
   name: 'collab_canary_hash_encoding_mismatch_total',
-  help: 'C2-2b canary hash 编码差异计数（hash 红而 SV 互支成立=同 op 集编码序差异——语义等不 freeze；Yjs 确定性下生产罕见，持续增长=编码口径漂移信号须分诊；source=worker 3002）',
+  help: 'C2-2b canary hash 编码差异计数（hash 红而语义摘要相等=同逻辑态编码序差异——语义等不 freeze；持续增长=编码口径漂移信号须分诊；source=worker 3002）',
   registers: [register],
 });
 

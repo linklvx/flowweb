@@ -183,7 +183,7 @@ export const THRESHOLDS = {
   // ===== C2-2b（生产就绪收尾批·replay-canary 比对侧——红⑧ skip_lag 分层兜底+freeze 实弹+覆盖 SLO） =====
   collab_canary_poll_tick_total: {
     level: 'P0', kind: 'counter-delta', delta: 0, rounds: 3, labels: { result: 'skip-lag' },
-    note: 'C2-2b 红⑧ skip_lag 分层兜底·持续档：spec §3 C2「skip_lag 连续 3→P0」——withFrozenPrefix flush-timeout（appliedSeq 未达 PG=canary 捕获盲区）连续 3 轮巡检命中⇒P0。载体=counter+rounds（worker tick 级连续性不可观测〔巡检每 5min 为观测粒度〕——轮级 rounds=3 承接「连续 3」；值与 CANARY_CHECKS.skipLagRounds 单源）；组合档（当轮 skip-lag ∧ yjs_oldest_unflushed_age_seconds>30s 即时 P0）=evaluate CANARY 段。source=api 3000',
+    note: 'C2-2b 红⑧ skip_lag 分层兜底·持续档：spec §3 C2「skip_lag 连续 3→P0」——withFrozenPrefix flush-timeout（appliedSeq 未达 PG=canary 捕获盲区）连续 3 轮巡检命中⇒P0。载体=counter+rounds（worker tick 级连续性不可观测〔巡检每 5min 为观测粒度〕——轮级 rounds=3 承接「连续 3」；值与 CANARY_CHECKS.skipLagRounds 单源）；组合档（当轮 skip-lag ∧ yjs_oldest_unflushed_age_seconds>30s 即时 P0）=evaluate CANARY 段；spec §3 C2 承 v4「doc_pg_lag_seq 年龄 P0」由组合档承载（独立年龄卡死=T14 既有 P1@120s 兜底——30s 独立 P0 噪声考量不采）。source=api 3000',
   },
   wal_pending_bytes: {
     level: 'P1', kind: 'gauge-max', value: 16 * 1024 * 1024, rounds: 2,
@@ -262,6 +262,13 @@ export const CANARY_CHECKS = {
   unflushedGauge: 'yjs_oldest_unflushed_age_seconds', // api 3000（组合档第二判据——T14 既有 P1@120s 条目不动）
   unflushedP0Seconds: 30,    // skip_lag 在场时 >30s=flush 链卡死（正常链≈8s）即时升级
 };
+
+/* P2-a/b（spec 评审裁定）：spec §3 C2 承 v4「doc_pg_lag_seq 年龄 P0」由本组合档承载（更准的年龄
+ * 口径——unflushed 窗口=doc_pg_lag_seq 的上游信号且直接观测「帧已 apply 未提交 PG」的滞留年龄）：
+ * **doc_pg_lag_seq 年龄 P0 承接=本组合档**（skip-lag 并发时 unflushed>30s 即时 P0——canary 捕获
+ * 盲区∧落定链卡死双证据在场）；独立年龄卡死=T14 既有 yjs_oldest_unflushed_age_seconds P1@120s
+ * 兜底（30s 独立 P0 不采——正常链≈8s，独立 30s 阈=瞬态批延迟噪声面）；doc_pg_lag_seq 独立条目
+ * 不另立（同源信号双计）。C2-4 requirement 文本修订时按组合读法写（归 C2-4）。 */
 
 /** not-serving 持续>1min → P0（/api/ready reason 面——非指标驱动，同模块单源）。 */
 export const NOT_SERVING_P0_MS = 60_000;

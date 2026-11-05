@@ -1,6 +1,7 @@
 // apps/api/src/modules/collab/collab-canary-verify.c22b.int.spec.ts
 // C2-2b（plan Task C2-2 比对侧——生产就绪收尾批 C2 卡 replay-canary 第四任务·红先行）：canary
-// worker verify 面（readAt 重放→hash 主判→SV 互支语义兜底→compare-and-delete+TTL 续租）真 PG int 池。
+// worker verify 面（readAt 重放→hash 主判→**语义摘要深比兜底**〔C2-2b P1 修复——Yjs delete 不进
+// SV，SV 互支=同代辅助非等价判据〕→compare-and-delete+TTL 续租）真 PG int 池。
 //  ★红⑥-a：「同逻辑状态不同 integration order」构造（两 doc 同内容不同更新序→hash 可能不等）
 //    →语义兜底绿不 freeze；红⑥-b：注入删行/改 payload→语义不等→双比红+Sentry（captureCollabException）
 //    +OpsGate FROZEN（freeze 实弹——CANARY_FREEZE_ENABLED 生产默认 true）+解冻 ack 演练
@@ -18,9 +19,10 @@ import { PrismaClient } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import * as Y from 'yjs';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
-import { CollabCanaryVerifyWorker } from './collab-canary-verify.worker';
+import { CollabCanaryVerifyWorker, svMutuallySupported } from './collab-canary-verify.worker';
 import { unfreezeOpsGateCompact } from './collab-ops-gate.service';
 import { CANARY_HASH_VERSION, encodeCanonicalUpdate } from './collab-replay-canary.service';
+import { semanticDocDigest } from './collab-canary-semantic';
 import { collabCanaryCheckedTotal, collabCanaryFreezeTotal } from './collab-canary.metrics';
 import { seedRow } from '../../test-utils/canvas-doc-row';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
@@ -62,19 +64,21 @@ async function seedFrames(prisma: PrismaClient, repo: CanvasDocUpdateRepository,
   return pg;
 }
 
-/** 手工落 READY pin（坐标+hash——捕获协议五步的等值压缩形态；c22a 手工 pin 先例）。 */
+/** 手工落 READY pin（坐标+hash+语义摘要——捕获协议五步的等值压缩形态；c22a 手工 pin 先例；
+ *  摘要=捕获④ 增算面〔迁移笔三列〕——extra.semanticDigest===null 显式落空=超限降级档构造缝）。 */
 async function insertReadyPin(
   prisma: PrismaClient,
   pid: string,
   coords: { snapshotRev: bigint; stateSeq: bigint; pgSeqAt: bigint },
   doc: Y.Doc,
-  extra: { hashVersion?: number; hashSkipped?: boolean; contentHash?: string | null } = {},
+  extra: { hashVersion?: number; hashSkipped?: boolean; contentHash?: string | null; semanticDigest?: string | null } = {},
 ): Promise<void> {
   const hash = extra.contentHash !== undefined ? extra.contentHash : createHash('sha256').update(encodeCanonicalUpdate(doc)!).digest('hex');
+  const digest = extra.semanticDigest !== undefined ? extra.semanticDigest : semanticDocDigest(doc);
   await prisma.$executeRaw`
-    INSERT INTO "CanaryPin" ("projectId", status, generation, "snapshotRev", "stateSeq", "pgSeqAt", "contentHash", "hashSkipped", "hashVersion", "stateVector", "leaseUntil", "expiresAt")
+    INSERT INTO "CanaryPin" ("projectId", status, generation, "snapshotRev", "stateSeq", "pgSeqAt", "contentHash", "semanticDigest", "hashSkipped", "hashVersion", "stateVector", "leaseUntil", "expiresAt")
     VALUES (${pid}::text, 'READY', ${gen}::int, ${coords.snapshotRev}::bigint, ${coords.stateSeq}::bigint, ${coords.pgSeqAt}::bigint,
-      ${hash}::char(64), ${extra.hashSkipped ?? false}::boolean, ${extra.hashVersion ?? CANARY_HASH_VERSION}::int, ${Buffer.from(Y.encodeStateVector(doc))},
+      ${hash}::char(64), ${digest}::char(64), ${extra.hashSkipped ?? false}::boolean, ${extra.hashVersion ?? CANARY_HASH_VERSION}::int, ${Buffer.from(Y.encodeStateVector(doc))},
       now() + interval '15 minutes', now() + interval '15 minutes')`;
 }
 
@@ -85,9 +89,17 @@ function replayFrames(frames: Uint8Array[]): Y.Doc {
   return d;
 }
 
-/** 计数器快照（prom-client v15 get() 异步——before/after 差分断言面：values 求和，序列缺席折 0）。 */
-const counterOf = async (c: { get: (l: Record<string, string>) => Promise<{ values: Array<{ value: number }> } | undefined> }, labels: Record<string, string>): Promise<number> =>
-  (await c.get(labels))?.values?.reduce((a, v) => a + v.value, 0) ?? 0;
+/** 计数器快照（prom-client v15 get() 异步且**忽略 label 过滤返回全族序列**——客户端按 labels 过滤
+ *  再求和，序列缺席折 0；before/after 差分断言面）。 */
+const counterOf = async (
+  c: { get: (l: Record<string, string>) => Promise<unknown> },
+  labels: Record<string, string>,
+): Promise<number> => {
+  const family = ((await c.get(labels)) as { values?: Array<{ value: number; labels: Record<string, string> }> } | undefined)?.values ?? [];
+  return family
+    .filter((v) => Object.entries(labels).every(([k, x]) => v.labels[k] === x))
+    .reduce((a, v) => a + v.value, 0);
+};
 
 maybe('C2-2b canary 比对面（真 PG——骑手P1+红⑥⑦+verify 管线）', () => {
   const prisma = new PrismaClient();
@@ -152,7 +164,7 @@ maybe('C2-2b canary 比对面（真 PG——骑手P1+红⑥⑦+verify 管线）'
     expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } })).toBe(Number(pg));
   });
 
-  // ═══ verify 管线主体：readAt 重放→hash 主判→SV 互支→compare-and-delete+TTL 续租 ═══
+  // ═══ verify 管线主体：readAt 重放→hash 主判→语义摘要深比（SV 同代辅助）→compare-and-delete+TTL 续租 ═══
 
   /** worker 直构+verifyScope 隔离缝。 */
   const buildWorker = () => {
@@ -174,7 +186,7 @@ maybe('C2-2b canary 比对面（真 PG——骑手P1+红⑥⑦+verify 管线）'
     expect((await gateRow()).state).toBe('OPEN');   // 无 mismatch 零 freeze
   });
 
-  it('红⑥-a 同逻辑状态不同 integration order→语义兜底绿不 freeze：①同帧集换序捕获=hash 主判 ok；②hash 红而 SV 互支成立=hash-encoding-mismatch 计数不 freeze', async () => {
+  it('红⑥-a 同逻辑状态不同 integration order→语义兜底绿不 freeze：①同帧集换序捕获=hash 主判 ok；②hash 红而语义摘要相等=hash-encoding-mismatch 计数不 freeze', async () => {
     const frames = [frameOf('a1', 1), frameOf('a2', 2)];
     const pg = await seedFrames(prisma, repo, PID, frames, 0n);
     // ①同帧集反序构造 doc（Yjs 确定性——同 op 集同编码：unit spec 红⑥-a-① 直证 hash 恒等）
@@ -185,8 +197,9 @@ maybe('C2-2b canary 比对面（真 PG——骑手P1+红⑥⑦+verify 管线）'
     expect(await counterOf(collabCanaryCheckedTotal, { result: 'ok' })).toBe(okBefore + 1);
     expect(await pinRow()).toBeNull();
     expect((await gateRow()).state).toBe('OPEN');
-    // ②hash 红而 SV 互支成立（contentHash=异值〔同 op 集不同编码形态的等价注入——语义等〕）：
-    //    语义兜底=SV 互支判定语义等→hash-encoding-mismatch 计数不 freeze（charter 语义兜底口径）
+    // ②hash 红而语义摘要相等（contentHash=异值〔同逻辑态不同编码形态的等价注入——nodes/edges
+    //    canonical JSON 摘要同源〕）：语义兜底=摘要深比语义等→hash-encoding-mismatch 计数不
+    //    freeze（charter 语义兜底口径；SV 互支在此构造亦成立=同代辅助同向证据）
     const f3 = frameOf('a3', 3);   // 同字节帧单源（frameOf 每调新建 Y.Doc=随机 client——两调即异 client 假 mismatch）
     await seedFrames(prisma, repo, PID, [f3], pg);
     const frames2 = [...frames, f3];
@@ -199,7 +212,7 @@ maybe('C2-2b canary 比对面（真 PG——骑手P1+红⑥⑦+verify 管线）'
     expect((await gateRow()).state).toBe('OPEN');   // 语义等不 freeze
   });
 
-  it('红⑥-b-删行：保护区间行被删→重放缺 op（SV 互支失败）→mismatch 双比红+OpsGate FROZEN（freeze 实弹）+Sentry+解冻 ack 演练（AuditLog）', async () => {
+  it('红⑥-b-删行：保护区间行被删→重放缺 op（建节点帧=携带 struct——摘要/SV 双红）→mismatch 双比红+OpsGate FROZEN（freeze 实弹）+Sentry+解冻 ack 演练（AuditLog）', async () => {
     const frames = [frameOf('b1', 1), frameOf('b2', 2), frameOf('b3', 3)];
     const pg = await seedFrames(prisma, repo, PID, frames, 0n);
     await insertReadyPin(prisma, PID, { snapshotRev: 0n, stateSeq: 0n, pgSeqAt: pg }, replayFrames(frames));
@@ -210,7 +223,7 @@ maybe('C2-2b canary 比对面（真 PG——骑手P1+红⑥⑦+verify 管线）'
     const mismatchBefore = await counterOf(collabCanaryCheckedTotal, { result: 'mismatch' });
     const freezeBefore = await counterOf(collabCanaryFreezeTotal, { reason: 'semantic-mismatch' });
     await buildWorker().tick();
-    // 双比红：hash 主判红（重放缺帧）+SV 互支失败→mismatch
+    // 双比红：hash 主判红（重放缺帧）+语义摘要不等（节点缺失）→mismatch
     expect(await counterOf(collabCanaryCheckedTotal, { result: 'mismatch' })).toBe(mismatchBefore + 1);
     expect(await counterOf(collabCanaryFreezeTotal, { reason: 'semantic-mismatch' })).toBe(freezeBefore + 1);
     expect(sentrySpy).toHaveBeenCalledTimes(1);   // 即时 captureCollabException（mismatch 面）
@@ -229,6 +242,62 @@ maybe('C2-2b canary 比对面（真 PG——骑手P1+红⑥⑦+verify 管线）'
     expect(ack.unfrozen).toBe(true);
     expect((await gateRow()).state).toBe('OPEN');
     expect(await prisma.auditLog.count({ where: { targetType: 'PROJECT', targetId: PID, action: 'collab_ops_gate_unfreeze' } })).toBe(auditBefore + 1);
+  });
+
+  it('红⑥-b-delete-only（评审 P1 反例）：纯删除帧行被删——Yjs delete 不进 SV（SV 互支成立）而节点复活=语义不等→摘要深比 mismatch+freeze+Sentry（非 encoding-mismatch）', async () => {
+    // 构造：f1 建节点 k1；f2 纯删除帧（deleteSet 无新 struct——SV 不前进，用户删节点即此形态）
+    const d1 = new Y.Doc();
+    {
+      const node = new Y.Map(); const data = new Y.Map();
+      data.set('model', 'm-del'); node.set('type', 'textInput'); node.set('data', data);
+      d1.getMap('nodes').set('k1', node);
+    }
+    const f1 = Y.encodeStateAsUpdate(d1);
+    const d2 = new Y.Doc();
+    Y.applyUpdate(d2, f1);
+    d2.getMap('nodes').delete('k1');
+    const f2 = Y.encodeStateAsUpdate(d2);
+    const capDoc = replayFrames([f1, f2]);   // 捕获侧等值：k1 已删（nodes 空）
+    expect(capDoc.getMap('nodes').size).toBe(0);
+    const pg = await seedFrames(prisma, repo, PID, [f1, f2], 0n);
+    await insertReadyPin(prisma, PID, { snapshotRev: 0n, stateSeq: 0n, pgSeqAt: pg }, capDoc);
+    // 反例断言面（判据边界直证）：重放侧（f2 帧丢失）SV 互支**成立**而语义摘要**不等**——
+    //   SV 互支等价判据在此形态漏报（P1 根因）；摘要深比（nodes+edges canonical JSON）正确判语义不等
+    const lostDoc = replayFrames([f1]);
+    expect(lostDoc.getMap('nodes').size).toBe(1);   // k1 复活
+    expect(svMutuallySupported(Buffer.from(Y.encodeStateVector(capDoc)), lostDoc)).toBe(true);
+    expect(semanticDocDigest(capDoc)).not.toBe(semanticDocDigest(lostDoc));
+    // 注入：删 f2 行（保护区间纯删除帧——prune bug 误删形态）
+    await prisma.$executeRaw`DELETE FROM "CanvasDocUpdate" WHERE "projectId" = ${PID}::text AND seq = 2::bigint`;
+    const sentrySpy = vi.mocked(captureCollabException);
+    sentrySpy.mockClear();
+    const mismatchBefore = await counterOf(collabCanaryCheckedTotal, { result: 'mismatch' });
+    const encBefore = await counterOf(collabCanaryCheckedTotal, { result: 'hash-encoding-mismatch' });
+    const freezeBefore = await counterOf(collabCanaryFreezeTotal, { reason: 'semantic-mismatch' });
+    await buildWorker().tick();
+    // 红（现实现）：SV 互支成立→误归 hash-encoding-mismatch 只计数不 freeze；绿（修后）：摘要深比→mismatch
+    expect(await counterOf(collabCanaryCheckedTotal, { result: 'mismatch' })).toBe(mismatchBefore + 1);
+    expect(await counterOf(collabCanaryCheckedTotal, { result: 'hash-encoding-mismatch' })).toBe(encBefore);   // 非 encoding 档
+    expect(await counterOf(collabCanaryFreezeTotal, { reason: 'semantic-mismatch' })).toBe(freezeBefore + 1);
+    expect((await gateRow()).state).toBe('FROZEN');
+    expect(sentrySpy).toHaveBeenCalledTimes(1);
+    expect(sentrySpy.mock.calls[0]![1]).toMatchObject({ reason: 'canary-replay-mismatch' });
+    // 解冻复位（后续用例布景）
+    await prisma.$executeRaw`UPDATE "CollabOpsGate" SET "state" = 'OPEN', "frozenAt" = NULL, "frozenBy" = NULL, "reason" = NULL, "unfrozenAt" = NULL WHERE "gate" = 'compact' AND "projectId" = ${PID}::text`;
+  });
+
+  it('语义兜底-降级档：pin.semanticDigest 空（超限捕获未落摘要/存量 pin）→SV 同代辅助承载（互支成立=hash-encoding-mismatch 不 freeze——登记盲区）', async () => {
+    const frames = [frameOf('g1', 1), frameOf('g2', 2)];
+    const pg = await seedFrames(prisma, repo, PID, frames, 0n);
+    // 摘要显式落空+异值 hash（同 op 集不同编码形态注入）——SV 互支成立（同帧集）
+    await insertReadyPin(prisma, PID, { snapshotRev: 0n, stateSeq: 0n, pgSeqAt: pg }, replayFrames([frames[1]!, frames[0]!]), {
+      contentHash: createHash('sha256').update(Buffer.from('other-encoding-same-opset')).digest('hex'),
+      semanticDigest: null,
+    });
+    const encBefore = await counterOf(collabCanaryCheckedTotal, { result: 'hash-encoding-mismatch' });
+    await buildWorker().tick();
+    expect(await counterOf(collabCanaryCheckedTotal, { result: 'hash-encoding-mismatch' })).toBe(encBefore + 1);
+    expect((await gateRow()).state).toBe('OPEN');   // 降级档不误冻结
   });
 
   it('红⑥-b-改 payload：增量行 payload 换帧（携异 client clock）→SV 互支失败→mismatch+freeze（shadow 档对照=只告警不 freeze）', async () => {

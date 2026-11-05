@@ -9,7 +9,8 @@
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import * as Y from 'yjs';
-import { semanticEqualDocs, svMutuallySupported, replayPgSnapshot } from './collab-canary-verify.worker';
+import { svMutuallySupported, replayPgSnapshot } from './collab-canary-verify.worker';
+import { semanticEqualDocs, semanticDocDigest, canonicalDocView } from './collab-canary-semantic';
 import { encodeCanonicalUpdate } from './collab-replay-canary.service';
 import { seedStateHash } from './canvas-doc-genesis';
 
@@ -46,9 +47,40 @@ describe('C2-2b canary verify 纯判定面（红⑥-a 语义兜底构造）', ()
     expect(((b.getMap('nodes').get('k1') as Y.Map<unknown>).get('data') as Y.Map<unknown>).get('model')).toBe('v2');
     expect(hashOf(a)).not.toBe(hashOf(b));   // 「同逻辑状态不同 integration order→hash 可能不等」实证
     expect(semanticEqualDocs(a, b)).toBe(true);   // 语义兜底：节点/边 canonical JSON 深比等
-    // SV 互支边界登记：op 集差异（压缩历史/重打 client）语义等而 SV 判 false——worker 侧判据的
-    // 保守面（生产 same-generation 重放=同 op 集恒走互支成立档）
+    // SV 互支边界登记：op 集差异（压缩历史/重打 client）语义等而 SV 判 false——辅助面保守侧
     expect(svMutuallySupported(Buffer.from(Y.encodeStateVector(a)), b)).toBe(false);
+  });
+
+  it('P1 反例（评审）：纯删除帧丢失——Yjs delete 不进 SV（SV 互支成立）而节点复活=语义不等→摘要深比正确判红（delete-only 帧丢失=canary 威胁模型核心：prune bug 误删保护行）', () => {
+    const d1 = new Y.Doc();
+    Y.applyUpdate(d1, nodeFrame('k1', 'm-1'));
+    const f1 = Y.encodeStateAsUpdate(d1);
+    const d2 = new Y.Doc();
+    Y.applyUpdate(d2, f1);
+    d2.getMap('nodes').delete('k1');   // 纯删除帧（deleteSet 无新 struct——SV 不前进）
+    const f2 = Y.encodeStateAsUpdate(d2);
+    const cap = new Y.Doc();   // 捕获侧：f1+f2（k1 已删）
+    Y.applyUpdate(cap, f1); Y.applyUpdate(cap, f2);
+    const lost = new Y.Doc();   // 重放侧：f2 行被删（k1 复活）
+    Y.applyUpdate(lost, f1);
+    expect(lost.getMap('nodes').size).toBe(1);
+    // SV 互支成立而语义不等——旧判据（SV 等价代理）在此形态漏报的根因实证
+    expect(svMutuallySupported(Buffer.from(Y.encodeStateVector(cap)), lost)).toBe(true);
+    expect(semanticEqualDocs(cap, lost)).toBe(false);
+    expect(semanticDocDigest(cap)).not.toBe(semanticDocDigest(lost));
+  });
+
+  it('P3-b：digest 含 edges 根——仅边差异的两 doc 摘要不等（nodes 同而 edges 异=语义不等）；canonicalDocView 两根齐', () => {
+    const a = new Y.Doc();
+    Y.applyUpdate(a, nodeFrame('k1', 'm-1'));
+    const b = new Y.Doc();
+    Y.applyUpdate(b, nodeFrame('k1', 'm-1'));
+    const e = new Y.Map(); e.set('source', 'k1'); e.set('target', 'k2');
+    b.getMap('edges').set('e1', e);   // 仅边差异
+    expect(semanticEqualDocs(a, b)).toBe(false);
+    expect(semanticDocDigest(a)).not.toBe(semanticDocDigest(b));
+    expect(canonicalDocView(b)).toContain('edges:');
+    expect(canonicalDocView(b)).toMatch(/edges:\{[^}]*e1/);
   });
 
   it('svMutuallySupported：重放缺帧（删行形态——SV 少 client clock）→ false（mismatch 判据）', () => {

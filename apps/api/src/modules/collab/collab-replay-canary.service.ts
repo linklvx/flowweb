@@ -15,8 +15,10 @@
 //   ④ fn 内（事务外）算 SV+canonical hash：pendingStructs===null 口径（compact abandoned 同判——
 //     非空=canonical 不成立拒捕获）+encodeStateAsUpdate canonical 编码（compact ② 同口径——hash
 //     算法复用 canvas-doc-genesis seedStateHash 单源）+尺寸阈值（超限 hashSkipped=true 只取 SV——
-//     10k doc 单次捕获阻塞预算护栏）+canary_capture_ms 计时；
-//   ⑤ UPDATE pin status='READY'+contentHash/hashSkipped（失败→DELETE pin 残留自清）。
+//     10k doc 单次捕获阻塞预算护栏）+canary_capture_ms 计时+**语义摘要**（C2-2b P1 修复——
+//     nodes+edges canonical JSON→SHA-256 落 pin.semanticDigest〔迁移笔三〕：Yjs delete 不进 SV，
+//     verify 兜底判据=摘要深比非 SV 互支）；
+//   ⑤ UPDATE pin status='READY'+contentHash/semanticDigest/hashSkipped（失败→DELETE pin 残留自清）。
 // 漂移守卫：① 行读 generation/pgSeq ≠ 调用方冻结坐标 ⇒ 拒捕获零 pin（fail-safe——冻结读后换代/推进
 // 形态；正常路径 withFrozenPrefix 已断言 pgSeq==appliedSeq）。
 // 形态裁定（free-function 非 @Injectable）：消费方=poller（api 进程，持 prisma 直面）——
@@ -24,6 +26,7 @@
 import * as Y from 'yjs';
 import { seedStateHash } from './canvas-doc-genesis';
 import { hasPendingStructs } from './canvas-doc.factory';
+import { semanticDocDigest } from './collab-canary-semantic';
 import { collabCanaryCaptureMs, collabCanaryHashSkippedTotal, collabCanaryPinRetryTotal } from './collab-canary.metrics';
 
 /** pin TTL 15min（spec §3 C2：TTL 15min＋worker 续租〔C2-2b〕＋过期清扫〔poller 每 tick 顺带
@@ -119,10 +122,15 @@ export async function captureCanaryPin(
     } else {
       contentHash = seedStateHash(canonical);   // hash 算法单源复用（genesis/compact stateHash 同口径）
     }
+    // C2-2b P1 修复：语义摘要落 pin（迁移笔三列）——Yjs delete 不进 state vector，纯删除帧丢失时
+    // SV 互支成立而节点复活；verify 兜底判据=摘要深比（nodes+edges canonical JSON→SHA-256，
+    // collab-canary-semantic 单源——捕获/verify 两侧同函数）。超限档（canonical=null）预算同跳过
+    // =null——该档 verify 降级 SV 同代辅助（登记盲区）。
+    const semanticDigest = canonical != null ? semanticDocDigest(args.doc) : null;
     // ⑤ READY（contentHash∨hashSkipped 档落定）
     await client.$transaction(async (tx) => {
       await tx.$executeRaw`
-        UPDATE "CanaryPin" SET status = 'READY', "contentHash" = ${contentHash}::char(64), "hashSkipped" = ${hashSkipped},
+        UPDATE "CanaryPin" SET status = 'READY', "contentHash" = ${contentHash}::char(64), "semanticDigest" = ${semanticDigest}::char(64), "hashSkipped" = ${hashSkipped},
           "stateVector" = ${stateVector}
         WHERE "projectId" = ${args.projectId}::text AND status = 'CAPTURING'
           AND "snapshotRev" = ${pinned.snapshotRev}::bigint AND "pgSeqAt" = ${args.pgSeqAt}::bigint`;

@@ -18,13 +18,16 @@
 //    skip-budget（大 doc 重放不阻塞 tick——不误报）；
 //  ④hash 主判（fresh doc 重算 hash——与捕获同 canonical 口径：encodeCanonicalUpdate+seedStateHash
 //    单源〔collab-replay-canary.service〕）；相等→ok；
-//  ⑤语义兜底（hash 不等/hashSkipped 档）：**SV 互支判定**（捕获 SV vs 重放 SV 点对点等——同 op 集
-//    ⇒ Yjs 确定性 ⇒ 逻辑态必等〔构造实证：同帧集不同应用序 encodeStateAsUpdate 恒等〕；活 doc 不可
-//    跨进程，语义比对以 op 集等价为判据）：互支成立→hash-encoding-mismatch（计数不 freeze——
-//    spec「语义相等=hash_encoding_mismatch」）/hashSkipped 档 semantic-equal；互支失败→
-//    **mismatch→freeze 实弹**（CANARY_FREEZE_ENABLED 生产默认 true——plan v3.1 ⑪ 翻转：charter
-//    「不一致告警并冻结」；shadow 只 dev 显式 'false'=只告警+计数不 freeze）+Sentry+结构化日志
-//    （节点 canonical JSON 摘要=mismatch 报告面——runbook §14 分诊）；
+//  ⑤语义兜底（hash 不等/hashSkipped 档）——**C2-2b P1 修复：判据=语义摘要深比**（捕获④ 落库的
+//    pin.semanticDigest〔迁移笔三〕vs 重放侧 semanticDocDigest——nodes+edges 两根 canonical JSON→
+//    SHA-256，collab-canary-semantic 单源；活 doc 不可跨进程，捕获侧语义经摘要落库传递）：摘要相等
+//    →hash-encoding-mismatch（计数不 freeze——spec「语义相等=hash_encoding_mismatch」）/hashSkipped
+//    档 semantic-equal；摘要不等→**mismatch→freeze 实弹**（CANARY_FREEZE_ENABLED 生产默认 true——
+//    plan v3.1 ⑪ 翻转：charter「不一致告警并冻结」；shadow 只 dev 显式 'false'=只告警+计数不 freeze）
+//    +Sentry+结构化日志（摘要+SV 辅助诊断=runbook §14 分诊面）。**SV 互支=同代辅助**（plan 定位：
+//    Yjs delete 不进 state vector——纯删除帧丢失时 SV 互支成立而节点复活〔评审 P1 反例——摘要深比
+//    在此形态正确判 mismatch〕；辅助承载 pin.semanticDigest 空的降级档〔超限捕获/存量 pin——盲区登记〕
+//    +mismatch 报告诊断面）；
 //  ⑥compare-and-delete pin（DELETE WHERE projectId/pgSeqAt/snapshotRev 坐标谓词——TTL 过期后
 //    新 pin 误删根除；skip-lifecycle/maintenance/prune/budget 档保 pin 重试）。
 // 指标=collab-canary.metrics.ts 单源（source=worker 3002）；freeze 争用披露：freeze 调用=单 UPDATE
@@ -34,7 +37,6 @@
 // 幂等（freeze WHERE state='OPEN' 幂等+compare-and-delete 坐标守卫恰删一次，计数可能双计——登记）。
 import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { createHash } from 'node:crypto';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
@@ -43,6 +45,7 @@ import { captureCollabException } from '../../utils/sentry-scrub';
 import { projectDocName } from './doc-name.util';
 import { freezeOpsGateCompact } from './collab-ops-gate.service';
 import { seedStateHash } from './canvas-doc-genesis';
+import { semanticDocDigest } from './collab-canary-semantic';
 import { encodeCanonicalUpdate, writeCanaryCursor, CANARY_PIN_TTL_MS, CANARY_HASH_VERSION, CANARY_HASH_MAX_BYTES } from './collab-replay-canary.service';
 import {
   collabCanaryCheckedTotal, collabCanaryFreezeTotal, collabCanaryHashEncodingMismatchTotal, collabCanaryLastCheckAge,
@@ -76,6 +79,7 @@ interface VerifyPinRow {
   stateSeq: bigint;
   pgSeqAt: bigint;
   contentHash: string | null;
+  semanticDigest: string | null;
   hashSkipped: boolean;
   hashVersion: number;
   stateVector: Buffer | null;
@@ -84,38 +88,11 @@ interface VerifyPinRow {
   docGeneration: number | null;
 }
 
-/** 节点/边 canonical JSON 稳定序列化（语义比对/摘要面——Y 值域经 toJSON 先折 plain〔Y.Map/Y.YText
- *  递归转换+环切断〕；键排序+undefined 过滤；lighting.service stableStringify 同族形态）。 */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
-  const asToJSON = value as { toJSON?: () => unknown };
-  if (typeof asToJSON.toJSON === 'function') return stableStringify(asToJSON.toJSON());
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([, v]) => v !== undefined)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(',')}}`;
-}
-
-/** 语义相等判定（plan「decodeStateAsUpdate 两侧→节点/边 canonical JSON 深比」的工具面）：两 Y.Doc
- *  的 nodes/edges 两根 canonical JSON 深比。worker 侧比对判据=SV 互支（活 doc 不可跨进程——同 op 集
- *  ⇒逻辑态等价的确定性代理）；本谓词=两 doc 同在手的语义真值面（红⑥-a 两 doc 构造直证/api 侧可
- *  消费）——doc 生命周期归调用方（本函数不 destroy）。 */
-export function semanticEqualDocs(a: Y.Doc, b: Y.Doc): boolean {
-  const view = (d: Y.Doc): string => (['nodes', 'edges'] as const)
-    .map((r) => `${r}:${stableStringify(Object.fromEntries(d.getMap(r).entries()))}`)
-    .join('|');
-  return view(a) === view(b);
-}
-
-/** 重放语义摘要（mismatch 结构化报告面——nodes 根 canonical JSON 的 SHA-256 前 16 hex，分诊比对用）。 */
-export function semanticViewDigest(doc: Y.Doc): string {
-  return createHash('sha256').update(stableStringify(Object.fromEntries(doc.getMap('nodes').entries()))).digest('hex').slice(0, 16);
-}
-
-/** SV 互支判定（捕获 SV vs 重放 SV——同 op 集=两侧互含：decodeStateVector 点对点 client→clock
- *  全等）。同 op 集 ⇒ Yjs 确定性 ⇒ 逻辑态必等（构造实证：同帧集不同应用序 encodeStateAsUpdate
- *  恒等）；互支失败=重放缺 op（删行）/payload 改携异 client clock（红⑥-b）⇒ mismatch。 */
+/** SV 互支判定（**同代辅助**——C2-2b P1 修复后定位：mismatch 报告诊断面/pin.semanticDigest 空的
+ *  降级档承载，不作语义等价判据。Yjs delete 不进 state vector：纯删除帧丢失时 SV 互支**成立**而
+ *  节点复活=语义不等〔评审 P1 反例〕——等价判据=semanticDocDigest 摘要深比〔collab-canary-semantic
+ *  单源〕；互支失败=重放缺携带 struct 的 op（建节点帧删除/payload 改携异 client clock）⇒ 同向
+ *  mismatch 信号——辅助诊断价值保留）。 */
 export function svMutuallySupported(captureSv: Buffer, replayDoc: Y.Doc): boolean {
   const a = Y.decodeStateVector(new Uint8Array(captureSv));
   const b = Y.decodeStateVector(Y.encodeStateVector(replayDoc));
@@ -186,15 +163,17 @@ export class CollabCanaryVerifyWorker implements OnModuleInit, OnApplicationShut
 
   private async verifyPins(): Promise<void> {
     const scopeSql = this.verifyScope ? Prisma.sql` AND pin."projectId" = ANY(${this.verifyScope}::text[])` : Prisma.empty;
+    // P3-a：ORDER BY projectId=批读确定性（无序批读的分页/优先序在等价输入下不稳定——确定性执行面）
     const pins = await this.prisma.$queryRaw<VerifyPinRow[]>`
       SELECT pin."projectId", pin.generation AS "pinGeneration", pin."snapshotRev", pin."stateSeq", pin."pgSeqAt",
-             pin."contentHash", pin."hashSkipped", pin."hashVersion", pin."stateVector",
+             pin."contentHash", pin."semanticDigest", pin."hashSkipped", pin."hashVersion", pin."stateVector",
              (p."lifecycleState" IS DISTINCT FROM 'ACTIVE') AS "inactive",
              d."maintenanceId", d.generation AS "docGeneration"
       FROM "CanaryPin" pin
       JOIN "CanvasProject" p ON p.id = pin."projectId"
       LEFT JOIN "CanvasDoc" d ON d."projectId" = pin."projectId"
       WHERE pin.status = 'READY' AND pin."expiresAt" > now()${scopeSql}
+      ORDER BY pin."projectId" ASC
       LIMIT ${CANARY_VERIFY_BATCH}`;
     if (pins.length === 0) return;
     // TTL 续租（选择批单语句——leaseUntil=now()+TTL；verify 在途可观测，expired 面归 poller 清扫）
@@ -256,16 +235,27 @@ export class CollabCanaryVerifyWorker implements OnModuleInit, OnApplicationShut
       this.logger.warn(`canary verify readAt/重放失败 project=${pid}: ${(e as Error).message}`);
       return;
     }
-    // ④hash 主判+⑤语义兜底（SV 互支）——判定与副作用（freeze/delete）分离
+    // ④hash 主判+⑤语义兜底（**摘要深比**——C2-2b P1 修复：Yjs delete 不进 state vector，纯删除帧
+    //   丢失时 SV 互支成立而节点复活——等价判据=pin.semanticDigest〔捕获④ 落库，迁移笔三〕vs 重放侧
+    //   semanticDocDigest（nodes+edges 两根 canonical JSON→SHA-256，collab-canary-semantic 单源）；
+    //   **SV 互支=同代辅助**（plan 定位——mismatch 报告诊断面，不作等价判据；pin.semanticDigest 空
+    //   的降级档〔超限捕获/存量 pin〕由辅助承载，登记盲区））——判定与副作用（freeze/delete）分离
     let verdict: CanaryVerifyResult;
     if (pin.hashSkipped) {
-      verdict = svMutuallySupported(pin.stateVector, doc) ? 'semantic-equal' : 'mismatch';
+      // 超限捕获档：hash 不可比——摘要深比（捕获超限档摘要亦空=SV 同代辅助降级承载）
+      verdict = pin.semanticDigest != null
+        ? (semanticDocDigest(doc) === pin.semanticDigest ? 'semantic-equal' : 'mismatch')
+        : (svMutuallySupported(pin.stateVector, doc) ? 'semantic-equal' : 'mismatch');
     } else if (pin.contentHash == null || canonical == null) {
       verdict = 'skip-stale-pin';   // 防御档：非 hashSkipped 而 contentHash 空/重放超尺寸=布景异常不比对
+    } else if (seedStateHash(canonical) === pin.contentHash) {
+      verdict = 'ok';
+    } else if (pin.semanticDigest != null) {
+      // hash 红→摘要深比：相等=同逻辑态不同编码（hash_encoding_mismatch 计数不 freeze）；
+      // 不等=语义不等（**delete-only 帧丢失在此档正确判红**——SV 互支成立而节点复活）→mismatch
+      verdict = semanticDocDigest(doc) === pin.semanticDigest ? 'hash-encoding-mismatch' : 'mismatch';
     } else {
-      verdict = seedStateHash(canonical) === pin.contentHash
-        ? 'ok'
-        : (svMutuallySupported(pin.stateVector, doc) ? 'hash-encoding-mismatch' : 'mismatch');
+      verdict = svMutuallySupported(pin.stateVector, doc) ? 'hash-encoding-mismatch' : 'mismatch';   // 降级档：存量 pin（TTL 清退前）——SV 辅助承载（盲区登记）
     }
     collabCanaryCheckedTotal.inc({ result: verdict });
     if (verdict === 'hash-encoding-mismatch') collabCanaryHashEncodingMismatchTotal.inc();
@@ -275,16 +265,18 @@ export class CollabCanaryVerifyWorker implements OnModuleInit, OnApplicationShut
     await this.deletePin(pin);
   }
 
-  /** mismatch 处置：freeze 实弹（红⑥-b 调用面）+Sentry+结构化日志（语义摘要=runbook §14 分诊面）。 */
+  /** mismatch 处置：freeze 实弹（红⑥-b 调用面）+Sentry+结构化日志（语义摘要+SV 同代辅助诊断=runbook
+   *  §14 分诊面——svMutual=true 而 mismatch=delete-only 帧丢失形态的指纹〔P1 反例〕）。 */
   private async onMismatch(pin: VerifyPinRow, doc: Y.Doc, canonical: Buffer | null): Promise<void> {
     const pid = pin.projectId;
     const failure = {
       projectId: pid, generation: pin.pinGeneration,
       snapshotRev: pin.snapshotRev.toString(), stateSeq: pin.stateSeq.toString(), pgSeqAt: pin.pgSeqAt.toString(),
       hashSkipped: pin.hashSkipped, canonicalBytes: canonical?.length ?? null,
-      semanticDigest: semanticViewDigest(doc),   // 节点 canonical JSON 摘要（比对分诊面）
+      semanticDigest: semanticDocDigest(doc),   // **nodes+edges 两根** canonical JSON 摘要（P3-b：边根并入——比对分诊面）
+      svMutual: svMutuallySupported(pin.stateVector ?? Buffer.from(Y.encodeStateVector(doc)), doc),   // 同代辅助诊断（true 而 mismatch=delete-only 丢失指纹）
     };
-    this.logger.error(`canary verify MISMATCH（hash 红∧SV 互支失败——语义不等，freeze 实弹）: ${JSON.stringify(failure)}`);
+    this.logger.error(`canary verify MISMATCH（hash 红∧语义摘要不等，freeze 实弹）: ${JSON.stringify(failure)}`);
     captureCollabException(
       new Error(`canary replay mismatch project=${pid} generation=${pin.pinGeneration} pgSeqAt=${pin.pgSeqAt}`),
       { docName: projectDocName(pid), reason: 'canary-replay-mismatch', connectionId: '-' },

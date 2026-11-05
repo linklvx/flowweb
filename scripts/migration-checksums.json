@@ -58,5 +58,8 @@
   },
   "20261105130000_c2_pen_two_ops_gate_canary": {
     "migration.sql": "5729cd96288b9c3cb26ffabc9454661edb4c77281c5ed23727c25468eeb1bfa7"
+  },
+  "20261105140000_c2_pen_three_canary_semantic_digest": {
+    "migration.sql": "32d641001d317507bd08696aa929f5aff3ca468a68b78ac1e2c514c7ac7ecfde"
   }
 }

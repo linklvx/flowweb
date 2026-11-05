@@ -1749,20 +1749,23 @@ model CollabOpsGate {
 
 /// canary 捕获 pin（C2-2 消费——表先落）：CAPTURING pin-first 捕获（leaseUntil 续租+expiresAt TTL
 /// 15min 过期清扫）→READY；worker verify 后 compare-and-delete（谓词 pgSeqAt/snapshotRev——TTL 过期
-/// 后误删新 pin 根除）。stateSeq=快照水位坐标；hashSkipped=尺寸阈值超限只取 SV 档。
+/// 后误删新 pin 根除）。stateSeq=快照水位坐标；hashSkipped=尺寸阈值超限只取 SV 档；
+/// semanticDigest=语义兜底判据载体（迁移笔三——nodes+edges canonical JSON SHA-256：Yjs delete 不进
+/// SV，纯删除帧丢失时 SV 互支成立而节点复活——摘要深比为语义等价判据，SV 互支降同代辅助）。
 model CanaryPin {
-  projectId    String   @id
-  status       String   @default("CAPTURING")
-  generation   Int
-  snapshotRev  BigInt
-  stateSeq     BigInt
-  pgSeqAt      BigInt
-  contentHash  String?  @db.Char(64)
-  hashSkipped  Boolean  @default(false)
-  hashVersion  Int
-  stateVector  Bytes?
-  leaseUntil   DateTime
-  expiresAt    DateTime
+  projectId       String   @id
+  status          String   @default("CAPTURING")
+  generation      Int
+  snapshotRev     BigInt
+  stateSeq        BigInt
+  pgSeqAt         BigInt
+  contentHash     String?  @db.Char(64)
+  semanticDigest  String?  @db.Char(64)
+  hashSkipped     Boolean  @default(false)
+  hashVersion     Int
+  stateVector     Bytes?
+  leaseUntil      DateTime
+  expiresAt       DateTime
 }
 
 /// canary 检查游标（C2-2 消费）：generation=换代游标重置（旧代游标永 skip 根除）；
