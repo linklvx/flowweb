@@ -213,3 +213,15 @@ Y1c T34 发布门证据汇编（确认点⑤=全批终出口呈报包——plan 
   全绿）；唯一存续红=in-register 缓修项 t25 族（Controller 裁定根修=文件内用例间状态隔离——
   复核窗承袭；**CI 阻塞性新证据=两 attempt 同例确定性，优先级应上调**）。required check=
   collab-core（绿）——test job 非合并门。分支保护视角 master 可持续推送不受阻。
+
+【九】终局（2026-11-05 12:08Z——t25 根修后首个全绿 push CI）
+
+  用户三裁「全部确认」（同日）：①slo 定案=采纳建议值（charter pending→passed：月可用性≥99.5%
+  +save barrier p95≤2s+RTO≤30min——check-production-charter PASS dev-test 档）②开放生产流量
+  改档=维持 dev-test（前置=charter 其余项闭环，未裁改档）③t25 根修提前开窗=落地 b313c033
+  （resyncFull 会话同一性守卫+spec 泵改造——详 registered-flakes 销案条）。
+  **CI #87（b313c033）push run=四 job 全绿（doc-gate/test/gitleaks/collab-core）——test job
+  自 #75（2026-10-23）以来首绿，verify:full 31 步 CI 面全链达成**。至此确认点⑤全链闭合：
+  release 机器门（a94c5d6f）+push+CI 终验全绿+Linux 权威档基准 PASS（#85）+在册 CI 阻塞族
+  根修销案。移交面维持：ThemeToggleButton 族（本地高载形态）+specb-perf A/B 未定性+服务器
+  侧运维窗（restore-drill 复演+synchronous_commit 核实——开放生产流量前置）。

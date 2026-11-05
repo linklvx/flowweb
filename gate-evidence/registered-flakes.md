@@ -122,3 +122,12 @@
   （本地间歇面维持池序定性）；断言形态=provider 实例同一性未换新+排程计数 2≠1（时序敏感）。
   影响面=verify 链 [19/31] web-test 恒红（CI 侧）——**根修（文件内用例间状态隔离）优先级上调
   建议：CI 阻塞性**（required check=collab-core 不受影响；本地 verify:full 经定向复跑口径可全绿）。
+
+- 2026-11-05（Y1c t25 族根修销案——提前开窗 2026-11-05 用户裁定）：根修落地 b313c033=①runtime
+  resyncFull 会话同一性守卫（悬挂真异步链跨用例/跨卸载复活会话——CI #84 两 attempt 同三例确定
+  性+本地红锚 29ms 同签名「expected 2 to be 1」机制坐实）②spec 固定窗族泵改造（closeout-1 重建
+  等待+b1-1/b4-1/逃生口三循环+b4-1 resume 尾——pumpUntil 确定性排水）。验证=t25 文件 5/5 连跑
+  26/26+全 web 池 t25 零红+**CI #87（b313c033）push run 全绿——test job 自 #75（2026-10-23）以来
+  首绿**（doc-gate/test/gitleaks/collab-core 四 job success）。本族历史登记（2026-10-27 T27 首登/
+  11-03/04 T30b 扩枚举/11-05 T34 三击/11-05 CI 终验两批）全部销案归档；ThemeToggleButton 族
+  （T32 登记①）维持登记——本地高载形态、CI 未红，不在本次开窗范围。
