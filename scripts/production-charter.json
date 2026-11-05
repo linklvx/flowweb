@@ -124,8 +124,8 @@
       "requirement": "清理 worker 常驻：ExecutionInput 30d + RuntimeEvent 7d/100k",
       "owner": "FlowWeb Dev",
       "date": "2026-11-03",
-      "status": "pending",
-      "evidence": "未实装（production 前必过）"
+      "status": "passed",
+      "evidence": "已实装（2026-11-05 C1 卡 commits 95d18923..2ccfc8b3）：两表清理真 PG 实测（红①-⑦ int 全绿——判别双档四行命运/8 天未打开项目事件全删后首连投影显式 unknown/DELETING 零触碰）+worker 常驻（RetentionSweeperPoller 每 tick 单事务四扫面，1ba24e68+dbafdbec 前置）+api timer 移除（runtime-feed.service.ts 零 setInterval 实证——api 进程零清理武装）+锁形态（pg_try_advisory_xact_lock(hashtext('flowweb:retention')) 单飞 skip+计数；claim FOR UPDATE SKIP LOCKED ≤50 同事务 void；每 tick 批数上界 200 防活锁+cap 出口 backlog gauge 回填）+stuck 三档实弹（ADMITTED∧request.expiresAt/EXECUTING∧MIN(deadlineAt)/EXECUTING_ORPHAN 孤儿档——告警不删，THRESHOLDS 条目已挂〔待校准〕）+终态重写口径（transitionRequestTerminal 状态 CAS 同事务 UPDATE ExecutionInput expiresAt=now(UTC)+30d——长任务终态即删缺口根除，受理 31 天夹具实证）+scope ACTIVE 过滤（两扫面 join CanvasProject.lifecycleState+Team.status——擦除中行集零触碰）+低基数断言（retention.metrics.ts 7 指标 table/result/state 标签闭集，projectId 标签零存在断言，--write-metric-names 同 commit）；验证：verify FULL 31/31 PASS+api 单测 3057 面+int 29 用例真 PG 全绿"
     }
   ]
 }
