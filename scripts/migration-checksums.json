@@ -49,5 +49,11 @@
   },
   "20261025120000_y1c_t21_execution_business": {
     "migration.sql": "b0eaeca591cfb41ec898c6e0f3ae8c09564c4e85c7ec90398d292dcac8c6c722"
+  },
+  "20261026120000_y1c_t23_resource_recovery": {
+    "migration.sql": "aaa01696814465550721782dbf88952326d23fdd3a64c0fe20f7a93a15072ada"
+  },
+  "20261105120000_c1_pen_one_retention_erasure": {
+    "migration.sql": "3075fbf83875457124991c3793e0bc3176ff05f4bedaa18d313d8152a28df8d8"
   }
 }

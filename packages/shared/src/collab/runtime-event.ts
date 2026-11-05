@@ -139,9 +139,9 @@ export const RUNTIME_FEED_LOCK_ORDER_DOC =
   'feed 事务锁序=业务行→counter（counter 恒最后拿）；CanvasDoc 读=plain SELECT（禁 FOR SHARE）——generation/docSeq 快照读非锁读' as const;
 
 /** 事件保留期（spec §7——7 天或 100k 条/项目**先到为准**；清理 worker 更新 minRetainedSeq+
- *  `runtime_feed_bytes` 指标；游标<minRetainedSeq 或保留期已过→客户端全量快照） */
-export const RUNTIME_EVENT_RETENTION_DAYS = 7 as const;
-export const RUNTIME_EVENT_RETENTION_MAX_PER_PROJECT = 100_000 as const;
+ *  `runtime_feed_bytes` 指标；游标<minRetainedSeq 或保留期已过→客户端全量快照）。
+ *  C1-0：常量单源迁移 collab/retention.ts（本处再导出保既有 import 面零变化）。 */
+export { RUNTIME_EVENT_RETENTION_DAYS, RUNTIME_EVENT_RETENTION_MAX_PER_PROJECT } from './retention';
 
 /** 交付契约注记（spec §7「唯一交付=HTTP 游标」——客户端 reducer/cursor 三元归 T5c/T22）：
  *  stateless 通知与心跳都**不携带事件体**只带 {type:'feed-hint',latestFeedSeq}；两通道无「到达序」问题

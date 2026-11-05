@@ -5,6 +5,7 @@ import * as Y from 'yjs';
 import { CANVAS_DOC_SCHEMA_VERSION, canonicalUpdateHashPayload } from '@flowweb/shared';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { projectDocName } from './doc-name.util';
+import { lockProject } from './project-lock';
 import { PrismaService } from '../../prisma/prisma.service';
 import { captureCollabException } from '../../utils/sentry-scrub';
 import {
@@ -55,13 +56,9 @@ export class CanvasDocUpdateRepository {
 
   /** P23/V26 锁键单源：**T27 收尾 I-3' 起两消费方**——vacuumReplace（T12 状态机化收口锚）+appendBatch
    *  （Y1c T27 收尾微批恢复锁先行——见 appendBatch 事务首语句论证；跨进程同键消费=scripts/
-   *  collab-renumber-layer.mjs〔离线 CLI——api 停写前提下与 vacuumReplace 互斥保险〕）。 */
-  private lockProject(
-    tx: { $executeRaw: (q: TemplateStringsArray, ...values: unknown[]) => Promise<unknown> },
-    projectId: string,
-  ): Promise<unknown> {
-    return tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${projectId})::bigint)`;
-  }
+   *  collab-renumber-layer.mjs〔离线 CLI——api 停写前提下与 vacuumReplace 互斥保险〕）。
+   *  C1-0：private lockProject 抽出 collab/project-lock.ts 单源（键字节不变——本 repo 改 import），
+   *  guarded 写锁门禁/锁序文档随迁。 */
 
   /** T9：批 updateHash 单源（=有序 frameHash 列表 SHA-256——非 merged update 字节；重试/重组批幂等键）。
    *  actor drain 批/维护单帧/回灌行共用（禁第二份实现）。
@@ -208,7 +205,7 @@ export class CanvasDocUpdateRepository {
         //    vacuumReplace 互斥天然成立、同 tx 重入 no-op（PG advisory 可重入）、xact 域自动释放、
         //    hashtext 跨项目碰撞=仅多余串行无害；锁序 advisory→行锁全路径一致无环；derive 在事务外
         //    （spool replayAll 先 derive 后 appendBatch——长派生不持锁）。恢复锁先行=有据非回退。 ──
-        await this.lockProject(tx, projectId);
+        await lockProject(tx, projectId);
         let n = 0;
         for (const r of rows) {
           // 显式类型 cast（PG 参数类型推断：无 cast 的 unknown 参数在 INSERT..SELECT 列位会折
@@ -476,7 +473,7 @@ export class CanvasDocUpdateRepository {
   ): Promise<{ generation: number } | { aborted: 'generation-drift'; dbGeneration: number }> {
     return this.prisma.$transaction(
       async (tx) => {
-        await this.lockProject(tx, projectId);
+        await lockProject(tx, projectId);
         const liveRows = await tx.canvasDocUpdate.findMany({
           where: { projectId },
           orderBy: { seq: 'asc' },

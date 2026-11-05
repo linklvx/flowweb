@@ -153,6 +153,11 @@ model CanvasProject {
   name           String
   userId         String?
   teamId         String
+  // C1-0（R15/R17 生产就绪收尾批）：lifecycleState=持久 fence 判据列（ACTIVE|DELETING——非 ACTIVE
+  // 写路径拒绝〔fenceProject FOR SHARE 行锁读〕；状态机接线/HTTP 映射归 C4）+origin=谱系列
+  // （clone/draft——video-work clone/cleanDraftes 消费，C4 接线）。
+  lifecycleState String            @default("ACTIVE")
+  origin         String?
   templates      Template[]
   canvasDoc      CanvasDoc?
   docSnapshots   CanvasDocSnapshot[]   // Y1c T7：载体族快照反向关系（双侧全补）
@@ -163,10 +168,11 @@ model CanvasProject {
   updatedAt      DateTime          @updatedAt
 
   user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([teamId])
+  @@index([lifecycleState])   // C1-0：擦除扫（非 ACTIVE 活跃擦除行集）
 }
 
 model Folder {
@@ -675,6 +681,7 @@ enum TeamRole {
 enum TeamStatus {
   ACTIVE
   DISBANDED
+  DISBANDING // C1-0（R17）：team 维擦除进行态（team-scope erasure run 期间——app 写路径 fenceTeam 拒绝；迁移笔一 ALTER TYPE 置末）
 }
 
 enum JoinRequestStatus {
@@ -1036,6 +1043,7 @@ model ExecutionRequest {
 
   @@unique([projectId, requestId])
   @@index([projectId, state, expiresAt])
+  @@index([teamId, state])   // C1-0：retention stuck 扫（ADMITTED/EXECUTING∧expiresAt）+team 资金域扫（C4 扩查接线）
 }
 
 /// ExecutionNodePlan 子行（每节点一行——claim/retry/退款/artifact 关系性载体）。
@@ -1075,6 +1083,8 @@ model ExecutionInput {
   schemaVersion Int
   expiresAt     DateTime
   createdAt     DateTime @default(now())
+
+  @@index([expiresAt])   // C1-0：retention 过期扫（终态 30d 清理 worker——ExecutionRequestRetentionService 消费）
 }
 
 /// RuntimeEvent（spec §7——per-project feedSeq 连续跨代不重置；@@unique([projectId,feedSeq])）。
@@ -1092,6 +1102,7 @@ model RuntimeEvent {
 
   @@unique([projectId, feedSeq])
   @@index([projectId, generation, feedSeq])
+  @@index([projectId, createdAt])   // C1-0：retention 7d 过期扫（先到为准 100k 同判——C1 worker 消费）
 }
 
 /// NodeExecution 当前行表（spec §6.2——PK(projectId,nodeId)；历史留 GenerationIntent）。
@@ -1283,6 +1294,23 @@ model CanvasDocUpdate {
 
   @@id([projectId, generation, seq])
   @@unique([projectId, generation, updateHash])
+}
+
+/// C1-0（迁移笔一——C3 表列一次到位）：T30b 同内容幂等吞行记录侧表（appendBatch ON CONFLICT 吞行
+/// 的行间衔接断点载体——seq=被吞帧行、sourceSeq=在档同 updateHash 行 seq、reason='t30b-coalesced'）。
+/// 纯列业务平面无 FK relation（DocAuditEvent 先例）；接线归 C3（同事务 INSERT ON CONFLICT DO NOTHING 幂等）；
+/// 生命周期随 CanvasDocUpdate：purgeBelow 顺带删侧表行+擦除随 scope 批删（C3 兼容核验单测钉死）。
+model CanvasDocCoalesced {
+  projectId   String
+  generation  Int
+  seq         BigInt
+  updateHash  String        @db.Char(64)
+  sourceSeq   BigInt
+  reason      String
+  createdAt   DateTime      @default(now())
+
+  @@id([projectId, generation, seq])
+  @@index([projectId, generation, updateHash])
 }
 
 // Y0a-1：单实例租约行（Y0a-3 T2 起消费：expiresAt/renewedAt 用 timestamptz(3)——Z19/P2）
@@ -1646,4 +1674,51 @@ model ReconcileAction {
 
   @@index([intentRowId])
   @@index([createdAt])
+}
+
+// ══════ C1-0（生产就绪收尾批——迁移笔一）：retention tick 游标+erasure 状态机 ══════
+// spec v5 §2 R15/R17；锁/fence 单源=apps/api/src/modules/collab/project-lock.ts；
+// job 词表单源=packages/shared/src/collab/retention.ts COLLAB_JOB_CURSOR_JOBS。
+// 纪律：无 FK relation（DocAuditEvent/MaintenanceOperation 纯列先例——项目删除清理归 worker scope 批删）。
+
+/// worker tick 轮转游标+边沿状态（每 job 一行）：lastKey=轮转键（C3 audit 按 projectId 轮转——尾部
+/// 项目饿死根除）；lastGap=边沿状态载荷（(project,generation) gapActive——false→true 才 inc 计数）。
+model CollabJobCursor {
+  job       String    @id
+  lastKey   String?
+  lastGap   Json?
+  updatedAt DateTime @updatedAt
+}
+
+/// 擦除状态机 run（R17 scope 化——scopeType 'project'|'team'：team 解散=team-scope run；parentRunId
+/// =team run→子 project run 会合〔WAITING_CHILDREN→子全 DONE 才 PURGING_TEAM/删 Team 行〕）。
+/// state 值域（C4 接线消费）：PENDING|RUNNING|DRAINING|WAITING_CHILDREN|PURGING_DB|PURGING_OBJECTS|
+/// PURGING_CACHE|VERIFYING|DONE|FAILED——active 态 scope 唯一=raw SQL partial unique
+/// project_erasure_active_uq（Prisma 不可表达，迁移笔一落盘）：DONE/FAILED 后允许新 run
+/// （restore 再擦/dry-run 后真实擦）。dryRun=标志列（不占真实唯一+跳过 lifecycle 置位）。
+/// manifest 主载体=data-dir 外部文件（R16）——本表 manifestPath/sha256 只作索引行。
+model ProjectErasureRun {
+  erasureId     String    @id @default(cuid())
+  scopeType     String
+  scopeId       String
+  parentRunId   String?
+  teamId        String?
+  state         String    @default("PENDING")
+  stage         String?
+  dryRun        Boolean   @default(false)
+  requestedBy   String
+  requestedAt   DateTime  @default(now())
+  claimOwner    String?
+  leaseUntil    DateTime?
+  heartbeatAt   DateTime?
+  completedAt   DateTime?
+  manifestPath  String?
+  manifestSha256 String? @db.Char(64)
+  error         String?
+  attempts      Int       @default(0)
+  updatedAt     DateTime  @updatedAt
+
+  @@index([state, updatedAt])
+  @@index([scopeType, scopeId])
+  @@index([parentRunId])
 }

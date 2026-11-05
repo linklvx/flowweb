@@ -1162,6 +1162,9 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-compact.poller.ts': {   // Y1c T11：worker compact 轮询周期键（COMPACT_POLL_INTERVAL_MS——COMPACT_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、Number()||默认缺省档、消费面=worker 轮询周期非部署档位）
       COMPACT_POLL_INTERVAL_MS: 1,
     },
+    'apps/api/src/modules/collab/project-lock.ts': {   // C1-0 写锁门禁激活判据（函数内 writeGateActive 惰性——测试态判定非部署档位：VITEST=vitest 进程标记、NODE_ENV=test 档；消费面=PrismaService 测试态自包裹+门禁断言直通判别）
+      VITEST: 1, NODE_ENV: 1,
+    },
     'apps/api/src/modules/collab/collab.gateway.ts': {   // T42 B3 手段①：server 构造四键随 createCollabServer 迁 collab-server.factory 条目+resolveCollabDebounce 两键同迁——gateway 留 listenCollab 日志 BIND_ADDR×1；模块级 const 历史豁免 COMPACT_INTERVAL_MS 已随 T40 B1 迁 collab-persistence.service 条目；T41 W3a：quota 四值解析 4 键随构造参数迁 collab-doc-registry.service 条目；T41 W3b：SG 域 14 键随域迁 collab-session-guard.service 条目（NODE_ENV 2→1 拆分：resolveCollabDebounce 支留 GW〔B3 再迁 factory〕，resolveAllowedOrigins 支迁 SG）
       COLLAB_BIND_ADDR: 1,
     },
@@ -1592,12 +1595,17 @@ if (isMain()) {
   //  期望值 1→2（vacuumReplace+appendBatch；compact 维持去锁）。CLI
   //  collab-renumber-layer.mjs 离线锁保留（跨进程保险，api 停写前提）。canvas_doc_update_seq 全仓清零
   //  （DROP 迁移 20261024140000——nextval 生产消费=旧单帧 append 已随 T9 退役；CLI 改道 MAX(seq)+1）。
-  //  计法：repo 侧数 `this.lockProject(` 调用点（stripped——锁 SQL 住模板串会被剥，调用的语义锚）；
+  //  计法：C1-0 起 lockProject 单源=collab/project-lock.ts（repo private 抽出改 import——this. 前缀随
+  //  退役删除）：repo 侧数 `lockProject(` 调用点（stripped——锁 SQL 住模板串会被剥，调用的语义锚；
+  //  import 无括号不计数）恰 2；单源定义面 project-lock.ts 侧数 `function lockProject(|function lockScope(`
+  //  双 advisory 定义（lockScope=scope 维键空间——前缀区分，C1-0 建）恰 2。
   //  序列名数 raw（迁移文件不在扫描面，仓内残留=代码/注释均可定位）。
   {
     const repoFile = files.find((p) => relOf(p) === 'apps/api/src/modules/collab/canvas-doc-update.repository.ts');
-    const lockCalls = repoFile ? (byFile.get(repoFile).stripped.match(/this\.lockProject\(/g) ?? []).length : -1;
-    const lockPass = lockCalls === 2;   // T27 收尾 I-3'：vacuumReplace+appendBatch 恢复锁先行（lifecycle inTx 写面——裁定 (a)）；compact 维持清零
+    const lockSrcFile = files.find((p) => relOf(p) === 'apps/api/src/modules/collab/project-lock.ts');
+    const lockCalls = repoFile ? (byFile.get(repoFile).stripped.match(/\blockProject\(/g) ?? []).length : -1;
+    const lockSrcDefs = lockSrcFile ? (byFile.get(lockSrcFile).stripped.match(/function lockProject\(|function lockScope\(/g) ?? []).length : -1;
+    const lockPass = lockCalls === 2 && lockSrcDefs === 2;   // T27 收尾 I-3'：vacuumReplace+appendBatch 恢复锁先行（lifecycle inTx 写面——裁定 (a)）；compact 维持清零；C1-0 抽出后单源定义面=project-lock.ts（+lockScope scope 维）
     const seqDetails = [];
     for (const p of files) {
       const rel = relOf(p);
@@ -1617,7 +1625,7 @@ if (isMain()) {
       `doc 写路径 advisory lock 面（census⑩ T10 锚+T27 收尾 I-3' 恢复——repo lockProject 恰 2 调用点=vacuumReplace〔T12 收口〕+appendBatch〔lifecycle inTx 写面串行化——Controller 裁定 (a)〕+CLI 离线锁保留；compact 维持清零+canvas_doc_update_seq src+CLI 面清零）`,
       lockPass && seqDetails.length === 0 && cliPass,
       [
-        ...(!lockPass ? [`lockProject 调用点=${lockCalls}（期望恰 2=vacuumReplace+appendBatch〔I-3' 恢复〕——compact 须清零）`] : []),
+      ...(!lockPass ? [`lockProject 调用点=${lockCalls}（期望恰 2=vacuumReplace+appendBatch〔I-3' 恢复〕）/单源定义=${lockSrcDefs}（期望恰 2=lockProject+lockScope——C1-0 抽出 project-lock.ts 后 this. 前缀退役）——compact 须清零`] : []),
         ...seqDetails,
         ...(!cliPass ? [`CLI renumber：锁消费点=${cliLock}（期望恰 1）/序列残留=${cliSeq}（期望 0）`] : []),
       ]);

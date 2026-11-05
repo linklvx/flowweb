@@ -119,8 +119,9 @@ export const EXEC_INPUT_STORED_MAX_BYTES = 2_097_152 as const;      // 2MiB=2*10
 export const EXEC_PROMPT_MAX_BYTES = 262_144 as const;              // 256KiB=256*1024——promptText 413 不截断（组执行超限 UI 提示缩小范围）
 export const EXEC_UPSTREAM_MEDIA_IDS_MAX = 200 as const;            // upstreamMediaIds 上限
 export const EXEC_REFERENCED_IMAGE_IDS_MAX = 50 as const;           // referencedImageIds 上限
-/** 终态后输入保留期（清理 worker——生产前置常驻，T29 挂 gate） */
-export const EXEC_INPUT_RETENTION_AFTER_FINAL_DAYS = 30 as const;
+/** 终态后输入保留期（清理 worker——生产前置常驻，T29 挂 gate）。
+ *  C1-0：常量单源迁移 collab/retention.ts（本处再导出保既有 import 面零变化）。 */
+export { EXEC_INPUT_RETENTION_AFTER_FINAL_DAYS } from './retention';
 
 /** 受理 scope 上限（spec §6.1——≤EXEC_MAX_NODES(20)；api EXEC_DEFAULTS.MAX_NODES 同值，T21 改引本单源） */
 export const EXEC_MAX_NODES = 20 as const;

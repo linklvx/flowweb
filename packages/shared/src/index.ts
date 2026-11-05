@@ -159,3 +159,7 @@ export * from './canvas/doc-update-origin';
 // 词表自 DOC_SCHEMA_V4 派生+创建/写 seam+稳定 id 结构操作 diff——canvasIntents/canvasStore 消费）。
 export * from './canvas/array-domains';
 export * from './collab/read-model-census';
+// C1-0（plan Task C1-0——生产就绪收尾批）：retention 常量单源（30d/7d/100k——自 execution-request/
+// runtime-event 原址抽出再导出）+tick 词表（CollabJobCursor.job 值域）——C1 retention worker/C3 audit
+// tick 消费；契约测试=collab/*.spec.ts（常量精确值由既有 runtime-event.spec/execution-request.spec 原位锁）。
+export * from './collab/retention';
