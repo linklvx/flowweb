@@ -44,3 +44,13 @@ C2-3 合成金丝雀（参数化）本地 gate 实跑留证（collab-smoke.mjs -
 【结论】合成金丝雀档在真 PG+真 api/worker 双进程栈上全链绿：专用账号+固定项目+写入上限+定期清理
 （session/marker/游标）+独立 heartbeat 六件参数化全落地；捕获→verify ok→gate OPEN 闭环实证。
 （yjs#438「already imported」警告=脚本头注既有已知噪音，非本批面。）
+
+【六】评审修复复核轮（2026-11-05 质量评审 Important#1 后——stale pin 闭锁误报修）
+  · 快链复跑（Important#1 改动面=链路等待循环加 basePins 基线）：
+    $ node scripts/collab-smoke.mjs --canary
+    {"canary":"OK","writes":3,"staleDeleted":3,"chainMs":6056,"pins":0,"basePins":0,
+     "cursor":"captured","gate":"OPEN",...}   EXIT=0
+  · 裸 --writes 拒档（Minor#3）：`smoke FAIL: --writes 仅 --canary 档可用...`   EXIT=1
+  （stale pin 误报场景本身不实弹复现——修法=净增基线闭锁，生产 cron TTL<1h 免疫窗外的手动重跑窗
+    由 basePins 承载；c23 int 5/5+tsc+eslint 全绿随本批 commit。）
+

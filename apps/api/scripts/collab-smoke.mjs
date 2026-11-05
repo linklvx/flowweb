@@ -83,6 +83,8 @@ async function step0_readyAssert() {
 const CANARY_IDS = { user: 'canary-smoke-svc', team: 'canary-smoke-team', member: 'canary-smoke-m', project: 'canary-smoke-project' };
 const CANARY_MARKER_PREFIX = 'canary-m-';
 const CANARY_CHAIN_TIMEOUT_MS = 300_000;   // canary poller 60s+verify worker 60s 双 tick+余量（默认档）
+// gate 常量单源=dist 导入（CSV/SV 同律——T19 根修先例：字面量在 gate 改名时会静默指向孤儿行族）
+const OPS_GATE_COMPACT = req('../dist/modules/collab/project-governance.service.js').OPS_GATE_COMPACT;
 
 /** 参数解析（soak 脚本 fail-loud 惯例：未知参数即拒——cron 误配零静默）。 */
 function parseArgs(argv) {
@@ -98,6 +100,8 @@ function parseArgs(argv) {
     }
     throw new Error(`未知参数：${a}（支持：--canary --writes N）`);
   }
+  // 评审 Minor#3：--writes 是 --canary 档参数——裸用（基线档）即拒（未知参数同 fail-loud 姿态）
+  if (!out.canary && argv.includes('--writes')) throw new Error('--writes 仅 --canary 档可用（写入上限=合成金丝雀参数——基线档不承载，补 --canary）');
   return out;
 }
 
@@ -118,8 +122,8 @@ async function runCanary(prisma, repo, writes) {
   await prisma.canvasProject.upsert({ where: { id: CANARY_IDS.project }, update: {}, create: { id: CANARY_IDS.project, name: 'canary-smoke 固定金丝雀项目（勿删·排除计费/统计）', teamId: CANARY_IDS.team, origin: 'user' } });
   // OpsGate 项目行+全局哨兵行（ensureProjectGovernance 幂等 SQL 同款——smoke 直建 canvasProject
   // 绕过两创建路径=governance 不达；行缺=canary mismatch freeze UPDATE 0 行静默失败+解冻端点无靶）
-  await prisma.$executeRaw`INSERT INTO "CollabOpsGate" ("gate", "projectId", "state") VALUES ('compact', ${CANARY_IDS.project}, 'OPEN') ON CONFLICT DO NOTHING`;
-  await prisma.$executeRaw`INSERT INTO "CollabOpsGate" ("gate", "projectId", "state") VALUES ('compact', '', 'OPEN') ON CONFLICT DO NOTHING`;
+  await prisma.$executeRaw`INSERT INTO "CollabOpsGate" ("gate", "projectId", "state") VALUES (${OPS_GATE_COMPACT}, ${CANARY_IDS.project}, 'OPEN') ON CONFLICT DO NOTHING`;
+  await prisma.$executeRaw`INSERT INTO "CollabOpsGate" ("gate", "projectId", "state") VALUES (${OPS_GATE_COMPACT}, '', 'OPEN') ON CONFLICT DO NOTHING`;
   // 定期清理①：过期 session（每轮主动清，session TTL 兜底之外）
   await prisma.session.deleteMany({ where: { userId: CANARY_IDS.user, expiresAt: { lt: new Date() } } });
   await prisma.session.create({ data: { id: `canary-smoke-s-${ts}`, userId: CANARY_IDS.user, token, expiresAt: new Date(Date.now() + 3600_000) } });
@@ -150,21 +154,28 @@ async function runCanary(prisma, repo, writes) {
     // 定期清理③/排程参数化：游标重置（固定项目每小时强制 due——nextDueAt≈19.2h 的 SLO 排程之外
     // 的合成档节奏；删除在 flush 后=本轮捕获必然覆盖本轮写入）
     await prisma.collabCanaryCursor.deleteMany({ where: { projectId: CANARY_IDS.project } });
-    // 等真 canary 链路：捕获（pin/游标 captured）→verify 消费（pin 清空）+gate OPEN（未冻结）
+    // 评审 Important#1：残留 pin 基线快照（上轮失败 TTL 15min 窗内的 stale pin）——captured 闭锁的
+    // pins 信号只认**净增**（pins>basePins）：poller NOT EXISTS 排除使 stale 在档期不能捕获，worker
+    // 清掉 stale 的瞬间 pins 归 0——若按裸 pins>0 闭锁，此时 captured∧pins=0∧gate OPEN 会误报 OK
+    // （本轮标记从未被捕获——事件响应手动重跑窗的虚假绿）。净增+游标双信号下 stale 清掉后真捕获
+    // 由游标 lastResult='captured'（本轮已删=只见本轮值）承载。
+    const basePins = await prisma.canaryPin.count({ where: { projectId: CANARY_IDS.project } });
+    // 等真 canary 链路：捕获（净增 pin/游标 captured）→verify 消费（pin 清空）+gate OPEN（未冻结）
     let captured = false; let chain = null;
     const t0 = Date.now();
     for (;;) {
       const [pins, cur, gate] = await Promise.all([
         prisma.canaryPin.count({ where: { projectId: CANARY_IDS.project } }),
         prisma.collabCanaryCursor.findUnique({ where: { projectId: CANARY_IDS.project } }),
-        prisma.collabOpsGate.findUnique({ where: { gate_projectId: { gate: 'compact', projectId: CANARY_IDS.project } } }),
+        prisma.collabOpsGate.findUnique({ where: { gate_projectId: { gate: OPS_GATE_COMPACT, projectId: CANARY_IDS.project } } }),
       ]);
       if (gate?.state === 'FROZEN') throw new Error(`canary verify 判红已冻结（runbook §14.1 处置序）：frozenBy=${gate.frozenBy} reason=${gate.reason}`);
-      if (!captured && (pins > 0 || (cur?.lastResult ?? '').startsWith('captured'))) captured = true;
-      chain = { pins, cursor: cur?.lastResult ?? null, gate: gate?.state ?? null };
+      if (!captured && (pins > basePins || (cur?.lastResult ?? '').startsWith('captured'))) captured = true;
+      chain = { pins, basePins, cursor: cur?.lastResult ?? null, gate: gate?.state ?? null };
       if (captured && pins === 0 && gate?.state === 'OPEN') break;
       if (Date.now() - t0 > CANARY_CHAIN_TIMEOUT_MS) {
-        throw new Error(`canary 链路超时 ${CANARY_CHAIN_TIMEOUT_MS}ms（captured=${captured}）: ${JSON.stringify(chain)}${captured ? '——pin 残留=verify worker 未消费（查 worker 进程/3002）' : '——零捕获=poller 未拾取（查 api serving/CANARY_POLL_INTERVAL_MS/候选批）'}`);
+        const residue = pins > 0 ? `；在档 pin=${pins}（基线 ${basePins}${pins > basePins ? '' : '——含上轮残留'}）=verify worker 未消费（查 worker 进程/3002）` : '';
+        throw new Error(`canary 链路超时 ${CANARY_CHAIN_TIMEOUT_MS}ms（captured=${captured}）: ${JSON.stringify(chain)}${captured || pins > 0 ? `——pin 残留=verify worker 未消费${residue}` : '——零捕获=poller 未拾取（查 api serving/CANARY_POLL_INTERVAL_MS/候选批）'}`);
       }
       await new Promise((r) => setTimeout(r, 3000));
     }

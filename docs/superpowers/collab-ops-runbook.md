@@ -654,7 +654,7 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
      -H 'content-type: application/json' -H 'cookie: flowweb.session_token=<ADMIN 会话>' \
      -d '{"projectId":"<pid>","remark":"语义复核=删除帧丢失；修复 A 换代重建完成（Sentry <id>）"}'
    ```
-   鉴权=admin 域惯例（session+ADMIN 角色——全局 AuthGuard+AdminGuard）；幂等（已 OPEN→`{unfrozen:false}` 零审计行）；`projectId=''`（全局哨兵行 break-glass 形态）同端点。
+   鉴权=admin 域惯例（session+ADMIN 角色——全局 AuthGuard+AdminGuard）；幂等（已 OPEN→`{unfrozen:false,afterState:'OPEN'}` 零审计行；`afterState:'MISSING'`=projectId 拼写错分型）；`projectId=''`（全局哨兵行 break-glass 形态）同端点——**'' 形态 remark 必填**（break-glass 凭证注记，DTO 条件校验承载）。
 5. **强制维护窗判据**（解冻先于修复完成的唯一合法场景=维护窗本身即修复手段——gate FROZEN 会挡 maintenance run〔gate-frozen abort〕）：换代重建需解冻进维护窗前，三件齐备缺一不得解冻：①mismatch 证据留档（Sentry+日志）；②修复锚已取（pg_dump 在档）；③用户公告/低峰窗。齐备→解冻 ack（remark 注记强制维护窗）→T27 维护序（`POST /api/collab/maintenance/:projectId/start`——双凭据见 §14「维护端点调用形态」）。
 
 **shadow→实弹切换序**（`CANARY_FREEZE_ENABLED`）：部署初窗 shadow（env 显式 `'false'`——只 Sentry 告警+`collab_canary_freeze_total{reason="freeze-suppressed"}` 计数不冻结）→观察窗判据：≥7 天零 mismatch 假信号（freeze-suppressed 零增量∧Sentry 零 canary-replay-mismatch）或全部 mismatch 经步 2 复核确认为真数据丢失→移除 env 键（不设=生产默认实弹 true）+`pm2 startOrReload ... --update-env` 留痕→回退通道=误冻率异常显式置回 `'false'`（运维裁定+登记，非静默）。

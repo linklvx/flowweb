@@ -107,7 +107,9 @@ maybe('C2-3 解冻 ack 端点（POST /api/admin/collab/ops-gate/unfreeze）', ()
     await prisma.$executeRaw`
       UPDATE "CollabOpsGate" SET "state" = 'OPEN', "version" = 0, "frozenAt" = NULL, "frozenBy" = NULL, "unfrozenAt" = NULL, "reason" = NULL
       WHERE "gate" = ${OPS_GATE_COMPACT} AND "projectId" = ''`;
-    await prisma.auditLog.deleteMany({ where: { action: 'collab_ops_gate_unfreeze' } });
+    // 评审 Minor#5：审计擦除收紧 targetId 域（本 spec 两靶=PID+''——action 全局擦会删测试窗内
+    // 手动 operator 的 ack 行）
+    await prisma.auditLog.deleteMany({ where: { action: 'collab_ops_gate_unfreeze', targetId: { in: [PID, ''] } } });
     await prisma.$disconnect();
   });
 
@@ -130,7 +132,7 @@ maybe('C2-3 解冻 ack 端点（POST /api/admin/collab/ops-gate/unfreeze）', ()
 
     const r = await post({ projectId: PID, remark: 'c23-int：语义复核完毕，修复 B（假信号）归档' }, `flowweb.session_token=${ADMIN_TOKEN}`);
     expect(r.status).toBe(200);
-    expect(r.json).toEqual({ unfrozen: true, version: String((before?.version ?? 0n) + 1n) });
+    expect(r.json).toEqual({ unfrozen: true, version: String((before?.version ?? 0n) + 1n), afterState: 'OPEN' });
 
     const after = await gateState(PID);
     expect(after?.state).toBe('OPEN');
@@ -146,11 +148,16 @@ maybe('C2-3 解冻 ack 端点（POST /api/admin/collab/ops-gate/unfreeze）', ()
     expect((row.beforeValue as { state?: string }).state).toBe('FROZEN');
     expect((row.afterValue as { state?: string }).state).toBe('OPEN');
 
-    // 幂等：已 OPEN→{unfrozen:false}+审计行数不增
+    // 幂等：已 OPEN→{unfrozen:false}+afterState=OPEN（vs 拼写错=MISSING 分型）+审计行数不增
     const r2 = await post({ projectId: PID }, `flowweb.session_token=${ADMIN_TOKEN}`);
     expect(r2.status).toBe(200);
-    expect(r2.json).toEqual({ unfrozen: false, version: null });
+    expect(r2.json).toEqual({ unfrozen: false, version: null, afterState: 'OPEN' });
     expect(await auditCount(PID)).toBe(auditsBefore + 1);
+
+    // 评审 Minor#6：unfrozen:false 分型——拼写错 projectId→MISSING（行不在档）
+    const r3 = await post({ projectId: 'c23-no-such-project' }, `flowweb.session_token=${ADMIN_TOKEN}`);
+    expect(r3.status).toBe(200);
+    expect(r3.json).toEqual({ unfrozen: false, version: null, afterState: 'MISSING' });
   });
 
   it('全局哨兵行形态：projectId=\'\'（body 承载——path param 空段不可表达）同端点解冻+审计落痕', async () => {
@@ -177,9 +184,16 @@ maybe('C2-3 解冻 ack 端点（POST /api/admin/collab/ops-gate/unfreeze）', ()
     const badType = new UnfreezeOpsGateDto();
     badType.projectId = 123 as unknown as string;
     await expect(validateOrReject(badType)).rejects.toThrow();   // 非字符串
+    // 评审 Minor#6：''（break-glass）形态 remark 必填（@ValidateIf 条件组——缺 remark 即红）
+    const badNoRemark = new UnfreezeOpsGateDto();
+    badNoRemark.projectId = '';
+    await expect(validateOrReject(badNoRemark)).rejects.toThrow();   // '' 缺 remark
     const ok = new UnfreezeOpsGateDto();
     ok.projectId = '';
     ok.remark = 'c23-int：全局哨兵行';
     await expect(validateOrReject(ok)).resolves.toBeUndefined();
+    const okOptional = new UnfreezeOpsGateDto();
+    okOptional.projectId = PID;   // 非 '' 形态 remark 可缺（ValidateIf=false 整组跳过）
+    await expect(validateOrReject(okOptional)).resolves.toBeUndefined();
   });
 });
