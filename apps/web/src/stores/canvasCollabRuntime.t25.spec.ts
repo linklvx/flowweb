@@ -183,7 +183,7 @@ describe('T25 拒帧恢复：4411/4412 resync-full（同代 fresh doc）', () =>
     expect(d1.getMap('nodes').size).toBe(1);
 
     p.emit('close', { event: { code: 4411, reason: 'frame-malformed' } });
-    await vi.advanceTimersByTimeAsync(50);
+    await pumpUntil(() => lastInstance() !== p, 'resync 重建未达');   // 泵至链完成（原 50ms 固定窗=慢机假红源）
 
     // 绿形断言①：恢复=新 provider 实例 + fresh doc（旧 doc 被拒增量结构性不随重连上行）
     const p2 = lastInstance();
@@ -201,7 +201,7 @@ describe('T25 拒帧恢复：4411/4412 resync-full（同代 fresh doc）', () =>
     const d1 = p.cfg.document as Y.Doc;
     d1.getMap('nodes').set('n-pending', seedNode('pending'));
     p.emit('close', { event: { code: 4412, reason: 'resync-required' } });
-    await vi.advanceTimersByTimeAsync(50);
+    await pumpUntil(() => lastInstance() !== p, 'resync 重建未达');
     const p2 = lastInstance();
     expect(p2).not.toBe(p);
     expect(p2.cfg.document).not.toBe(d1);
@@ -212,7 +212,7 @@ describe('T25 拒帧恢复：4411/4412 resync-full（同代 fresh doc）', () =>
   it('synced 到达=deny 计数清零（sync-ok——1-2 次瞬态重置重新起算）', async () => {
     const p = await driveToSynced();
     p.emit('close', { event: { code: 4411, reason: 'frame-malformed' } });
-    await vi.advanceTimersByTimeAsync(50);
+    await pumpUntil(() => lastInstance() !== p, 'resync 重建未达（首次）');
     const p2 = lastInstance();
     p2.emit('status', { status: 'connected' });
     p2.isAuthenticated = true;
@@ -221,10 +221,10 @@ describe('T25 拒帧恢复：4411/4412 resync-full（同代 fresh doc）', () =>
     p2.emit('synced', {});
     // 再两次 4411（共 3 次但首次已清零——计数=2 < 3 不进 recovery 模式）
     p2.emit('close', { event: { code: 4411, reason: 'frame-malformed' } });
-    await vi.advanceTimersByTimeAsync(50);
+    await pumpUntil(() => lastInstance() !== p2, 'resync 重建未达（第二次）');
     const p3 = lastInstance();
     p3.emit('close', { event: { code: 4411, reason: 'frame-malformed' } });
-    await vi.advanceTimersByTimeAsync(50);
+    await pumpUntil(() => lastInstance() !== p3, 'resync 重建未达（第三次）');
     expect(useCanvasStore.getState().recoveryPending).toBeNull();
   });
 });
@@ -520,7 +520,7 @@ describe('T25b M-R2：history-bump 接收端（镜像腿）', () => {
     // sibling 编辑在 doc（窄双故障窗：bump 通告到达时本 tab 尚有未上行内容）
     (p.cfg.document as Y.Doc).getMap('nodes').set('n-sib', seedNode('sib'));
     (recv.onmessage as (ev: { data: unknown }) => void)({ data: { type: 'collab-recovery', pid: 'p1', kind: 'history-bump' } });
-    await vi.advanceTimersByTimeAsync(50);
+    await pumpUntil(() => exportGate.calls.length > callsBefore, 'salvage 导出未达（镜像腿异步链）');
     expect(loadPersistedHistoryId()).toBeNull();                                        // 自清 h（I-1+I-2 既有）
     expect(vi.mocked(purgePidCaches)).toHaveBeenCalledWith('u1', 'p1');                  // IDB 族自清（既有）
     expect(exportGate.calls.length).toBeGreaterThan(callsBefore);   // ★修前：接收端零导出（红）——M-R2 sibling salvage
@@ -545,12 +545,12 @@ describe('T25 收口批 M-2：恢复三入口互斥（reload timer 清+initColla
     p.emit('stateless', { payload: docStatus(1, 3) });
     await vi.advanceTimersByTimeAsync(0);
     p.emit('stateless', { payload: docStatus(2, 1) });   // 下跳→server-restored 进入
-    await vi.advanceTimersByTimeAsync(50);
+    await pumpUntil(() => useCanvasStore.getState().recoveryPending?.kind === 'server-restored', 'server-restored 电平未达');
     expect(useCanvasStore.getState().recoveryPending?.kind).toBe('server-restored');
     // 竞态形态：同会话 4411 到达（resyncFull→initCollab 重建）——server-restored 态不得被会话复位擦除
     const latest = lastInstance();
     latest.emit('close', { event: { code: 4411, reason: 'frame-malformed' } });
-    await vi.advanceTimersByTimeAsync(150);
+    await pumpUntil(() => lastInstance() !== latest, 'resync 重建未达（竞态窗）');
     expect(useCanvasStore.getState().recoveryPending?.kind).toBe('server-restored');   // 修前：reset null（红）
   });
 });
