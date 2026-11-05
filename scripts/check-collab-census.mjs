@@ -1162,6 +1162,9 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-compact.poller.ts': {   // Y1c T11：worker compact 轮询周期键（COMPACT_POLL_INTERVAL_MS——COMPACT_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、Number()||默认缺省档、消费面=worker 轮询周期非部署档位）
       COMPACT_POLL_INTERVAL_MS: 1,
     },
+    'apps/api/src/modules/collab/retention.sweeper.poller.ts': {   // C1-1（生产就绪收尾批）：worker retention sweeper 轮询周期键（RETENTION_SWEEP_INTERVAL_MS——COMPACT_POLL_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、Number()||默认缺省档、消费面=worker 轮询周期非部署档位）
+      RETENTION_SWEEP_INTERVAL_MS: 1,
+    },
     'apps/api/src/modules/collab/project-lock.ts': {   // C1-0 写锁门禁激活判据（函数内 writeGateActive 惰性——测试态判定非部署档位：VITEST=vitest 进程标记、NODE_ENV=test 档；消费面=PrismaService 测试态自包裹+门禁断言直通判别）
       VITEST: 1, NODE_ENV: 1,
     },

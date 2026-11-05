@@ -156,6 +156,10 @@ export const envSchema = z.object({
   COLLAB_DEBOUNCE: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_TIMEOUT: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COMPACT_INTERVAL_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
+  // C1-1（生产就绪收尾批）：retention sweeper worker 轮询周期——zod 只验形态不写 default（默认值落
+  // 使用点 retention.sweeper.poller RETENTION_SWEEP_INTERVAL_MS=60_000——防双源 P3 同款；COMPACT_POLL_
+  // INTERVAL_MS 同族：stuck/过期面分钟级收敛即达，非部署档位）。
+  RETENTION_SWEEP_INTERVAL_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_SWEEP_ENABLED: z.preprocess(blankToUnset, z.enum(['true', 'false']).optional()),
   COLLAB_SPOOL_DIR: z.preprocess(blankToUnset, z.string().min(1).optional()),
   COLLAB_SPOOL_CAPACITY_BYTES: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),

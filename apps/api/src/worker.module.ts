@@ -95,6 +95,12 @@ import { EmitPort, WorkerEmitPort } from './modules/gateway/emit.port';
 //    Http 面，census ⑰ 不破。API 进程不注册——compact 触发面在 api 侧经 maybeCompact 原位承接） ──
 import { CanvasDocUpdateRepository } from './modules/collab/canvas-doc-update.repository';
 import { CollabCompactPoller } from './modules/collab/collab-compact.poller';
+// ── C1-1（生产就绪收尾批）：retention sweeper DB poller——worker 三扫面（request claim+void/input
+//    批删/event 批删）+stuck 计数，advisory xact 单飞一个事务内；api 侧 timer/武装已移除（api 进程
+//    零注册——census ⑰ 闭包纯度=prisma/shared/prom-client/team-credit，零 controller/Http 面） ──
+import { ExecutionRequestRetentionService } from './modules/execution/execution-request.retention.service';
+import { RuntimeFeedRetentionService } from './modules/collab/runtime-feed.retention.service';
+import { RetentionSweeperPoller } from './modules/collab/retention.sweeper.poller';
 
 const env = validateEnv();
 
@@ -185,6 +191,12 @@ const env = validateEnv();
     // 授权=行锁+generation/pgSeq CAS 不拿租约——worker 进程零 CollabLease 依赖） ──
     CanvasDocUpdateRepository,
     CollabCompactPoller,
+    // ── C1-1（生产就绪收尾批）：retention sweeper 面（DB poller——request claim+void ≤50/tick
+    // 多 tick 排空/input+event 批删 loop-to-empty/stuck 计数，advisory xact 单飞四扫面一事务；
+    // api 侧 RuntimeFeedService timer 已移除=worker 唯一触发面） ──
+    ExecutionRequestRetentionService,
+    RuntimeFeedRetentionService,
+    RetentionSweeperPoller,
     // ── recharge 域（PAYMENT_PROVIDER 工厂=RechargeModule 同款 verbatim——close-expired/active-query 消费面） ──
     {
       provide: 'PAYMENT_PROVIDER',
