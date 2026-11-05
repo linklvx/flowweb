@@ -12,6 +12,7 @@ import { fillDoc, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { toDocLike } from '../collab/doc-like.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExecutionRequestService } from './execution-request.service';
+import { ExecutionRequestRetentionService } from './execution-request.retention.service';
 import { ValidationService } from './validation.service';
 import { TopologyService } from './topology.service';
 import { TeamCreditService } from '../team/team-credit.service';
@@ -29,14 +30,18 @@ const REQ = (s: string) => `int-t21-req-${s}`;
 
 // 装置：无 actor（doc 非常驻）→ 受理走 PG 前缀重建档（frozenDocSeq=hydration pgSeq——MVCC 一致前缀）
 const ledger = new CreditLedgerService(prisma as unknown as PrismaService);
+const credit = new TeamCreditService(prisma as unknown as PrismaService, new CreditLedgerService(prisma as unknown as PrismaService));
 const svc = new ExecutionRequestService(
   prisma as unknown as PrismaService,
   new ValidationService(prisma as unknown as PrismaService, new PricingResolverService(prisma as unknown as PrismaService)),
   new TopologyService(),
-  new TeamCreditService(prisma as unknown as PrismaService, new CreditLedgerService(prisma as unknown as PrismaService)),
+  credit,
   null as never,   // actor 缺席=PG 重建档（G4-⑥ 临界区在 actor 单元面锁——T21 受理缝 null 容忍）
   new CanvasDocUpdateRepository(prisma as unknown as PrismaService),
 );
+// C1-1：sweepExpired 抽共享 ExecutionRequestRetentionService（原 api 侧方法死代码删除——红⑧ 迁新单源）
+const retention = new ExecutionRequestRetentionService(prisma as unknown as PrismaService, credit);
+const sweepExpired = () => prisma.$transaction((tx) => retention.sweepExpiredInTx(tx));
 
 let TID = '';
 /** 定价可解析的节点 data（resolveExact 精确键：modelId+resolutionId+durationId 随 rule 形态） */
@@ -285,8 +290,8 @@ const admit = (s: string, nodeIds: string[], docSeq = 0n) =>
       where: { projectId_requestId: { projectId: PID, requestId: REQ('c8') } },
       data: { expiresAt: new Date(Date.now() - 1) },   // 人工拨过期
     });
-    const swept = await svc.sweepExpired();
-    expect(swept).toBeGreaterThanOrEqual(1);
+    const swept = await sweepExpired();
+    expect(swept.voided).toBeGreaterThanOrEqual(1);   // C1-1：sweepExpired 迁共享 retention 服务（返回 {claimed, voided}）
     const row = await prisma.executionRequest.findUnique({ where: { projectId_requestId: { projectId: PID, requestId: REQ('c8') } } });
     expect(row?.state).toBe('VOIDED');
     expect(row?.reservedCredit).toBe(0);

@@ -16,6 +16,7 @@ import { fillDoc, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { toDocLike } from '../collab/doc-like.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExecutionRequestService } from './execution-request.service';
+import { ExecutionRequestRetentionService } from './execution-request.retention.service';
 import { ExecutionService } from './execution.service';
 import { ValidationService } from './validation.service';
 import { TopologyService } from './topology.service';
@@ -41,6 +42,9 @@ const UID = `int-t21c1-owner-${Date.now()}`;
 const REQ = (s: string) => `c1x-${s}`;   // ≥8 字符（requestId 长度界 8-128）
 
 const validation = new ValidationService(prisma as unknown as PrismaService, new PricingResolverService(prisma as unknown as PrismaService));
+const requestRetention = new ExecutionRequestRetentionService(prisma as unknown as PrismaService, teamCredit);
+// C1-1：sweepExpired 抽共享 ExecutionRequestRetentionService（poller tick 事务形态——本 spec 消费同单源）
+const sweepExpired = () => prisma.$transaction((tx) => requestRetention.sweepExpiredInTx(tx));
 const execRequests = new ExecutionRequestService(
   prisma as unknown as PrismaService, validation, new TopologyService(), teamCredit,
   null as never, new CanvasDocUpdateRepository(prisma as unknown as PrismaService),
@@ -259,8 +263,8 @@ async function balanceCredits(): Promise<number> {
     expect(a.ok).toBe(true);
     if (!a.ok) return;
     await prisma.executionRequest.update({ where: { id: a.id }, data: { expiresAt: new Date(Date.now() - 1) } });
-    const swept = await execRequests.sweepExpired();
-    expect(swept).toBeGreaterThanOrEqual(1);
+    const swept = await sweepExpired();
+    expect(swept.voided).toBeGreaterThanOrEqual(1);
     fakeApiCaller.callTextGen.mockClear();
     await expect(execService.execute(PID, undefined, UID, undefined, undefined, undefined, undefined, undefined, REQ('lateexec')))
       .rejects.toThrow(/已过期作废|EXEC_REQUEST_VOIDED/);
@@ -276,16 +280,16 @@ async function balanceCredits(): Promise<number> {
     await prisma.executionRequest.updateMany({ where: { id: a.id, state: 'ADMITTED' }, data: { state: 'EXECUTING' } });
     // sweeper 选中（拨过期）→void CAS 0 行让位——资金不动
     await prisma.executionRequest.update({ where: { id: a.id }, data: { expiresAt: new Date(Date.now() - 1) } });
-    const swept = await execRequests.sweepExpired();
+    const swept = await sweepExpired();
     // 红（收口前）：void 无 CAS 抢占——EXECUTING 行照 void（释放执行中资金）
     const row = await prisma.executionRequest.findUnique({ where: { id: a.id } });
     expect(row?.state).toBe('EXECUTING');               // 让位（终态不变）
     expect(row?.reservedCredit).toBe(a.reservedCredit); // 资金不动
     expect(await balanceCredits()).toBe(before);   // before=受理后（预留已扣）——让位语义=资金纹丝不动
-    expect(swept).toBe(0);
+    expect(swept.voided).toBe(0);
     // 清理：让位行手工回落 ADMITTED→sweep 释放（后续配额用例的月度占用归零）
     await prisma.executionRequest.updateMany({ where: { id: a.id }, data: { state: 'ADMITTED', expiresAt: new Date(Date.now() - 1) } });
-    await execRequests.sweepExpired();
+    await sweepExpired();
   });
 
   it('I-3 配额：execreq 在飞预留计入月度——超 monthlyQuota 受理 4xx（QUOTA_EXCEEDED）', async () => {
@@ -315,7 +319,7 @@ async function balanceCredits(): Promise<number> {
       // 清理：还原配额+a1 拨过期 sweep（月度占用/余额归位——后续用例零残留）
       await prisma.teamMember.update({ where: { teamId_userId: { teamId: TID, userId: UID } }, data: { monthlyQuota: 10_000 } });
       await prisma.executionRequest.updateMany({ where: { projectId: PID, state: 'ADMITTED' }, data: { expiresAt: new Date(Date.now() - 1) } });
-      await execRequests.sweepExpired();
+      await sweepExpired();
     }
   });
 

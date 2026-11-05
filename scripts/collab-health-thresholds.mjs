@@ -122,6 +122,16 @@ export const THRESHOLDS = {
     level: 'P1', kind: 'gauge-max', value: 100_000,
     note: 'Z125-5 预警（观测项非机制项——不强制 compact）：常驻后 store 频次结构性变高，canvasDocUpdate 行数突破 60s 稳态可预警；初始 10 万行〔待校准——行数门归 Y1c-3 再裁〕',
   },
+
+  // ===== C1（生产就绪收尾批·retention worker——红② stuck/红⑤ backlog 观测面；source=worker 3002） =====
+  retention_stuck_requests_total: {
+    level: 'P1', kind: 'counter-delta', delta: 0, rounds: 2,
+    note: 'C1 红②：stuck 请求增量（state=ADMITTED 过期未 claim/EXECUTING 过 GenerationIntent MIN(deadlineAt)——告警不删，资金在飞收口链滞留信号；连续 2 轮（10min）排除 claim 批内瞬态。stuck 口径=request 侧 expiresAt 15min/deadlineAt 非 input 侧 30d。〔待校准〕',
+  },
+  retention_backlog_rows: {
+    level: 'P1', kind: 'gauge-max', value: 5_000,
+    note: 'C1 红⑤：request 面积压行数（过期未执行待 void——claim ≤50/tick 多 tick 排空；1000 行积压 ≈20 tick ≈20min 排空，持续 >5000=排空链异常量级或 void 路径失败。〔待校准〕）',
+  },
 };
 
 /** Y0c T29-II（Z130③/Z116/R6a）：worker 3002 端点族阈值——「巡检即采集面」（Z134 无 Prometheus

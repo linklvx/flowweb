@@ -814,7 +814,13 @@ export class ExecutionService {
     }
     const remaining = await this.prisma.executionNodePlan.count({ where: { requestId: frozen.request.id, status: { in: [PLAN_STATE.PENDING, PLAN_STATE.EXECUTING] } } });
     if (remaining === 0) {
-      await this.prisma.executionRequest.updateMany({ where: { id: frozen.request.id }, data: { state: errors.length === 0 ? REQ_STATE.COMPLETED : REQ_STATE.FAILED } });
+      // C1-1 红①：终态迁移走 transitionRequestTerminal（同事务重写 ExecutionInput.expiresAt=now+30d
+      // ——COMPLETED/FAILED 收口唯一终态迁移点；VOIDED 档归 team-credit voidForExecutionRequestInTx）。
+      // cast=REQ_STATE 键值绑定形态收敛（值域=ExecutionRequestState 宽型——本处三目域恰 COMPLETED|FAILED）。
+      await this.executionRequests.transitionRequestTerminal(
+        frozen.request.id,
+        (errors.length === 0 ? REQ_STATE.COMPLETED : REQ_STATE.FAILED) as 'COMPLETED' | 'FAILED',
+      );
     }
     return { success: errors.length === 0, errors, results, totalCost: totalDeducted };
   }

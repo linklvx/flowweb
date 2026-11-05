@@ -532,19 +532,23 @@ export class ExecutionRequestService {
     };
   }
 
-  // ═══ sweeper：未 claim 过期请求逐 item void（spec §6.1 资金预留续章）════════════════════
+  // ═══ 终态迁移（C1-1 红① 终态重写口径——spec §6.1）══════════════════════════════════════
 
-  /** 过期未执行（state=ADMITTED∧expiresAt<now）→ 逐 item void+state=VOIDED（幂等——终态不再命中）。 */
-  async sweepExpired(now: Date = new Date()): Promise<number> {
-    const expired = await this.prisma.executionRequest.findMany({
-      where: { state: REQ_STATE.ADMITTED, expiresAt: { lt: now } }, select: { id: true }, take: 100,
-    });
-    let swept = 0;
-    for (const e of expired) {
-      const ok = await this.teamCredit.voidForExecutionRequest(e.id, 'expired-unclaimed');
-      if (ok) swept += 1;
-    }
-    return swept;
+  /** ExecutionRequest 终态迁移（COMPLETED|FAILED）：状态 CAS+**同事务 UPDATE ExecutionInput
+   *  expiresAt=now+30d**（:449 受理写=now+30d 的语义修正——长任务受理后久未终态时受理窗早已过期，
+   *  终态即删缺口根除：expiresAt 在终态迁移点重写 ⇒ 删除恒在终态后 30d，与任务时长无关；红①夹具=
+   *  受理 31 天后才终态 → 终态后 30d 才删）。30d 单源=shared collab/retention.ts
+   *  （EXEC_INPUT_RETENTION_AFTER_FINAL_DAYS）；对拍点=team-credit voidForExecutionRequestInTx
+   *  （VOIDED 档同事务同款重写）。ExecutionService :817 终态收口唯一消费面（remaining===0 分支）。 */
+  async transitionRequestTerminal(requestId: string, state: 'COMPLETED' | 'FAILED'): Promise<void> {
+    await this.prisma.$transaction([
+      this.prisma.executionRequest.updateMany({ where: { id: requestId }, data: { state } }),
+      // 时钟纪律：now() 按 UTC 墙钟折算（Prisma 写入的 timestamp 列=UTC 墙钟——裸 now() 受会话时区
+      // 〔Asia/Shanghai +08〕影响保留窗平移 8h；对拍点=team-credit voidForExecutionRequestInTx 同款）
+      this.prisma.$executeRaw`
+        UPDATE "ExecutionInput" SET "expiresAt" = (now() AT TIME ZONE 'UTC') + (${EXEC_INPUT_RETENTION_AFTER_FINAL_DAYS} * interval '1 day')
+        WHERE "requestId" = ${requestId}::text`,
+    ]);
   }
 }
 

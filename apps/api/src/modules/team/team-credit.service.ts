@@ -2,6 +2,7 @@ import { Injectable, Inject, ForbiddenException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreditLedgerService } from './credit-ledger.service';
+import { EXEC_INPUT_RETENTION_AFTER_FINAL_DAYS } from '@flowweb/shared';
 import type { ExecutionNodePlanStatus, ExecutionRequestState } from '@flowweb/shared';
 
 /** Y1c T23（T21 移交⑦收口——附言④）：ExecutionRequest/ExecutionNodePlan 状态值域单源引用
@@ -228,41 +229,51 @@ export class TeamCreditService {
     return rows.map((r) => ({ id: r.id, creditType: r.creditType as 'subscription' | 'regular', amount: Math.abs(r.balanceDelta) }));
   }
 
-  /** 逐 item void（sweeper 过期/受理失败回滚/执行失败）：release(+c,-c) 逆转 reserve；幂等
-   *  （reservedCredit=0 的 item 不再逆转）；全部 item 清零后父行 state=VOIDED。 */
-  async voidForExecutionRequest(executionRequestId: string, reason: string): Promise<boolean> {
-    return this.prisma.$transaction(async (raw) => {
-      const ltx = await this.ledger.ledgerTx(raw);
-      // I1（T21 收口）：CAS 抢占——只对 ADMITTED 行生效；0 行=claim 抢先（EXECUTING）或已终态
-      // →让位 return false（不释放执行中资金——交错(b)：sweeper 选中后 claim 抢先=void 让位）。
-      const claimed = await ltx.executionRequest.updateMany({
-        where: { id: executionRequestId, state: REQ_STATE.ADMITTED },
-        data: { state: REQ_STATE.VOIDED, reservedCredit: 0 },
-      });
-      if (claimed.count === 0) return false;
-      const req = await ltx.executionRequest.findUniqueOrThrow({ where: { id: executionRequestId } });
-      await this.ledger.lockBalance(ltx, req.teamId);   // 锁序①：先于 items 复读（I1 锁内复读）
-      const items = await ltx.executionNodePlan.findMany({ where: { requestId: executionRequestId } });
-      void reason;   // 失败原因归调用方审计/日志面（本表无 error 列）
-      for (const item of items) {
-        if (item.reservedCredit <= 0) continue;
-        const reserveRows = await this.execreqReserveRowsForUpdate(ltx, req.teamId, `execreq:${executionRequestId}#${item.nodeId}`);
-        for (const r of reserveRows) {
-          await this.ledger.mutate(ltx, {
-            teamId: req.teamId, operatorUserId: req.userId, type: 'release', creditType: r.creditType,
-            balanceDelta: r.amount, frozenDelta: -r.amount,
-            referenceId: `execreq:${executionRequestId}#${item.nodeId}`,
-            reversesId: r.id,   // release 真值表：(+c,−c) 且 reversesId 指向 exact reserve 行（Z6 配对）
-            idempotencyKey: `execreq-release:${executionRequestId}#${item.nodeId}:${r.id}`,
-          });
-        }
-        await ltx.executionNodePlan.updateMany({
-          where: { requestId: executionRequestId, nodeId: item.nodeId, reservedCredit: item.reservedCredit },   // I1：item CAS 谓词
-          data: { reservedCredit: 0, status: PLAN_STATE.VOIDED },
+  /** 逐 item void（sweeper 过期）：release(+c,-c) 逆转 reserve；幂等（reservedCredit=0 的 item 不再逆转）；
+   *  全部 item 清零后父行 state=VOIDED。C1-1 InTx 变体（循 :212 `tx?run(tx):$transaction` 先例——
+   *  原 api 侧自开事务形态随 ExecutionRequestService.sweepExpired 死代码根修删除：sweepExpired 抽共享
+   *  ExecutionRequestRetentionService〔worker 按模块边界注入〕后本方法零生产调用方——InTx 为
+   *  poller tick 事务内唯一消费面）。CAS 抢占失败=让位 return false（不释放执行中资金）。
+   *  C1-1 红① 终态重写口径：CAS 命中（ADMITTED→VOIDED 终态迁移）同事务 UPDATE ExecutionInput
+   *  expiresAt=now+30d（:449 受理写语义修正——长任务 VOIDED 终态不即删；30d 单源=shared
+   *  collab/retention.ts；对拍点=execution-request.service transitionRequestTerminal〔COMPLETED/FAILED 档〕）。 */
+  async voidForExecutionRequestInTx(rawTx: Prisma.TransactionClient, executionRequestId: string, reason: string): Promise<boolean> {
+    const ltx = await this.ledger.ledgerTx(rawTx);   // Z89：首句取通行证（lock_timeout+app.ledger_tx 双 SET LOCAL——重执行无害）
+    // I1（T21 收口）：CAS 抢占——只对 ADMITTED 行生效；0 行=claim 抢先（EXECUTING）或已终态
+    // →让位 return false（不释放执行中资金——交错(b)：sweeper 选中后 claim 抢先=void 让位）。
+    const claimed = await ltx.executionRequest.updateMany({
+      where: { id: executionRequestId, state: REQ_STATE.ADMITTED },
+      data: { state: REQ_STATE.VOIDED, reservedCredit: 0 },
+    });
+    if (claimed.count === 0) return false;
+    // C1-1 红①：终态迁移同事务重写 input 保留窗（expiresAt=now+30d——删除恒在终态后 30d）。
+    // 时钟纪律：now() 按 UTC 墙钟折算（AT TIME ZONE 'UTC'）——Prisma 写入的 timestamp 列=UTC 墙钟，
+    // 裸 now() 受会话时区（Asia/Shanghai +08）影响会使保留窗平移 8h（对拍点=transitionRequestTerminal 同款）。
+    await ltx.$executeRaw`
+      UPDATE "ExecutionInput" SET "expiresAt" = (now() AT TIME ZONE 'UTC') + (${EXEC_INPUT_RETENTION_AFTER_FINAL_DAYS} * interval '1 day')
+      WHERE "requestId" = ${executionRequestId}::text`;
+    const req = await ltx.executionRequest.findUniqueOrThrow({ where: { id: executionRequestId } });
+    await this.ledger.lockBalance(ltx, req.teamId);   // 锁序①：先于 items 复读（I1 锁内复读）
+    const items = await ltx.executionNodePlan.findMany({ where: { requestId: executionRequestId } });
+    void reason;   // 失败原因归调用方审计/日志面（本表无 error 列）
+    for (const item of items) {
+      if (item.reservedCredit <= 0) continue;
+      const reserveRows = await this.execreqReserveRowsForUpdate(ltx, req.teamId, `execreq:${executionRequestId}#${item.nodeId}`);
+      for (const r of reserveRows) {
+        await this.ledger.mutate(ltx, {
+          teamId: req.teamId, operatorUserId: req.userId, type: 'release', creditType: r.creditType,
+          balanceDelta: r.amount, frozenDelta: -r.amount,
+          referenceId: `execreq:${executionRequestId}#${item.nodeId}`,
+          reversesId: r.id,   // release 真值表：(+c,−c) 且 reversesId 指向 exact reserve 行（Z6 配对）
+          idempotencyKey: `execreq-release:${executionRequestId}#${item.nodeId}:${r.id}`,
         });
       }
-      return true;
-    }, { timeout: 15_000, maxWait: 5_000 });
+      await ltx.executionNodePlan.updateMany({
+        where: { requestId: executionRequestId, nodeId: item.nodeId, reservedCredit: item.reservedCredit },   // I1：item CAS 谓词
+        data: { reservedCredit: 0, status: PLAN_STATE.VOIDED },
+      });
+    }
+    return true;
   }
 
   /** 逐 item void（执行失败单节点）：release 逆转该 item 的 reserve 行（幂等——reservedCredit=0
