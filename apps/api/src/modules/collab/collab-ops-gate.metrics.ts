@@ -15,7 +15,7 @@ import { Counter, Gauge, register } from 'prom-client';
  *  ①授权读（非事务快速判定）+③发布事务 FOR SHARE 两行校验（正确性承载）+vacuumReplace 前置检查。 */
 export const compactGateSkipTotal = new Counter({
   name: 'compact_gate_skip_total',
-  help: 'C2-1 OpsGate compact 门拒计数（result=frozen-global 全局行 FROZEN/frozen-project 项目行 FROZEN/fail-closed 两行校验缺行或闭集外值——compact ①授权读+③发布事务 FOR SHARE+vacuumReplace 前置三面；api+worker 双进程触发面；冻结处置序 runbook §14 归 C2-3）',
+  help: 'C2-1 OpsGate compact 门拒计数（result=frozen-global 全局行 FROZEN/frozen-project 项目行 FROZEN/fail-closed 两行校验缺行或闭集外值——compact ①授权读+③发布事务 FOR SHARE+vacuumReplace 前置三面；api+worker 双进程触发面；冻结处置序 runbook §14 归 C2-3。注：fail-closed 档混合「governance 接线洞〔census ㊱ 静态执法创建路径〕」与「哨兵篡改/回归/查询异常〔含基础设施错——授权读 catch 折档不 throw〕」两面——持续增长须查 CollabOpsGate 行集与哨兵在位，THRESHOLDS 告警裁定归 C2-3 runbook）',
   labelNames: ['result'],
   registers: [register],
 });

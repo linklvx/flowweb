@@ -288,9 +288,10 @@ export function evaluate(sample, last, now, env) {
       const v = metricsOk ? (m.get(name) ?? 0) : 0;
       const hit = [...t.tiers].sort((a, b) => a.value - b.value).filter((tier) => v >= tier.value).pop();
       if (hit) {
+        // detail 走条目 note 单源（质量评审 Minor#2：kind 通用化——第二个 age-tier 条目不继承 OpsGate 文案）
         findings.push({
           check: `${name}${hit.tag}`, level: hit.level,
-          detail: `${name}=${Math.floor(v)}s 命中 ${hit.tag} 档（C2-1 OpsGate FROZEN 悬置年龄——处置序 runbook §14：语义复核→修复→解冻 ack；source=worker 3002〔api 3000 恒 0 死键声明面〕）`,
+          detail: `${name}=${Math.floor(v)}s 命中 ${hit.tag} 档（${t.note}）`,
         });
       }
       continue;

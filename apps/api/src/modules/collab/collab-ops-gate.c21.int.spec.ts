@@ -256,6 +256,10 @@ maybe('C2-1 OpsGate 主体（真 PG——红①②③+解冻 ack+vacuum 前置�
       return 'held' as const;
     }, { timeout: 15_000, maxWait: 5_000 });
     await new Promise((r) => setTimeout(r, 300));   // A 取得行锁
+    // 相对锚（质量评审 Minor#1：绝对 1n 依赖前序用例 finally 重插行恰归零 version——用例重排即假红）
+    const gateBefore = await prismaB.collabOpsGate.findUniqueOrThrow({
+      where: { gate_projectId: { gate: OPS_GATE_COMPACT, projectId: PID_A } }, select: { version: true },
+    });
     let bResolvedAt = 0;
     const b = freezeOpsGateCompact(prismaB, { projectId: PID_A, frozenBy: 'canary-verify', reason: 'red3c' })
       .then((r) => { bResolvedAt = Date.now(); return r; });
@@ -264,7 +268,7 @@ maybe('C2-1 OpsGate 主体（真 PG——红①②③+解冻 ack+vacuum 前置�
     releaseA();
     const [ra, rb] = await Promise.all([a, b]);
     expect(ra).toBe('held');
-    expect(rb).toEqual({ frozen: true, version: 1n });   // A 提交后 B 落地（串行化——无中间态）
+    expect(rb).toEqual({ frozen: true, version: gateBefore.version + 1n });   // A 提交后 B 落地（串行化——无中间态；相对锚）
   });
 
   // ═══ vacuumReplace 前置 gate 检查（换代真空替换前判——FROZEN 拒=aborted 档） ═══
