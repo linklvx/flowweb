@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { THRESHOLDS, resolveSpoolCapacityBytes, resolveMaxResidentBytes, NOT_SERVING_P0_MS, SMS_THROTTLE_MS, WORKER_METRIC_CHECKS, WORKER_PRESENCE_CHECK, AUDIT_WORKER_CHECKS, OPS_GATE_CHECKS } from './collab-health-thresholds.mjs';
+import { THRESHOLDS, resolveSpoolCapacityBytes, resolveMaxResidentBytes, NOT_SERVING_P0_MS, SMS_THROTTLE_MS, WORKER_METRIC_CHECKS, WORKER_PRESENCE_CHECK, AUDIT_WORKER_CHECKS, OPS_GATE_CHECKS, CANARY_CHECKS } from './collab-health-thresholds.mjs';
 import { readEnvFile } from './lib/env-file.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -215,6 +215,31 @@ export function evaluate(sample, last, now, env) {
           findings.push({ check: `${OPS_GATE_CHECKS.gauge}>=1h`, level: 'P1', detail: `OpsGate FROZEN 悬置 ${Math.floor(age)}s ≥1h（分诊+解冻 ack 处置窗——runbook §14 归 C2-3）` });
         }
       }
+
+      // —— C2-2b（replay-canary 比对侧）：worker 3002 canary verify 族（维护面=CollabCanaryVerifyWorker
+      //    每 tick+boot 首 tick；THRESHOLDS 同名条目=声明面〔api 3000 恒 0 死键〕，本段=操作判定路径——
+      //    阈值单源 CANARY_CHECKS〔retention/C3/ops-gate 分工同款〕）。三判：
+      //    ①族缺席 ⇒ P1 缺样本 unobservable（verify worker 未装配/未注册——比对停跑/覆盖 SLO 不可观测）；
+      //    ②last_check_age>24h ⇒ P1（覆盖 SLO 破——charter「全局每小时+每活跃项目 ≤24h」）；
+      //    ③freeze_total 窗口增量（w3002: 前缀键与 api 侧同名键隔离——freeze 实弹 P0：人工解冻 ack 面）。 ——
+      const canaryFamily = wm.samples.filter((s) => s.name === CANARY_CHECKS.lastCheckGauge);
+      if (canaryFamily.length === 0) {
+        findings.push({ check: `${CANARY_CHECKS.lastCheckGauge}-unobservable`, level: 'P1', detail: `worker 3002 缺 ${CANARY_CHECKS.lastCheckGauge} 族样本（canary verify worker 未装配/未注册=缺样本 unobservable：比对停跑/freeze 实弹/覆盖 SLO 均不可观测；分诊：查 worker.module CollabCanaryVerifyWorker 注册/3002 端点）` });
+      } else {
+        const checkAge = wm.get(CANARY_CHECKS.lastCheckGauge) ?? 0;
+        if (checkAge > CANARY_CHECKS.lastCheckP1Sec) {
+          findings.push({ check: `${CANARY_CHECKS.lastCheckGauge}>24h`, level: 'P1', detail: `canary 覆盖 SLO 破：活跃项目最老检查年龄 ${Math.floor(checkAge)}s > ${CANARY_CHECKS.lastCheckP1Sec}s（charter「全局每小时+每活跃项目 ≤24h」——排程 N=ceil(active×1.25/24)+nextDueAt 轮转链异常/poller 停跑；分诊：collab_canary_poll_tick_total{result} 分布+CollabCanaryCursor.nextDueAt）` });
+        }
+      }
+      const freezeKey = `w3002:${CANARY_CHECKS.freezeCounter}`;
+      const freezeRaw = wm.sum(CANARY_CHECKS.freezeCounter);
+      nextLast.counters[freezeKey] = freezeRaw;
+      const freezePrev = last?.counters?.[freezeKey];
+      if (freezePrev === undefined) {
+        findings.push(insuff(CANARY_CHECKS.freezeCounter, 'worker 3002 freeze 实弹两样本差不可算'));
+      } else if (freezeRaw > freezePrev) {
+        findings.push({ check: CANARY_CHECKS.freezeCounter, level: 'P0', detail: `worker 3002 canary freeze 窗口增量 +${freezeRaw - freezePrev}（mismatch→OpsGate FROZEN 落定——charter「不一致告警并冻结」；人工解冻 ack 处置序 runbook §14〔C2-3〕：语义复核→修复→unfreezeOpsGateCompact+AuditLog；悬置年龄分级另由 collab_ops_gate_frozen_age 承接）` });
+      }
     }
   }
 
@@ -363,6 +388,18 @@ export function evaluate(sample, last, now, env) {
       }
       continue;
     }
+  }
+
+  // —— C2-2b 红⑧：canary skip_lag 组合档（即时）——spec §3 C2「skip_lag 分层兜底」第一层：当轮
+  //    skip-lag 增量>0 ∧ yjs_oldest_unflushed_age_seconds>30s（flush 链卡死已可观测——正常链
+  //    ≈8s——不待持续档 3 轮窗）。键与 THRESHOLDS 持续档通用循环同源（counterKey 同键——轮基线
+  //    已由循环写就，此处只读差分）。 ——
+  const lagKey = counterKey(CANARY_CHECKS.skipLagCounter, { labels: CANARY_CHECKS.skipLagLabel });
+  const lagCur = nextLast.counters[lagKey];
+  const lagPrev = last?.counters?.[lagKey];
+  const unflushedNow = metricsOk ? (m.get(CANARY_CHECKS.unflushedGauge) ?? 0) : 0;
+  if (lagCur != null && lagPrev != null && lagCur > lagPrev && unflushedNow > CANARY_CHECKS.unflushedP0Seconds) {
+    findings.push({ check: 'canary-skip-lag+unflushed', level: 'P0', detail: `canary skip_lag 当轮增量 +${lagCur - lagPrev} ∧ ${CANARY_CHECKS.unflushedGauge}=${Math.floor(unflushedNow)}s > ${CANARY_CHECKS.unflushedP0Seconds}s（组合档即时 P0——捕获 flush-timeout〔canary 盲区〕且最老未 flush 窗口已卡死：flush/append 链滞留；持续档=${CANARY_CHECKS.skipLagCounter}{result=skip-lag} 连续 ${CANARY_CHECKS.skipLagRounds} 轮；wal 高位档=wal_pending_bytes P1）` });
   }
   return { findings, nextLast };
 }

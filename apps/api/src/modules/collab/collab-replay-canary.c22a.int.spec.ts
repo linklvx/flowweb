@@ -328,29 +328,77 @@ maybe('C2-2a canary 捕获面（真 PG——红④⑤+捕获协议+poller）', (
     await prisma.canaryPin.deleteMany({ where: { projectId: { in: ['int-c22a-expired', 'int-c22a-alive'] } } });
   });
 
-  it('poller skip 链：lifecycleState 非 ACTIVE→skip；维护窗（maintenanceId 在）→skip；活跃 pin→skip（不重复捕获）+游标 lastResult=pin-active', async () => {
+  it('poller skip 链（C2-2b 排程重写后语义——SQL 前置排除）：lifecycle 非 ACTIVE/维护窗 maintenanceId/活跃 pin →候选不可见零捕获零游标；进程内 freeze 面（isFrozen 窄窗）→skip-maintenance+游标推进', async () => {
     await seedFrames(PID, [frameOf('s1', 1)], 0n);
-    // lifecycle skip
+    // lifecycle skip：候选 SQL p."lifecycleState"='ACTIVE' 排除（skip 档饥饿根除——不进循环不滞留头部）
     await prisma.$executeRaw`UPDATE "CanvasProject" SET "lifecycleState" = 'DELETING' WHERE "id" = ${PID}::text`;
     const poller = buildPoller();
     poller.captureScope = [PID];
     await poller.tick();
     expect(await prisma.canaryPin.count({ where: { projectId: PID } })).toBe(0);
+    expect(await prisma.collabCanaryCursor.count({ where: { projectId: PID } })).toBe(0);
     await prisma.$executeRaw`UPDATE "CanvasProject" SET "lifecycleState" = 'ACTIVE' WHERE "id" = ${PID}::text`;
-    // 维护窗 skip（DB 行级关闸——REQUESTED 起）
+    // 维护窗 skip（DB 行级——REQUESTED 起）：候选 SQL d."maintenanceId" IS NULL 排除
     await prisma.$executeRaw`UPDATE "CanvasDoc" SET "maintenanceId" = 'mt-x' WHERE "projectId" = ${PID}::text`;
     await poller.tick();
     expect(await prisma.canaryPin.count({ where: { projectId: PID } })).toBe(0);
+    expect(await prisma.collabCanaryCursor.count({ where: { projectId: PID } })).toBe(0);
     await prisma.$executeRaw`UPDATE "CanvasDoc" SET "maintenanceId" = NULL WHERE "projectId" = ${PID}::text`;
-    // 活跃 pin skip（worker verify 承接——不重复捕获）+游标写
+    // 活跃 pin skip：候选 SQL NOT EXISTS 未过期 pin 排除（P3-2：skip-pin-active 游标 generation 占位
+    // 形态退役——worker verify 承接 pin 消费，poller 不重复捕获不写游标）
     await prisma.$executeRaw`
       INSERT INTO "CanaryPin" ("projectId", status, generation, "snapshotRev", "stateSeq", "pgSeqAt", "hashVersion", "leaseUntil", "expiresAt")
       VALUES (${PID}::text, 'READY', 1::int, 0::bigint, 0::bigint, 1::bigint, 1::int, now() + interval '5 minutes', now() + interval '15 minutes')`;
     await poller.tick();
     expect(await prisma.canaryPin.count({ where: { projectId: PID } })).toBe(1);   // 原 pin 不动（未重复捕获）
+    expect(await prisma.collabCanaryCursor.count({ where: { projectId: PID } })).toBe(0);
+    await prisma.canaryPin.deleteMany({ where: { projectId: PID } });
+    // 进程内 freeze 面（isFrozen——FREEZING 起窄窗承接，maintenanceId 未落 DB 的竞态面）：skip-maintenance
+    // 计数+游标推进（P2：skip 档写游标=轮转不滞留）
+    const frozen = buildPoller(() => true, [PID]);
+    frozen.captureScope = [PID];
+    await frozen.tick();
+    expect(await prisma.canaryPin.count({ where: { projectId: PID } })).toBe(0);
     const cur = await prisma.collabCanaryCursor.findUnique({ where: { projectId: PID } });
-    expect(cur).toMatchObject({ projectId: PID, generation: gen, lastResult: 'pin-active' });
+    expect(cur).toMatchObject({ projectId: PID, generation: gen, lastResult: 'skip-maintenance' });
     expect(cur!.lastCheckedAt.getTime()).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it('排程重写（C2-2b N 公式+轮转）：scope 双项目两 tick 全覆盖（batch=min(N,cap) 逐 tick 轮转——饥饿根除）+nextDueAt=ceil(active/N)h（覆盖 SLO）', async () => {
+    const PID_B = `${PID}-b`;
+    await ensureProjectFixture(prisma, PID_B);
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt") VALUES ($1, 1, 3, now()) ON CONFLICT DO NOTHING`,
+      PID_B,
+    );
+    try {
+      // PID 经 actor 落帧（活 doc 在场可捕获）；PID_B 仅 doc 行（withFrozenPrefix no-doc 档——skip 档游标推进同面）
+      actor.submit(PID, frameOf('q1', 1), conn, 'update').catch(() => {});
+      expect(await waitUntil(async () => (await watermark()) === 1n && actor.appliedSeqOf(PID) === 1n), '帧应落定').toBe(true);
+      const poller = buildPoller();
+      poller.captureScope = [PID, PID_B];
+      // active=2（两 doc 行 updatedAt=now∧ACTIVE）→ N=ceil(2×1.25/24)=1 → batch=1/tick 逐 tick 轮转
+      await poller.tick();   // tick1：无游标双 due——NULLS FIRST 后 p.id ASC 首位（PID 先）
+      await poller.tick();   // tick2：次位（PID_B——skip-no-doc 游标推进；skip 档不垄断=饥饿根除）
+      const cursors = await prisma.collabCanaryCursor.findMany({ where: { projectId: { in: [PID, PID_B] } } });
+      expect(cursors).toHaveLength(2);   // 双项目两 tick 全覆盖（每 tick 恰 1=轮转排程）
+      // nextDueAt：captured 档=+ceil(active/N)h=+2h（覆盖 SLO——24h/1.25 余量口径）；skip 档=+interval 快重试
+      const byId = new Map(cursors.map((c) => [c.projectId, c]));
+      expect(byId.get(PID)!.lastResult).toBe('captured');
+      expect(byId.get(PID_B)!.lastResult).toBe('skip-no-doc');
+      const due = await prisma.$queryRaw<{ pid: string; s: number }[]>`
+        SELECT "projectId" AS pid, EXTRACT(EPOCH FROM ("nextDueAt" - now()))::float8 AS s FROM "CollabCanaryCursor" WHERE "projectId" = ANY(${[PID, PID_B]}::text[])`;
+      const dueMap = new Map(due.map((d) => [d.pid, d.s]));
+      expect(dueMap.get(PID)!).toBeGreaterThan(1.5 * 3600);   // captured：≈2h（active/N=2/1）
+      expect(dueMap.get(PID)!).toBeLessThan(2.5 * 3600);
+      expect(dueMap.get(PID_B)!).toBeLessThan(120);   // skip-no-doc：+interval（60s 默认）快重试
+    } finally {
+      await prisma.collabCanaryCursor.deleteMany({ where: { projectId: PID_B } });
+      await prisma.canaryPin.deleteMany({ where: { projectId: { in: [PID, PID_B] } } });
+      await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID_B } });
+      await prisma.canvasDoc.deleteMany({ where: { projectId: PID_B } });
+      await cleanupProjectFixture(prisma, PID_B);
+    }
   });
 
   it('poller 全链捕获：真 actor doc 在场→withFrozenPrefix→pin READY+游标 captured', async () => {

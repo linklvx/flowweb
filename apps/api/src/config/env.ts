@@ -168,6 +168,14 @@ export const envSchema = z.object({
   // 形态不写 default（默认值落使用点 collab-replay-canary.poller CANARY_POLL_INTERVAL_MS=60_000——
   // COMPACT_POLL/RETENTION_SWEEP 同族防双源；覆盖节奏 N=ceil(active×1.25/24) 排程归 C2-2b 非本键）。
   CANARY_POLL_INTERVAL_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
+  // C2-2b（生产就绪收尾批·replay-canary 比对侧）：canary worker verify 轮询周期——zod 只验形态
+  // 不写 default（默认值落使用点 collab-canary-verify.worker CANARY_VERIFY_INTERVAL_MS=60_000——
+  // CANARY_POLL 同族防双源）。
+  CANARY_VERIFY_INTERVAL_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
+  // C2-2b（plan v3.1 ⑪ freeze 默认实弹翻转）：mismatch freeze 实弹开关——**生产默认 true**（charter
+  // 「不一致告警并冻结」——env 不设即实弹）；shadow 只 dev 显式 'false'（=只告警+计数不 freeze）。
+  // 消费点 collab-canary-verify.worker freezeEnabled（COLLAB_SWEEP_ENABLED 同族 enum 形态）。
+  CANARY_FREEZE_ENABLED: z.preprocess(blankToUnset, z.enum(['true', 'false']).optional()),
   COLLAB_SWEEP_ENABLED: z.preprocess(blankToUnset, z.enum(['true', 'false']).optional()),
   COLLAB_SPOOL_DIR: z.preprocess(blankToUnset, z.string().min(1).optional()),
   COLLAB_SPOOL_CAPACITY_BYTES: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),

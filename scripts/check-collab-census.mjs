@@ -1172,6 +1172,10 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-replay-canary.poller.ts': {   // C2-2a（生产就绪收尾批·replay-canary 捕获侧）：canary 捕获 poller api 进程轮询周期键（CANARY_POLL_INTERVAL_MS——COMPACT_POLL_INTERVAL_MS/RETENTION_SWEEP_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、Number()||默认缺省档 60_000、消费面=api 轮询周期非部署档位）
       CANARY_POLL_INTERVAL_MS: 1,
     },
+    'apps/api/src/modules/collab/collab-canary-verify.worker.ts': {   // C2-2b（生产就绪收尾批·replay-canary 比对侧）：canary worker verify 轮询周期键（CANARY_VERIFY_INTERVAL_MS——CANARY_POLL 同族豁免形态：默认 60_000）+freeze 实弹开关（CANARY_FREEZE_ENABLED——plan v3.1 ⑪ 生产默认 true，!=='false' 判=缺省实弹；COLLAB_SWEEP_ENABLED 同族 enum 键模块级读：worker 装配期 dotenv 先行在位）
+      CANARY_VERIFY_INTERVAL_MS: 1,
+      CANARY_FREEZE_ENABLED: 1,
+    },
     'apps/api/src/modules/collab/project-lock.ts': {   // C1-0 写锁门禁激活判据（函数内 writeGateActive 惰性——测试态判定非部署档位：VITEST=vitest 进程标记、NODE_ENV=test 档；消费面=PrismaService 测试态自包裹+门禁断言直通判别）
       VITEST: 1, NODE_ENV: 1,
     },
@@ -1549,6 +1553,10 @@ if (isMain()) {
     // Y1c T25（写入方换代）：recovery import 档三点——候选 clone 快照 apply（§3.2 唯一 clone 场所）/
     // temp typed 内容并入候选/commit diff 以 origin='import' 直写 live（全量校验后受控生命周期操作）
     'apps/api/src/modules/collab/collab-recovery-import.service.ts': 3,
+    // C2-2b（生产就绪收尾批·replay-canary 比对侧）：worker verify 重放档两点——replayPgSnapshot
+    // 快照 state 铺底+增量帙按序应用（readAt 坐标重放进 fresh doc——load 档语义：PG 前缀重放比对，
+    // 非 inbound 非写回）
+    'apps/api/src/modules/collab/collab-canary-verify.worker.ts': 2,
   };
   {
     const occurrences = {};

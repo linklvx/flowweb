@@ -179,6 +179,24 @@ export const THRESHOLDS = {
     level: 'P1', kind: 'counter-delta', delta: 0,
     note: 'C2-2a：canary pin 建立失败计数（漂移守卫/pendingStructs 非空/落库异常——失败 pin 即删不残留，poller 下轮重捕）；增量>0=捕获链异常（冻结预算不足/布景漂移/CanaryPin 表异常）持续重试信号，分诊：collab_canary_poll_tick_total{result} 分布+pin_retry 关联样本。其余 canary 告警条目（skip_lag/doc_pg_lag/last_check_age）归 C2-2b。source=api 3000',
   },
+
+  // ===== C2-2b（生产就绪收尾批·replay-canary 比对侧——红⑧ skip_lag 分层兜底+freeze 实弹+覆盖 SLO） =====
+  collab_canary_poll_tick_total: {
+    level: 'P0', kind: 'counter-delta', delta: 0, rounds: 3, labels: { result: 'skip-lag' },
+    note: 'C2-2b 红⑧ skip_lag 分层兜底·持续档：spec §3 C2「skip_lag 连续 3→P0」——withFrozenPrefix flush-timeout（appliedSeq 未达 PG=canary 捕获盲区）连续 3 轮巡检命中⇒P0。载体=counter+rounds（worker tick 级连续性不可观测〔巡检每 5min 为观测粒度〕——轮级 rounds=3 承接「连续 3」；值与 CANARY_CHECKS.skipLagRounds 单源）；组合档（当轮 skip-lag ∧ yjs_oldest_unflushed_age_seconds>30s 即时 P0）=evaluate CANARY 段。source=api 3000',
+  },
+  wal_pending_bytes: {
+    level: 'P1', kind: 'gauge-max', value: 16 * 1024 * 1024, rounds: 2,
+    note: 'C2-2b 红⑧ skip_lag 分层兜底·wal 高位档：WAL own 段待落 PG 字节持续高位（连续 2 轮≈10min——机损 RPO=PG 批延迟的观测面；spool 磁盘总量另见 yjs_spool_depth_bytes 容量分档）。〔待校准——初始 16MiB〕source=api 3000',
+  },
+  collab_canary_last_check_age: {
+    level: 'P1', kind: 'gauge-max', value: 86_400,
+    note: 'C2-2b 覆盖 SLO：活跃项目最老检查年龄秒（全局 max）>24h=charter「全局每小时+每活跃项目 ≤24h」破（排程 N=ceil(active×1.25/24)+nextDueAt 轮转链异常/poller 停跑）。声明面（api 3000 恒 0 死键）——操作判定路径=evaluate CANARY 段读 worker 3002（CANARY_CHECKS 单源）。source=worker 3002',
+  },
+  collab_canary_freeze_total: {
+    level: 'P0', kind: 'counter-delta', delta: 0,
+    note: 'C2-2b freeze 实弹：canary mismatch→OpsGate FROZEN 落定（charter「不一致告警并冻结」——人工解冻 ack 处置序 runbook §14 归 C2-3；悬置年龄分级另由 collab_ops_gate_frozen_age P1@1h/P0@6h 承接）。声明面（api 3000 恒 0 死键）——操作判定路径=evaluate CANARY 段读 worker 3002（CANARY_CHECKS 单源）。source=worker 3002',
+  },
 };
 
 /** Y0c T29-II（Z130③/Z116/R6a）：worker 3002 端点族阈值——「巡检即采集面」（Z134 无 Prometheus
@@ -225,6 +243,24 @@ export const AUDIT_WORKER_CHECKS = {
   gapCounter: 'doc_append_gap_total',
   currentGauge: 'collab_doc_append_gap_current',
   purgeStaleCounter: 'collab_append_audit_purge_stale_total',
+};
+
+/** C2-2b（生产就绪收尾批·replay-canary 比对侧）：canary 告警组合参数——check-collab-health evaluate
+ *  CANARY 段消费（worker 3002 面=last_check_age/freeze_total〔api 3000 恒 0 死键，THRESHOLDS 同名
+ *  条目=声明面，ops-gate/audit 同款分工〕；api 3000 面=skip_lag 组合档）。红⑧ spec §3 C2「skip_lag
+ *  分层兜底」三件：①组合档（当轮 skip-lag 增量 ∧ yjs_oldest_unflushed_age_seconds>30s → 即时 P0
+ *  ——flush 链卡死已可观测不待持续窗）；②持续档（skip-lag 连续 3 轮 → P0——THRESHOLDS counter-delta
+ *  rounds:3 通用循环承载，载体=counter+rounds〔worker tick 级连续不可观测，巡检每 5min 轮级承接「连续 3」〕）；
+ *  ③wal 高位档（wal_pending_bytes 持续 2 轮 → P1——THRESHOLDS 通用循环承载）。 */
+export const CANARY_CHECKS = {
+  lastCheckGauge: 'collab_canary_last_check_age',   // worker 3002（verify worker 每 tick 维护）
+  lastCheckP1Sec: 86_400,    // >24h=覆盖 SLO 破 P1（charter「全局每小时+每活跃项目 ≤24h」）
+  freezeCounter: 'collab_canary_freeze_total',      // worker 3002（freeze 实弹 P0——人工解冻 ack）
+  skipLagCounter: 'collab_canary_poll_tick_total',  // api 3000（labels result=skip-lag）
+  skipLagLabel: { result: 'skip-lag' },
+  skipLagRounds: 3,          // spec §3 C2「skip_lag 连续 3→P0」（轮级——与 THRESHOLDS rounds 单源）
+  unflushedGauge: 'yjs_oldest_unflushed_age_seconds', // api 3000（组合档第二判据——T14 既有 P1@120s 条目不动）
+  unflushedP0Seconds: 30,    // skip_lag 在场时 >30s=flush 链卡死（正常链≈8s）即时升级
 };
 
 /** not-serving 持续>1min → P0（/api/ready reason 面——非指标驱动，同模块单源）。 */

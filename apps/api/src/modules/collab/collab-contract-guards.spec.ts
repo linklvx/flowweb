@@ -34,6 +34,10 @@ describe('Y0a-1 冻结契约扫描', () => {
   // C2-2a 登记：canary 捕获协议读面——stateSeq token=pin 坐标语义（快照选择 SELECT 列+CanaryPin
   // 坐标列——快照权威读非 CanvasDoc 态列写者，正向形态锚见下 it）。
   const C2_CANARY_CAPTURE = 'collab-replay-canary.service.ts';
+  // C2-2b 登记：canary worker verify 读面——stateSeq token=pin 坐标随读列+readAt 快照水位锚定比对
+  //（skip-prune 判据：readAt.stateSeq≠pin.stateSeq=pin 过期窗 prune 竞态——非 CanvasDoc 态列写者，
+  // 正向形态锚见下 it）。
+  const C2_CANARY_VERIFY = 'collab-canary-verify.worker.ts';
 
   it('契约 1：装载读唯一入口——collab 生产文件（repository 外）不得直查 CanvasDoc+CanvasDocUpdate 拼装载', () => {
     for (const f of prodFiles) {
@@ -60,8 +64,20 @@ describe('Y0a-1 冻结契约扫描', () => {
     for (const f of prodFiles) {
       if (f.name === Y1C_GENESIS) continue;   // Y1c T7 登记：genesis 建头（形态锚见下 it——仅建行字面）
       if (f.name === C2_CANARY_CAPTURE) continue;   // C2-2a 登记：canary 坐标读面（形态锚见下 it）
+      if (f.name === C2_CANARY_VERIFY) continue;   // C2-2b 登记：canary verify 坐标读面（形态锚见下 it）
       expect(f.src, f.name).not.toMatch(/stateSeq/);
     }
+  });
+  it('契约 10 C2-2b 正向锚：collab-canary-verify.worker.ts 的 stateSeq token=pin 坐标读面（选择 SQL 随读列+readAt 水位锚定）——零 CanvasDoc 态列写、零装载拼装（readAt 单源消费）', () => {
+    const f = prodFiles.find((f) => f.name === C2_CANARY_VERIFY)!;
+    // pin 坐标随读在位（选择 SQL 投影列）
+    expect(f.src).toMatch(/pin\."stateSeq"/);
+    // skip-prune 水位锚定判据在位（readAt.stateSeq≠pin.stateSeq=prune 竞态档）
+    expect(f.src).toMatch(/read\.stateSeq !== pin\.stateSeq/);
+    // 非 CanvasDoc 态列写者；增量尾重放经 repo.readAt 单源（无直查拼装）
+    expect(f.src).not.toMatch(/INSERT INTO "CanvasDoc"|UPDATE "CanvasDoc"|canvasDocUpdate\.|canvasDocSnapshot\./);
+    // 装载单源=repository：verify 消费面=readAt 方法调用（无第二装载实现）
+    expect(f.src).toMatch(/this\.repo\.readAt\(/);
   });
   it('契约 10 C2-2a 正向锚：collab-replay-canary.service.ts 的 stateSeq token=pin 坐标读面（快照选择 SELECT+CanaryPin 坐标列）——零 CanvasDoc 态列写、零装载拼装', () => {
     const f = prodFiles.find((f) => f.name === C2_CANARY_CAPTURE)!;

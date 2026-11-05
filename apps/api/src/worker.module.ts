@@ -106,6 +106,13 @@ import { RetentionSweeperPoller } from './modules/collab/retention.sweeper.polle
 //    +purge 义务年龄告警；api 进程零注册（census ⑰ 闭包纯度=prisma/shared/prom-client/sentry-scrub，
 //    零 controller/Http 面——retention 同族平铺先例） ──
 import { CollabAppendAuditWorker } from './modules/collab/collab-append-audit.worker';
+// ── C2-2b（生产就绪收尾批·replay-canary 比对侧）：canary worker verify DB poller——READY pin
+//    批读+TTL 续租→readAt 坐标重放（重放/hash 移出 api 事件循环——spec §6 R2 部分采纳面）→hash 主判
+//    +SV 互支语义兜底→mismatch freeze 实弹（CANARY_FREEZE_ENABLED 生产默认 true）→compare-and-delete
+//    +last_check_age gauge 维护；api 进程零注册（census ⑰ 闭包纯度=repo 族+ops-gate+sentry-scrub，
+//    零 controller/Http 面——retention/append-audit 同族平铺先例；依赖 Prisma/CanvasDocUpdateRepository
+//    均已 import） ──
+import { CollabCanaryVerifyWorker } from './modules/collab/collab-canary-verify.worker';
 
 const env = validateEnv();
 
@@ -205,6 +212,10 @@ const env = validateEnv();
     // C3-1（生产就绪收尾批·doc-append-gap-alert）：append 审计 poller（每 5min tick——boot 首 tick
     // +轮转游标批选择+SQL CTE 三断言审计+新 gap 边沿 inc/purge 义务年龄告警；api 进程零注册）
     CollabAppendAuditWorker,
+    // C2-2b（生产就绪收尾批·replay-canary 比对侧）：canary verify poller（每 tick READY pin 批读
+    // +TTL 续租+readAt 重放比对+mismatch freeze 实弹+compare-and-delete+last_check_age gauge；api
+    // 进程零注册——捕获面在 api〔collab.module〕比对面在 worker 的进程分工）
+    CollabCanaryVerifyWorker,
     // ── recharge 域（PAYMENT_PROVIDER 工厂=RechargeModule 同款 verbatim——close-expired/active-query 消费面） ──
     {
       provide: 'PAYMENT_PROVIDER',

@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectMetricFiles, extractMetricNames } from './check-spec-consistency.mjs';
-import { THRESHOLDS, resolveSpoolCapacityBytes, AUDIT_WORKER_CHECKS, OPS_GATE_CHECKS } from './collab-health-thresholds.mjs';
+import { THRESHOLDS, resolveSpoolCapacityBytes, AUDIT_WORKER_CHECKS, OPS_GATE_CHECKS, CANARY_CHECKS } from './collab-health-thresholds.mjs';
 import { parsePromText, evaluate, runCheck } from './check-collab-health.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -83,6 +83,9 @@ function promText(overrides = {}) {
     yjs_resident_bytes: 0,
     'yjs_resident_over_limit_total{kind="bytes"}': 0,
     'yjs_doc_evicted_total{reason="lru"}': 0,
+    // C2-2b（canary poll_tick 族+wal 观测基线——skip-lag 序列缺席由 sum 折 0 不误报）
+    'collab_canary_poll_tick_total{result="captured"}': 0,
+    wal_pending_bytes: 0,
     ...overrides,
   };
   return Object.entries(base).map(([k, v]) => `${k} ${v}`).join('\n') + '\n';
@@ -109,6 +112,10 @@ function workerPromText(overrides = {}) {
     'collab_append_audit_purge_stale_total{role="worker"}': 0,
     // C2-1（OPS_GATE_CHECKS）：OpsGate frozen_age 健康基线（0=无冻结行）
     'collab_ops_gate_frozen_age{role="worker"}': 0,
+    // C2-2b（CANARY_CHECKS）：canary verify 族健康基线（last_check_age 0=全覆盖新鲜；freeze_total
+    // 0=无 mismatch 冻结——worker 3002 声明面族缺席=unobservable P1）
+    'collab_canary_last_check_age{role="worker"}': 0,
+    'collab_canary_freeze_total{reason="semantic-mismatch",role="worker"}': 0,
     ...overrides,
   };
   return Object.entries(base).map(([k, v]) => `${k} ${v}`).join('\n') + '\n';
@@ -728,4 +735,96 @@ test('C2-1：frozen_age P0（≥6h）→ exit 2+SMS 恰一条（[P0]collab_ops_g
   assert.equal(sent.length, 1, 'SMS 恰一条');
   assert.match(sent[0].text, /collab_ops_gate_frozen_age/);
   fs.rmSync(stateDir, { recursive: true, force: true });
+});
+
+
+// ===== C2-2b（replay-canary 比对侧——红⑧ skip_lag 分层兜底组合判定+freeze 实弹+覆盖 SLO） =====
+
+/** C2-2b canary 族跨 run 基线（api 侧 skip-lag 序列键〔THRESHOLDS 持续档通用循环〕+worker 3002
+ *  freeze 键〔CANARY 段 w3002: 前缀〕——两段状态键同 run 建齐） */
+const C22B_LAST = (over = {}) => ({
+  ts: 0, overload_tripped: 0, not_serving_since: null, zero_conn_last: null,
+  counters: {
+    'collab_canary_poll_tick_total{result="skip-lag"}': 0,
+    'w3002:collab_canary_freeze_total': 0,
+    ...over,
+  },
+  rounds: {},
+});
+
+test('C2-2b 红⑧-组合档：当轮 skip-lag 增量 ∧ yjs_oldest_unflushed_age_seconds>30s ⇒ 即时 P0（不待持续档 3 轮窗）；单判据（skip-lag 无/未 flush≤30s）零命中', () => {
+  // api sample 形态（evaluate 直构——workerSkipped 跳 3002 段：本档判据全在 api 3000 面）
+  const apiSample = (metricsText, over = {}) => ({
+    metricsOk: true, metrics: parsePromText(metricsText), readyOk: true, ready: { ready: true, workers: HEALTHY_WORKERS },
+    workerSkipped: true, ...over,
+  });
+  const lagText = promText({ 'collab_canary_poll_tick_total{result="skip-lag"}': 2, yjs_oldest_unflushed_age_seconds: 45 });
+  const g = evaluate(apiSample(lagText), C22B_LAST(), 1_000_000, {});
+  assert.ok(g.findings.some((f) => f.level === 'P0' && f.check === 'canary-skip-lag+unflushed'),
+    `组合档即时 P0（实得 ${JSON.stringify(g.findings)}）`);
+  // 单判据负控①：skip-lag 增量而 unflushed=8s（正常链）⇒ 不发组合档（持续档 rounds 承接）
+  const n1 = evaluate(apiSample(promText({ 'collab_canary_poll_tick_total{result="skip-lag"}': 2, yjs_oldest_unflushed_age_seconds: 8 })), C22B_LAST(), 1_000_000, {});
+  assert.ok(!n1.findings.some((f) => f.check === 'canary-skip-lag+unflushed'), 'unflushed≤30s 不发组合档');
+  // 单判据负控②：无 skip-lag 增量而 unflushed=45s ⇒ 不发组合档（T14 既有 P1@120s 条目独立承接）
+  const n2 = evaluate(apiSample(promText({ yjs_oldest_unflushed_age_seconds: 45 })), C22B_LAST(), 1_000_000, {});
+  assert.ok(!n2.findings.some((f) => f.check === 'canary-skip-lag+unflushed'), '无 skip-lag 不发组合档');
+});
+
+test('C2-2b 红⑧-持续档：skip-lag 连续 3 轮（spec §3 C2「skip_lag 连续 3→P0」——载体=counter+rounds 轮级承接）⇒ P0；中断清零重计', () => {
+  const apiSample = (metricsText) => ({
+    metricsOk: true, metrics: parsePromText(metricsText), readyOk: true, ready: { ready: true, workers: HEALTHY_WORKERS },
+    workerSkipped: true,
+  });
+  const lag = (v) => promText({ 'collab_canary_poll_tick_total{result="skip-lag"}': v });
+  const r1 = evaluate(apiSample(lag(1)), C22B_LAST(), 1_000_000, {});
+  assert.ok(!r1.findings.some((f) => f.check === 'collab_canary_poll_tick_total' && !f.insufficient), '第 1 轮不即红');
+  const r2 = evaluate(apiSample(lag(2)), r1.nextLast, 1_000_000 + 300_000, {});
+  assert.ok(!r2.findings.some((f) => f.check === 'collab_canary_poll_tick_total' && !f.insufficient), '第 2 轮不即红');
+  const r3 = evaluate(apiSample(lag(3)), r2.nextLast, 1_000_000 + 600_000, {});
+  assert.ok(r3.findings.some((f) => f.level === 'P0' && f.check === 'collab_canary_poll_tick_total'),
+    `连续第 3 轮 ⇒ P0（实得 ${JSON.stringify(r3.findings)}）`);
+  // 中断清零：回落一轮再起不拼接旧窗
+  const r4 = evaluate(apiSample(lag(3)), r3.nextLast, 1_000_000 + 900_000, {});
+  assert.ok(!r4.findings.some((f) => f.check === 'collab_canary_poll_tick_total' && !f.insufficient), '零增量轮 rounds 清零');
+  const r5 = evaluate(apiSample(lag(4)), r4.nextLast, 1_000_000 + 1_200_000, {});
+  assert.ok(!r5.findings.some((f) => f.check === 'collab_canary_poll_tick_total' && !f.insufficient), '清零后重计（第 1 轮）');
+});
+
+test('C2-2b 红⑧-wal 高位档：wal_pending_bytes 持续 2 轮 ⇒ P1；单轮不即红（瞬态 PG 批延迟排除）', () => {
+  const apiSample = (metricsText) => ({
+    metricsOk: true, metrics: parsePromText(metricsText), readyOk: true, ready: { ready: true, workers: HEALTHY_WORKERS },
+    workerSkipped: true,
+  });
+  const hi = promText({ wal_pending_bytes: 17 * 1024 * 1024 });
+  const w1 = evaluate(apiSample(hi), C22B_LAST(), 1_000_000, {});
+  assert.ok(!w1.findings.some((f) => f.check === 'wal_pending_bytes' && !f.insufficient), '首见不即红');
+  const w2 = evaluate(apiSample(hi), w1.nextLast, 1_000_000 + 300_000, {});
+  assert.ok(w2.findings.some((f) => f.level === 'P1' && f.check === 'wal_pending_bytes'), '持续第 2 轮 ⇒ P1');
+});
+
+test('C2-2b：freeze 实弹窗口增量 ⇒ P0（worker 3002）；last_check_age>24h ⇒ P1（覆盖 SLO 破）；canary 族缺席 ⇒ P1 unobservable（verify worker 未装配）', () => {
+  // freeze 0→1 ⇒ P0
+  const fz = evaluate(workerSample(workerPromText({ 'collab_canary_freeze_total{reason="semantic-mismatch",role="worker"}': 1 })), C22B_LAST(), 1_000_000, {});
+  assert.ok(fz.findings.some((f) => f.level === 'P0' && f.check === 'collab_canary_freeze_total'),
+    `freeze 实弹增量 ⇒ P0（实得 ${JSON.stringify(fz.findings)}）`);
+  // last_check_age 90k s ⇒ P1
+  const age = evaluate(workerSample(workerPromText({ 'collab_canary_last_check_age{role="worker"}': 90_000 })), C22B_LAST(), 1_000_000, {});
+  assert.ok(age.findings.some((f) => f.level === 'P1' && f.check === 'collab_canary_last_check_age>24h'), '覆盖 SLO 破 ⇒ P1');
+  // 族缺席 ⇒ unobservable P1
+  const absentText = 'nodejs_eventloop_lag_seconds{role="worker"} 0.002\nprocess_tree_rss_bytes{role="worker"} 209715200\ncollab_append_audit_last_run_unix_seconds{role="worker"} 1000\ncollab_ops_gate_frozen_age{role="worker"} 0\n';
+  const absent = evaluate(workerSample(absentText), null, 1_000_000, {});
+  assert.ok(absent.findings.some((f) => f.level === 'P1' && /collab_canary_last_check_age/.test(f.check) && /unobservable|缺/.test(f.detail)),
+    `canary 族缺席 ⇒ P1 unobservable（实得 ${JSON.stringify(absent.findings)}）`);
+});
+
+test('C2-2b 阈值表形状：skip_lag 持续档 rounds 单源 CANARY_CHECKS+freeze/last_check_age THRESHOLDS 声明面在位', () => {
+  assert.equal(THRESHOLDS['collab_canary_poll_tick_total']?.level, 'P0');
+  assert.equal(THRESHOLDS['collab_canary_poll_tick_total']?.kind, 'counter-delta');
+  assert.equal(THRESHOLDS['collab_canary_poll_tick_total']?.rounds, CANARY_CHECKS.skipLagRounds, 'rounds 与 CANARY_CHECKS 单源');
+  assert.deepEqual(THRESHOLDS['collab_canary_poll_tick_total']?.labels, CANARY_CHECKS.skipLagLabel);
+  assert.equal(THRESHOLDS['wal_pending_bytes']?.level, 'P1');
+  assert.equal(THRESHOLDS['collab_canary_last_check_age']?.value, CANARY_CHECKS.lastCheckP1Sec, 'last_check_age 阈值单源');
+  assert.equal(THRESHOLDS['collab_canary_freeze_total']?.level, 'P0');
+  assert.equal(CANARY_CHECKS.unflushedP0Seconds, 30);
+  assert.equal(CANARY_CHECKS.unflushedGauge, 'yjs_oldest_unflushed_age_seconds');
 });

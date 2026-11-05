@@ -50,6 +50,14 @@ export type CanaryTx = {
   $executeRaw(q: TemplateStringsArray, ...values: unknown[]): Promise<unknown>;
 };
 
+/** canonical 编码（compact ② stateHash 同口径——encodeStateAsUpdate 单点；C2-2b verify worker
+ *  重算 hash 消费面：捕获/比对两侧同一编码函数=口径单源）。尺寸超限返回 null（=捕获 hashSkipped
+ *  档/verify 侧降级 SV 判——超限侧不 hash）。 */
+export function encodeCanonicalUpdate(doc: Y.Doc, maxBytes: number = CANARY_HASH_MAX_BYTES): Buffer | null {
+  const buf = Buffer.from(Y.encodeStateAsUpdate(doc));
+  return buf.length > maxBytes ? null : buf;
+}
+
 /**
  * 捕获协议五步（fn 内调用——见文件头注）。args.doc=冻结临界区活 doc（==PG@appliedSeq）。
  * 失败档一律 best-effort DELETE 自清（compare 谓词=本坐标 CAPTURING 行——不误删他 pin）。
@@ -102,10 +110,10 @@ export async function captureCanaryPin(
       collabCanaryPinRetryTotal.inc();
       return { ok: false, reason: 'pending-structs' };
     }
-    const canonical = Buffer.from(Y.encodeStateAsUpdate(args.doc));   // canonical 编码（compact ② 同口径）
+    const canonical = encodeCanonicalUpdate(args.doc, maxBytes);   // canonical 编码（compact ② 同口径——C2-2b worker 重算同函数单源）
     let contentHash: string | null = null;
     let hashSkipped = false;
-    if (canonical.length > maxBytes) {
+    if (canonical == null) {
       hashSkipped = true;
       collabCanaryHashSkippedTotal.inc();
     } else {
