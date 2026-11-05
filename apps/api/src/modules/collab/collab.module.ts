@@ -36,6 +36,7 @@ import { TelemetryController } from './telemetry.controller';
 import { TelemetryService } from './telemetry.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-redis';
+import { COLLAB_ROLE_DEFAULT } from '../../config/env';   // C2-2b（Minor#2）：canary poller 装配门正向白名单默认值单源
 import { SessionService } from '../../auth/session.service';
 import { TeamModule } from '../team/team.module';
 import { CanvasModule } from '../canvas/canvas.module';   // Y0b-4 T9：CanvasService（export-fresh 副本创建）——单向依赖无环
@@ -89,9 +90,14 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
     // C2-2a（plan Task C2-2 捕获侧）：canary 捕获 poller——**api 进程**装配（role api|all；worker
     // 无活 doc/withFrozenPrefix 面不装配——compact poller 的 worker 装配镜像形态）。probe 两 token
     // useExisting 转发既有 provider（gateway serving 判定+maintenance freeze 面——结构满足接口）。
+    // C2-2b（C2-2a 评审 Minor#2）：负向排除（!=='worker'）改正向白名单（role==='api'||role==='all'
+    // +?? COLLAB_ROLE_DEFAULT 默认——execution-daemon.module register 家族形态：漏设回落 api 装配
+    // 不静默丢守护，异常值不装配〔Z48 安全方向的安全反向〕）。
     { provide: CANARY_SERVING_PROBE, useExisting: CollabGateway },
     { provide: CANARY_MAINTENANCE_PROBE, useExisting: CollabMaintenanceService },
-    ...(process.env.COLLAB_ROLE !== 'worker' ? [CollabReplayCanaryPoller] : []),
+    ...((process.env.COLLAB_ROLE ?? COLLAB_ROLE_DEFAULT) === 'api' || (process.env.COLLAB_ROLE ?? COLLAB_ROLE_DEFAULT) === 'all'
+      ? [CollabReplayCanaryPoller]
+      : []),
   ],
   // Y0c T13b：exports += CollabWritePort（写端口面）。CollabDocumentService 既有 exports 原样保留——
   // Y0c T25 实况（偏离 21 处置）：跨模块 4 直注文件仍在（video-work.service〔readCanvasSnapshotCached

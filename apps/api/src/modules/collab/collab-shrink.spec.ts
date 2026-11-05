@@ -773,7 +773,8 @@ function buildVacuumPrismaTx(rows: Array<{ id: string; seq: bigint }>) {
     $executeRaw: txExecRaw,
     // C2-1：vacuumReplace 前置 OpsGate 两行 FOR SHARE 校验（lockProject 后首读——repo 生产面
     // 增查随线：C3-0 评审「mock 随生产面」惯例）：两行 OPEN pass-through。
-    // C2-2a：canary pin 存活谓词读（gate 后首读）——按 SQL 形状分派，无 pin 放行（红⑤-b defer 档归 c22a int）。
+    // C2-2a：canary pin 存活谓词读（gate 后首读）；C2-2b（P1 骑手）：gate 与 pin 探测之间
+    // CanvasDoc FOR UPDATE 行锁读——按 SQL 形状分派；未知形状 throw（Minor#6 fail-loud 同款）。
     $queryRaw: vi.fn(async (strings: unknown) => {
       const sql = Array.isArray(strings) ? (strings as string[]).join('?') : String(strings);
       if (sql.includes('"CollabOpsGate"')) {
@@ -782,7 +783,13 @@ function buildVacuumPrismaTx(rows: Array<{ id: string; seq: bigint }>) {
           { projectId: 'p1', state: 'OPEN' },
         ];
       }
-      return [];
+      if (sql.includes('FROM "CanvasDoc"') && sql.includes('FOR UPDATE')) {
+        return [{ generation: 0 }];
+      }
+      if (sql.includes('"CanaryPin"')) {
+        return [];   // 零 pin 放行（红⑤-b defer 档归 int 真 PG 面）
+      }
+      throw new Error(`buildVacuumPrismaTx 未知 SQL 形状（mock 随生产面——新增查询须补分派）: ${sql}`);
     }),
     canvasDocUpdate: { findMany: vi.fn(async () => rows), deleteMany: updateDeleteMany },
     // Y1c T11 快照权威：canvasDoc.findUnique=generation/schemaVersion/vacuumEpoch/currentSnapshotRev

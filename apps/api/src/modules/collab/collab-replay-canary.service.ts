@@ -23,6 +23,7 @@
 // collab-ops-gate.service/project-governance.service 同族先例。
 import * as Y from 'yjs';
 import { seedStateHash } from './canvas-doc-genesis';
+import { hasPendingStructs } from './canvas-doc.factory';
 import { collabCanaryCaptureMs, collabCanaryHashSkippedTotal, collabCanaryPinRetryTotal } from './collab-canary.metrics';
 
 /** pin TTL 15min（spec §3 C2：TTL 15min＋worker 续租〔C2-2b〕＋过期清扫〔poller 每 tick 顺带
@@ -34,10 +35,11 @@ export const CANARY_HASH_VERSION = 1;
  *  测试缝=captureCanaryPin maxHashBytes 参数压小值触发，生产不传=本常量单源）。 */
 export const CANARY_HASH_MAX_BYTES = 8 * 1024 * 1024;
 
-/** 捕获结果：ok=true=pin READY 落定；拒档=零 pin 残留（失败自清）。 */
+/** 捕获结果：ok=true=pin READY 落定；拒档=零 pin 残留（失败自清）。error 档附 detail（C2-2a 评审
+ *  Important#1：零日志吞异常根除——free-function 家族「返回类型化结果、调用方记日志」形态补齐）。 */
 export type CanaryCaptureResult =
   | { ok: true; snapshotRev: bigint; stateSeq: bigint; pgSeqAt: bigint; contentHash: string | null; hashSkipped: boolean }
-  | { ok: false; reason: 'no-doc' | 'generation-drift' | 'pg-drift' | 'pending-structs' | 'error' };
+  | { ok: false; reason: 'no-doc' | 'generation-drift' | 'pg-drift' | 'pending-structs' | 'error'; detail?: string };
 
 /** prisma/tx 最小结构面（OpsGateReadClient 同族局部命名——$transaction+$executeRaw 两面）。 */
 export type CanaryClient = {
@@ -88,12 +90,14 @@ export async function captureCanaryPin(
       { timeout: 5_000, maxWaitMs: 2_000 },
     );
     if (pinned.kind !== 'pinned') {
-      collabCanaryPinRetryTotal.inc();
+      // C2-2b（C2-2a 评审 Minor#4）：no-doc=候选面 skip 档（poller skip-no-doc 计数承担）非 pin
+      // 建立失败——pin_retry 词表（help：漂移守卫/pendingStructs/落库异常）排除该档不虚计。
+      if (pinned.kind !== 'no-doc') collabCanaryPinRetryTotal.inc();
       return { ok: false, reason: pinned.kind };
     }
     // ④ fn 内（事务外）：SV 恒落；hash=canonical 口径（pendingStructs===null 先决——compact abandoned 同判）
     const stateVector = Buffer.from(Y.encodeStateVector(args.doc));
-    if (args.doc.store.pendingStructs !== null) {
+    if (hasPendingStructs(args.doc)) {
       await deleteOwnPin(client, args, pinned.snapshotRev);
       collabCanaryPinRetryTotal.inc();
       return { ok: false, reason: 'pending-structs' };
@@ -117,11 +121,11 @@ export async function captureCanaryPin(
     }, { timeout: 5_000, maxWaitMs: 2_000 });
     return { ok: true, snapshotRev: pinned.snapshotRev, stateSeq: pinned.stateSeq, pgSeqAt: args.pgSeqAt, contentHash, hashSkipped };
   } catch (e) {
-    // 落库异常（含 INSERT PK 冲突竞态窗）：best-effort 自清（compare 谓词护他 pin）+error 档
+    // 落库异常（含 INSERT PK 冲突竞态窗）：best-effort 自清（compare 谓词护他 pin）+error 档附
+    // detail（Important#1——调用方 poller 记 warn，本函数不吞零日志）
     await deleteOwnPin(client, args, null).catch(() => undefined);
     collabCanaryPinRetryTotal.inc();
-    void e;
-    return { ok: false, reason: 'error' };
+    return { ok: false, reason: 'error', detail: (e as Error).message };
   } finally {
     collabCanaryCaptureMs.observe(Date.now() - t0);   // 采集挂 finally（家族纪律）：失败样本同观测
   }

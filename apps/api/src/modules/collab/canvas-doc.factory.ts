@@ -8,3 +8,10 @@ import * as Y from 'yjs';
 export function createCanvasDoc(): Y.Doc {
   return new Y.Doc();
 }
+
+/** C2-2b（C2-2a 评审 Minor#7）：Y.Doc pendingStructs 共享谓词——repo compact ②（重放前置判）
+ *  与 canary 捕获 ④（canonical hash 先决）两处直取 yjs 内部 API（doc.store.pendingStructs）收口
+ *  单源（census ⑩ 装载双查断言面的生产读点族——gateway loadDocument 断言不经此 helper 维持原样）。 */
+export function hasPendingStructs(doc: Y.Doc): boolean {
+  return doc.store.pendingStructs !== null;
+}

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import * as Y from 'yjs';
 import { CANVAS_DOC_SCHEMA_VERSION, canonicalUpdateHashPayload } from '@flowweb/shared';
-import { createCanvasDoc } from './canvas-doc.factory';
+import { createCanvasDoc, hasPendingStructs } from './canvas-doc.factory';
 import { projectDocName } from './doc-name.util';
 import { lockProject } from './project-lock';
 import { readOpsGateCompact, checkOpsGateCompactForShare, type OpsGateCompactReject } from './collab-ops-gate.service';
@@ -565,6 +565,14 @@ export class CanvasDocUpdateRepository {
           gateReject = gate.result;
           return { aborted: 'gate-frozen' as const };
         }
+        // C2-2b（C2-2a 评审 P1 骑手·freeze 实弹前置）：gate 检查与 pin 探测之间补 CanvasDoc
+        // FOR UPDATE——镜像 compact ③ 发布事务的 doc 行锁（锁序 advisory→gate→doc 行——无环）。
+        // 位次竞态根除：T1 捕获事务持 FOR SHARE 未提交（pin 未插）⇒ T2 在**此处**阻塞（修前=直落
+        // upsert 处阻塞，pin 探测已过）→ T1 提交后 pin 对 T2 可见 → defer 非整删；反向 T2 先持
+        // FOR UPDATE ⇒ T1 捕获 FOR SHARE 阻塞至换代提交 → 漂移守卫按新 generation 拒（零 pin）。
+        // canary 侧零改动（C2-2a 捕获协议 ① 的 FOR SHARE 即互斥面）。
+        await tx.$queryRaw<{ generation: number }[]>`
+          SELECT generation FROM "CanvasDoc" WHERE "projectId" = ${projectId}::text FOR UPDATE`;
         // C2-2a（红⑤-b）：canary pin 存活谓词进 vacuumReplace 事务——换代整删增量行+快照换代会
         // 使 pin 坐标 (generation,snapshotRev,pgSeqAt] 全域失锚（readAt 撕裂），pin 存活期 defer
         // 本轮（先于任何写=零换代零删行；pin TTL 15min 上界——defer 非死锁，过期后重试照常）。
@@ -707,7 +715,7 @@ export class CanvasDocUpdateRepository {
           cursor = page[page.length - 1].seq;
           if (page.length < CanvasDocUpdateRepository.PAGE_ROWS) break;
         }
-        if (temp.store.pendingStructs !== null) {
+        if (hasPendingStructs(temp)) {
           yjsCompactAbandonedTotal.inc();
           this.logger.error(`compact abandoned (pendingStructs non-null) for ${projectId}——保留全部行与原快照，下次触发立即重试`);
           return { compacted: false, reason: 'abandoned' as const };   // 零写零删：原可用快照与 WAL 全保留
