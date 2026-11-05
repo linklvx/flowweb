@@ -617,7 +617,7 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 
 ---
 
-## §14 Y1c 载体协议契约草节（T5a 冻结——2026-10-24；T8/T9/T10/T13 实装时的操作面输入）
+## §14 Y1c 载体协议契约草节（T5a 冻结——2026-10-24；T8/T9/T10/T13 实装时的操作面输入；§14.1=C2 canary cron+处置序——2026-11-05）
 
 **单一真源=`packages/shared/src/collab/doc-protocol.ts`（+close-code 增补 constants/collab-close-code.ts）**——本节只列运维语义，数字/类型以代码单源为准。
 
@@ -629,6 +629,41 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 - **维护端点调用形态**（T31 发现④，2026-11-04）：`/api/collab/maintenance/:projectId/start|complete` 走全局 AuthGuard 非 public 路径——**双凭据**（`x-prometheus-token`〔=COLLAB_ADMIN_TOKEN〕+用户 session cookie `flowweb.session_token`）缺一 401；人工/脚本调用须两样齐。
 - **版本硬门**=protocolVersion+schemaVersion+historyId 三元（4406 client-outdated 强刷）；build hash 仅遥测。**onAuthenticate 先比 historyId 再比 generation**（同代 PITR 的 SS2 复活形态）→server-restored 只读 recovery。
 - **帧闸**（单源派生见代码）：普通帧=2×maxTxBytes=512KB；SS2 帧=maxDocBytes+包装余量≈8.06MiB；WS maxPayload=9MiB（T9 翻转 collab-limits 单源改引）；认证后入站排队上限=2×SS2 帧闸超限 1009；SS2 并发信号量 per-project 1+全局预算 4×SS2≈32MiB（工程值，T33 观测后调）。**HTTP seed 端点废止**——重开触发条件 cold p95>3s 或 loop block>50ms（T29 挂 gate，重开即新评审）。
+
+### §14.1 C2 合成金丝雀+canary 处置序（2026-11-05 落档——C2-3；spec v5 §3 C2）
+
+**装置单一真源=`apps/api/scripts/collab-smoke.mjs --canary`**（参数化六件全落脚本 flag/固定 ID，不复述于此）：专用服务账号 `canary-smoke-svc`+固定项目 `canary-smoke-project`（幂等 upsert 常驻——勿删）；单次写入上限 `--writes N` 默认 3 硬顶 8（超限即拒——cron 误配防刷帧）；**排除计费/统计面=账号面排除**（零 exec 节点→永不触 GenerationIntent/CreditLedger/配额/遥测；固定 ID 前缀 `canary-smoke-`=统计聚合排除锚）；定期清理三件（过期 session/旧 marker 删除帧先行〔doc 有界且纯删除帧每轮实弹过链〕/游标重置〔固定项目每小时强制 due——19.2h SLO 排程外的合成档节奏〕）；独立 smoke-heartbeat（仓根 `.data/collab-canary-smoke-heartbeat.txt` 每轮先写——check-collab-health「心跳先行」同律）。本地 gate 实跑留证=`gate-evidence/c23-canary-smoke.txt`（dist 双进程栈：捕获→verify ok→gate OPEN 闭环+删除帧轮换+上限拒+基线档非回归）。
+
+**cron（服务器——§6 巡检同机位；charter「全局每小时」的合成承载：零用户活动期 canary 链路仍每小时过链）**：
+
+```
+7 * * * * cd /home/ubuntu/flowweb && pnpm --filter @flowweb/api exec node scripts/collab-smoke.mjs --canary >> .data/collab-canary-smoke.log 2>&1
+```
+
+- **heartbeat 停更判据**：`.data/collab-canary-smoke-heartbeat.txt` 停更>2h（2× 周期）=P1 人工查 cron 在档/`.data/collab-canary-smoke.log` 尾行退出码/pm2。
+- **FAIL 自报两档**：`captured=false` 零捕获=poller 未拾取（查 api serving/`CANARY_POLL_INTERVAL_MS`/候选批）；`pin 残留`=verify worker 未消费（查 worker 进程/3002）。gate `FROZEN`=真 mismatch 冻结——直接进下述处置序。
+
+**canary mismatch 处置序（五步——freeze 实弹档）**：
+
+1. **确认**：Sentry（reason=`canary-replay-mismatch`）+worker 结构化日志（projectId/generation/snapshotRev/stateSeq/pgSeqAt/hashSkipped/canonicalBytes/semanticDigest/svMutual 诊断位）+`CollabOpsGate` 行（frozenBy=`canary-verify`）。冻结=保护动作：该 pid compact/vacuum 已停，其余项目不受影响。
+2. **语义复核**：按 pin 坐标人工重放对比 nodes/edges 两根摘要（单源=`collab-canary-semantic.ts`）。诊断位分诊：**svMutual=true 而 mismatch=纯删除帧丢失指纹**（Yjs delete 不进 SV——保护行被 prune/vacuum 误删形态）；svMutual=false=帧内容篡改/缺失广面。
+3. **修复 A/B**：**A（数据丢失在证）**=先取修复锚（pg_dump/当日在档 `daily-*` 备份）→三断言审计（C3 doc_append_gap SQL CTE）定位缺失区间→从锚恢复或经 §16 维护窗换代重建该 doc——**未闭环前不解冻**（compact 冻结=保护性停摆）；**B（非数据丢失——假信号）**=语义复核 digest 相等/SV 同代证据在档→登记根因（编码口径/快照选择/hashVersion）→修代码+`CANARY_HASH_VERSION` 演进→回归绿后解冻。
+4. **解冻 ack（审计即 ack——AuditLog 与状态翻转同事务）**：`POST /api/admin/collab/ops-gate/unfreeze`（body `{projectId, remark?}`——remark=步 3 结论+证据指针）：
+   ```bash
+   curl -X POST http://127.0.0.1:3000/api/admin/collab/ops-gate/unfreeze \
+     -H 'content-type: application/json' -H 'cookie: flowweb.session_token=<ADMIN 会话>' \
+     -d '{"projectId":"<pid>","remark":"语义复核=删除帧丢失；修复 A 换代重建完成（Sentry <id>）"}'
+   ```
+   鉴权=admin 域惯例（session+ADMIN 角色——全局 AuthGuard+AdminGuard）；幂等（已 OPEN→`{unfrozen:false}` 零审计行）；`projectId=''`（全局哨兵行 break-glass 形态）同端点。
+5. **强制维护窗判据**（解冻先于修复完成的唯一合法场景=维护窗本身即修复手段——gate FROZEN 会挡 maintenance run〔gate-frozen abort〕）：换代重建需解冻进维护窗前，三件齐备缺一不得解冻：①mismatch 证据留档（Sentry+日志）；②修复锚已取（pg_dump 在档）；③用户公告/低峰窗。齐备→解冻 ack（remark 注记强制维护窗）→T27 维护序（`POST /api/collab/maintenance/:projectId/start`——双凭据见 §14「维护端点调用形态」）。
+
+**shadow→实弹切换序**（`CANARY_FREEZE_ENABLED`）：部署初窗 shadow（env 显式 `'false'`——只 Sentry 告警+`collab_canary_freeze_total{reason="freeze-suppressed"}` 计数不冻结）→观察窗判据：≥7 天零 mismatch 假信号（freeze-suppressed 零增量∧Sentry 零 canary-replay-mismatch）或全部 mismatch 经步 2 复核确认为真数据丢失→移除 env 键（不设=生产默认实弹 true）+`pm2 startOrReload ... --update-env` 留痕→回退通道=误冻率异常显式置回 `'false'`（运维裁定+登记，非静默）。
+
+**三登记（C2-2b 评审移交——分诊面常驻注记）**：
+
+- **delete-only 指纹**：`svMutual=true` 而 mismatch=纯删除帧丢失（SV 互支≠语义等——Yjs delete 不进 state vector；指纹面=worker 结构化日志 svMutual 诊断位+semanticDigest 两根摘要差）。
+- **超限档盲区**：canonical>8MiB（`CANARY_HASH_MAX_BYTES`）捕获 hash+digest 双跳过→verify 降级 SV 同代辅助→**delete-only 形态在该档不可检**（10k doc 预算护栏的代价）；观测=`collab_canary_hash_skipped_total` 持续增长（该档覆盖面扩大信号）。
+- **freeze-delete 间崩溃 Sentry 重复窗**：mismatch→freeze 落定→pin 删除前进程崩溃=pin 残留→TTL 15min 内每 verify tick 重复告警（间隔 60s≈≤15 条）；自愈=pin TTL 过期清扫；重复窗内处置以首条事件为准（SMS 侧由 P0 节流窗 SMS_THROTTLE_MS 承接）。
 
 ---
 

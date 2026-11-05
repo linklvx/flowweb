@@ -1,0 +1,46 @@
+C2-3 合成金丝雀（参数化）本地 gate 实跑留证（collab-smoke.mjs --canary——生产就绪收尾批 C2 卡）
+日期：2026-11-05 · 机器=win32 本地（PG 16.13/Redis/MinIO；dev 库 flowweb）· plan v3.1 Task C2-3
+──────────────────────────────────────────────────────────────────────────────
+【装置形态】dist 双进程直跑（drill-cutover spawnService 同款=ecosystem pm2 形态的本地直跑等价）：
+  api  : node dist/main.js        COLLAB_ROLE=api    CANARY_POLL_INTERVAL_MS=5000   （捕获 poller——api 进程装配）
+  worker: node dist/main-worker.js COLLAB_ROLE=worker CANARY_VERIFY_INTERVAL_MS=5000 （verify worker——worker 进程装配）
+  （间隔 5s=本地 gate 提速档；生产默认 60s/60s——脚本超时 300s 按默认档留余量）
+  ready 前置：{"ready":true,"redis":"up","epoch":"5","collabProtocolVersion":3}；worker 3002 监听 ✓
+
+【一】首轮 --canary（固定 fixtures 首建+捕获+verify ok）
+  $ node scripts/collab-smoke.mjs --canary
+  {"canary":"OK","project":"canary-smoke-project","writes":3,"staleDeleted":0,"chainMs":6057,
+   "pins":0,"cursor":"captured","gate":"OPEN",
+   "chain":"WS→PG→捕获(pin)→verify 重放比对→ok（gate OPEN）"}   EXIT=0
+  · 固定 fixtures 落库：canary-smoke-svc（服务账号）/canary-smoke-team/canary-smoke-project（幂等 upsert）
+    +OpsGate 项目行+全局哨兵行（smoke 直建绕过两创建路径=governance 自带）
+  · 游标重置（flush 后）→poller 捕获（cursor=lastResult 'captured'）→verify 重放比对 ok→pin 消费清空
+    （pins=0）+gate OPEN（实弹档——NODE_ENV=development 无 CANARY_FREEZE_ENABLED=默认实弹）
+
+【二】二轮 --canary（定期清理②实弹：旧 marker 删除帧先行过链）
+  $ node scripts/collab-smoke.mjs --canary
+  {"canary":"OK","project":"canary-smoke-project","writes":3,"staleDeleted":3,"chainMs":6062,
+   "pins":0,"cursor":"captured","gate":"OPEN",...}   EXIT=0
+  · staleDeleted=3：首轮 3 marker 删除帧（纯删除帧=红⑥-b 威胁形态——Yjs delete 不进 SV）先行落链
+    →本轮捕获覆盖「删+写」混合态→verify ok（delete-only 语义兜底判据〔semanticDigest 两根摘要〕实弹过链）
+
+【三】写入上限硬顶（fail-loud）
+  $ node scripts/collab-smoke.mjs --writes 9
+  smoke FAIL: --writes 须为 1..8 整数（单次写入上限硬顶=8——实得 9）   EXIT=1
+  （未知参数同拒：--canary --writes N 之外零静默）
+
+【四】基线档非回归（mk/mkMarker/synced 提升模块层后）
+  $ node scripts/collab-smoke.mjs
+  {"smoke":"OK","project":"smoke-p-1793919111351","updates":2,
+   "chain":"WS→auth→load→双端写→广播互见→store→PG→重放"}   EXIT=0
+
+【五】独立 smoke-heartbeat + 两侧指标留证
+  · .data/collab-canary-smoke-heartbeat.txt = 2026-11-05T22:51:28.024Z（每轮先写——check-collab-health
+    「心跳先行」同律；runbook §14.1 外层停更判据载体）
+  · api 3000（捕获侧）：collab_canary_poll_tick_total{result="captured"}=3 / capture_ms_count=3 /
+    hash_skipped_total=0（skip-no-doc=27=dev 库无 CanvasDoc 候选的轮转噪声）
+  · worker 3002（比对侧）：collab_canary_checked_total{result="ok"}=3（零 mismatch/零 skip 档）
+
+【结论】合成金丝雀档在真 PG+真 api/worker 双进程栈上全链绿：专用账号+固定项目+写入上限+定期清理
+（session/marker/游标）+独立 heartbeat 六件参数化全落地；捕获→verify ok→gate OPEN 闭环实证。
+（yjs#438「already imported」警告=脚本头注既有已知噪音，非本批面。）
