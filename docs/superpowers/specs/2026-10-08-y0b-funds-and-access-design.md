@@ -1033,6 +1033,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_maintenance_requested_total
 - collab_maintenance_stage_advance_total
 - collab_msg_rate_exceeded_total
+- collab_ops_gate_frozen_age
 - collab_order_pathology_total
 - collab_outbound_budget_close_total
 - collab_overload_state
@@ -1072,6 +1073,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_write_rejected_total
 - collab_write_session_release_timeout_total
 - collab_ws_close_total
+- compact_gate_skip_total
 - doc_append_gap_total
 - doc_compaction_duration_seconds
 - doc_delivery_applied_unpersisted

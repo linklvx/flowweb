@@ -9,6 +9,8 @@
 //   counter-share        匹配 label 集增量 / 全量增量 占比（ws_close 4410+4404）
 //   label-gauge-persistent 指定 label 序列值连续两样本成立（overload tripped）
 //   gauge-tier           容量分档（spool 深度 50%/80% 预阈值+满仓——取最高命中档不叠发）
+//   age-tier             绝对值年龄分档（C2-1 frozen_age P1@1h/P0@6h——tiers.value 绝对秒非容量百分比；
+//                        取最高命中档不叠发，gauge-tier 同语义的年龄形态）
 //   gauge-max            瞬时上界；rounds>1=持续 N 轮（awareness）
 //   gauge-no-fall        非回落持续（zero_conn 候选池）
 //   bytes-guard-pair     Y0c T20（Z92 改形）：guard gauge 越 resolve{limitEnv} 上限 ⇒ 必有
@@ -17,6 +19,17 @@
 //                        超限已恢复属机制工作不告）。两分支均可判（v5「≤上限」恒真失误的改形）。
 //   gauge-max 小扩（Y0c T29-II/Z148④）：warnLevel 可选——rounds 持续判定未满窗时超限即发 warnLevel
 //                        （WARN 首见/持续升 ERROR 双档面；无 warnLevel 的既有条目行为零变化）。
+
+/** C2-1（生产就绪收尾批·OpsGate 主体）：worker 3002 OpsGate 族操作判定参数——check-collab-health
+ *  evaluate OPS_GATE 段消费（独立于 THRESHOLDS 循环：source=worker 3002——api 3000 恒 0 死键，retention/
+ *  C3 同款声明分工；THRESHOLDS 本指标条目 tiers 值派生自本参数——两级单源禁手抄）。
+ *  gauge 维护面=compact poller（boot 扫行初始化+每 tick 聚合刷新）；族缺席=维护面破（worker 未装配/
+ *  未注册）⇒ P1 unobservable（audit 族先例同判）。 */
+export const OPS_GATE_CHECKS = {
+  gauge: 'collab_ops_gate_frozen_age',
+  p1Ms: 3_600_000,    // P1@1h——分诊+解冻 ack 处置窗
+  p0Ms: 21_600_000,   // P0@6h——冻结悬置升级（SMS）
+};
 export const THRESHOLDS = {
   // ===== P0（exit 2——人工立即介入） =====
   collab_overload_state: {
@@ -148,6 +161,16 @@ export const THRESHOLDS = {
   collab_append_audit_purge_stale_total: {
     level: 'P1', kind: 'counter-delta', delta: 0,
     note: 'C3 红②：purge 义务年龄告警边沿计数（purgeBelowSeq 持续非空>30min——compact resumePurges 收敛链卡死的独立告警通道，不被审计三断言吞掉；衰减/修复即清不复发）。source=worker 3002',
+  },
+
+  // ===== C2-1（生产就绪收尾批·OpsGate 主体——frozen_age 分级 P1@1h/P0@6h；spec v5 §3 C2 承 v4） =====
+  collab_ops_gate_frozen_age: {
+    level: 'P1', kind: 'age-tier',
+    tiers: [
+      { value: OPS_GATE_CHECKS.p1Ms / 1000, level: 'P1', tag: '>=1h' },
+      { value: OPS_GATE_CHECKS.p0Ms / 1000, level: 'P0', tag: '>=6h' },
+    ],
+    note: 'C2-1：OpsGate FROZEN 行最老冻结年龄秒（全局 max——MIN(frozenAt) 聚合无 projectId 标签）；P1@1h=分诊+解冻 ack 处置窗（runbook §14 归 C2-3）/P0@6h=canary 冻结悬置 6h 未 ack 升级。source=worker 3002（api 3000 恒 0 死键——retention/C3 同款声明面）；操作判定路径=evaluate OPS_GATE_CHECKS 段读 3002 同值单源（tiers 值派生自 OPS_GATE_CHECKS 禁手抄）',
   },
 };
 

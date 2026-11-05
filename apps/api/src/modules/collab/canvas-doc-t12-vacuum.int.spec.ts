@@ -71,7 +71,7 @@ maybe('Y1c T12 vacuum 换代通道（真 PG）', () => {
     // ⑥ vacuumReplace（T12 收口 I1.2 四参形态——expectedGeneration=④ 装载读行值 0：本布景 DB gen=0 对齐）
     const state = vacuumState();
     const replaced = await repo.vacuumReplace(PID, state, 3, 0);
-    if ('aborted' in replaced) throw new Error(`vacuumReplace 意外 aborted（I1.2 判别面）: ${replaced.dbGeneration}`);
+    if ('aborted' in replaced) throw new Error(`vacuumReplace 意外 aborted（I1.2 判别面）: ${JSON.stringify(replaced)}`);
     const { generation } = replaced;
     expect(generation).toBe(1);
 

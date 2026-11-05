@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { THRESHOLDS, resolveSpoolCapacityBytes, resolveMaxResidentBytes, NOT_SERVING_P0_MS, SMS_THROTTLE_MS, WORKER_METRIC_CHECKS, WORKER_PRESENCE_CHECK, AUDIT_WORKER_CHECKS } from './collab-health-thresholds.mjs';
+import { THRESHOLDS, resolveSpoolCapacityBytes, resolveMaxResidentBytes, NOT_SERVING_P0_MS, SMS_THROTTLE_MS, WORKER_METRIC_CHECKS, WORKER_PRESENCE_CHECK, AUDIT_WORKER_CHECKS, OPS_GATE_CHECKS } from './collab-health-thresholds.mjs';
 import { readEnvFile } from './lib/env-file.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -197,6 +197,24 @@ export function evaluate(sample, last, now, env) {
       } else if (purgeRaw > purgePrev) {
         findings.push({ check: audit.purgeStaleCounter, level: 'P1', detail: `worker 3002 purge 义务年龄告警窗口增量 +${purgeRaw - purgePrev}（purgeBelowSeq 持续非空>30min——compact resumePurges 收敛链卡死独立告警，不被审计三断言吞掉；分诊 runbook §6）` });
       }
+
+      // —— C2-1（OpsGate 主体）：worker 3002 OpsGate 族（frozen_age——维护面=compact poller boot 扫行
+      //    +每 tick 聚合刷新；THRESHOLDS 同名条目=声明面〔api 3000 恒 0 死键〕，本段=操作判定路径——
+      //    阈值单源 OPS_GATE_CHECKS〔retention/C3 分工同款〕）。两判：
+      //    ①族缺席 ⇒ P1 缺样本 unobservable（gate 维护面破——worker 未装配/未注册，冻结不可观测）；
+      //    ②年龄分级 P1@1h/P0@6h（取最高档不叠发——canary 冻结悬置的解冻 ack 处置窗/升级面）。 ——
+      const gateFamily = wm.samples.filter((s) => s.name === OPS_GATE_CHECKS.gauge);
+      if (gateFamily.length === 0) {
+        findings.push({ check: `${OPS_GATE_CHECKS.gauge}-unobservable`, level: 'P1', detail: `worker 3002 缺 ${OPS_GATE_CHECKS.gauge} 族样本（OpsGate 维护面破——compact poller 未装配/未注册=缺样本 unobservable：FROZEN 悬置不可观测；分诊：查 worker.module CollabCompactPoller 注册/3002 端点）` });
+      } else {
+        const age = wm.get(OPS_GATE_CHECKS.gauge) ?? 0;
+        const p1 = OPS_GATE_CHECKS.p1Ms / 1000, p0 = OPS_GATE_CHECKS.p0Ms / 1000;
+        if (age >= p0) {
+          findings.push({ check: `${OPS_GATE_CHECKS.gauge}>=6h`, level: 'P0', detail: `OpsGate FROZEN 悬置 ${Math.floor(age)}s ≥6h（canary 冻结 6h 未解冻 ack——升级人工立即介入；处置序 runbook §14：语义复核→修复→unfreezeWithAck；THRESHOLDS 同名声明面 tiers 单源 OPS_GATE_CHECKS）` });
+        } else if (age >= p1) {
+          findings.push({ check: `${OPS_GATE_CHECKS.gauge}>=1h`, level: 'P1', detail: `OpsGate FROZEN 悬置 ${Math.floor(age)}s ≥1h（分诊+解冻 ack 处置窗——runbook §14 归 C2-3）` });
+        }
+      }
     }
   }
 
@@ -260,6 +278,20 @@ export function evaluate(sample, last, now, env) {
       const hit = [...t.tiers].sort((a, b) => a.pct - b.pct).filter((tier) => v >= tier.pct * cap).pop();
       if (hit) {
         findings.push({ check: `${name}${hit.tag}`, level: hit.level, detail: `${v}B / 容量 ${cap}B（${(v / cap * 100).toFixed(1)}% 命中 ${hit.tag} 档）` });
+      }
+      continue;
+    }
+
+    // C2-1（OpsGate frozen_age P1@1h/P0@6h）：绝对值年龄分档——gauge-tier 容量形态不适用（非容量
+    // 百分比而是年龄绝对秒）；取最高命中档不叠发（同 gauge-tier 语义——一条 SMS 面）。
+    if (t.kind === 'age-tier') {
+      const v = metricsOk ? (m.get(name) ?? 0) : 0;
+      const hit = [...t.tiers].sort((a, b) => a.value - b.value).filter((tier) => v >= tier.value).pop();
+      if (hit) {
+        findings.push({
+          check: `${name}${hit.tag}`, level: hit.level,
+          detail: `${name}=${Math.floor(v)}s 命中 ${hit.tag} 档（C2-1 OpsGate FROZEN 悬置年龄——处置序 runbook §14：语义复核→修复→解冻 ack；source=worker 3002〔api 3000 恒 0 死键声明面〕）`,
+        });
       }
       continue;
     }

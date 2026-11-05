@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectMetricFiles, extractMetricNames } from './check-spec-consistency.mjs';
-import { THRESHOLDS, resolveSpoolCapacityBytes, AUDIT_WORKER_CHECKS } from './collab-health-thresholds.mjs';
+import { THRESHOLDS, resolveSpoolCapacityBytes, AUDIT_WORKER_CHECKS, OPS_GATE_CHECKS } from './collab-health-thresholds.mjs';
 import { parsePromText, evaluate, runCheck } from './check-collab-health.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -41,6 +41,15 @@ test('阈值表单源断言：THRESHOLDS 键 ⊆ 实际注册指标名（*.metri
   assert.equal(AUDIT_WORKER_CHECKS.currentGauge, 'collab_doc_append_gap_current');
   assert.equal(AUDIT_WORKER_CHECKS.purgeStaleCounter, 'collab_append_audit_purge_stale_total');
   assert.equal(AUDIT_WORKER_CHECKS.lastRunGauge, 'collab_append_audit_last_run_unix_seconds');
+  // C2-1（OpsGate 主体）：frozen_age age-tier 两级（P1@1h/P0@6h）+操作判定段参数单源
+  assert.equal(THRESHOLDS['collab_ops_gate_frozen_age']?.kind, 'age-tier', 'frozen_age 分级形态=age-tier（绝对秒两档）');
+  assert.deepEqual(
+    THRESHOLDS['collab_ops_gate_frozen_age']?.tiers?.map((t) => [t.value, t.level]),
+    [[OPS_GATE_CHECKS.p1Ms / 1000, 'P1'], [OPS_GATE_CHECKS.p0Ms / 1000, 'P0']],
+    '两级恰 P1@1h/P0@6h（值与 OPS_GATE_CHECKS 单源——tiers 从参数派生禁手抄）');
+  assert.equal(OPS_GATE_CHECKS.gauge, 'collab_ops_gate_frozen_age');
+  assert.equal(OPS_GATE_CHECKS.p1Ms, 3_600_000, 'P1 阈=1h');
+  assert.equal(OPS_GATE_CHECKS.p0Ms, 21_600_000, 'P0 阈=6h');
 });
 
 // ===== it 2：P0 命中→exit 2+SMS 恰一条+per-check 节流 =====
@@ -87,7 +96,8 @@ const HEALTHY_WORKERS = {
 };
 
 /** worker 3002 端点健康 prom 文本（Z116 分集：所读族样本恒带 role="worker"；
- *  C3-1 审计族健康基线——last_run unix s=1000 ⇒ 样本年龄 age=now(1_000_000ms)−1000s×1000=0 恒 fresh）。 */
+ *  C3-1 审计族健康基线——last_run unix s=1000 ⇒ 样本年龄 age=now(1_000_000ms)−1000s×1000=0 恒 fresh；
+ *  C2-1 OpsGate 族健康基线——frozen_age 0=无 FROZEN 行）。 */
 function workerPromText(overrides = {}) {
   const base = {
     'nodejs_eventloop_lag_seconds{role="worker"}': 0.002,
@@ -97,6 +107,8 @@ function workerPromText(overrides = {}) {
     'doc_append_gap_total{role="worker"}': 0,
     'collab_doc_append_gap_current{role="worker"}': 0,
     'collab_append_audit_purge_stale_total{role="worker"}': 0,
+    // C2-1（OPS_GATE_CHECKS）：OpsGate frozen_age 健康基线（0=无冻结行）
+    'collab_ops_gate_frozen_age{role="worker"}': 0,
     ...overrides,
   };
   return Object.entries(base).map(([k, v]) => `${k} ${v}`).join('\n') + '\n';
@@ -672,5 +684,48 @@ test('C3 红⑦：P0 → exit 2+SMS 恰一条（[P0]doc_append_gap_total——�
   assert.equal(p0[0].check, 'doc_append_gap_total');
   assert.equal(sent.length, 1, 'SMS 恰一条');
   assert.match(sent[0].text, /doc_append_gap_total/);
+  fs.rmSync(stateDir, { recursive: true, force: true });
+});
+
+// ===== C2-1（OpsGate 主体——frozen_age 分级 P1@1h/P0@6h；source=worker 3002 操作判定段） =====
+
+test('C2-1：frozen_age ≥6h ⇒ P0（取最高档不叠发）；≥1h<6h ⇒ P1；<1h/0 ⇒ 零 findings；族缺席（gate 维护面破）⇒ P1 unobservable', () => {
+  // ① ≥6h：P0 高档命中不叠发 P1（一条 SMS 面——gauge-tier 同语义）
+  const over6h = evaluate(workerSample(workerPromText({ 'collab_ops_gate_frozen_age{role="worker"}': OPS_GATE_CHECKS.p0Ms / 1000 })), null, 1_000_000, {});
+  const gate6 = over6h.findings.filter((f) => f.check.includes('collab_ops_gate_frozen_age'));
+  assert.equal(gate6.length, 1, `恰一条（实得 ${JSON.stringify(gate6)}）`);
+  assert.equal(gate6[0].level, 'P0', '≥6h ⇒ P0（canary 冻结 6h 未 ack=磁盘不一致悬置面升级）');
+  // ② ≥1h<6h ⇒ P1
+  const over1h = evaluate(workerSample(workerPromText({ 'collab_ops_gate_frozen_age{role="worker"}': OPS_GATE_CHECKS.p1Ms / 1000 })), null, 1_000_000, {});
+  assert.ok(over1h.findings.some((f) => f.level === 'P1' && f.check.includes('collab_ops_gate_frozen_age')), '≥1h ⇒ P1（分诊+解冻 ack 处置序 runbook §14）');
+  // ③ <1h/0 ⇒ 零 gate findings（fresh 基线=0 无冻结行）
+  const fresh = evaluate(workerSample(workerPromText()), null, 1_000_000, {});
+  assert.deepEqual(fresh.findings.filter((f) => f.check.includes('collab_ops_gate_frozen_age')), [], 'fresh 零 findings');
+  // ④ 族缺席（OpsGate 维护面破——worker 未装配/未注册）⇒ P1 缺样本 unobservable（audit 族先例同判）
+  const absentText = 'nodejs_eventloop_lag_seconds{role="worker"} 0.002\nprocess_tree_rss_bytes{role="worker"} 209715200\ncollab_append_audit_last_run_unix_seconds{role="worker"} 1000\n';
+  const absent = evaluate(workerSample(absentText), null, 1_000_000, {});
+  assert.ok(absent.findings.some((f) => f.level === 'P1' && /collab_ops_gate_frozen_age/.test(f.check) && /unobservable|缺席/.test(f.detail)),
+    `族缺席 ⇒ P1 unobservable（实得 ${JSON.stringify(absent.findings)}）`);
+});
+
+test('C2-1：frozen_age P0（≥6h）→ exit 2+SMS 恰一条（[P0]collab_ops_gate_frozen_age——阈值触发→真实发送链路穿 runCheck；冻结处置序=runbook §14 归 C2-3）', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'collab-health-c21-'));
+  const sent = [];
+  const smsSender = async (check, text) => { sent.push({ check, text }); };
+  // run1 建基线（双端点健康——gate 族 fresh 0）
+  const r1 = await runCheck({ now: 1_000_000, fetchImpl: makeFetch({ metricsText: promText(), workerMetricsText: workerPromText() }), stateDir, env: {}, smsSender });
+  assert.equal(r1.exitCode, 1, '首跑 insuff（预期 P1）');
+  // run2：worker 3002 frozen_age 0→7h（canary 冻结未 ack 6h+）⇒ P0 → SMS 恰一条
+  const r2 = await runCheck({
+    now: 1_000_000 + 300_000,
+    fetchImpl: makeFetch({ metricsText: promText(), workerMetricsText: workerPromText({ 'collab_ops_gate_frozen_age{role="worker"}': 7 * 3600 }) }),
+    stateDir, env: {}, smsSender,
+  });
+  assert.equal(r2.exitCode, 2, 'P0 ⇒ exit 2');
+  const p0 = r2.findings.filter((f) => f.level === 'P0');
+  assert.equal(p0.length, 1, `恰一个 P0（实得 ${JSON.stringify(p0)}）`);
+  assert.match(p0[0].check, /collab_ops_gate_frozen_age/);
+  assert.equal(sent.length, 1, 'SMS 恰一条');
+  assert.match(sent[0].text, /collab_ops_gate_frozen_age/);
   fs.rmSync(stateDir, { recursive: true, force: true });
 });

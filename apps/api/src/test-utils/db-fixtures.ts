@@ -23,6 +23,12 @@ export async function ensureProjectFixture(prisma: PrismaClient, projectId: stri
     update: {},
     create: { id: projectId, name, teamId: FIXTURE_TEAM },
   });
+  // C2-1：OpsGate 项目行 seed（fixture 直建 canvasProject 绕过两创建路径=governance 不达——
+  // compact ⓪/③/vacuum 前置 gate 检查 fail-closed 拒 ⇒ 全体 compact int spec 红。raw INSERT 与
+  // 迁移笔二回填同语义（ON CONFLICT DO NOTHING——不写 origin 列，生产回填同款）。
+  await prisma.$executeRaw`
+    INSERT INTO "CollabOpsGate" ("gate", "projectId", "state") VALUES ('compact', ${projectId}, 'OPEN')
+    ON CONFLICT DO NOTHING`;
 }
 
 export async function cleanupProjectFixture(prisma: PrismaClient, projectId: string): Promise<void> {
@@ -33,6 +39,11 @@ export async function cleanupProjectFixture(prisma: PrismaClient, projectId: str
   // C3-0：CanvasDocCoalesced 同为纯列业务平面（无 FK——schema 注释）：吞行侧表行随项目清理显式删。
   await prisma.canvasDocCoalesced.deleteMany({ where: { projectId } });
   await prisma.runtimeFeedCursor.deleteMany({ where: { projectId } });
+  // C2-1：OpsGate 行无 FK（C2-1 两行校验/freeze 载体——c20 spec 同款显式删）；CanaryPin/
+  // CollabCanaryCursor（C2-2 消费面）同理随项目清理。
+  await prisma.collabOpsGate.deleteMany({ where: { gate: 'compact', projectId } });
+  await prisma.canaryPin.deleteMany({ where: { projectId } });
+  await prisma.collabCanaryCursor.deleteMany({ where: { projectId } });
   await prisma.canvasProject.deleteMany({ where: { id: projectId } });
 }
 

@@ -16,6 +16,7 @@ import { Counter, register } from 'prom-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { COMPACT_INTERVAL_MS } from './collab-persistence.service';
+import { refreshOpsGateFrozenAgeGauge } from './collab-ops-gate.service';
 
 /** 扫描周期（时间门基线：候选集变化由写入方驱动，分钟级扫描即达；env 可调——运维脚本同族惯例）。 */
 export const COMPACT_POLL_INTERVAL_MS = Number(process.env.COMPACT_POLL_INTERVAL_MS) || 60_000;
@@ -24,7 +25,7 @@ const COMPACT_POLL_BATCH = 50;
 
 export const compactPollTickTotal = new Counter({
   name: 'collab_compact_poll_tick_total',
-  help: 'Y1c T11 compact 轮询 poller tick 计数（result=compacted 发布成功/miss 授权 CAS 败/empty 无前缀/abandoned pendingStructs/candidate 进批/skipped-gate 时间门跳过/error 意外——worker 进程触发面）',
+  help: 'Y1c T11 compact 轮询 poller tick 计数（result=compacted 发布成功/miss 授权 CAS 败/empty 无前缀/abandoned pendingStructs/gate-frozen OpsGate 门拒〔C2-1〕/candidate 进批/skipped-gate 时间门跳过/error 意外——worker 进程触发面）',
   labelNames: ['result'],
   registers: [register],
 });
@@ -62,6 +63,9 @@ export class CollabCompactPoller implements OnModuleInit, OnApplicationShutdown 
       // doc，kill 窗残留行已删+快照已覆盖的纯清理义务不在其列，compact empty 早退于 ④ 不续删）
       this.logger.error(`T11 启动续跑失败（tick 首步兜底）: ${(e as Error).message}`);
     }
+    // C2-1：boot 扫行初始化 frozen_age gauge（spec §3 C2——worker 是该 gauge 的确定性维护面：
+    // boot 一次+每 tick 聚合刷新；gauge 在 3002 可服务前落定=巡检零假窗，C3 worker boot 先例同族）
+    await refreshOpsGateFrozenAgeGauge(this.prisma);
     this.timer = setInterval(() => { void this.tick(); }, COMPACT_POLL_INTERVAL_MS);
     this.timer.unref?.();
   }
@@ -83,6 +87,9 @@ export class CollabCompactPoller implements OnModuleInit, OnApplicationShutdown 
       } catch (e) {
         this.logger.warn(`T11 tick 清理义务续跑失败（义务由 purgeBelowSeq 持久承载——下轮 tick 再试）: ${(e as Error).message}`);
       }
+      // C2-1：frozen_age gauge 每 tick 聚合刷新（冻结年龄随时间增长——观察面由本 tick 确定性推进；
+      // 永不 throw：观测面 best-effort，失败保持最后值下轮重试）
+      await refreshOpsGateFrozenAgeGauge(this.prisma);
       const candidates = await this.prisma.$queryRaw<{ projectId: string }[]>`
         SELECT d."projectId" FROM "CanvasDoc" d
         WHERE EXISTS (

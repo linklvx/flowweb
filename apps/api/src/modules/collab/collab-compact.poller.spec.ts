@@ -5,9 +5,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CollabCompactPoller, COMPACT_POLL_INTERVAL_MS, compactPollTickTotal } from './collab-compact.poller';
 import { COMPACT_INTERVAL_MS } from './collab-persistence.service';
 
-/** 最小 prisma 面（$queryRaw=候选扫描）。 */
+/** 最小 prisma 面（$queryRaw 按 SQL 形状分派：候选扫描/frozen_age 聚合——C2-1 tick 增刷 gauge 面；
+ *  gate 授权读在 repo.compact ⓪ 内部（tick 不直读），本 mock 的 repo.compact 为 stub 故无此查询）。 */
 const buildPrisma = (candidates: string[]) => ({
-  $queryRaw: vi.fn(async () => candidates.map((projectId) => ({ projectId }))),
+  $queryRaw: vi.fn(async (q: TemplateStringsArray, ..._vals: unknown[]) => {
+    const sql = q.join('?');
+    if (sql.includes('MIN("frozenAt")')) return [{ age: 0 }];   // C2-1 frozen_age 聚合（boot/tick 刷新）
+    return candidates.map((projectId) => ({ projectId }));
+  }),
 });
 
 describe('Y1c T11 CollabCompactPoller（unit——tick 行为）', () => {
@@ -48,11 +53,14 @@ describe('Y1c T11 CollabCompactPoller（unit——tick 行为）', () => {
     await first;
   });
 
-  it('onModuleInit：启动续跑先行+周期 timer 武装（unref）+shutdown 清 timer', async () => {
+  it('onModuleInit：启动续跑先行+周期 timer 武装（unref）+shutdown 清 timer；C2-1 boot 扫行初始化 frozen_age gauge', async () => {
     const repo = { compact: vi.fn(), resumePurges: vi.fn(async () => 2), assertSchemaGenerationDiscipline: vi.fn(async () => undefined) };
-    const poller = new CollabCompactPoller(buildPrisma([]) as never, repo as never);
+    const prisma = buildPrisma([]);
+    const poller = new CollabCompactPoller(prisma as never, repo as never);
     await poller.onModuleInit();
     expect(repo.resumePurges).toHaveBeenCalledTimes(1);   // kill 窗清理义务先于新扫描
+    // C2-1：boot 即扫 FROZEN 行初始化 collab_ops_gate_frozen_age（MIN(frozenAt) 聚合——非等首 tick）
+    expect(prisma.$queryRaw.mock.calls.some((c) => String(c[0]).includes('MIN("frozenAt")'))).toBe(true);
     await poller.onApplicationShutdown();
   });
 

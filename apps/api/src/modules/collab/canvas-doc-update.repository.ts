@@ -6,6 +6,8 @@ import { CANVAS_DOC_SCHEMA_VERSION, canonicalUpdateHashPayload } from '@flowweb/
 import { createCanvasDoc } from './canvas-doc.factory';
 import { projectDocName } from './doc-name.util';
 import { lockProject } from './project-lock';
+import { readOpsGateCompact, checkOpsGateCompactForShare, type OpsGateCompactReject } from './collab-ops-gate.service';
+import { compactGateSkipTotal } from './collab-ops-gate.metrics';
 import { PrismaService } from '../../prisma/prisma.service';
 import { captureCollabException } from '../../utils/sentry-scrub';
 import {
@@ -514,10 +516,19 @@ export class CanvasDocUpdateRepository {
     /** Y1c T27：同事务钩（SWITCHING stage 写与换代 DB 族同生共死——appendBatch inTx 先例；
      *  消费方=CollabMaintenanceService.switchingStage）。 */
     inTx?: (tx: Prisma.TransactionClient) => Promise<void>,
-  ): Promise<{ generation: number } | { aborted: 'generation-drift'; dbGeneration: number }> {
-    return this.prisma.$transaction(
+  ): Promise<{ generation: number } | { aborted: 'generation-drift'; dbGeneration: number } | { aborted: 'gate-frozen' }> {
+    let gateReject: OpsGateCompactReject | null = null;   // C2-1：前置 gate 检查拒档（提交后计数）
+    const r = await this.prisma.$transaction(
       async (tx) => {
         await lockProject(tx, projectId);
+        // C2-1（plan Task C2-1）：换代真空替换前置 gate 检查（FROZEN 拒=aborted 档零写）——
+        // FOR SHARE 两行校验与 compact ③ 发布事务同族（freeze UPDATE 互斥+行数==2 闭集）；
+        // 锁序=advisory→gate 行→doc 行（compact ③ 无 advisory=gate→doc 行——两序无环）。
+        const gate = await checkOpsGateCompactForShare(tx, projectId);
+        if (!gate.ok) {
+          gateReject = gate.result;
+          return { aborted: 'gate-frozen' as const };
+        }
         const liveRows = await tx.canvasDocUpdate.findMany({
           where: { projectId },
           orderBy: { seq: 'asc' },
@@ -572,10 +583,14 @@ export class CanvasDocUpdateRepository {
       },
       { timeout: 10_000, maxWait: 2_000 },
     );
+    if (gateReject) compactGateSkipTotal.inc({ result: gateReject });   // 无写返回路径=tx 已提交（计数挂提交后纪律）
+    return r;
   }
 
   /** Y1c T11 compact 重写（plan Task 11——快照发布+WAL 清理）：快照只从 **PG 前缀**生成且只到
-   *  **pgSeq**。四段管线：
+   *  **pgSeq**。五段管线：
+   *   ⓪OpsGate 授权读（C2-1 两阶段读第一面——非事务快速判定）：三档拒（frozen/fail-closed）⇒
+   *     gate-frozen 早退零重放；api maybeCompact+worker tick 两触发面经此统一被守。
    *   ①授权读（无事务）：CanvasDoc 行 {generation,pgSeq,currentSnapshotRev}——compact 授权=行锁+
    *     generation/pgSeq CAS（**不拿租约**——与写入方 lease 正交：worker 进程无租约照常 compact，
    *     并发单写者 append 推 pgSeq ⇒ 发布 CAS miss 正常折返）。
@@ -583,7 +598,8 @@ export class CanvasDocUpdateRepository {
    *     (stateSeq0, pgSeq] 分页重放 → encodeStateAsUpdate canonical 编码（genesis 同口径字节形态）
    *     +SHA-256 stateHash。pendingStructs!=null → abandoned（P0 计数+ERROR 落本分支单点，**禁
    *     throw**——gateway/hydrate 两路 catch 会把它计入 compact_failure 污染 abandoned 告警线）。
-   *   ③发布事务（短事务·默认 RC+FOR UPDATE 行锁）：锁内复核三元组 {generation,pgSeq,rev} 未漂移
+   *   ③发布事务（短事务·默认 RC+行锁）：**首语句=OpsGate 两行 FOR SHARE 校验（C2-1 红③——freeze
+   *     UPDATE 互斥+行数==2 校验，<2=fail-closed 拒零写）**；锁内复核三元组 {generation,pgSeq,rev} 未漂移
    *     （漂移=miss——写入方推进/并发 compact 已发布；正常折返非异常）→ INSERT CanvasDocSnapshot
    *     ON CONFLICT DO NOTHING（0 行=miss）→ 条件 UPDATE 指针 currentSnapshotRev+purgeBelowSeq
    *     **同事务持久**（WHERE 三元组 CAS=跨表不变量 Snapshot.stateSeq≤pgSeq 的发布事务内验证
@@ -591,7 +607,8 @@ export class CanvasDocUpdateRepository {
    *     **失败保留原可用快照与 WAL 不提前清理**（发布前零删除；purgeBelowSeq 与指针同事务落定）。
    *   ④提交后分批删（worker 分批）：CanvasDocUpdate (projectId,generation,seq≤purgeBelowSeq) 批删
    *     （500/批）+保留策略收敛（当前代 top-2+旧代各 top-1——指针行恒保留）+snapshot gauge/duration。
-   *  返回契约：empty=指针快照已覆盖 pgSeq（无前缀可折）；abandoned/miss 同上；deletedRows=本次
+   *  返回契约：empty=指针快照已覆盖 pgSeq（无前缀可折）；abandoned/miss 同上；gate-frozen=OpsGate
+   *  门拒（⓪授权读∨③两行校验——红③ abandoned 零写档）；deletedRows=本次
    *  实删增量行数（发布后批删真值——Y0b-5 T10 口径承继）。opts 预算辖发布事务（重放/批删无事务）。
    *  触发面（T9 后收敛=takeActorLanded/维护直调点/装载自愈）经 maybeCompact 原位接入，不断链；
    *  worker 进程轮询触发面=CollabCompactPoller（COLLAB_ROLE worker 调度——启动续跑同载体）。 */
@@ -602,10 +619,18 @@ export class CanvasDocUpdateRepository {
     opts?: { timeoutMs?: number; maxWaitMs?: number },
   ): Promise<
     | { compacted: true; snapshotBytes: number; deletedRows: number; tombstoneBytes: number; snapshotRev: bigint; stateSeq: bigint; purgeBelowSeq: bigint }
-    | { compacted: false; reason?: 'abandoned' | 'empty' | 'miss' }
+    | { compacted: false; reason?: 'abandoned' | 'empty' | 'miss' | 'gate-frozen' }
   > {
     const t0 = Date.now();
     try {
+      // ⓪ OpsGate 授权读（C2-1 两阶段读第一面——非事务快速判定：重放内存工作前早退；api
+      //    maybeCompact 与 worker tick 两触发面经本方法统一被守）。fail-closed/frozen 同拒
+      //    （compact_gate_skip_total 闭集分档）；发布事务提交前 frozen 到达由 ③ FOR SHARE 兜底（红③）。
+      const gate = await readOpsGateCompact(this.prisma, projectId);
+      if (!gate.open) {
+        compactGateSkipTotal.inc({ result: gate.result });
+        return { compacted: false, reason: 'gate-frozen' as const };
+      }
       // ①授权读（无事务——真值即捕获值；漂移由 ③ 锁内复核收口）
       const head = await this.prisma.$queryRaw<{ generation: number; pgSeq: bigint; currentSnapshotRev: bigint }[]>`
         SELECT generation, "pgSeq", "currentSnapshotRev" FROM "CanvasDoc" WHERE "projectId" = ${projectId}::text LIMIT 1`;
@@ -649,8 +674,17 @@ export class CanvasDocUpdateRepository {
         const stateHash = createHash('sha256').update(newSnapshot).digest('hex');
 
         // ③发布事务（短事务：行锁+三元组 CAS+指针/purgeBelowSeq 同事务持久）
+        let gateReject: OpsGateCompactReject | null = null;   // C2-1 红③：FOR SHARE 两行校验拒档（提交后计数——tx 回滚不虚计）
         const publish = await this.prisma.$transaction(
           async (tx) => {
+            // C2-1（plan Task C2-1 红③）：发布事务首语句=OpsGate 两行 FOR SHARE 校验（与 freeze
+            // UPDATE 互斥——授权读 pass 后提交前 frozen 到达 ⇒ 此处见 FROZEN ⇒ 拒零写 abandoned；
+            // 行数≠2=fail-closed）。锁序=gate 行→CanvasDoc 行（vacuumReplace 同序——无环）。
+            const gateTx = await checkOpsGateCompactForShare(tx, projectId);
+            if (!gateTx.ok) {
+              gateReject = gateTx.result;
+              return { ok: false as const, reason: 'gate-frozen' as const };
+            }
             // Q-M5（T11 双评审）TOCTOU 收口：schemaVersion/vacuumEpoch 读入 ③ 锁内（随 FOR UPDATE
             // 行锁同读——旧实现锁前无锁读，读-锁间隙换代/升级列写=快照行携带陈旧版本对）。
             const locked = await tx.$queryRaw<{ generation: number; pgSeq: bigint; currentSnapshotRev: bigint; schemaVersion: number | null; vacuumEpoch: number | null }[]>`
@@ -679,6 +713,7 @@ export class CanvasDocUpdateRepository {
           },
           { timeout: opts?.timeoutMs ?? 5_000, maxWait: opts?.maxWaitMs ?? 2_000 },
         );
+        if (gateReject) compactGateSkipTotal.inc({ result: gateReject });   // 无写返回路径=tx 已提交（计数挂提交后纪律）
         if (!publish.ok) return { compacted: false, reason: publish.reason };
 
         // ④提交后 worker 分批删+保留策略（发布已落定——清理义务由 purgeBelowSeq 持久承载，中途崩=启动续跑）。

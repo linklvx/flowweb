@@ -390,7 +390,7 @@ export class CollabMaintenanceService {
 
   /** SWITCHING 段动作：单 PG 事务（vacuumReplace DB 族+同事务 stage 写）→提交后 close 4410+切 WAL+清进程态。
    *  幂等：generation≥target=前次提交已落 → 跳重切只做事务后动作。 */
-  private async switchingStage(pid: string, maintenanceId: string, sourceGeneration: number, targetGeneration: number, payload: { state: Buffer; updateRowCount: number }): Promise<{ ok: true } | { ok: false; reason: 'generation-drift' }> {
+  private async switchingStage(pid: string, maintenanceId: string, sourceGeneration: number, targetGeneration: number, payload: { state: Buffer; updateRowCount: number }): Promise<{ ok: true } | { ok: false; reason: 'generation-drift' | 'gate-frozen' }> {
     const live = await readCanvasDocHead(this.prisma, pid);
     if (live.status === 'found' && live.row.generation >= targetGeneration) {
       // 前次 SWITCHING 已提交（崩溃窗 roll-forward）——只补事务后动作
@@ -408,6 +408,9 @@ export class CollabMaintenanceService {
       throw err;
     });
     if ('aborted' in replaced) {
+      // C2-1：换代前置 OpsGate 拒（FROZEN/fail-closed）——非 drift 档（解冻 ack 前重试恒拒；
+      // ABORTED detail 如实分档，运维分诊=冻结处置序 runbook §14）
+      if (replaced.aborted === 'gate-frozen') return { ok: false, reason: 'gate-frozen' };
       // 锁内 generation 复核漂移（跨进程 CLI 换代竞态窗）——pre-SWITCHING 净 abort 档
       if (replaced.dbGeneration >= targetGeneration) {
         await this.postSwitchActions(pid, replaced.dbGeneration);   // M-5(spec)：4410 载荷=DB 真值

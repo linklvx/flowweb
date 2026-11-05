@@ -57,6 +57,8 @@ describe('CanvasDocUpdateRepository', () => {
       pages: { seq: bigint; update: Buffer }[][];   // 逐页应答（空页收尾）
       insertSnapshot?: 'conflict' | bigint;
       purged?: number;
+      /** C2-1：OpsGate 两行应答（⓪授权读 plain+③ FOR SHARE 同答）——缺省=两行 OPEN（pass-through）。 */
+      gate?: Array<{ projectId: string; state: string }>;
     },
     before?: (sql: string, st2: typeof st) => void,
   ) {
@@ -68,6 +70,13 @@ describe('CanvasDocUpdateRepository', () => {
       const sql = strings.join('?');
       calls.push(sql);
       before?.(sql, st);
+      if (sql.includes('FROM "CollabOpsGate"')) {
+        if (sql.includes('FOR SHARE')) txSql.push(sql);   // ③ 发布事务首语句（两行校验形状锚）
+        return st.gate ?? [
+          { projectId: '', state: 'OPEN' },
+          { projectId: 'p1', state: 'OPEN' },
+        ];
+      }
       if (sql.includes('FOR UPDATE')) { txSql.push(sql); return [st.locked ?? st.head]; }
       if (sql.includes('INSERT INTO "CanvasDocSnapshot"')) {
         txSql.push(sql);
@@ -251,6 +260,47 @@ describe('CanvasDocUpdateRepository', () => {
       insertSnapshot: 'conflict',
     });
     await expect(s2.repo.compact('p1')).resolves.toEqual({ compacted: false, reason: 'miss' });
+  });
+
+  // ══ C2-1（plan Task C2-1——OpsGate compact 门 unit 面：⓪授权读早退+③ FOR SHARE 两行校验形状） ══
+
+  it('C2-1 compact ⓪：全局行 FROZEN → {compacted:false,reason:"gate-frozen"} 早退（重放前零快照读零发布）', async () => {
+    const { repo, calls } = buildCompactSim({
+      head: { generation: 1, pgSeq: 2n, currentSnapshotRev: 0n },
+      snapshot: null,
+      pages: [[{ seq: 1n, update: docBytes('g1', 1) }]],
+      gate: [{ projectId: '', state: 'FROZEN' }, { projectId: 'p1', state: 'OPEN' }],
+    });
+    await expect(repo.compact('p1')).resolves.toEqual({ compacted: false, reason: 'gate-frozen' });
+    expect(calls.some((c) => c.includes('INSERT INTO "CanvasDocSnapshot"'))).toBe(false);   // 零发布
+    expect(calls.some((c) => c.includes('FOR UPDATE'))).toBe(false);   // ③ 未达（⓪ 早退先于 ①②③）
+  });
+
+  it('C2-1 compact ③：发布事务首语句=OpsGate 两行 FOR SHARE 校验（gate→CanvasDoc 锁序）；授权读 pass 后行缺 → fail-closed 拒零写', async () => {
+    // 形状锚：③ 事务内语句序=FOR SHARE 两行校验居首（IN ('',pid) 两行闭集）
+    const ok = buildCompactSim({
+      head: { generation: 1, pgSeq: 2n, currentSnapshotRev: 0n },
+      snapshot: null,
+      pages: [[{ seq: 1n, update: docBytes('g2', 1) }]],
+    });
+    const r = await ok.repo.compact('p1');
+    expect(r).toMatchObject({ compacted: true });
+    expect(ok.txSql[0]).toContain('FROM "CollabOpsGate"');
+    expect(ok.txSql[0]).toContain('FOR SHARE');
+    expect(ok.txSql[0]).toContain(`IN ('', ?)`);
+    // 序列化红③ unit 锚：⓪授权读 pass（两行 OPEN）→ ③ 窗口行被删（<2）→ fail-closed 拒零写
+    const holed = buildCompactSim(
+      {
+        head: { generation: 1, pgSeq: 2n, currentSnapshotRev: 0n },
+        snapshot: null,
+        pages: [[{ seq: 1n, update: docBytes('g3', 1) }]],
+      },
+      (sql, st) => {
+        if (sql.includes('FROM "CanvasDoc"')) st.gate = [{ projectId: '', state: 'OPEN' }];   // ① 后行缺（governance 破洞形态）
+      },
+    );
+    await expect(holed.repo.compact('p1')).resolves.toEqual({ compacted: false, reason: 'gate-frozen' });
+    expect(holed.calls.some((c) => c.includes('INSERT INTO "CanvasDocSnapshot"'))).toBe(false);   // 零写 abandoned
   });
 
   it('compact：跨两轮——第一轮发布快照作第二轮指针态重放，内容等价+每轮 rev/stateSeq=该轮 pgSeq', async () => {
@@ -586,6 +636,11 @@ describe('I1.2 vacuumReplace 锁内 generation 复核（expectedGeneration——
     const prisma = {
       $transaction: vi.fn((fn: any) => fn({
         $executeRaw: vi.fn().mockResolvedValue([]),   // advisory lock
+        // C2-1：vacuumReplace 前置 OpsGate 两行 FOR SHARE 校验（lockProject 后首读——mock 随生产面）
+        $queryRaw: vi.fn().mockResolvedValue([
+          { projectId: '', state: 'OPEN' },
+          { projectId: 'p1', state: 'OPEN' },
+        ]),
         canvasDocUpdate: {
           findMany: vi.fn().mockResolvedValue([]),    // 锁内实读行集（expectedRowCount=0 对齐）
           deleteMany: vi.fn(async () => { writes.deleteMany += 1; }),

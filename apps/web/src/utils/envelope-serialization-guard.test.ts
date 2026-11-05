@@ -84,8 +84,11 @@ describe('信封序列化门禁（R1a——防手抄本复活）', () => {
     ];
     // 审计参数豁免（Y0a-3 T7 Z15）：AuditLogParams 的 targetType/targetId 与 edge 形状同名词——
     // drain 端点审计写点非边序列化面，显式登记（ALLOW_FILES 同款白名单出口）；新审计消费文件入列须同样登记。
+    // C2-1（OpsGate 解冻 ack）：collab-ops-gate.service.ts 的 unfreeze 审计落痕同款登记（AuditLog
+    // targetType/targetId 写点非边序列化面——AuditService.buildData 映射先例）。
     const AUDIT_PARAM_FILES = new Set([
       'apps/api/src/modules/collab/collab-ready.controller.ts',
+      'apps/api/src/modules/collab/collab-ops-gate.service.ts',
     ]);
     const offenders: string[] = [];
     for (const file of EDGE_DIRS.flatMap(listTsFiles)) {

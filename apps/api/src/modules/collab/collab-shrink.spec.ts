@@ -771,6 +771,12 @@ function buildVacuumPrismaTx(rows: Array<{ id: string; seq: bigint }>) {
   const snapUpsert = vi.fn(async (_args: unknown) => ({}));
   const tx = {
     $executeRaw: txExecRaw,
+    // C2-1：vacuumReplace 前置 OpsGate 两行 FOR SHARE 校验（lockProject 后首读——repo 生产面
+    // 增查随线：C3-0 评审「mock 随生产面」惯例）：两行 OPEN pass-through。
+    $queryRaw: vi.fn(async () => [
+      { projectId: '', state: 'OPEN' },
+      { projectId: 'p1', state: 'OPEN' },
+    ]),
     canvasDocUpdate: { findMany: vi.fn(async () => rows), deleteMany: updateDeleteMany },
     // Y1c T11 快照权威：canvasDoc.findUnique=generation/schemaVersion/vacuumEpoch/currentSnapshotRev
     // （doc 态列已退役）；指针快照 stateSeq 经 canvasDocSnapshot.findUnique 读（零行基准）
