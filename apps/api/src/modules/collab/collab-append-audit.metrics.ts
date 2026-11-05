@@ -41,12 +41,12 @@ export const collabAppendAuditPurgeStaleTotal = new Counter({
   registers: [register],
 });
 
-/** 末次完成审计 tick 的 unix 秒（红⑥ worker 停跑样本年龄判定面：巡检侧 now−本值>阈值 ⇒ P0——worker
- *  进程活〔3002 可达〕而审计 tick 死的半死面；进程死=worker-metrics-unreachable P0 既有承担。样本冻结=
+/** 末次完成审计 tick 的 unix 秒（红⑥ worker 停跑样本年龄判定面：巡检侧 now−本值>阈值 ⇒ P1〔半死分诊级〕
+ *  ——worker 进程活〔3002 可达〕而审计 tick 死的半死面；进程死=worker-metrics-unreachable P0 既有承担。样本冻结=
  *  年龄增长由巡检侧判定，worker 自身无法自证。完成 tick（ok/skip）即推进；error tick 不推进——连续失败
  *  自然升龄告警）。 */
 export const collabAppendAuditLastRunUnixSeconds = new Gauge({
   name: 'collab_append_audit_last_run_unix_seconds',
-  help: 'C3 append 审计末次完成 tick unix 秒（巡检样本年龄判定：now−值>15min=审计链停跑 P0；ok/skip 完成 tick 推进、error 不推进——连续失败自然升龄）',
+  help: 'C3 append 审计末次完成 tick unix 秒（巡检样本年龄判定：now−值>15min=审计链停跑 P1〔半死——进程死=worker-metrics-unreachable P0〕；ok/skip 完成 tick 推进、error 不推进——连续失败自然升龄）',
   registers: [register],
 });

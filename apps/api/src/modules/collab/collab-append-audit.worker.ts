@@ -38,8 +38,8 @@ export const APPEND_AUDIT_PROJECT_BATCH = 200;
 const TICK_TX_TIMEOUT_MS = 30_000;
 /** purge 义务年龄阈值（红②：purgeBelowSeq 持续非空>30min=compact resumePurges 收敛链卡死独立告警）。 */
 export const PURGE_OBLIGATION_STALE_MS = 30 * 60_000;
-/** 缺失区间样本上界（per 对/边界——generate_series 惰性 LIMIT；missing_count 全量计数走索引区间扫）。 */
-const MISSING_SAMPLE_CAP = 20;
+// 缺失区间样本上界=repository auditAppendBatch 默认参数（missingSampleCap=20 单源——generate_series
+// 惰性 LIMIT；missing_count 全量计数走索引区间扫。worker 不持第二份常量——评审 Minor#1：死常量删）。
 
 /** lastGap 持久态条目：(project) → { g=generation, gap=三断言违例在否, purgeSince=义务年龄观察起点,
  *  purgeStale=年龄告警已发边沿标记〔防每 tick 重发〕 }。 */

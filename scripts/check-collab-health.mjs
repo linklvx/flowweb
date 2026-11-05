@@ -179,7 +179,7 @@ export function evaluate(sample, last, now, env) {
       if (gapPrev === undefined) {
         findings.push(insuff(audit.gapCounter, 'worker 3002 新 gap 边沿两样本差不可算'));
       } else if (gapRaw > gapPrev) {
-        findings.push({ check: audit.gapCounter, level: 'P0', detail: `worker 3002 新 gap 边沿窗口增量 +${gapRaw - gapPrev}（append 行集断链三断言违例且 CanvasDocCoalesced 无覆盖——装载尾静默丢数据前兆；charter 0 丢失口径；分诊 runbook §6：worker 日志 grep「doc append gap 审计违例」取结构化 {projectId,generation,stateSeq,pgSeq,violations}）` });
+        findings.push({ check: audit.gapCounter, level: 'P0', detail: `worker 3002 新 gap 边沿窗口增量 +${gapRaw - gapPrev}（append 行集断链三断言违例且 CanvasDocCoalesced 无覆盖——装载尾静默丢数据前兆；charter 0 丢失口径；分诊 runbook §6：worker 日志 grep「doc append gap 审计违例」取结构化 {projectId,generation,snapshotFloor,pgSeq,violations}）` });
       }
       const curVal = wm.get(audit.currentGauge) ?? 0;
       const curKey = `w3002:${audit.currentGauge}`;
