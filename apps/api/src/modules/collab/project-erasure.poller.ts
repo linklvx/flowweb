@@ -15,7 +15,7 @@
 //    →team run DONE。
 // project scope run：claim+RUNNING+租约心跳（PENDING→RUNNING 的 liveness 证明——物理清除 saga 态机
 // 归 C4-c；本骨架不推进物理删除=tombstone-only 承诺的 worker 半边在位）。dryRun run 不消费（C4-c）。
-import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit, Optional } from '@nestjs/common';
 import { join } from 'node:path';
 import { Prisma } from '@prisma/client';
 import type { ProjectErasureRun } from '@prisma/client';
@@ -25,6 +25,7 @@ import { CreditLedgerService } from '../team/credit-ledger.service';
 import { ErasureContextService, lockScope, lockProject, fenceProject, fenceTeam } from './project-lock';
 import { createErasureRun, ERASURE_ACTIVE_STATES } from './project-erasure';
 import { collectSpoolSegments, writeErasureManifest, type ErasureManifestInputs } from './project-erasure.manifest';
+import { executePurgingDbStage, httpMediaRefsCollector, type MediaRefsCollector } from './project-erasure.stages';
 
 /** 轮询周期（时间门基线：run 行=唤醒源，间隔即红④兜底延迟上界；env 可调——RETENTION_SWEEP_INTERVAL_MS 同族形态）。 */
 export const ERASURE_POLL_INTERVAL_MS = Number(process.env.ERASURE_POLL_INTERVAL_MS) || 5_000;
@@ -52,6 +53,9 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
     @Inject(ErasureContextService) private readonly erasureCtx: ErasureContextService,
+    /** C4-c1：未 reconcile 引用采集器（PURGING_DB 独占判别 doc 扫描——api 内部端点客户端）。
+     *  缺省=构造期惰性解析 httpMediaRefsCollector；int 测试注入 stub。 */
+    @Optional() private readonly mediaRefs?: MediaRefsCollector,
   ) {}
 
   onModuleInit(): void {
@@ -72,8 +76,10 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
           dryRun: false,
           OR: [
             { scopeType: 'team', state: { in: ['PENDING', 'RUNNING', 'WAITING_CHILDREN'] } },
-            // C4-b：project 含 DRAINING（kill -9 于 ①置 DRAINING 与 ③PURGING_DB 之间=重跑幂等收敛）
-            { scopeType: 'project', state: { in: ['PENDING', 'RUNNING', 'DRAINING'] } },
+          // C4-b：project 含 DRAINING（kill -9 于 ①置 DRAINING 与 ③PURGING_DB 之间=重跑幂等收敛）
+          // C4-c1：含 PURGING_DB（DB 介质批删 saga——project-erasure.stages 执行体；完成置
+          // PURGING_OBJECTS 即停〔对象/Redis 归 C4-c2——不进本 tick 候选〕）
+          { scopeType: 'project', state: { in: ['PENDING', 'RUNNING', 'DRAINING', 'PURGING_DB'] } },
           ],
         },
         select: { erasureId: true, scopeType: true },
@@ -192,25 +198,39 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
     });
   }
 
-  /** C4-b（plan Task C4-2——project run DRAINING stage）：三步（R15/R16）：
+  /** C4-b（plan Task C4-2——project run DRAINING stage）+C4-c1（plan Task C4-3——PURGING_DB 执行体
+   *  接线）：DRAINING 三步（R15/R16）：
    *  ①排干：单事务 lockProject（同键 advisory——**等待**在飞写事务〔appendBatch/vacuumReplace/admit/
    *    claim 同键〕排空；fence 已拒新写者=排干后行集冻结）+fenceProject（ErasureContext 内 DELETING
    *    豁免——worker=唯一合法 DELETING 写者）+行集采集（media/work——DELETING 行是工作对象经
    *    runWithIncludeDeleted）+置 state=DRAINING；
    *  ②manifest 落盘（事务外——temp→fsync→rename→fsync dir；**唯一采集面**：kill -9 于 ①后②前=
    *    重跑幂等覆盖〔行集已冻结〕，于②后③前=DB 无索引但文件在=下一 tick 重写收敛）；
-   *  ③DB 索引+前置位：manifestPath/manifestSha256 落 run 行+state=PURGING_DB **即停**（介质批删
-   *    saga/状态机续跑归 C4-c）。幂等档：state=PURGING_DB∧manifestPath 在=已前置位 skip。
-   *  **C4-c 契约钉死（spec 评审 P1）**：PURGING_DB 前置位承接「manifest 冻结域缺口」——Media/
-   *  VideoWork 在飞 finalize（claim 先于 tombstone；registerInTx artifact-commit :288/:312）与
-   *  coverKey 换绑可在本采集后落新行/新 S3 键（Canvas 族无此窗——fence 拒其全部写者）⇒ C4-c 进
-   *  PURGING_DB 前**必须**重扫合并（DRAINING→PURGING_DB 二扫并集）或 DRAINING 前等待在飞 intent
-   *  清算（二择一定形）——否则采集后 finalize 的 S3 对象/Redis url 键泄漏（manifest=介质唯一采集
-   *  面；DB 行有 scope 批删兜底——泄漏面仅在介质维）。 */
+   *  ③DB 索引+前置位：manifestPath/manifestSha256 落 run 行+state=PURGING_DB（**下一 tick** 进
+   *    执行体——C4-c1 PURGING_DB saga：二扫并集→Media 三档/批删/scrub/detach→列级断言→
+   *    PURGING_OBJECTS 即停）。幂等档：state=PURGING_DB∧manifestPath 在=执行体承接（二扫并集
+   *    契约已由 project-erasure.stages 兑现——本函数只剩骨架流转）。
+   *  **C4-c 契约（spec 评审 P1，C4-c1 已兑现）**：PURGING_DB 首步=**二扫并集**——Media/VideoWork 在飞
+   *  finalize（claim 先于 tombstone；registerInTx artifact-commit :288/:312）与 coverKey 换绑可在
+   *  DRAINING 采集后落新行/新 S3 键（Canvas 族无此窗——fence 拒其全部写者）⇒ 进批删前重扫取并集
+   *  （executePurgingDbStage ②）——「DRAINING 前等待在飞 intent 清算」备选不采（定形依据见 spec）。
+   *  mediaRefs 采集器：构造期注入缺省 httpMediaRefsCollector（api 内部端点客户端）。 */
   private async processProjectRun(run: ProjectErasureRun): Promise<void> {
     const pid = run.scopeId;
+    // C4-c1：PURGING_DB 前置位=执行体承接（DB 介质批删+scrub+detach+两阶段复核+列级断言）；
+    // per-run catch（DRAINING/team 面同律）：单 run 毒丸〔manifest 损坏/断言红〕不吞本 tick 其余
+    // 候选——租约到期重认领重试+FAILED re-drive 面承接。
+    if (run.state === 'PURGING_DB' && run.manifestPath) {
+      await executePurgingDbStage({
+        prisma: this.prisma, run,
+        collectMediaRefs: this.mediaRefs ?? httpMediaRefsCollector(),
+        spoolDir: process.env.COLLAB_SPOOL_DIR ?? join(process.cwd(), '.data', 'collab-spool'),
+      }).catch((e: unknown) => {
+        this.logger.warn(`erasure project run ${run.erasureId} PURGING_DB 失败（租约到期重认领——下一 tick 重试）: ${(e as Error).message}`);
+      });
+      return;
+    }
     await this.erasureCtx.withErasure(run.erasureId, () => runWithIncludeDeleted(async () => {
-      if (run.state === 'PURGING_DB' && run.manifestPath) return;   // 前置位已达成（C4-c 续）
       // ①排干+采集+置 DRAINING（单事务——advisory 等待即「DRAINING 只持锁排干在飞」的执法点）
       const inputs = await this.prisma.$transaction(async (tx) => {
         await lockProject(tx, pid);   // 同键锁等待排干（在飞写者持锁期间本事务阻塞）
@@ -252,7 +272,7 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
       this.logger.log(JSON.stringify({
         event: 'erasure_manifest_written', erasureId: run.erasureId, projectId: pid,
         rows: manifest.rows, manifestPath: manifest.manifestPath,
-        note: 'PURGING_DB 前置位（介质 saga 归 C4-c）',
+        note: 'PURGING_DB 前置位（下一 tick 进执行体——stages 承接介质 saga）',
       }));
     })).catch((e: unknown) => {
       this.logger.warn(`erasure project run ${run.erasureId} DRAINING 失败（租约到期重认领——下一 tick 重试）: ${(e as Error).message}`);

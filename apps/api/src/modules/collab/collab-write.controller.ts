@@ -18,6 +18,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NoTransform } from '../../common/decorators/no-transform.decorator';
 import { CollabDocumentService } from './collab-document.service';
+import { CollabSpoolService } from './collab-spool.service';
 import { WorkerWriteAuthGuard } from './worker-write-auth.guard';
 import { verifyWorkerScopeToken, WORKER_SCOPE_HEADER, type WorkerScopePayload } from './worker-scope-token';
 
@@ -31,7 +32,34 @@ export class CollabWriteController {
   constructor(
     @Inject(CollabDocumentService) private readonly docs: CollabDocumentService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(CollabSpoolService) private readonly spool: CollabSpoolService,
   ) {}
+
+  /** C4-c1（plan C4——project-erasure）：未 reconcile 引用采集端点（erasure worker PURGING_DB
+   *  独占判别的 doc 扫描终裁面——api 进程活 doc 域；worker 跨进程经 httpMediaRefsCollector 调本面）。
+   *  body={teamId, excludeProjectId, mediaIds}→{referenced}（mediaIds 子集）；守卫/限批/503 语义见
+   *  CollabSpoolService.collectProjectMediaRefs（限批+isLeaseServing——容量事故防护；**docs 端口
+   *  per-call 传入**——spool 构造器注入=DI 环〔gateway→spool 回环〕）；Bearer=WORKER_WRITE_TOKEN
+   *  传输层（readCanvas 读族同款——非资金写面无 scope 令牌需求）。 */
+  @Post('media-refs')
+  @NoTransform()
+  @UseGuards(WorkerWriteAuthGuard)
+  async collectMediaRefs(
+    @Body() body: { teamId?: unknown; excludeProjectId?: unknown; mediaIds?: unknown },
+  ): Promise<{ referenced: string[] }> {
+    if (body === null || typeof body !== 'object' || Array.isArray(body)
+      || typeof body.teamId !== 'string' || body.teamId === ''
+      || typeof body.excludeProjectId !== 'string' || body.excludeProjectId === ''
+      || !Array.isArray(body.mediaIds) || body.mediaIds.length === 0
+      || body.mediaIds.some((m) => typeof m !== 'string' || m === '')) {
+      throw new BadRequestException({ code: 'MEDIA_REFS_BAD_BODY', message: 'body 须为 { teamId: 非空 string, excludeProjectId: 非空 string, mediaIds: 非空 string[] }' });
+    }
+    const referenced = await this.spool.collectProjectMediaRefs(
+      { teamId: body.teamId, excludeProjectId: body.excludeProjectId, mediaIds: body.mediaIds as string[] },
+      { docs: this.docs, prisma: this.prisma },
+    );
+    return { referenced };
+  }
 
   /** exec 状态投影写（RuntimeEvent feed——零 doc 写）。body={projectId,nodeId,patch}（patch 键域=
    *  ExecStatusPatch：status/attempts 必携+errorCode/rearmable/intentId/execSeq/artifactRev 等可选）。 */

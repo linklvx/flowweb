@@ -33,6 +33,12 @@ const isWorkerCanvasRead = (method: unknown, path: string): boolean =>
 const isWorkerExecStatus = (method: unknown, path: string): boolean =>
   method === 'POST' && path === '/api/collab/doc/exec-status';
 
+/** C4-c1（生产就绪收尾批·project-erasure）：worker 内部读端点精确放行——POST
+ *  /api/collab/doc/media-refs（erasure worker 独占判别的未 reconcile 引用采集——exec-status
+ *  同构静态路径全等；WorkerWriteAuthGuard 把关+限批/isLeaseServing 守卫在 service 面）。 */
+const isWorkerMediaRefs = (method: unknown, path: string): boolean =>
+  method === 'POST' && path === '/api/collab/doc/media-refs';
+
 /** 批3-3：session 查询统一走 SessionService.touch（单例 PrismaService——原实现每请求临时建
  *  PrismaClient 再断开的连接风暴收口）；DB 异常不再吞成 401（protected 路径 503——DB 抖动不是
  *  "请登录"），public 路径维持静默放行（公共面可用性不受 DB 抖动影响）。 */
@@ -45,7 +51,8 @@ export class AuthGuard implements CanActivate {
     const path = request.path;
     const isPublic = PUBLIC_PREFIXES.some(p => path.startsWith(p))
       || isWorkerCanvasRead(request.method, path)   // Y0c T26：worker 读端点（token 守卫在专 guard）
-      || isWorkerExecStatus(request.method, path);   // Y0c T27：worker 写端点（WorkerWriteAuthGuard 把关）
+      || isWorkerExecStatus(request.method, path)   // Y0c T27：worker 写端点（WorkerWriteAuthGuard 把关）
+      || isWorkerMediaRefs(request.method, path);   // C4-c1：worker 引用采集读端点（同上专 guard 把关）
 
     // Try to authenticate from session cookie (optional for public routes)
     const token = parseSessionToken(request.headers.cookie);

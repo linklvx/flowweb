@@ -17,12 +17,16 @@
 // 段级双栅栏（historyId 每次必查；时间戳栅栏仅恢复怀疑态求值——F-S4-5）+完整有效前缀截断
 // +PG 前缀校验（WAL 损坏只允许丢 walSeq>pgSeq 的帧）+坏段四档分类码（契约 walDefectTier 单源）。
 // 修正 #6 铁律：时间戳栅栏=recoverySuspect 恢复怀疑态（自动扫描零重放），永不直接 quarantine。
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { FileHandle, open, readFile, readdir, rmdir, stat, truncate, unlink, mkdir, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { crc32 } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import * as Y from 'yjs';
+import { collectMediaRefs } from '@flowweb/shared';
+import { PrismaService } from '../../prisma/prisma.service';
+import { runWithIncludeDeleted } from '../../prisma/read-path.filter';
+import { toDocLike } from './doc-like.util';
 import {
   WAL_SEGMENT_MAGIC,
   WAL_SEGMENT_VERSION,
@@ -97,6 +101,21 @@ const SEGMENT_MAX_BYTES = 4 * 1024 * 1024;
 const WAL_MAX_FRAME_BYTES = 16 * 1024 * 1024;
 
 // ═══════════════════ 段格式编解码（单源——语料/spike/生产共消费）═══════════════════
+
+/** C4-c1（生产就绪收尾批·project-erasure）：collectMediaRefs 内部端点限批（worker 侧
+ *  project-erasure.stages httpMediaRefsCollector 按同值分片——两处同源消费本常量）。 */
+export const ERASURE_MEDIA_REFS_BATCH = 200;
+/** C4-c1：collectMediaRefs 端点他项目 doc 扫描上界（超量=引用图不完整 503 保守拒——media-gc
+ *  MEDIA_GC_DOC_SCAN_PAGE 同族安全阀）。 */
+export const ERASURE_MEDIA_REFS_SCAN_MAX = 500;
+/** C4-c1：docs 端口最小结构面（CollabDocumentService 结构子集——isLeaseServing+withSession
+ *  read 档；**per-call 注入**〔HTTP 层传入〕非构造器注入——构造器注入 docs=DI 环〔gateway→spool
+ *  既有链回环，collab-di-real-assembly 实证〕；fn 载荷=toDocLike 适配前真 Y.Doc〔本文件已 import
+ *  yjs——零新增依赖面〕）。 */
+export interface MediaRefsDocsPort {
+  isLeaseServing(): boolean;
+  withSession<T>(projectId: string, fn: (doc: Y.Doc) => T | Promise<T>, opts: { mode: 'read' }): Promise<T>;
+}
 
 /** 段文件名（v1.7 换代 namespace 切代）：`<projectId>.g<generation>.<segSeq>.spool`。 */
 export function walSegmentFileName(projectId: string, generation: number, segSeq: number): string {
@@ -1901,6 +1920,48 @@ export class CollabSpoolService {
   private reportTruncation(projectId: string, segSeq: number) {
     yjsSpoolTruncatedTotal.inc();
     this.logger.error(`spool truncated frame at ${projectId}.${segSeq}——停读该段（坏帧从未持久化或落盘不完整），计数+人工介入`);
+  }
+
+  // ── C4-c1（生产就绪收尾批·project-erasure）：collectMediaRefs 内部端点 service 面 ──────────────
+  /** 未 reconcile 引用采集（erasure worker PURGING_DB 独占判别的 doc 扫描终裁面——「副本/copy 未进
+   *  binding 索引〔离线 paste 后 reconcile 未触〕，doc 扫描是删除前最终裁决」media-gc 同律）。
+   *  **deps 逐调用注入**（docs 端口+prisma 读面由 HTTP 层〔collab-write.controller——两依赖天然
+   *  在手〕传入）：spool 构造器注入 docs=DI 环（gateway→spool 既有链+useExisting 经 document→
+   *  gateway 回环——collab-di-real-assembly 实证死锁）；per-call 形态=spool 本体零新增依赖。
+   *  守卫两道（容量事故防护——限批+isLeaseServing，plan C4 钉死）：
+   *   ①限批：mediaIds 超 ERASURE_MEDIA_REFS_BATCH 拒 400（worker 侧按同值分片——超限=调用方契约违例）；
+   *   ②isLeaseServing：lease 非 serving 拒 503——调用方（project-erasure.stages httpMediaRefsCollector）
+   *    503/网络错误折 null fail-closed 本轮暂停不删。
+   *  扫描面=team 全项目−被擦项目（含 DELETING——读过滤 includeDeleted 包裹：擦除中他项目 doc 仍引用，
+   *  漏扫=引用图缺口误删）；他项目超 ERASURE_MEDIA_REFS_SCAN_MAX=503 保守拒（引用图不完整禁判）。
+   *  doc 读失败（503/lease 失守/vacuum 窗）上抛 503 非静默折空（读失败=保守保留方向——media-gc 同律）。
+   *  purgeScope（api 内存 dedup/水位清键）归 C4-c2——本面只读零写。 */
+  async collectProjectMediaRefs(
+    args: { teamId: string; excludeProjectId: string; mediaIds: string[] },
+    deps: { docs: MediaRefsDocsPort; prisma: Pick<PrismaService, 'canvasProject'> },
+  ): Promise<string[]> {
+    if (args.mediaIds.length > ERASURE_MEDIA_REFS_BATCH) {
+      throw new BadRequestException(`mediaIds ${args.mediaIds.length} 超限批 ${ERASURE_MEDIA_REFS_BATCH}（worker 侧应按限批分片——collectMediaRefs 内部端点容量防护）`);
+    }
+    if (!deps.docs.isLeaseServing()) {
+      throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'collectMediaRefs 端点非 serving（lease 未持有）——fail-closed 调用方本轮暂停' });
+    }
+    const wanted = new Set(args.mediaIds);
+    // 他项目枚举（含 DELETING——includeDeleted：擦除中项目 doc 引用照护；+1 超量探测）
+    const projects = await runWithIncludeDeleted(() => deps.prisma.canvasProject.findMany({
+      where: { teamId: args.teamId }, orderBy: { id: 'asc' },
+      take: ERASURE_MEDIA_REFS_SCAN_MAX + 1, select: { id: true },
+    }));
+    const others = projects.map((p) => p.id).filter((id) => id !== args.excludeProjectId);
+    if (others.length > ERASURE_MEDIA_REFS_SCAN_MAX) {
+      throw new ServiceUnavailableException({ code: 'ERASURE_MEDIA_REFS_SCAN_OVERFLOW', message: `team ${args.teamId} 他项目 ${others.length} 超扫描上界 ${ERASURE_MEDIA_REFS_SCAN_MAX}——引用图不完整禁判（fail-closed）` });
+    }
+    const referenced = new Set<string>();
+    for (const p of others) {
+      const refs = await deps.docs.withSession(p, (doc) => collectMediaRefs(toDocLike(doc)), { mode: 'read' });   // 读失败上抛=端点 503（保守拒非静默折空）
+      for (const r of refs) if (wanted.has(r.mediaId)) referenced.add(r.mediaId);
+    }
+    return [...referenced];
   }
 }
 

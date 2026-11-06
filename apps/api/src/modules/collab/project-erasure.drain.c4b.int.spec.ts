@@ -60,6 +60,8 @@ maybe('C4-b ★红⑧-a DRAINING manifest 唯一采集面+顺序（真 PG）', (
 
   afterAll(async () => {
     await prisma.projectErasureRun.deleteMany({ where: { scopeId: pid } }).catch(() => undefined);
+    // C4-c1：第二 tick 进执行体后 VideoWork 已 detach（canvasProjectId=NULL）——按 id 清（防孤儿行）
+    await prisma.videoWork.deleteMany({ where: { id: `${pid}-w0` } }).catch(() => undefined);
     await prisma.videoWork.deleteMany({ where: { canvasProjectId: pid } }).catch(() => undefined);
     await prisma.media.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
     await prisma.canvasProject.deleteMany({ where: { id: pid } }).catch(() => undefined);
@@ -152,6 +154,13 @@ maybe('C4-b ★红⑧-a DRAINING manifest 唯一采集面+顺序（真 PG）', (
   });
 
   it('fence 豁免分档：DELETING 行 ErasureContext 内 fenceProject 放行（worker=唯一合法写者）；app ctx 同读被拒', async () => {
+    // C4-c1：上一用例第二 tick 已进 PURGING_DB 执行体（project 行已删——列级断言前置位语义）；
+    // 本用例锚 fence 三态本体：重建 DELETING 行（team 在档——upsert 形态）再断言豁免分档。
+    await prisma.canvasProject.upsert({
+      where: { id: pid },
+      update: { lifecycleState: 'DELETING' },
+      create: { id: pid, name: pid, teamId, userId: owner, lifecycleState: 'DELETING' },
+    });
     await expect(prismaService.$transaction(async (tx) => {
       await fenceProject(tx as never, pid);   // app ctx（无 withErasure 包裹）——DELETING 拒
     })).rejects.toBeInstanceOf(ProjectErasingError);

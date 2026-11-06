@@ -38,9 +38,10 @@ export type ErasureTx = {
   };
 };
 
-/** openProjectErasure 消费面（ErasureTx+tombstone 写）。 */
+/** openProjectErasure 消费面（ErasureTx+tombstone 写+C4-c1 擦除动作审计行）。 */
 export type ErasureWriteTx = ErasureTx & {
   canvasProject: { update: (args: Prisma.CanvasProjectUpdateArgs) => Promise<unknown> };
+  auditLog: { create: (args: Prisma.AuditLogCreateArgs) => Promise<unknown> };
 };
 
 export function toRunView(run: ProjectErasureRun): ErasureRunView {
@@ -101,19 +102,38 @@ export async function openProjectErasure<Tx extends ErasureWriteTx>(
     gate?: (tx: Tx) => Promise<void>;
   },
 ): Promise<ErasureRunView> {
-  const rows = await tx.$queryRaw<{ lifecycleState: string | null }[]>`
-    SELECT "lifecycleState" FROM "CanvasProject" WHERE "id" = ${args.projectId}::text FOR SHARE`;
+  const rows = await tx.$queryRaw<{ lifecycleState: string | null; teamId: string | null }[]>`
+    SELECT "lifecycleState", "teamId" FROM "CanvasProject" WHERE "id" = ${args.projectId}::text FOR SHARE`;
   if (rows.length === 0) throw new NotFoundException('Project not found');
   const existing = await findActiveErasureRun(tx, 'project', args.projectId);
-  if (existing) return toRunView(existing);   // 幂等：重复删除请求→返回活跃 run（202 同 run）
-  if (args.gate) await args.gate(tx);         // 资金门（不过上抛=整事务回滚）
+  if (existing) return toRunView(existing);   // 幂等：重复删除请求→返回活跃 run（202 同 run；不重复落审计行）
+  if (args.gate) await args.gate(tx);         // 资金门（不过上抛=整事务回滚——审计行同回滚零孤儿）
   if (rows[0].lifecycleState !== 'DELETING' && !args.dryRun) {
     await tx.canvasProject.update({
       where: { id: args.projectId },
       data: { lifecycleState: 'DELETING' },
     });
   }
-  return toRunView(await createErasureRun(tx, {
+  const view = toRunView(await createErasureRun(tx, {
     scopeType: 'project', scopeId: args.projectId, requestedBy: args.requestedBy, dryRun: args.dryRun,
   }));
+  // C4-c1 擦除动作 AuditLog 补位（C4-a 四入口现状：project/template/cleanDrafts 三入口共用本函数=
+  // 单源补位；team 入口 disbandTeam 已有 disband_team 行）。内容列=操作留痕（状态翻转+run 锚——
+  // 非项目内容：红⑯ AuditLog 脱敏断言谓词行语义）；operatorName=requestedBy（userId 兜底——
+  // 免名查附加读；requestedBy 缺省〔系统路径〕='system'）。
+  const operator = args.requestedBy || 'system';
+  await tx.auditLog.create({
+    data: {
+      operatorId: operator,
+      operatorName: operator,
+      teamId: rows[0].teamId,
+      targetType: 'PROJECT',
+      targetId: args.projectId,
+      action: 'erase_project',
+      beforeValue: { lifecycleState: rows[0].lifecycleState },
+      afterValue: { lifecycleState: args.dryRun ? 'ACTIVE' : 'DELETING', dryRun: args.dryRun ?? false },
+      remark: `project-erasure tombstone（run=${view.erasureId}）`,
+    },
+  });
+  return view;
 }
