@@ -1935,7 +1935,6 @@ export class CollabSpoolService {
     if (!deps.docs.isLeaseServing()) {
       throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'purgeScope 端点非 serving（lease 未持有）——fail-closed 调用方本轮暂停' });
     }
-    const wanted = new Set(projectIds);
     let purgedSegments = 0;
     for (const pid of projectIds) {
       // ① 内存面：dedup 索引/水位三元/walSeq 计数器/世代登记（DB 行已删——这些键永不自愈=必须显式清）

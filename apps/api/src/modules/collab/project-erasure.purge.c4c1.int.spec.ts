@@ -333,7 +333,7 @@ maybe('C4-c1 ★红⑫⑬⑯ PURGING_DB 执行体（真 PG）', () => {
     await poller.tick();   // DRAINING
     stubRefs = null;       // ★api 不可达形态
     await poller.tick();   // PURGING_DB 首扫：fail-closed
-    let run = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
+    const run = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
     expect(run.state).toBe('PURGING_DB');   // 不前置位
     expect(await prisma.media.count({ where: { projectId: pid, type: 'generated' } })).toBe(3);   // 独占零删（refb/workm/exc——fail-closed 只停独占删除）
     expect(await prisma.canvasProject.count({ where: { id: pid } })).toBe(0);   // 批删/行删照常推进（fail-closed 只停独占删除）

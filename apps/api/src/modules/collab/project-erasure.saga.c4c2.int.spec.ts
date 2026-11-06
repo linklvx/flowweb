@@ -64,7 +64,7 @@ maybe('C4-c2 ★红⑪ 完整锚 saga（真 PG+MinIO+Redis——kill -9 各新 s
   let minio: MinioService;
   let redis: Redis;
   /** purgeScope stub（api 内存面端点归单测——saga 面注入 true 防真 api 进程依赖）。 */
-  let purgeScopeCalls: string[][] = [];
+  const purgeScopeCalls: string[][] = [];
   const poller = () => new ProjectErasureRunPoller(
     prismaService as never, ledger as never, new ErasureContextService(),
     async () => [],                                   // collector：零他项目 doc 引用
@@ -75,7 +75,7 @@ maybe('C4-c2 ★红⑪ 完整锚 saga（真 PG+MinIO+Redis——kill -9 各新 s
   const projects: string[] = [];
   const teams: string[] = [];
   let execSeq = BigInt(Date.now());
-  let bucketCleaned = false;
+  const bucketCleaned = false;
 
   const adminClient = () => new S3Client({
     region: 'us-east-1', endpoint, forcePathStyle: true,

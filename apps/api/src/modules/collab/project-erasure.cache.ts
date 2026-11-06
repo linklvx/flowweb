@@ -20,7 +20,6 @@
 // kill -9 幂等：SCAN+DEL 谓词幂等（清后重扫零键）；purgeScope 端点幂等（键不在=零动作）。
 import { Logger } from '@nestjs/common';
 import type { ProjectErasureRun } from '@prisma/client';
-import type Redis from 'ioredis';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ErasureContextService } from './project-lock';
 import { readErasureManifest, type ErasureManifest } from './project-erasure.manifest';
