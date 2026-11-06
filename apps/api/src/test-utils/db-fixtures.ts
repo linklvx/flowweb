@@ -32,6 +32,9 @@ export async function ensureProjectFixture(prisma: PrismaClient, projectId: stri
 }
 
 export async function cleanupProjectFixture(prisma: PrismaClient, projectId: string): Promise<void> {
+  // C4-a：erasure run 行无 FK（schema 纪律——worker scope 域）——项目清理前显式删行（scopeId 命中
+  // project scope run 与 team 子 run 两形态；team scope run〔scopeId=teamId〕归 team 侧 spec 自清）。
+  await prisma.projectErasureRun.deleteMany({ where: { scopeId: projectId } });
   await prisma.canvasDocUpdate.deleteMany({ where: { projectId } });
   await prisma.canvasDoc.deleteMany({ where: { projectId } });
   // Y1c T7：RuntimeFeedCursor 无 FK（feed 平面计数行——卡文表形）：项目清理须显式删行；

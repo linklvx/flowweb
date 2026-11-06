@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   resolveCloseAction, CollabCloseCode, MESSAGE_TOO_BIG_TERMINAL_REASON,
   DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON,
-  SS2_OVER_LIMIT_TERMINAL_REASON, TEAM_DISBANDED_TERMINAL_REASON,
+  SS2_OVER_LIMIT_TERMINAL_REASON, TEAM_DISBANDED_TERMINAL_REASON, PROJECT_ERASED_TERMINAL_REASON,
   resolveBackoffPlan, TRANSIENT_BACKOFF_STEPS_MS,
 } from './collab-close-code';
 import type { BackoffPlan, CloseActionKind } from './collab-close-code';
@@ -114,6 +114,30 @@ describe('Y0b-5 T6 close 分型双 reason：4404-ss2-over-limit 按 reason 分�
     expect(resolveBackoffPlan('close', 4404, SS2_OVER_LIMIT_TERMINAL_REASON, 0, 0).kind).toBe('none');
     const a = resolveCloseAction(1000, TEAM_DISBANDED_TERMINAL_REASON);
     expect(['terminal', 'silent-renew-once', 'planned-restart', 'backoff', 'normal']).toContain(a.kind);
+  });
+});
+
+// ══════════ C4-a（生产就绪收尾批·project-erasure）：PROJECT_ERASED 契约（本卡只进契约——web 消费面归 C4-c 红⑰） ══════════
+describe('C4-a PROJECT_ERASED：项目擦除终态码（4414）+terminal 原因单源', () => {
+  it('常量字面量锚（线路协议契约——字面量即契约，漂移即红；循 TEAM_DISBANDED_TERMINAL_REASON 先例形态）', () => {
+    expect(CollabCloseCode.PROJECT_ERASED).toBe(4414);
+    expect(PROJECT_ERASED_TERMINAL_REASON).toBe('project-erased');
+  });
+  it('4414 恒 terminal（自身 reason 单源——重连=对已擦除项目无限 404 循环，禁 backoff）', () => {
+    expect(resolveCloseAction(4414, PROJECT_ERASED_TERMINAL_REASON)).toEqual(
+      { kind: 'terminal', terminalReason: 'project-erased' });
+    expect(resolveCloseAction(4414, undefined).kind).toBe('terminal');   // reason 缺省同 terminal（码即权威）
+  });
+  it('库抹码兜底：(1000,"project-erased") 按 reason 分型落 terminal（1000-team-disbanded 同款形态）；其余 1000 语义不回归', () => {
+    const a = resolveCloseAction(1000, PROJECT_ERASED_TERMINAL_REASON);
+    expect(a.kind).toBe('terminal');
+    expect(a.terminalReason).toBe('project-erased');
+    expect(resolveCloseAction(1000, '').kind).toBe('normal');
+    expect(resolveCloseAction(1000, 'team disbanded').kind).toBe('terminal');   // 既有语义保留
+  });
+  it('resolveBackoffPlan 传导：(4414,·)/(1000,"project-erased") close 路由均落 none（永久断线）', () => {
+    expect(resolveBackoffPlan('close', 4414, PROJECT_ERASED_TERMINAL_REASON, 0, 0).kind).toBe('none');
+    expect(resolveBackoffPlan('close', 1000, PROJECT_ERASED_TERMINAL_REASON, 0, 0).kind).toBe('none');
   });
 });
 

@@ -61,5 +61,8 @@
   },
   "20261105140000_c2_pen_three_canary_semantic_digest": {
     "migration.sql": "32d641001d317507bd08696aa929f5aff3ca468a68b78ac1e2c514c7ac7ecfde"
+  },
+  "20261105150000_c4_pen_four_erasure_dryrun_uq": {
+    "migration.sql": "afc6fda66a16829de08da3fb6b4b1d978c13e3e68a2e08b360ae1eae72689c2c"
   }
 }

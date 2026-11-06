@@ -36,6 +36,9 @@ export const CollabCloseCode = {
   FRAME_MALFORMED: 4411,       // 毒帧/apply 失败（REJECTED/RESYNC——WAL 截断至 appliedSeq 后关连接）
   RESYNC_REQUIRED: 4412,       // pending 区间拒绝（零 WAL 零 apply 零 ACK doc 不变——客户端重置到服务端状态）
   MAINTENANCE_FREEZE: 4413,    // 维护冻结（Retry-After 可重试——非终态）
+  // —— C4-a（生产就绪收尾批·project-erasure）：项目擦除终态码——tombstone-only 四入口落地后，
+  //    项目擦除对 collab 连接=永久终态（重连即对已隐藏项目无限 404）；web 消费面（terminal UX）归 C4-c 红⑰ —— 
+  PROJECT_ERASED: 4414,        // 项目已擦除（请求事务 tombstone+run 后关项目全部连接——本批只冻结码值+terminal 分档）
   WAL_FSYNC_EIO: 1011,         // EIO fail-stop 关全部连接（WS 1011 internal error——同码异 reason 先例=SESSION_EXPIRED/LIB_UNAUTHORIZED；与 SLOW_CONSUMER 数值同、reason 分型）
   // —— 库自发码（@hocuspocus/common 单源重导出——P-N：.code 引用，库升级值自动跟随）——
   LIB_RESET: ResetConnection.code,
@@ -72,6 +75,9 @@ export const SS2_OVER_LIMIT_TERMINAL_REASON = 'ss2-over-limit' as const;
 /** team disbanded=团队解散（gateway closeTeamDocuments close NORMAL+reason——原裸字面量升单源；
  *  NORMAL 路由按 reason 分型落 terminal：团队解散禁先重连一次，与 doc-over-quota 库抹码特例同款形态）。 */
 export const TEAM_DISBANDED_TERMINAL_REASON = 'team disbanded' as const;
+/** C4-a（project-erasure）：项目已擦除 terminal 原因单源（4414 载体+1000 库抹码兜底双入口——
+ *  循 TEAM_DISBANDED_TERMINAL_REASON 先例形态；消费面归 C4-c 红⑰，本批只进契约）。 */
+export const PROJECT_ERASED_TERMINAL_REASON = 'project-erased' as const;
 /** Y1c T5a（spec v5.4 §8.1）：Y1c 新码 reason 字面量单源（载荷类型住 collab/doc-protocol.ts；
  *  resolveCloseAction 分档映射归 T9——此处只冻结协议串，组件禁散落字面量与四侧矩阵同纪律）。
  *  4410 三分第三档：server-restored=PITR/整库恢复后 g_client>g_server 或 historyId 不匹配
@@ -112,6 +118,8 @@ export function resolveCloseAction(code: number, reason: string | undefined): Cl
     if (reason === DOC_OVER_QUOTA_TERMINAL_REASON) return { kind: 'terminal', terminalReason: DOC_OVER_QUOTA_TERMINAL_REASON };
     // Y0b-5 T6（裁定 25⑸②）：'team disbanded'（close NORMAL+reason）→terminal——团队解散禁先重连一次
     if (reason === TEAM_DISBANDED_TERMINAL_REASON) return { kind: 'terminal', terminalReason: TEAM_DISBANDED_TERMINAL_REASON };
+    // C4-a（project-erasure）：'project-erased' 库抹码兜底同款形态（4414 经库 close 丢码回落 NORMAL+reason）
+    if (reason === PROJECT_ERASED_TERMINAL_REASON) return { kind: 'terminal', terminalReason: PROJECT_ERASED_TERMINAL_REASON };
     return { kind: 'normal' };
   }
   if (code === CollabCloseCode.LIB_MESSAGE_TOO_BIG) return { kind: 'terminal', terminalReason: MESSAGE_TOO_BIG_TERMINAL_REASON };
@@ -132,6 +140,9 @@ export function resolveCloseAction(code: number, reason: string | undefined): Cl
   if (code === CollabCloseCode.FRAME_MALFORMED) return { kind: 'resync' };
   if (code === CollabCloseCode.RESYNC_REQUIRED) return { kind: 'resync' };
   if (code === CollabCloseCode.MAINTENANCE_FREEZE) return { kind: 'retry' };
+  // C4-a（project-erasure）：4414 项目擦除终态——重连即对已隐藏项目无限 404 循环，恒 terminal
+  //（reason 单源常量透传缺省档；码即权威——reason 缺省同 terminal）。
+  if (code === CollabCloseCode.PROJECT_ERASED) return { kind: 'terminal', terminalReason: PROJECT_ERASED_TERMINAL_REASON };
   return { kind: 'backoff' }; // 4205/4403/4402 max-lifetime/未知——全瞬态退避档（4403：sweep/事件驱动先踢，此处 fail-safe 重连后 auth 面给权威 reason）
 }
 
