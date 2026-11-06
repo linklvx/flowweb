@@ -1,4 +1,5 @@
 import { Injectable, Inject, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -7,7 +8,7 @@ import { TeamFundsGateService } from '../team/team-funds-gate.service';
 import { toDocLike } from '../collab/doc-like.util';
 import { createCanvasDoc } from '../collab/canvas-doc.factory';
 import { ensureCanvasDocHead } from '../collab/canvas-doc-genesis';
-import { lockProject } from '../collab/project-lock';
+import { fenceProject, lockProject } from '../collab/project-lock';
 import { openProjectErasure, type ErasureRunView } from '../collab/project-erasure';
 import { fillDoc, stripAuthorState, stripDerivedKeys, CANVAS_DOC_SCHEMA_VERSION, CANVAS_PROJECT_ORIGIN_USER, type CanvasProjectOrigin } from '@flowweb/shared';
 import { assertTeamMember } from '../team/team.util';
@@ -49,8 +50,14 @@ export class ProjectService {
       teamIdResolved = (await this.teamService.ensureDefaultTeam(userId || '')).id;
     }
     const project = await this.prisma.$transaction(async (tx) => {
+      // C4-b（R15 fence 接线·写锁门禁）：创建事务首句 lockProject（advisory·锁序①）。id 客户端
+      // 显式生成（randomUUID——id 列 String 无格式约束；ProjectErasureRun erasureId 同源形态）：
+      // advisory 锁键须先于行建可知；新 id 无争用者，行缺失折 ACTIVE=fence 天然放行新生项目。
+      const plannedId = randomUUID();
+      await lockProject(tx, plannedId);
       const created = await tx.canvasProject.create({
         data: {
+          id: plannedId,
           name,
           userId: userId || null,
           teamId: teamIdResolved,
@@ -134,10 +141,13 @@ export class ProjectService {
     return { folderId: template?.folderId ?? null };
   }
 
+  /** C4-b（R15 fence 接线）：改名=项目维写——单事务 lockProject→fenceProject（DELETING 拒 409
+   *  域——ProjectErasingError 由 controller 例外映射； ACTIVE 放行）。 */
   async updateName(id: string, name: string) {
-    return this.prisma.canvasProject.update({
-      where: { id },
-      data: { name },
+    return this.prisma.$transaction(async (tx) => {
+      await lockProject(tx, id);
+      await fenceProject(tx, id);
+      return tx.canvasProject.update({ where: { id }, data: { name } });
     });
   }
 
@@ -186,6 +196,9 @@ export class ProjectService {
       // C4-a 扩查三面同门）。逐项目 openProjectErasure 幂等（heal-rare 活跃 run→同 run 返回）不重复过门。
       if (ids.length > 0) await this.fundsGate.assertSettled(tx, { projectIds: ids });
       for (const id of ids) {
+        // C4-b（写锁门禁/fence）：批内逐项目补 advisory 锁序①（openProjectErasure 自读 FOR SHARE
+        // 与批 FOR UPDATE 同行自锁兼容——advisory 先行统一 doc 序键面）。
+        await lockProject(tx, id);
         await openProjectErasure(tx, { projectId: id, requestedBy: userId });
       }
       return ids;

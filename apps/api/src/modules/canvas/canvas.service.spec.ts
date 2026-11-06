@@ -64,14 +64,16 @@ describe('CanvasService', () => {
       }));
       const result = await service.create('新画布', 'f1', 'u1');
       expect(result).toEqual(expect.objectContaining({ templateId: 't1', projectId: 'p1', name: '新画布', teamId: 'team1' }));
-      // C2-0：governance 必经——OpsGate 项目行 INSERT（'compact',p1,'OPEN'）+origin 谱系 UPDATE 同事务
-      expect(execRaw).toHaveBeenCalledTimes(2);
-      expect(String(execRaw.mock.calls[0][0])).toContain('INSERT INTO "CollabOpsGate"');
-      expect(execRaw.mock.calls[0][1]).toBe('compact');
-      expect(execRaw.mock.calls[0][2]).toBe('p1');
-      expect(String(execRaw.mock.calls[1][0])).toContain('UPDATE "CanvasProject"');
+      // C4-b（R15）：创建事务首句 lockProject（advisory——hashtext(plannedId)）+ C2-0：governance 必经
+      // ——OpsGate 项目行 INSERT（'compact',p1,'OPEN'）+origin 谱系 UPDATE 同事务
+      expect(execRaw).toHaveBeenCalledTimes(3);
+      expect(String(execRaw.mock.calls[0][0])).toContain('pg_advisory_xact_lock');
+      expect(String(execRaw.mock.calls[1][0])).toContain('INSERT INTO "CollabOpsGate"');
+      expect(execRaw.mock.calls[1][1]).toBe('compact');
       expect(execRaw.mock.calls[1][2]).toBe('p1');
-      expect(execRaw.mock.calls[1][1]).toBe('user');
+      expect(String(execRaw.mock.calls[2][0])).toContain('UPDATE "CanvasProject"');
+      expect(execRaw.mock.calls[2][2]).toBe('p1');
+      expect(execRaw.mock.calls[2][1]).toBe('user');
       expect(templateService.clearCache).toHaveBeenCalled();
       expect(folderService.touch).toHaveBeenCalledWith(['f1']);
     });
@@ -189,8 +191,8 @@ describe('CanvasService', () => {
       it('空名走编号：事务内取 advisory lock，无已有未命名 → 画布1', async () => {
         const tx = mockTx(['我的画布']);
         const result = await service.create('', null, 'u1');
-        // C2-0：advisory 1 + governance 2（OpsGate 行 INSERT+origin UPDATE）
-        expect(tx.$executeRaw).toHaveBeenCalledTimes(3);
+        // C4-b（R15）：lockProject advisory 1 + 空名编号 advisory 1 + governance 2（OpsGate 行 INSERT+origin UPDATE）
+        expect(tx.$executeRaw).toHaveBeenCalledTimes(4);
         expect(tx.$executeRaw.mock.calls.some((c) => String(c[0]).includes('pg_advisory_xact_lock'))).toBe(true);
         expect(tx.template.findMany).toHaveBeenCalledWith({ where: { teamId: 'team1' }, select: { name: true } });
         expect(tx.canvasProject.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '画布1' }) });
@@ -214,9 +216,10 @@ describe('CanvasService', () => {
       it('非空名不取锁、不查编号，原名创建（governance 两 SQL 照走——C2-0 必经）', async () => {
         const tx = mockTx(['未命名项目1']);
         const result = await service.create('我的新画布', null, 'u1');
-        // C2-0：非空名不取 advisory lock——$executeRaw 面只剩 governance 两 SQL
-        expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
-        expect(tx.$executeRaw.mock.calls.every((c) => !String(c[0]).includes('pg_advisory_xact_lock'))).toBe(true);
+        // C4-b（R15）：非空名不取**编号** advisory（canvas_untitled 键面）——$executeRaw 面=lockProject
+        // advisory 1（项目维恒取）+governance 两 SQL
+        expect(tx.$executeRaw).toHaveBeenCalledTimes(3);
+        expect(tx.$executeRaw.mock.calls.every((c) => !String(c[0]).includes('canvas_untitled'))).toBe(true);
         expect(tx.template.findMany).not.toHaveBeenCalled();
         expect(tx.canvasProject.create).toHaveBeenCalledWith({ data: expect.objectContaining({ name: '我的新画布' }) });
         expect(result.name).toBe('我的新画布');

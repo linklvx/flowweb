@@ -5,7 +5,7 @@ import * as Y from 'yjs';
 import { CANVAS_DOC_SCHEMA_VERSION, canonicalUpdateHashPayload } from '@flowweb/shared';
 import { createCanvasDoc, hasPendingStructs } from './canvas-doc.factory';
 import { projectDocName } from './doc-name.util';
-import { lockProject } from './project-lock';
+import { fenceProject, lockProject } from './project-lock';
 import { readOpsGateCompact, checkOpsGateCompactForShare, type OpsGateCompactReject } from './collab-ops-gate.service';
 import { compactGateSkipTotal } from './collab-ops-gate.metrics';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -234,6 +234,11 @@ export class CanvasDocUpdateRepository {
         //    hashtext 跨项目碰撞=仅多余串行无害；锁序 advisory→行锁全路径一致无环；derive 在事务外
         //    （spool replayAll 先 derive 后 appendBatch——长派生不持锁）。恢复锁先行=有据非回退。 ──
         await lockProject(tx, projectId);
+        // C4-b（plan Task C4-2 R15 fence 补位）：advisory 后同事务 fenceProject（FOR SHARE 行锁读
+        // lifecycleState——DELETING 抛 ProjectErasingError；ErasureContext 内豁免=worker 唯一合法
+        // DELETING 写者）。锁序②位（advisory①→CanvasProject 行②→业务行）。actor 侧对该 throw 按
+        // FK 族终态处置（弃置帧+收割——不进熔断/重试梯，见 flushPrefixToPg catch 注）。
+        await fenceProject(tx, projectId);
         let n = 0;
         for (const r of rows) {
           // 显式类型 cast（PG 参数类型推断：无 cast 的 unknown 参数在 INSERT..SELECT 列位会折
@@ -363,6 +368,14 @@ export class CanvasDocUpdateRepository {
     const row = await this.prisma.$queryRaw<{ generation: number }[]>`
       SELECT generation FROM "CanvasDoc" WHERE "projectId" = ${projectId}::text LIMIT 1`;
     return row[0]?.generation ?? null;
+  }
+
+  /** C4-b（WS fast-path 拒帧·装载面）：lifecycleState 无过滤 raw 读（读过滤 Proxy 只辖 delegate 读
+   *  ——raw 读分义 DELETING vs 缺失；DR.loadDocument 消费：auth 后装载前竞窗的擦除终端拒）。 */
+  async readLifecycleState(projectId: string): Promise<string | null> {
+    const rows = await this.prisma.$queryRaw<{ lifecycleState: string | null }[]>`
+      SELECT "lifecycleState" FROM "CanvasProject" WHERE "id" = ${projectId}::text LIMIT 1`;
+    return rows[0]?.lifecycleState ?? null;
   }
 
   /** T10：CanvasDoc 水位读面（恢复链/测试——pgSeq 权威从 PG 行读，非进程内状态）。 */
@@ -557,6 +570,9 @@ export class CanvasDocUpdateRepository {
     const r = await this.prisma.$transaction(
       async (tx) => {
         await lockProject(tx, projectId);
+        // C4-b（R15 fence 补位——appendBatch 同款）：DELETING 项目真空替换拒绝（ErasureContext 内
+        // 豁免）；锁序②位。maintenance SWITCHING 通道对 DELETING 项目就此关闭（擦除域独占写）。
+        await fenceProject(tx, projectId);
         // C2-1（plan Task C2-1）：换代真空替换前置 gate 检查（FROZEN 拒=aborted 档零写）——
         // FOR SHARE 两行校验与 compact ③ 发布事务同族（freeze UPDATE 互斥+行数==2 闭集）；
         // 锁序=advisory→gate 行→doc 行（compact ③ 无 advisory=gate→doc 行——两序无环）。
@@ -736,6 +752,9 @@ export class CanvasDocUpdateRepository {
               gateReject = gateTx.result;
               return { ok: false as const, reason: 'gate-frozen' as const };
             }
+            // C4-b（R15 fence 补位——compact 发布③）：DELETING 项目发布拒绝（ErasureContext 内豁免）；
+            // 锁序=gate 行→CanvasProject 行→doc 行（vacuumReplace 同序无环）。
+            await fenceProject(tx, projectId);
             // Q-M5（T11 双评审）TOCTOU 收口：schemaVersion/vacuumEpoch 读入 ③ 锁内（随 FOR UPDATE
             // 行锁同读——旧实现锁前无锁读，读-锁间隙换代/升级列写=快照行携带陈旧版本对）。
             const locked = await tx.$queryRaw<{ generation: number; pgSeq: bigint; currentSnapshotRev: bigint; schemaVersion: number | null; vacuumEpoch: number | null }[]>`

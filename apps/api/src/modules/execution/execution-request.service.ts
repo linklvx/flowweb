@@ -29,6 +29,7 @@ import { TopologyService } from './topology.service';
 import { isExecutableNode } from './is-executable-node';
 import { TeamCreditService } from '../team/team-credit.service';
 import { CollabProjectActorService } from '../collab/collab-project-actor.service';
+import { fenceProject, lockProject, ProjectErasingError } from '../collab/project-lock';
 import { CanvasDocUpdateRepository } from '../collab/canvas-doc-update.repository';
 import { rejectIfMaintenanceActiveInTx } from '../collab/collab-maintenance.service';   // Y1c T27：行级关闸事务内复核（非 check-then-act）
 import { createCanvasDoc } from '../collab/canvas-doc.factory';   // census ⑯ 裸 Y.Doc 收编工厂
@@ -432,6 +433,12 @@ export class ExecutionRequestService {
     // ⑧单事务落库：request+plans+input+audit+per-item 资金预留（任一失败整体回滚=零半行）
     try {
       await this.prisma.$transaction(async (tx) => {
+        // C4-b（plan Task C4-2——admit 事务 fence 接线：原只查 maintenance 门）：首句 lockProject
+        // （advisory·锁序①——doc 序串行化与 appendBatch 同键）→fenceProject（FOR SHARE 行锁读
+        // lifecycleState·锁序②——DELETING 抛 ProjectErasingError=409 域；ErasureContext 内豁免）。
+        // tombstone 置位与 admit 在 CanvasProject 行上互斥排队（红⑨a 序），check-then-act 窗关闭。
+        await lockProject(tx, projectId);
+        await fenceProject(tx, projectId);
         // Y1c T27 行级关闸事务内复核（非 check-then-act——③ 快径读后 REQUESTED 提交窗收口：FOR SHARE
         // 行锁与 REQUESTED 的 UPDATE 同行互斥先到先得；maintenanceId 在=typed throw→503 不落行）
         await rejectIfMaintenanceActiveInTx(tx, projectId);
@@ -479,6 +486,10 @@ export class ExecutionRequestService {
       }
       const reason = (err as { reason?: string }).reason;
       if (reason === 'QUOTA_EXCEEDED') return { ok: false, status: 429, code: 'QUOTA_EXCEEDED', detail: '月度配额超限（execreq 在飞预留计入——稍后重试或缩减范围）' };
+      // C4-b（fence 接线）：tombstone 后 admit=PROJECT_ERASING 409（幂等键同键重试安全——擦除域终态）
+      if (err instanceof ProjectErasingError) {
+        return { ok: false, status: 409, code: 'PROJECT_ERASING', detail: '项目擦除进行中——受理拒绝' };
+      }
       // Y1c T27：行级关闸事务内复核命中（③ 快径读后 REQUESTED 提交窗）→ 503 MAINTENANCE_ACTIVE
       if ((err as { maintenanceActive?: boolean }).maintenanceActive) {
         return { ok: false, status: 503, code: 'MAINTENANCE_ACTIVE', detail: (err as Error).message };

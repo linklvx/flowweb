@@ -83,6 +83,9 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
       // Z26 准入谓词：FOR SHARE 查 Team.status——默认 ACTIVE 放行；T9 nextval('exec_seq') 取号分义
       $queryRaw: vi.fn().mockImplementation(async (q: unknown) =>
         /nextval/.test(String(q)) ? [{ v: 1n }] : [{ status: 'ACTIVE' }]),
+      // C4-b（R15 fence 接线）：claimTx 首句 lockProject——advisory $executeRaw 直通（fenceProject
+      // lifecycleState 读走 $queryRaw 缺省档 → undefined 折 ACTIVE 放行）
+      $executeRaw: vi.fn().mockResolvedValue(0),
     };
     teamCredit = { voidInTx: vi.fn().mockResolvedValue(undefined), void_: vi.fn(), settle: vi.fn(), reserve: vi.fn() }; // T9：mock 资金面（rearm/takeover 只消费 voidInTx）
     const module: TestingModule = await Test.createTestingModule({

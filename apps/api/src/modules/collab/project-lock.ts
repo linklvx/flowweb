@@ -127,11 +127,13 @@ export class ErasureContextService {
   }
 }
 
-/** fence 规则（R15 三规则·fenceProject/fenceTeam 共用判据）：
- *  a) 非 ACTIVE 抛 ProjectErasingError（app 写路径拒绝）；
- *  b) ErasureContext 内豁免擦除态（project=DELETING/team=DISBANDING——worker 唯一合法写者）；
+/** ═══ fence 规则三句（R15 单源——runbook §13 承 C4-c，本注释=代码侧钉死）═════════════
+ *  a) 非 ACTIVE 抛 ProjectErasingError（app 写路径拒绝——project=DELETING/team=DISBANDING∪DISBANDED）；
+ *  b) ErasureContext 内豁免擦除态（project=DELETING/team=DISBANDING——**worker=唯一合法擦除态写者**）；
  *  c) 行缺失折 ACTIVE（FK 守卫域——真缺失行随写 FK 失败，fence 不须双报）。
- *  FOR SHARE 行锁读=并发写序列化点（擦除态置位〔行 UPDATE〕与 app 写事务在此互斥排队）。 */
+ *  FOR SHARE 行锁读=并发写序列化点（擦除态置位〔行 UPDATE〕与 app 写事务在此互斥排队）；
+ *  DELETE/deleteMany 恒放行（删除属擦除域合法操作面）。census 闭包+别名登记+门禁填充清单=
+ *  scope-column.registry.ts 单源（CI ㊲ diff——新增表/列未登记即红）。 */
 function assertScopeActiveOrErasing(
   scopeType: 'project' | 'team', scopeId: string,
   state: string | null, erasingState: string,

@@ -81,14 +81,16 @@ describe('ProjectService', () => {
       expect(prisma.canvasProject.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ name: '未命名项目', teamId: 'team1' }),
       });
-      // C2-0：governance 必经——OpsGate 项目行 INSERT（'compact',p1,'OPEN'）+origin 谱系 UPDATE 同事务
-      expect(prisma.$executeRaw).toHaveBeenCalledTimes(2);
-      expect(String(prisma.$executeRaw.mock.calls[0][0])).toContain('INSERT INTO "CollabOpsGate"');
-      expect(prisma.$executeRaw.mock.calls[0][1]).toBe('compact');
-      expect(prisma.$executeRaw.mock.calls[0][2]).toBe('p1');
-      expect(String(prisma.$executeRaw.mock.calls[1][0])).toContain('UPDATE "CanvasProject"');
-      expect(prisma.$executeRaw.mock.calls[1][1]).toBe('user');
+      // C4-b（R15）：创建事务首句 lockProject（advisory）+ C2-0：governance 必经——OpsGate 项目行
+      // INSERT（'compact',p1,'OPEN'）+origin 谱系 UPDATE 同事务
+      expect(prisma.$executeRaw).toHaveBeenCalledTimes(3);
+      expect(String(prisma.$executeRaw.mock.calls[0][0])).toContain('pg_advisory_xact_lock');
+      expect(String(prisma.$executeRaw.mock.calls[1][0])).toContain('INSERT INTO "CollabOpsGate"');
+      expect(prisma.$executeRaw.mock.calls[1][1]).toBe('compact');
       expect(prisma.$executeRaw.mock.calls[1][2]).toBe('p1');
+      expect(String(prisma.$executeRaw.mock.calls[2][0])).toContain('UPDATE "CanvasProject"');
+      expect(prisma.$executeRaw.mock.calls[2][1]).toBe('user');
+      expect(prisma.$executeRaw.mock.calls[2][2]).toBe('p1');
     });
 
     it('带 nodes 时种子经事务 canvasDoc.upsert 同事务落库（T8①/P1-3——创建原子化，不依赖领导权）', async () => {

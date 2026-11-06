@@ -7,6 +7,7 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { deriveIdemKey, normalizeRegenToken, deadlineMsForKind } from './intent-key.util';
 import { intentClaimResultTotal, countExecProjectionFailure } from './exec.metrics';   // T23 收口：observeNodeExecution 观测位失败计数
 import { NodeArtifactService, targetFieldOfKind } from '../artifact-core/node-artifact.service';
+import { fenceProject, lockProject } from '../collab/project-lock';
 
 /** Y1a T9（spec ㉒）：同 job 重入心跳新鲜判据——heartbeatAt 距今 < 锁窗（BullMQ lockDuration 60s）
  *  ⇒ 旧 worker 在飞（轮询 tick 每次刷心跳，poll 默认 10s≪窗）。BullMQ 仅在锁过期后才重投，重投时
@@ -146,11 +147,17 @@ export class GenerationIntentService {
     });
     const where = { idemKey };
     return this.prisma.$transaction(async (tx) => {
+      // C4-b（R15 fence 接线·锁序①）：claim=项目维写——首句 lockProject（advisory；与 appendBatch
+      // 同键 doc 序串行化）。锁序=advisory→Team 行→CanvasProject 行→业务行（单源 project-lock.ts）。
+      await lockProject(tx, input.projectId);
       // Z26（三轮 P0-4）：准入谓词与后续 create 同事务——FOR SHARE 与 disbandTeam 事务内 team.update 的行排他锁互斥
       const teamRow = await tx.$queryRaw<{ status: string }[]>`SELECT "status" FROM "Team" WHERE id = ${input.teamId} FOR SHARE`;
       if (teamRow.length !== 1 || teamRow[0].status !== 'ACTIVE') {
         throw new BusinessException('TEAM_CLOSED', `团队不存在或已关闭（teamId=${input.teamId}）`, HttpStatus.CONFLICT);
       }
+      // C4-b（R15 fence 接线·锁序③）：project 维 fence——DELETING 抛 ProjectErasingError（claim 拒；
+      // ErasureContext 内豁免）。tombstone 置位与本 FOR SHARE 在 CanvasProject 行上互斥（红⑨a 序）。
+      await fenceProject(tx, input.projectId);
 
       // ── T10 claimCapture（Z18''-v14）：claim 事务内读 NodeArtifact 槽位当前 rev 作 expectedRev
       //    （无行=0）。捕获点=claim 时刻 ⇒ claim→finalize 窗口内任何 replace/新代 finalize（rev+1）

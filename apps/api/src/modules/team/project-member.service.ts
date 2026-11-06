@@ -3,6 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from './project-permission.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { fenceProject, lockProject } from '../collab/project-lock';
 
 @Injectable()
 export class ProjectMemberService {
@@ -88,10 +89,16 @@ export class ProjectMemberService {
     });
     if (!inTeam) throw new BadRequestException('目标用户不是团队成员');
     await this.assertCanManage(projectId, callerId, role);
-    const result = await this.prisma.projectMember.upsert({
-      where: { projectId_userId: { projectId, userId: targetUserId } },
-      update: { role },
-      create: { projectId, userId: targetUserId, role },
+    // C4-b（R15 fence 接线）：成员授予/改角=项目维写——单事务 lockProject→fenceProject（DELETING 拒；
+    //  读过滤 Proxy 已使 HTTP 面 DELETING 404 先行，此处为 in-tx check-then-act 关闭面）。
+    const result = await this.prisma.$transaction(async (tx) => {
+      await lockProject(tx, projectId);
+      await fenceProject(tx, projectId);
+      return tx.projectMember.upsert({
+        where: { projectId_userId: { projectId, userId: targetUserId } },
+        update: { role },
+        create: { projectId, userId: targetUserId, role },
+      });
     });
     this.emitPermChanged(targetUserId, project.teamId);   // Y0b-3 T8 评审修复：显式授权变更面（spec §3.1 字面项——changeRole 委托本方法自动覆盖）
     await this.audit.log({
@@ -127,7 +134,13 @@ export class ProjectMemberService {
       });
       if (ownerCount <= 1) throw new BadRequestException('不能移除最后一个项目所有者');
     }
-    await this.prisma.projectMember.delete({ where: { id: record.id } });
+    // C4-b（R15 fence 接线）：成员移除同 add——单事务 lock+fence（DELETING 拒——擦除域内成员行归
+    //  worker scope 批删，app 面不再变更）。
+    await this.prisma.$transaction(async (tx) => {
+      await lockProject(tx, projectId);
+      await fenceProject(tx, projectId);
+      await tx.projectMember.delete({ where: { id: record.id } });
+    });
     this.emitPermChanged(targetUserId, project.teamId);   // Y0b-3 T8 评审修复：显式行撤权核心面（不 emit=复验判据真实输入变更零信号，越权写感知窗退化 sweep 兜底 9-11min）
     await this.audit.log({
       operatorId: callerId,

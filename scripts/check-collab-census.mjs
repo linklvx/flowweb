@@ -1166,8 +1166,12 @@ if (isMain()) {
     'apps/api/src/modules/collab/retention.sweeper.poller.ts': {   // C1-1（生产就绪收尾批）：worker retention sweeper 轮询周期键（RETENTION_SWEEP_INTERVAL_MS——COMPACT_POLL_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、Number()||默认缺省档、消费面=worker 轮询周期非部署档位）
       RETENTION_SWEEP_INTERVAL_MS: 1,
     },
-    'apps/api/src/modules/collab/project-erasure.poller.ts': {   // C4-a（生产就绪收尾批·project-erasure）：worker erasure run 轮询周期键（ERASURE_POLL_INTERVAL_MS——RETENTION_SWEEP_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、Number()||默认缺省档 5_000、消费面=worker 轮询周期非部署档位〔run 行=唯一唤醒源，间隔即红④兜底延迟上界〕）
+    'apps/api/src/modules/collab/project-erasure.poller.ts': {   // C4-a（生产就绪收尾批·project-erasure）：worker erasure run 轮询周期键（ERASURE_POLL_INTERVAL_MS——RETENTION_SWEEP_INTERVAL_MS 同族豁免形态）+C4-b：DRAINING spool 段采集目录键（COLLAB_SPOOL_DIR——共享盘面 worker 侧读，spool service 同键复用非第二真源）
       ERASURE_POLL_INTERVAL_MS: 1,
+      COLLAB_SPOOL_DIR: 1,
+    },
+    'apps/api/src/modules/collab/project-erasure.manifest.ts': {   // C4-b（生产就绪收尾批·project-erasure）：manifest 目录键（ERASURE_MANIFEST_DIR——R16 主载体目录；env.ts zod 同批注册+构造期绝对路径强制；COLLAB_SPOOL_DIR 同族：缺省=CWD 派生档、消费面=manifest 落盘目录非部署档位）
+      ERASURE_MANIFEST_DIR: 1,
     },
     'apps/api/src/modules/collab/collab-append-audit.worker.ts': {   // C3-1（生产就绪收尾批·doc-append-gap-alert）：worker append 审计轮询周期键（DOC_APPEND_AUDIT_INTERVAL_MS——COMPACT_POLL_INTERVAL_MS/RETENTION_SWEEP_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、Number()||默认缺省档 300_000、消费面=worker 轮询周期非部署档位）
       DOC_APPEND_AUDIT_INTERVAL_MS: 1,
@@ -1761,6 +1765,101 @@ if (isMain()) {
     }
     const total = [...createHits.values()].reduce((a, b) => a + b, 0);
     report('㊱', `canvasProject.create 调用点必经 governance（C2-0——${total} 调用点/${createHits.size} 文件全 wired；定义面=collab/project-governance.service.ts）`, details.length === 0 && total >= 1, details);
+  }
+
+  // ── ㊲ C4-b（plan Task C4-2——生产就绪收尾批·project-erasure）：scope 列闭包+scope-alias-registry
+  //    diff（**新增表/列未登记=CI 红**——R15 fence census 数据面执法）：
+  //    A. schema.prisma 解析：含 `projectId`/`teamId` 字段的模型闭包 vs scope-column.registry.ts
+  //       PROJECT_COLUMN_MODELS/TEAM_COLUMN_MODELS 双向 diff（schema 有而 registry 无=未登记红；
+  //       registry 有而 schema 无=stale 红）；
+  //    B. PROJECT_SCOPE_ALIASES 别名条目（列名扫描找不到的项目关联列——plan ㉓）：model+column 须在
+  //       schema 实存（拼错/列改名=红）；别名与字面闭包不得重复登记（重复=红）。
+  //    registry 文件本体存在性=防扫描腐烂锚（载体迁移须同步本路径）。──
+  {
+    const REGISTRY_PATH = 'apps/api/src/modules/collab/scope-column.registry.ts';
+    const details = [];
+    const registryAbs = path.join(ROOT, REGISTRY_PATH);
+    if (!fs.existsSync(registryAbs)) {
+      console.error(`check-collab-census: 结构性错误（exit 2）——${REGISTRY_PATH} 加载失败：scope registry 载体消失`);
+      process.exit(2);
+    }
+    const registrySrc = fs.readFileSync(registryAbs, 'utf8');
+    // A. schema 闭包解析（model 块内 projectId/teamId 字段——stripped 注释不参与）
+    const schemaSrc = fs.readFileSync(path.join(ROOT, 'apps/api/prisma/schema.prisma'), 'utf8');
+    const schemaModels = new Map();   // name → { hasProjectId, hasTeamId, columns:Set }
+    for (const m of schemaSrc.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)) {
+      const cols = new Set([...m[2].matchAll(/^\s*(\w+)\s+\w+/gm)].map((f) => f[1]));
+      schemaModels.set(m[1], { hasProjectId: cols.has('projectId'), hasTeamId: cols.has('teamId'), columns: cols });
+    }
+    // registry 数组字面提取（as const 前；`= [` 空格容忍——registry 格式自由域）
+    const extractList = (name) => {
+      const hit = registrySrc.match(new RegExp(`export const ${name}[^=]*=\\s*\\[([\\s\\S]*?)\\]\\s*as const`));
+      if (!hit) { details.push(`registry 缺 ${name} 数组（形态漂移——须同步本 census 提取器）`); return []; }
+      return [...hit[1].matchAll(/'([A-Za-z]\w*)'/g)].map((x) => x[1]);
+    };
+    const regProject = extractList('PROJECT_COLUMN_MODELS');
+    const regTeam = extractList('TEAM_COLUMN_MODELS');
+    const schemaProjectModels = [...schemaModels.entries()].filter(([, v]) => v.hasProjectId).map(([k]) => k);
+    const schemaTeamModels = [...schemaModels.entries()].filter(([, v]) => v.hasTeamId).map(([k]) => k);
+    for (const m of schemaProjectModels) if (!regProject.includes(m)) details.push(`schema 模型 ${m} 含 projectId 列未登记 PROJECT_COLUMN_MODELS（新增表/列必须同批登记+接线分档注释——R15 fence census）`);
+    for (const m of regProject) if (!schemaProjectModels.includes(m)) details.push(`PROJECT_COLUMN_MODELS 登记 ${m} 在 schema 无 projectId 列（stale——列改名/删除须同步）`);
+    for (const m of schemaTeamModels) if (!regTeam.includes(m)) details.push(`schema 模型 ${m} 含 teamId 列未登记 TEAM_COLUMN_MODELS（同上）`);
+    for (const m of regTeam) if (!schemaTeamModels.includes(m)) details.push(`TEAM_COLUMN_MODELS 登记 ${m} 在 schema 无 teamId 列（stale）`);
+    // B. 别名条目（PROJECT_SCOPE_ALIASES 对象字面提取）
+    const aliasBlock = registrySrc.match(/export const PROJECT_SCOPE_ALIASES[^=]*=\s*\[([\s\S]*?)\]\s*as const/);
+    const aliasRe = /\{\s*model:\s*'(\w+)'\s*,\s*column:\s*'(\w+)'/g;
+    const aliases = aliasBlock ? [...aliasBlock[1].matchAll(aliasRe)].map((x) => ({ model: x[1], column: x[2] })) : [];
+    const seenAlias = new Set();
+    for (const a of aliases) {
+      const sm = schemaModels.get(a.model);
+      if (!sm) details.push(`别名条目 ${a.model}.${a.column}：模型不在 schema（stale）`);
+      else if (!sm.columns.has(a.column)) details.push(`别名条目 ${a.model}.${a.column}：列不在 schema（拼写/改名漂移）`);
+      const key = `${a.model}.${a.column}`;
+      if (seenAlias.has(key)) details.push(`别名条目重复登记 ${key}`);
+      seenAlias.add(key);
+      if (a.column === 'projectId' || a.column === 'teamId') details.push(`别名条目 ${key} 为字面列（属闭包清单域——别名表禁重复登记）`);
+    }
+    if (aliases.length < 9) details.push(`别名条目数 ${aliases.length} < 9（plan ㉓ 五项+桥/谓词补全——条目删减须同步本下限）`);
+    report('㊲', `scope 列闭包+scope-alias-registry diff（C4-b——projectId 模型 ${schemaProjectModels.length}/${regProject.length}、teamId 模型 ${schemaTeamModels.length}/${regTeam.length}、别名 ${aliases.length} 条双向 diff；新增表/列未登记即红）`, details.length === 0, details);
+  }
+
+  // ── ㊳ C4-b（plan Task C4-2 read census 承接——C4-a 评审 P2-8）：CanvasProject raw SQL 读写点
+  //    白名单（读过滤 Proxy 旁路面机器执法）。Proxy 只辖 canvasProject delegate 读（findUnique 族
+  //    注入 ACTIVE 谓词）——raw SQL（$queryRaw/$executeRaw）经引擎不走 delegate=旁路面。白名单各条
+  //    带语义注记（fence FOR SHARE 分义读/worker ACTIVE 谓词批选/skip 面判定——**旁路≠泄漏**：
+  //    各条读的是 lifecycleState 本身或带 ACTIVE 谓词；新增 raw CanvasProject 语句未登记即红）。──
+  {
+    const RAW_CANVASPROJECT_FILES = {
+      'apps/api/src/modules/collab/project-lock.ts': 1,                    // fenceProject FOR SHARE（分义读单源）
+      'apps/api/src/modules/collab/project-erasure.ts': 1,                 // openProjectErasure FOR SHARE（tombstone 事务内）
+      'apps/api/src/modules/collab/project-erasure.poller.ts': 1,          // team run 批选择（ACTIVE 谓词=游标）
+      'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 1,    // readLifecycleState（装载门分义读——C4-b）
+      'apps/api/src/modules/collab/collab-append-audit.worker.ts': 1,      // C3 审计 skip 面（inactive 判定列）
+      'apps/api/src/modules/collab/collab-replay-canary.poller.ts': 2,     // canary active 计数+候选批（ACTIVE 谓词）
+      'apps/api/src/modules/collab/collab-canary-verify.worker.ts': 2,     // pin 候选 join（inactive 判定列）
+      'apps/api/src/modules/collab/runtime-feed.retention.service.ts': 2,  // retention 扫 join ACTIVE（C1 scope 过滤）
+      'apps/api/src/modules/execution/execution-request.retention.service.ts': 7, // 同上（两扫面+过期扫/stuck 扫族 raw joins）
+      'apps/api/src/modules/project/project.service.ts': 1,                // cleanDrafts FOR UPDATE 选择（ACTIVE 谓词）
+      'apps/api/src/modules/team/project-permission.service.ts': 1,        // lifecycleStateOf（auth fast-path 分义读——C4-b）
+    };
+    const details = [];
+    const occurrences = {};
+    // raw SQL 探测器：FROM/JOIN "CanvasProject" 词形（**raw 源**——census stripped 剥模板文本不可用；
+    // 计数被白名单锁死=注释伪命中/漂移皆红〔有意动作同步〕）。
+    const RAW_CP_RE = /(?:FROM|JOIN)\s+"CanvasProject"/g;
+    for (const p of files) {
+      const n = (byFile.get(p).raw.match(RAW_CP_RE) ?? []).length;
+      if (n) occurrences[relOf(p)] = n;
+    }
+    for (const [f, n] of Object.entries(RAW_CANVASPROJECT_FILES)) {
+      const got = occurrences[f];
+      if (got === undefined) details.push(`raw CanvasProject 语句消失 ${f}（冻结 ${n}——载体迁移须同步本白名单）`);
+      else if (got !== n) details.push(`raw CanvasProject 计数漂移 ${f}: 冻结 ${n} 实际 ${got}（新增 raw 读=Proxy 旁路面，须登记语义注记或改走 delegate）`);
+    }
+    for (const f of Object.keys(occurrences)) {
+      if (!(f in RAW_CANVASPROJECT_FILES)) details.push(`未登记 raw CanvasProject 语句 ${f} ×${occurrences[f]}（读过滤 Proxy 旁路——登记语义注记或改走 delegate 面）`);
+    }
+    report('㊳', `CanvasProject raw SQL 白名单（C4-b read census——Proxy 旁路面 ${Object.values(occurrences).reduce((a, b) => a + b, 0)} 点/${Object.keys(occurrences).length} 文件全登记；新增即红）`, details.length === 0, details);
   }
 
   const failed = results.filter((r) => !r.pass);

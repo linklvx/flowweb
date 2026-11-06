@@ -24,6 +24,10 @@ describe('ProjectMemberService', () => {
         upsert: vi.fn(),
         delete: vi.fn(),
       },
+      // C4-b（R15 fence 接线）：add/remove 单事务 lock+fence——tx 直通（advisory+FOR SHARE stub）
+      $transaction: vi.fn((fn: (tx: any) => Promise<unknown>) => fn(prisma)),
+      $executeRaw: vi.fn().mockResolvedValue(0),
+      $queryRaw: vi.fn().mockResolvedValue([{ lifecycleState: 'ACTIVE' }]),
     };
     svc = new ProjectMemberService(prisma, permSvc as any, audit as any, { emit: vi.fn() });
   });

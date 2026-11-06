@@ -12,6 +12,10 @@ const mkPrisma = (over: any = {}) => ({
     ...over,
   },
   canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) }, // teamId 派生查询
+  // C4-b（R15 fence 接线）：upsert/patch/delete 单事务 lock+fence——tx 直通（advisory+FOR SHARE stub）
+  $transaction: vi.fn(function (this: any, fn: (tx: any) => Promise<unknown>) { return fn(this); }),
+  $executeRaw: vi.fn().mockResolvedValue(0),
+  $queryRaw: vi.fn().mockResolvedValue([{ lifecycleState: 'ACTIVE' }]),
 });
 const perm = { assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR') };
 const collab = { readCanvas: vi.fn(), isLeaseServing: vi.fn(() => true) }; // Y0a-3 T8 计费/语义读门——默认放行

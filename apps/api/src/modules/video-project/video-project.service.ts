@@ -3,6 +3,7 @@ import { Injectable, Inject, ConflictException, BadRequestException, ForbiddenEx
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabWritePort } from '../collab/collab-write.port';
+import { fenceProject, lockProject } from '../collab/project-lock';
 import { ExecutionService } from '../execution/execution.service';
 import { StorageQuotaService } from '../team/storage-quota.service'; // 实际在 team/ 模块（TeamModule 已 export，与 generated-media.service 同款引法）
 
@@ -40,14 +41,21 @@ export class VideoProjectService {
     if (existing && existing.workflowId !== input.workflowId) {
       throw new ForbiddenException('sourceNodeId 已属于其他画布'); // 归属校验——nodeId 全局唯一键下防跨画布读/抢占
     }
-    return this.prisma.videoProject.upsert({
-      where: { sourceNodeId: input.sourceNodeId },
-      create: {
-        teamId: project.teamId, userId: input.userId, workflowId: input.workflowId,
-        sourceNodeId: input.sourceNodeId, title: input.title,
-        data: (input.data ?? VideoProjectService.defaultProjectData()) as object,
-      },
-      update: {}, // 已存在则原样返回全量（title/data 不动——编辑器加载用）
+    // C4-b（R15 fence 接线·scope-alias 维）：VideoProject.workflowId=CanvasProject.id 别名列（registry
+    // PROJECT_SCOPE_ALIASES）——写事务 lockProject→fenceProject（DELETING 拒；读过滤+assertEditor 已使
+    // HTTP 面 404/403 先行，此处为 in-tx 关闭面）。
+    return this.prisma.$transaction(async (tx) => {
+      await lockProject(tx, input.workflowId);
+      await fenceProject(tx, input.workflowId);
+      return tx.videoProject.upsert({
+        where: { sourceNodeId: input.sourceNodeId },
+        create: {
+          teamId: project.teamId, userId: input.userId, workflowId: input.workflowId,
+          sourceNodeId: input.sourceNodeId, title: input.title,
+          data: (input.data ?? VideoProjectService.defaultProjectData()) as object,
+        },
+        update: {}, // 已存在则原样返回全量（title/data 不动——编辑器加载用）
+      });
     });
   }
 
@@ -66,14 +74,24 @@ export class VideoProjectService {
     if (proj.updatedAt.getTime() !== new Date(dto.baseUpdatedAt).getTime()) {
       throw new ConflictException('project modified elsewhere');
     }
-    return this.prisma.videoProject.update({ where: { id }, data: { data: dto.data as object } });
+    // C4-b（R15 fence 接线·workflowId 别名维同 upsertByNode）：乐观锁判定后写前 in-tx fence。
+    return this.prisma.$transaction(async (tx) => {
+      await lockProject(tx, proj.workflowId);
+      await fenceProject(tx, proj.workflowId);
+      return tx.videoProject.update({ where: { id }, data: { data: dto.data as object } });
+    });
   }
 
   async deleteByNode(sourceNodeId: string, userId: string) {
     const proj = await this.prisma.videoProject.findUnique({ where: { sourceNodeId } });
     if (!proj) return;
     await this.perm.assertEditor(proj.workflowId, userId);
-    await this.prisma.videoProject.delete({ where: { sourceNodeId } });
+    // C4-b（R15 fence 接线同款）：删除=项目维写（DELETING 拒——工程行随 scope 批删归 worker）。
+    await this.prisma.$transaction(async (tx) => {
+      await lockProject(tx, proj.workflowId);
+      await fenceProject(tx, proj.workflowId);
+      await tx.videoProject.delete({ where: { sourceNodeId } });
+    });
   }
 
   /**

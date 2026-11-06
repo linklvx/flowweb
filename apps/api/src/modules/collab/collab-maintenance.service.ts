@@ -65,6 +65,7 @@ import { createCanvasDoc } from './canvas-doc.factory';
 import { readCanvasDocHead } from './canvas-doc-head';   // 契约 1 豁免读面（缺头三态——CanvasDoc 头行读不绕 repository 装载单源）
 import { toDocLike } from './doc-like.util';
 import { collabMaintenanceCloseTotal, collabMaintenanceRequestedTotal, collabMaintenanceStageAdvanceTotal } from './collab-maintenance.metrics';
+import { fenceProject, lockProject } from './project-lock';
 
 /** 4413 Retry-After（wire 载荷 retryAfterMs——T25 I-4 30s 档同口径）。 */
 export const MAINTENANCE_FREEZE_RETRY_AFTER_MS = 30_000;
@@ -217,6 +218,11 @@ export class CollabMaintenanceService {
     }
     const maintenanceId = `mt-${randomUUID()}`;
     const out = await this.prisma.$transaction(async (tx) => {
+      // C4-b（R15 fence 接线）：维护请求=项目维写——首句 lockProject（advisory·锁序①——appendBatch
+      // 同键 doc 序）→fenceProject（DELETING 抛 ProjectErasingError→MAINTENANCE 不可开新窗；ErasureContext
+      // 内豁免）。锁序②位先于 CanvasDoc 行（gate UPDATE）。
+      await lockProject(tx, opts.projectId);
+      await fenceProject(tx, opts.projectId);
       // —— 行级关闸（先关入口）：UPDATE 拿 CanvasDoc 行锁，IS NULL 守卫=并发第二维护/与受理 FOR SHARE 互斥 ——
       const gated = await tx.$queryRaw<{ generation: number; pgSeq: bigint; schemaVersion: number | null }[]>`
         UPDATE "CanvasDoc" SET "maintenanceId" = ${maintenanceId}::text, "updatedAt" = now()
@@ -294,6 +300,10 @@ export class CollabMaintenanceService {
     const from = cur.stage;
     if (to === 'COMPLETED' || to === 'ABORTED') {
       await this.prisma.$transaction(async (tx) => {
+        // C4-b（写锁门禁——终态清闸写 CanvasDoc/MaintenanceOperation/DocAuditEvent）：lockProject
+        // 先行（advisory；**不 fence**——终态清闸对 DELETING 项目放行=擦除 worker 排干面受益：
+        // 闸清后 DRAINING 无 maintenanceId 残留；行写本身随 scope 批删）。
+        await lockProject(tx, cur.projectId);
         const moved = await tx.maintenanceOperation.updateMany({ where: { maintenanceId, stage: from }, data: { stage: to, status: to } });
         if (moved.count === 0) return;
         await tx.canvasDoc.updateMany({ where: { projectId: cur.projectId, maintenanceId }, data: { maintenanceId: null } });
@@ -302,7 +312,11 @@ export class CollabMaintenanceService {
     } else {
       const data: Record<string, unknown> = { stage: to, status: 'ACTIVE', attempt: { increment: 1 } };
       if (extra?.drained) data.drainedAt = new Date();
-      await this.prisma.maintenanceOperation.updateMany({ where: { maintenanceId, stage: from }, data: data as never });
+      // C4-b（写锁门禁）：stage 推进写同经锁事务（advance 面已按 projectId 序——advisory 先行）。
+      await this.prisma.$transaction(async (tx) => {
+        await lockProject(tx, cur.projectId);
+        await tx.maintenanceOperation.updateMany({ where: { maintenanceId, stage: from }, data: data as never });
+      });
     }
     collabMaintenanceStageAdvanceTotal.inc({ to, result: 'ok' });
     const after = await this.readStage(maintenanceId);
@@ -355,10 +369,14 @@ export class CollabMaintenanceService {
     const hydrate = await this.repo.loadForHydration(pid);
     const records = this.recordsOfHydration(hydrate);
     const exportHash = createHash('sha256').update(JSON.stringify(records)).digest('hex');
-    await this.prisma.docAuditEvent.create({ data: {
-      id: randomUUID(), projectId: pid, kind: 'maintenance', userId: requestedBy, requestId: maintenanceId,
-      payload: { stage: 'EXPORTING', exportHash, nodeCount: records.nodes.length, edgeCount: records.edges.length, schemaVersion: CANVAS_DOC_SCHEMA_VERSION },
-    } });
+    // C4-b（写锁门禁）：audit 单点写经锁事务（原裸 create——guard 模型 delegate 写）。
+    await this.prisma.$transaction(async (tx) => {
+      await lockProject(tx, pid);
+      await tx.docAuditEvent.create({ data: {
+        id: randomUUID(), projectId: pid, kind: 'maintenance', userId: requestedBy, requestId: maintenanceId,
+        payload: { stage: 'EXPORTING', exportHash, nodeCount: records.nodes.length, edgeCount: records.edges.length, schemaVersion: CANVAS_DOC_SCHEMA_VERSION },
+      } });
+    });
     return { exportHash, hydrate };
   }
 

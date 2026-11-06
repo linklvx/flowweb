@@ -1,4 +1,5 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
 import { CANVAS_DOC_SCHEMA_VERSION, CANVAS_PROJECT_ORIGIN_USER } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -9,6 +10,7 @@ import { assertTeamMember } from '../team/team.util';
 import { createCanvasDoc } from '../collab/canvas-doc.factory';
 import { ensureCanvasDocHead } from '../collab/canvas-doc-genesis';
 import { ensureProjectGovernance } from '../collab/project-governance.service';
+import { lockProject } from '../collab/project-lock';
 
 @Injectable()
 export class CanvasService {
@@ -38,8 +40,12 @@ export class CanvasService {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'canvas_untitled:' + teamIdResolved}))`;
         finalName = await CanvasService.nextUntitledName(tx, teamIdResolved);
       }
+      // C4-b（R15 fence 接线·写锁门禁——ProjectService.create 同款）：id 客户端显式生成（advisory
+      // 锁键先于行建可知）；新 id 无争用者，行缺失折 ACTIVE=fence 天然放行新生项目。
+      const plannedId = randomUUID();
+      await lockProject(tx, plannedId);
       const project = await tx.canvasProject.create({
-        data: { name: finalName, userId, teamId: teamIdResolved },
+        data: { id: plannedId, name: finalName, userId, teamId: teamIdResolved },
       });
       // C2-0（生产就绪收尾批）：governance 必经——第二创建路径（直建 project+Template+genesis 不经
       //  ProjectService；两路径行为分叉=Canvas 建 Template/ProjectService 不建，governance 共用不分叉）

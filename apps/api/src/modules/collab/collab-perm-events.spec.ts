@@ -418,6 +418,10 @@ describe('Y0b-3 T8 评审修复 emit 点接线（project-member.service）', () 
         upsert: vi.fn().mockResolvedValue({}),
         delete: vi.fn().mockResolvedValue({}),
       },
+      // C4-b（R15 fence 接线）：add/remove 单事务 lock+fence——tx 直通（advisory+FOR SHARE stub）
+      $transaction: vi.fn((fn: (tx: any) => Promise<unknown>) => fn(prisma)),
+      $executeRaw: vi.fn().mockResolvedValue(0),
+      $queryRaw: vi.fn().mockResolvedValue([{ lifecycleState: 'ACTIVE' }]),
     };
     const emitter = { emit: vi.fn() };
     const service = new ProjectMemberService(

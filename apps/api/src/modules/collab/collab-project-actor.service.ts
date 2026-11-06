@@ -79,6 +79,7 @@ import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabLifecycleObserverService, type LifecycleFrame } from './collab-lifecycle-observer.service';
 import { projectDocName, parseDocName, canvasDocName } from './doc-name.util';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
+import { ProjectErasingError } from './project-lock';   // C4-b：fence 拒帧终态处置（FK 族同判）
 import { captureCollabException } from '../../utils/sentry-scrub';
 import { actorDrainBatchTotal, actorDrainBatchFrames, actorDedupHitTotal, actorFrameOutcomeTotal, actorPoisonFrameTotal, collabQuotaFrameRejectedTotal, frameEffectsTotal, graphAnomalyTotal, inboundQueueOverLimitTotal, lifecycleObligationsCreatedTotal, lifecycleRowsCreatedTotal, projectBackpressureTotal, ss2SemaphoreTotal, yjsStorePayloadBytes, yjsStoreTotal } from './store.metrics';
 import type { CollabConnection } from './collab.gateway';
@@ -1554,6 +1555,12 @@ export class CollabProjectActorService {
       if ((err as { code?: string })?.code === 'P2003' || /Foreign key constraint/i.test((err as Error).message)) {
         throw err;   // FK=项目已删写路径发现点——重抛交 flushApplied 终态处置（discard+notify+收割——V6/T14 同判）
       }
+      if (err instanceof ProjectErasingError) {
+        // C4-b（R15 fence 拒帧终态）：DELETING 项目的 appendBatch 被 fenceProject 拒——**禁走熔断/
+        // 重试梯**（project 在擦除域，重试永拒=退避梯毒丸；recordFailure 会以连接族错误推闸 PG
+        // breaker=单项目擦除放大成全站写熔断）。与 FK 同判：重抛交 flushApplied 终态弃置。
+        throw err;
+      }
       yjsStoreTotal.inc({ trigger: 'maintenance' });   // 归因：actor PG 腿失败面（帧留 spool 未 confirm）
       this.pgBreaker?.recordFailure(err);              // PG 健康样本（连接族推闸——T16 熔断面②承继）
       // T11 store 失败样本承接（PG 腿唯一写点换代——tags 契约逐字保持）
@@ -1588,13 +1595,16 @@ export class CollabProjectActorService {
         try {
           outcome = await this.flushPrefixToPg(pid, st, prefix);
         } catch (err) {
-          if ((err as { fk?: boolean })?.fk || (err as { code?: string })?.code === 'P2003' || /Foreign key constraint/i.test((err as Error).message)) {
+          if ((err as { fk?: boolean })?.fk || (err as { code?: string })?.code === 'P2003' || /Foreign key constraint/i.test((err as Error).message)
+            || err instanceof ProjectErasingError) {
             // FK=项目已删写路径发现点：条目终态弃置+维护帧 fk 拒绝（persistence 帧通道 confirm+收割）
+            // C4-b：ProjectErasingError 同判（fence 拒帧=擦除域终态——弃置不重试；连接关闭归
+            // gateway project.gone/sweep 复验面，actor 不跨域）。
             st.appliedQueue.splice(0, n);
             st.appliedBytes -= prefix.reduce((s, e) => s + e.payload.byteLength, 0);   // Q-I2：出队单点同步
             for (const e of prefix) e.onFailed?.({ pgPending: true, fk: true });
-            actorDrainBatchTotal.inc({ result: 'pg-fk' });
-            this.host.logger.warn(`actor PG flush FK for ${pid}——applied 条目弃置（项目已删），维护帧终态拒绝`);
+            actorDrainBatchTotal.inc({ result: err instanceof ProjectErasingError ? 'pg-erasing' : 'pg-fk' });
+            this.host.logger.warn(`actor PG flush ${err instanceof ProjectErasingError ? 'ERASING' : 'FK'} for ${pid}——applied 条目弃置（项目${err instanceof ProjectErasingError ? '擦除中' : '已删'}），维护帧终态拒绝`);
             continue;
           }
           outcome = { landed: false, errorKind: err as Error };
