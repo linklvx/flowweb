@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { TeamService } from './team.service';
 import { TeamCreditService } from './team-credit.service';
@@ -158,7 +158,9 @@ export class TeamController {
     return this.teamSubscription.createSubscriptionOrder(id, (req as any).user.id, body.planId);
   }
 
+  // C4-a（红④）：tombstone-only——202+run 视图（Team.status='DISBANDING'；物理删除归 worker saga）
   @Post(':id/disband')
+  @HttpCode(202)
   disbandTeam(@Param('id') id: string, @Req() req: Request) {
     return this.teamService.disbandTeam(id, (req as any).user.id);
   }

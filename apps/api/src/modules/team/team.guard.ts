@@ -40,7 +40,9 @@ export class TeamGuard implements CanActivate {
 
     const team = await this.prisma.team.findUnique({ where: { id: teamId }, select: { status: true } });
     if (!team) throw new NotFoundException('团队不存在');
-    if (team.status === 'DISBANDED') throw new ForbiddenException('团队已解散');
+    // C4-a（红⑥-a）：DISBANDING 拦截统一 status!=='ACTIVE' 拒——URL 路由面（充值/成员/项目等 :id
+    // 路由）403；解散进行中团队不得再收任何路由资源（DISBANDED 既有拒承继）。
+    if (team.status !== 'ACTIVE') throw new ForbiddenException('团队已解散或解散中');
 
     req.teamId = teamId;
     req.teamRole = member.role;

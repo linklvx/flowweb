@@ -113,6 +113,12 @@ import { CollabAppendAuditWorker } from './modules/collab/collab-append-audit.wo
 //    零 controller/Http 面——retention/append-audit 同族平铺先例；依赖 Prisma/CanvasDocUpdateRepository
 //    均已 import） ──
 import { CollabCanaryVerifyWorker } from './modules/collab/collab-canary-verify.worker';
+// ── C4-a（生产就绪收尾批·project-erasure）：erasure run 轮询骨架（claim+team 分批置 DELETING+
+//    WAITING_CHILDREN 会合判定——红④⑤⑤-b worker 面；api 进程零注册〔retention/append-audit 同族
+//    平铺先例〕；闭包纯度=prisma/shared/credit-ledger/project-lock 族，零 controller/Http 面——
+//    census ⑰ 不破。saga 完整态机〔PURGING_DB/OBJECTS/CACHE/VERIFYING+介质 manifest〕归 C4-c 扩展） ──
+import { ErasureContextService } from './modules/collab/project-lock';
+import { ProjectErasureRunPoller } from './modules/collab/project-erasure.poller';
 
 const env = validateEnv();
 
@@ -216,6 +222,10 @@ const env = validateEnv();
     // +TTL 续租+readAt 重放比对+mismatch freeze 实弹+compare-and-delete+last_check_age gauge；api
     // 进程零注册——捕获面在 api〔collab.module〕比对面在 worker 的进程分工）
     CollabCanaryVerifyWorker,
+    // C4-a（project-erasure）：erasure run 轮询骨架（run 行=唯一唤醒源——claim 租约恢复+team 分批
+    // tombstone+会合判定；CreditLedgerService 通行证消费已平铺在位）
+    ErasureContextService,
+    ProjectErasureRunPoller,
     // ── recharge 域（PAYMENT_PROVIDER 工厂=RechargeModule 同款 verbatim——close-expired/active-query 消费面） ──
     {
       provide: 'PAYMENT_PROVIDER',

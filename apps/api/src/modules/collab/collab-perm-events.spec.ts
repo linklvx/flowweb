@@ -377,8 +377,8 @@ describe('Y0b-3 T8 emit 点接线（team.service）', () => {
     const emitter = { emit: vi.fn(), emitAsync: vi.fn().mockResolvedValue(undefined) };
     const audit = { log: vi.fn(), logTx: vi.fn() };
     const ledger = { ledgerTx: vi.fn(async (r: any) => r), ensureBalance: vi.fn(), lockBalance: vi.fn(), mutate: vi.fn() };
-    const service = new TeamService(
-      prisma as any, emitter as any, { add: vi.fn() } as any,
+    const service = new TeamService(   // C4-a：cleanupQueue 注入随请求内级联废止
+      prisma as any, emitter as any,
       ledger as any, audit as any, { assertSettled: vi.fn() } as any, { derivedMonthlyUsedMap: vi.fn() } as any,
     );
     return { service, prisma, emitter };

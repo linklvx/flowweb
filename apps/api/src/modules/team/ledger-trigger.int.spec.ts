@@ -28,7 +28,7 @@ const auditStub: any = { logTx: async () => {}, log: async () => {} };
 const teamSvc = new TeamService(
   prisma as unknown as PrismaService,
   { emitAsync: async () => {} } as any,
-  { add: async () => {} } as any,
+  // C4-a：cleanupQueue 注入随请求内级联废止
   ledger, auditStub, fundsGate, teamCredit,
 );
 const teamRecharge = new TeamRechargeService(
@@ -143,12 +143,15 @@ async function mkTeam(ownerId: string, tag: string): Promise<string> {
     const personal = await prisma.team.findFirstOrThrow({ where: { ownerId: grantee, isDefault: true } });
     expect((await prisma.teamBalance.findUniqueOrThrow({ where: { teamId: personal.id } })).credits).toBe(107);   // register 100+admin 7
 
-    // ⑤建团队+解散（TeamService.createTeam/disbandTeam——team.delete 级联删 TeamBalance 触发行级触发器，事务持证）
+    // ⑤建团队+解散（TeamService.createTeam/disbandTeam——C4-a tombstone-only：请求置 DISBANDING+run 行
+    // 〔Team 行不删——级联删 TeamBalance/ledger_guard 触发器面移至 worker 会合 PURGING_TEAM 持证执行〕）
     const owner5 = await mkUser(`it-trg-u5-${uniq}`);
     await bootstrapPersonalTeam(prisma as any, ledger, owner5, 'it-trg');   // 保底第二团队（"不能解散唯一团队"守卫）
     const created = await teamSvc.createTeam(owner5, 'it-trg-five');
     reg.teamIds.push(created.id);
-    await expect(teamSvc.disbandTeam(created.id, owner5)).resolves.toBeUndefined();   // 级联删 balance 带证零异常
+    const runView = await teamSvc.disbandTeam(created.id, owner5);
+    expect(runView).toMatchObject({ scopeType: 'team', scopeId: created.id, state: 'PENDING' });
+    expect((await prisma.team.findUniqueOrThrow({ where: { id: created.id } })).status).toBe('DISBANDING');
   }, 60000);
 
   it('Z100 backstop：同 reversesId 二次入账仍抛错（money_in_once/reversesId 唯一兜底——禁 skipDuplicates）', async () => {

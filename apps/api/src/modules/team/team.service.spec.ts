@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { getQueueToken } from '@nestjs/bullmq';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { TeamService } from './team.service';
@@ -324,78 +324,77 @@ describe('TeamService 基础 API', () => {
       await expect(service.renameTeam('t1', 'u1', 'x')).rejects.toThrow(ForbiddenException);
     });
 
-    it('DISBANDED 拒绝', async () => {
+    it('DISBANDED 拒绝（C4-a 红⑥-a：管理面统一 status!=="ACTIVE"→403）', async () => {
       prisma.teamMember = { findUnique: vi.fn().mockResolvedValue({ role: 'OWNER' }) };
       prisma.team = { findUnique: vi.fn().mockResolvedValue({ status: 'DISBANDED' }) };
-      await expect(service.renameTeam('t1', 'u1', 'x')).rejects.toThrow(BadRequestException);
+      await expect(service.renameTeam('t1', 'u1', 'x')).rejects.toThrow(ForbiddenException);
     });
   });
 
-  describe('disbandTeam（Y0b-1 T6 单事务时序）', () => {
-    const setup = (opts: { role?: string; teamCount?: number; status?: string } = {}) => {
+  // C4-a 红④：disbandTeam=tombstone-only（lockScope+fenceTeam→资金门 in-tx→Team.status='DISBANDING'
+  // +team run 行→202；**废止请求内 team.delete 级联**——Team 行不删、项目逐批置 DELETING+子 run 归
+  // worker 轮询；旧 team-media-cleanup 入队面随级联废止——介质清理归 C4-c worker saga）。
+  describe('disbandTeam（C4-a tombstone-only）', () => {
+    const setup = (opts: { role?: string; teamCount?: number; status?: string; activeRun?: unknown } = {}) => {
       prisma.teamMember = {
         findUnique: vi.fn().mockResolvedValue({ role: opts.role ?? 'OWNER' }),
         count: vi.fn().mockResolvedValue(opts.teamCount ?? 2),
       };
       prisma.team = {
-        findUnique: vi.fn().mockResolvedValue({ id: 't1', status: opts.status ?? 'ACTIVE' }),
-        update: vi.fn(),
+        findUnique: vi.fn().mockResolvedValue({ id: 't1', status: opts.status ?? 'ACTIVE', isDefault: false }),
+        update: vi.fn().mockResolvedValue({ id: 't1', status: 'DISBANDING' }),
         delete: vi.fn(),
       };
       prisma.user = { findUnique: vi.fn().mockResolvedValue({ name: '张三' }) };
-      prisma.canvasProject = { findMany: vi.fn().mockResolvedValue([{ id: 'p1' }, { id: 'p2' }]) };
-      prisma.media = { findMany: vi.fn().mockResolvedValue([{ id: 'm1', bucket: 'flowai', key: 'k1' }]) };
-      prisma.teamRechargeOrder = { updateMany: vi.fn() };
-      prisma.teamCreditTransaction = { updateMany: vi.fn() };
-      prisma.$executeRaw = vi.fn().mockResolvedValue(0);   // T6：SET LOCAL lock_timeout
-      prisma.$queryRaw = vi.fn().mockResolvedValue([{ id: 't1' }]);   // T6：SELECT … FOR UPDATE 团队行
+      prisma.$executeRaw = vi.fn().mockResolvedValue(0);   // lockScope（advisory·锁序①）
+      prisma.$queryRaw = vi.fn().mockResolvedValue([{ status: opts.status ?? 'ACTIVE' }]);   // fenceTeam FOR SHARE 读
+      prisma.projectErasureRun = {
+        findFirst: vi.fn().mockResolvedValue(opts.activeRun ?? null),
+        create: vi.fn().mockResolvedValue({ erasureId: 'run-1', scopeType: 'team', scopeId: 't1', state: 'PENDING', dryRun: false }),
+      };
       prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
     };
 
-    it('时序：单事务 FOR UPDATE→资金门→收集→物理删除；emit/队列/审计后移（凭证 teamId 留痕）', async () => {
+    it('时序：lockScope→fenceTeam→资金门（in-tx）→置 DISBANDING+run 行；Team 行不删；emit/审计后移', async () => {
       setup();
       const gate = (service as any).fundsGate as { assertSettled: ReturnType<typeof vi.fn> };
 
-      await service.disbandTeam('t1', 'u1');
+      const run = await service.disbandTeam('t1', 'u1');
 
-      // 事务内：通行证（Y0b-2 Z89：ledger.ledgerTx 取代裸 SET LOCAL——级联删 TeamBalance 触发行级触发器）+ FOR UPDATE 团队行（与 claim FOR SHARE 互斥）+ 资金门持锁检查（tx 同连接）
-      expect(ledger.ledgerTx).toHaveBeenCalledWith(prisma);
-      expect(prisma.$queryRaw).toHaveBeenCalledWith(['SELECT id FROM "Team" WHERE id = ', ' FOR UPDATE'], 't1');
-      expect(gate.assertSettled).toHaveBeenCalledWith(prisma, { teamId: 't1' });
-      // 删前查 projectIds/media（收集在事务内、物理删之前）
-      expect(prisma.canvasProject.findMany).toHaveBeenCalledWith({ where: { teamId: 't1' }, select: { id: true } });
-      expect(prisma.media.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { teamId: 't1' } }));
-      // 墓碑语句禁令：单事务内不再先置 DISBANDED（同事务内不可见=无效语句）
-      expect(prisma.team.update).not.toHaveBeenCalled();
-      // Y0b-1 凭证列 NOT NULL 去 FK——解散不清账（teamId 留痕），仅 team 物理删（级联 member/request/balance/subscription/projects/media/CanvasDoc）
-      expect(prisma.teamRechargeOrder.updateMany).not.toHaveBeenCalled();
-      expect(prisma.teamCreditTransaction.updateMany).not.toHaveBeenCalled();
-      expect(prisma.team.delete).toHaveBeenCalledWith({ where: { id: 't1' } });
-      // 资金门与收集都在物理删除之前（同事务序）
-      const gateOrder = gate.assertSettled.mock.invocationCallOrder[0];
-      expect(prisma.team.delete.mock.invocationCallOrder[0]).toBeGreaterThan(gateOrder);
-      // 副作用后移：emitAsync（等监听器，payload 含 projectIds）与 MinIO 清理在事务后
-      expect(emitter.emitAsync).toHaveBeenCalledWith('team.disbanded', { teamId: 't1', projectIds: ['p1', 'p2'] });
-      expect(queue.add).toHaveBeenCalledWith('team-media-cleanup', { medias: [{ id: 'm1', bucket: 'flowai', key: 'k1' }] });
-      const emitOrder = emitter.emitAsync.mock.invocationCallOrder[0];
-      expect(emitOrder).toBeGreaterThan(prisma.team.delete.mock.invocationCallOrder[0]);
-      // 审计在物理删除之后落库
+      expect(run).toMatchObject({ erasureId: 'run-1', scopeType: 'team', scopeId: 't1', state: 'PENDING' });
+      expect(prisma.$executeRaw).toHaveBeenCalled();   // lockScope('team', t1)——advisory 首语句
+      expect(gate.assertSettled).toHaveBeenCalledWith(prisma, { teamId: 't1' });   // in-tx 资金门
+      expect(prisma.team.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { status: 'DISBANDING' } });   // tombstone
+      expect(prisma.projectErasureRun.create).toHaveBeenCalledWith({
+        data: { scopeType: 'team', scopeId: 't1', teamId: 't1', requestedBy: 'u1', dryRun: false, parentRunId: null, state: 'PENDING' },
+      });
+      // 废止请求内级联：Team 行不物理删（删 Team 归 worker 会合 PURGING_TEAM）；O(1) 请求零收集查询
+      expect(prisma.team.delete).not.toHaveBeenCalled();
+      // 副作用后移：emit（请求侧信号——旧 team.disbanded 物理删语义废止）+审计
+      expect(emitter.emitAsync).toHaveBeenCalledWith('team.disbanding', { teamId: 't1' });
       expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
         teamId: 't1', targetType: 'TEAM', targetId: 't1', action: 'disband_team',
       }));
-      expect(audit.log.mock.invocationCallOrder[0]).toBeGreaterThan(prisma.team.delete.mock.invocationCallOrder[0]);
     });
 
-    it('资金门拦截：在飞资金未清算 ⇒ 解散中止（409 上抛，无删除无副作用）', async () => {
+    it('幂等：DISBANDING∧活跃 run 在档 ⇒ 同 run 返回，不重复置位/置入', async () => {
+      setup({ status: 'DISBANDING', activeRun: { erasureId: 'run-existing', scopeType: 'team', scopeId: 't1', state: 'PENDING', dryRun: false } });
+      const run = await service.disbandTeam('t1', 'u1');
+      expect(run.erasureId).toBe('run-existing');
+      expect(prisma.team.update).not.toHaveBeenCalled();
+      expect(prisma.projectErasureRun.create).not.toHaveBeenCalled();
+    });
+
+    it('资金门拦截：在飞资金未清算 ⇒ 解散中止（409 上抛，不置位无 run 行无副作用）', async () => {
       setup();
       audit.log.mockClear();   // audit 挂 describe 作用域——清前序用例计数再断言"零审计"
       (service as any).fundsGate.assertSettled.mockRejectedValue(
         Object.assign(new Error('资金未清算'), { errorCode: 'TEAM_HAS_ACTIVE_FUNDS' }),
       );
       await expect(service.disbandTeam('t1', 'u1')).rejects.toThrow('资金未清算');
-      expect(prisma.team.delete).not.toHaveBeenCalled();
+      expect(prisma.team.update).not.toHaveBeenCalled();
+      expect(prisma.projectErasureRun.create).not.toHaveBeenCalled();
       expect(emitter.emitAsync).not.toHaveBeenCalled();
-      expect(queue.add).not.toHaveBeenCalled();
       expect(audit.log).not.toHaveBeenCalled();
     });
 
@@ -409,9 +408,15 @@ describe('TeamService 基础 API', () => {
       await expect(service.disbandTeam('t1', 'u1')).rejects.toThrow('不能解散唯一团队');
     });
 
-    it('已 DISBANDED 拒绝重复解散', async () => {
+    it('已 DISBANDED 拒绝重复解散（红⑥-a：409）', async () => {
       setup({ status: 'DISBANDED' });
-      await expect(service.disbandTeam('t1', 'u1')).rejects.toThrow(BadRequestException);
+      await expect(service.disbandTeam('t1', 'u1')).rejects.toThrow(ConflictException);
+    });
+
+    it('DISBANDING 无活跃 run（前 run FAILED）→ fence 拒 409（re-drive 归 C4-c ops 面）', async () => {
+      setup({ status: 'DISBANDING' });
+      await expect(service.disbandTeam('t1', 'u1')).rejects.toThrow(ConflictException);
+      expect(prisma.team.update).not.toHaveBeenCalled();
     });
   });
 });

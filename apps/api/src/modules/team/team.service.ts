@@ -1,14 +1,14 @@
-import { Injectable, Inject, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, ForbiddenException, ConflictException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
 import { TEAM_FREE_SEAT_LIMIT } from './team.constants';
 import { CreditLedgerService } from './credit-ledger.service';
 import { TeamCreditService } from './team-credit.service';
 import { TeamFundsGateService } from './team-funds-gate.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { bootstrapPersonalTeam } from './team.bootstrap';
+import { lockScope, fenceTeam, ProjectErasingError } from '../collab/project-lock';
+import { findActiveErasureRun, createErasureRun, toRunView, type ErasureRunView } from '../collab/project-erasure';
 import { DEFAULT_FOLDER_NAMES } from '../material-library/constants/material-library.constants';
 
 @Injectable()
@@ -18,7 +18,6 @@ export class TeamService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(EventEmitter2) private readonly eventEmitter: EventEmitter2,
-    @InjectQueue('team-media-cleanup') private readonly cleanupQueue: Queue,
     @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
     @Inject(AuditService) private readonly audit: AuditService,
     @Inject(TeamFundsGateService) private readonly fundsGate: TeamFundsGateService,
@@ -149,7 +148,9 @@ export class TeamService {
     return this.prisma.team.update({ where: { id: teamId }, data: { name } });
   }
 
-  /** OWNER/ADMIN 且团队 ACTIVE（改名/后续管理操作共用校验） */
+  /** OWNER/ADMIN 且团队 ACTIVE（改名/后续管理操作共用校验）。
+   *  C4-a（红⑥-a）：DISBANDING 拦截统一 status!=='ACTIVE' 拒——写/管理操作 403（解散进行中团队
+   *  不得再收管理面写；DISBANDED 既有拒承继）。 */
   private async assertEditable(teamId: string, userId: string) {
     const member = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId, userId } },
@@ -158,7 +159,7 @@ export class TeamService {
       throw new ForbiddenException('仅团队管理员可操作');
     }
     const team = await this.prisma.team.findUnique({ where: { id: teamId }, select: { status: true } });
-    if (!team || team.status === 'DISBANDED') throw new BadRequestException('团队已解散');
+    if (!team || team.status !== 'ACTIVE') throw new ForbiddenException('团队已解散或解散中');
   }
 
   async listMembers(teamId: string, page = 1, pageSize = 20) {
@@ -420,12 +421,16 @@ export class TeamService {
     return { items, total };
   }
 
-  /** 解散时序（Y0b-1 T6 单事务化）：校验（多团队/OWNER/状态）→ 单事务 FOR UPDATE 团队行 → 资金门
-   *  （tx 内计数=持锁检查，与 claim 的 FOR SHARE 互斥——穿门窗口关闭）→ 收集 projectIds/media → 物理删
-   *  （级联 members/joinRequests/balance/subscriptions/projects(CanvasDoc)/media）→ 副作用后移 best-effort
-   *  （emitAsync 关 collab 连接/MinIO 清理队列/审计——AuditLog.teamId 无 FK 随审计保留）。
-   *  Y0b-1：凭证列 NOT NULL 去 FK——解散不清账，订单/流水 teamId 留痕（悬挂引用=解散团队的历史凭证）。 */
-  async disbandTeam(teamId: string, userId: string) {
+  /** C4-a（plan Task C4-1 红④——tombstone-only）：解散请求事务=lockScope('team')（advisory·锁序①）
+   *  →fenceTeam（FOR SHARE 行锁读·锁序②——DISBANDING/DISBANDED 拒）→资金门（in-tx 扩查三面，不过
+   *  回滚 409）→Team.status='DISBANDING'（tombstone——**废止请求内 team.delete 级联**：Team 行不删，
+   *  物理删除归 worker saga）→team run 行（PENDING）→提交→emit+审计→202 返回 run 视图。
+   *  **逐项目置 DELETING+子 run 由 worker 分批游标完成**（O(N) 批置分批——ProjectErasureRunPoller：
+   *  team run WAITING_CHILDREN 等子 run 全 DONE→PURGING_TEAM〔TeamBalance/团队级对象〕→ledger 通行证
+   *  →删 Team 行；一子 FAILED→team run FAILED 不删 Team——红⑤-b）。
+   *  幂等：DISBANDING∧活跃 run→同 run 返回；DISBANDING∧无活跃 run（前 run FAILED）→409（re-drive 归
+   *  C4-c ops 面）。MinIO 介质清理归 worker（C4-c manifest 批删——旧 team-media-cleanup 入队面废止）。 */
+  async disbandTeam(teamId: string, userId: string): Promise<ErasureRunView> {
     await this.assertNotPersonalTeam(teamId, '解散');
     const member = await this.prisma.teamMember.findUnique({
       where: { teamId_userId: { teamId, userId } },
@@ -436,36 +441,30 @@ export class TeamService {
     if (myTeamCount <= 1) throw new BadRequestException('不能解散唯一团队');
 
     const team = await this.prisma.team.findUnique({ where: { id: teamId }, select: { status: true } });
-    if (!team || team.status === 'DISBANDED') throw new BadRequestException('团队已解散');
+    if (!team || team.status === 'DISBANDED') throw new ConflictException('团队已解散');
 
-    const { projectIds, medias } = await this.prisma.$transaction(async (tx) => {
-      // Z4/Z26：单事务——FOR UPDATE 团队行（与 claim 的 FOR SHARE 互斥）→ 资金门（tx 内计数）→ 物理删（级联清理）；
-      // 删"同事务先置 DISBANDED 再 delete"的墓碑语句（同事务内不可见=无效语句）；台账行 teamId 无 FK 不受级联（审计留痕）。
-      // 契约 20 全序含 Team 首环：Team → TeamBalance → GenerationIntent →（流水/TeamMember）
-      // Y0b-2（Z89）：本事务必须持通行证——team.delete 级联删 TeamBalance（schema onDelete: Cascade），
-      // 级联删除同样触发 ledger_guard 行级触发器，无通行证即解散事务必炸。
-      await this.ledger.ledgerTx(tx);
-      await tx.$queryRaw`SELECT id FROM "Team" WHERE id = ${teamId} FOR UPDATE`;
-      await this.fundsGate.assertSettled(tx, { teamId });
-      const projects = await tx.canvasProject.findMany({ where: { teamId }, select: { id: true } });
-      const medias = await tx.media.findMany({
-        where: { teamId },
-        select: { id: true, bucket: true, key: true },
-      });
-      await tx.team.delete({ where: { id: teamId } });
-      return { projectIds: projects.map((p) => p.id), medias };
+    const run = await this.prisma.$transaction(async (tx) => {
+      await lockScope(tx, 'team', teamId);   // 锁序①：team 维串行化（scope: 前缀键空间）
+      const existing = await findActiveErasureRun(tx, 'team', teamId);
+      if (existing) return toRunView(existing);   // 幂等：重复解散→同 run 202
+      try {
+        await fenceTeam(tx, teamId);   // 锁序②：FOR SHARE 行锁读（DISBANDING 无活跃 run/DISBANDED→拒）
+      } catch (e) {
+        if (e instanceof ProjectErasingError) throw new ConflictException('团队已解散或解散进行中');
+        throw e;
+      }
+      await this.fundsGate.assertSettled(tx, { teamId });   // 资金门（in-tx 持锁检查——C4-a 扩查三面）
+      await tx.team.update({ where: { id: teamId }, data: { status: 'DISBANDING' } });
+      return toRunView(await createErasureRun(tx, {
+        scopeType: 'team', scopeId: teamId, teamId, requestedBy: userId,
+      }));
     }, { timeout: 15_000, maxWait: 5_000 });
 
-    // 提交后副作用链逐环吞错（T6 质量审 I-1：团队已物理删不可逆——任一环裸抛会断掉其后全部环节，
-    // emit 失败⇒MinIO 清理 job 永不入队且审计断档；audit.log 必须无条件到达）
-    await this.eventEmitter.emitAsync('team.disbanded', { teamId, projectIds }).catch((e: unknown) =>
-      this.logger.warn(`team.disbanded emit 失败（监听器各自兜底）: ${e}`));
-
-    // TODO(Task17): team-media-cleanup processor 批量删 MinIO 对象
-    await this.cleanupQueue.add('team-media-cleanup', { medias }).catch((e: unknown) =>
-      this.logger.warn(`team-media-cleanup 入队失败（Redis 抖动——MinIO 对象留待人工清理）: ${e}`));
-
-    // 审计在物理删除后落库（AuditLog.teamId 无 FK，行随审计保留）
+    // 提交后副作用 best-effort（Team 行还在——DISBANDING=tombstone 非物理删；各环吞错保后环）
+    // team.disbanding=请求侧信号（监听器消费归 C4-c——跨进程关连接面；旧 team.disbanded〔物理删语义〕
+    // 随请求内级联废止，由 worker 会合终态承接）。
+    await this.eventEmitter.emitAsync('team.disbanding', { teamId }).catch((e: unknown) =>
+      this.logger.warn(`team.disbanding emit 失败（监听器各自兜底）: ${e}`));
     await this.audit.log({
       operatorId: userId,
       operatorName: await this.userName(userId),
@@ -474,5 +473,6 @@ export class TeamService {
       targetId: teamId,
       action: 'disband_team',
     });
+    return run;
   }
 }

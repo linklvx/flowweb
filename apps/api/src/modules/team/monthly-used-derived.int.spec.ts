@@ -23,8 +23,8 @@ const prisma = new PrismaClient();
 const ledger = new CreditLedgerService(prisma as unknown as PrismaService);
 const teamCredit = new TeamCreditService(prisma as unknown as PrismaService, ledger);
 // listMembers 读点一致性（TeamService 其余依赖位 stub——listMembers 只触 prisma+teamCredit 两依赖）
-const teamSvc = new TeamService(
-  prisma as unknown as PrismaService, {} as any, {} as any, ledger, {} as any, {} as any, teamCredit,
+const teamSvc = new TeamService(   // C4-a：cleanupQueue 注入随请求内级联废止
+  prisma as unknown as PrismaService, {} as any, ledger, {} as any, {} as any, teamCredit,
 );
 
 // 夹具登记（afterAll 清理——id 全部后缀化防上轮失败残留自撞，funds-four-way 同纪律）

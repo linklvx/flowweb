@@ -50,7 +50,14 @@ describe('TeamGuard', () => {
     prisma.teamMember.findUnique.mockResolvedValue({ role: 'MEMBER' });
     prisma.team.findUnique.mockResolvedValue({ status: 'DISBANDED' });
     const req: any = { params: { id: 't1' }, user: { id: 'u1' } };
-    await expect(guard.canActivate(mkCtx(req))).rejects.toThrow('团队已解散');
+    await expect(guard.canActivate(mkCtx(req))).rejects.toThrow('团队已解散或解散中');
+  });
+
+  it('C4-a 红⑥-a：DISBANDING（解散进行中）403——URL 路由面统一 status!=="ACTIVE" 拒', async () => {
+    prisma.teamMember.findUnique.mockResolvedValue({ role: 'MEMBER' });
+    prisma.team.findUnique.mockResolvedValue({ status: 'DISBANDING' });
+    const req: any = { params: { id: 't1' }, user: { id: 'u1' } };
+    await expect(guard.canActivate(mkCtx(req))).rejects.toThrow('团队已解散或解散中');
   });
 
   it('未登录 403', async () => {
