@@ -161,7 +161,14 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
         if (active === 0) {
           // 子全 DONE（含用户先删的项目子 run 由其自身 run 承载不入本 parentRunId 集——已删项目行级联无面）
           await this.ledger.ledgerTx(tx);   // 通行证：team.delete 级联 TeamBalance 触发 ledger_guard（Z89 同款）
-          await tx.team.delete({ where: { id: teamId } });
+          try {
+            await tx.team.delete({ where: { id: teamId } });
+          } catch (e) {
+            // 评审 P2-1（C4-a spec 评审 2026-11-06）：Team 行已缺失（out-of-band 删/PITR 形态）——目标态
+            // 已达成（Team 不在），P2025 折幂等成功置 DONE；裸抛=整事务回滚 run 永悬 WAITING_CHILDREN
+            // 每 tick WARN 无限重试（毒丸）。其他错误照抛（租约恢复面下一 tick 重试）。
+            if ((e as { code?: string })?.code !== 'P2025') throw e;
+          }
           await tx.projectErasureRun.update({
             where: { erasureId: run.erasureId },
             data: { state: 'DONE', stage: 'PURGING_TEAM', completedAt: now, claimOwner: null, leaseUntil: null },

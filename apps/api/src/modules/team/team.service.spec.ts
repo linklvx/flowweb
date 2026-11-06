@@ -1,6 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ForbiddenException, ConflictException } from '@nestjs/common';
-import { getQueueToken } from '@nestjs/bullmq';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { TeamService } from './team.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -32,7 +31,6 @@ describe('TeamService.ensureDefaultTeam', () => {
   let service: TeamService;
   let prisma: any;
   let emitter: any;
-  let queue: any;
   const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
@@ -49,14 +47,12 @@ describe('TeamService.ensureDefaultTeam', () => {
       $transaction: vi.fn(async (fn: any) => fn(prisma)),
     };
     emitter = { emit: vi.fn(), emitAsync: vi.fn() };   // Y0b-3 T8：+emit（collab.perm.changed 同步事件面）
-    queue = { add: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TeamService,
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: emitter },
-        { provide: getQueueToken('team-media-cleanup'), useValue: queue },
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
         { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
@@ -134,7 +130,6 @@ describe('TeamService 基础 API', () => {
   let service: TeamService;
   let prisma: any;
   let emitter: any;
-  let queue: any;
   const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
@@ -142,14 +137,12 @@ describe('TeamService 基础 API', () => {
     resetTeamCreditMocks();
     prisma = {};
     emitter = { emit: vi.fn(), emitAsync: vi.fn().mockResolvedValue([]) };
-    queue = { add: vi.fn().mockResolvedValue({}) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TeamService,
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: emitter },
-        { provide: getQueueToken('team-media-cleanup'), useValue: queue },
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
         { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
@@ -363,7 +356,10 @@ describe('TeamService 基础 API', () => {
 
       expect(run).toMatchObject({ erasureId: 'run-1', scopeType: 'team', scopeId: 't1', state: 'PENDING' });
       expect(prisma.$executeRaw).toHaveBeenCalled();   // lockScope('team', t1)——advisory 首语句
-      expect(gate.assertSettled).toHaveBeenCalledWith(prisma, { teamId: 't1' });   // in-tx 资金门
+      // 评审 P1-1：门①（fence 后）+门②（team.update 行排他后重跑——TOCTOU 窗关闭）恰两次
+      expect(gate.assertSettled).toHaveBeenCalledTimes(2);
+      expect(gate.assertSettled).toHaveBeenNthCalledWith(1, prisma, { teamId: 't1' });
+      expect(gate.assertSettled).toHaveBeenNthCalledWith(2, prisma, { teamId: 't1' });
       expect(prisma.team.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { status: 'DISBANDING' } });   // tombstone
       expect(prisma.projectErasureRun.create).toHaveBeenCalledWith({
         data: { scopeType: 'team', scopeId: 't1', teamId: 't1', requestedBy: 'u1', dryRun: false, parentRunId: null, state: 'PENDING' },
@@ -425,7 +421,6 @@ describe('TeamService 成员管理', () => {
   let service: TeamService;
   let prisma: any;
   let emitter: any;
-  let queue: any;
   const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
@@ -433,14 +428,12 @@ describe('TeamService 成员管理', () => {
     resetTeamCreditMocks();
     prisma = {};
     emitter = { emit: vi.fn(), emitAsync: vi.fn().mockResolvedValue([]) };
-    queue = { add: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TeamService,
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: emitter },
-        { provide: getQueueToken('team-media-cleanup'), useValue: queue },
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
         { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
@@ -648,7 +641,6 @@ describe('TeamService 加入申请', () => {
   let service: TeamService;
   let prisma: any;
   let emitter: any;
-  let queue: any;
   const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
@@ -656,14 +648,12 @@ describe('TeamService 加入申请', () => {
     resetTeamCreditMocks();
     prisma = {};
     emitter = { emit: vi.fn(), emitAsync: vi.fn().mockResolvedValue([]) };
-    queue = { add: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TeamService,
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: emitter },
-        { provide: getQueueToken('team-media-cleanup'), useValue: queue },
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
         { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
@@ -826,7 +816,6 @@ describe('listAuditLogs', () => {
   let service: TeamService;
   let prisma: any;
   let emitter: any;
-  let queue: any;
   const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
@@ -837,14 +826,12 @@ describe('listAuditLogs', () => {
       auditLog: { findMany: vi.fn(), count: vi.fn() },
     };
     emitter = { emit: vi.fn(), emitAsync: vi.fn().mockResolvedValue([]) };
-    queue = { add: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TeamService,
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: emitter },
-        { provide: getQueueToken('team-media-cleanup'), useValue: queue },
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
         { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },
@@ -883,7 +870,6 @@ describe('TeamService 默认团队操作禁令（个人项目不变量）', () =
   let service: TeamService;
   let prisma: any;
   let emitter: any;
-  let queue: any;
   const audit = { log: vi.fn(), logTx: vi.fn() };
 
   beforeEach(async () => {
@@ -891,14 +877,12 @@ describe('TeamService 默认团队操作禁令（个人项目不变量）', () =
     resetTeamCreditMocks();
     prisma = {};
     emitter = { emit: vi.fn(), emitAsync: vi.fn().mockResolvedValue([]) };
-    queue = { add: vi.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TeamService,
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: emitter },
-        { provide: getQueueToken('team-media-cleanup'), useValue: queue },
         { provide: CreditLedgerService, useValue: ledger },
         { provide: AuditService, useValue: audit },
         { provide: TeamFundsGateService, useValue: { assertSettled: vi.fn().mockResolvedValue(undefined) } },

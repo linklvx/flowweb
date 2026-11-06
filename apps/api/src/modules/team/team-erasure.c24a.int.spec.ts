@@ -186,4 +186,105 @@ maybe('C4-a 红④⑤⑤-b⑥-a team tombstone-only+会合（真 PG）', () => {
     await prisma.projectErasureRun.update({ where: { erasureId: run.erasureId }, data: { state: 'FAILED', error: 'seed' } });
     await expect(service.disbandTeam(teamId, owner)).rejects.toThrow(ConflictException);
   });
+
+  // ═══ 评审 P1-1（C4-a spec 评审 2026-11-06）：资金门 TOCTOU 回归窗 ═══
+  // 旧 disbandTeam 的 Team FOR UPDATE 与 generation-intent claim 的 Team FOR SHARE（claimTx
+  // generation-intent.service.ts:149）互斥=门后置可见（Z26「穿门窗口关闭」）；C4-a fenceTeam=FOR
+  // SHARE 与 claim FOR SHARE **兼容**——并发未提交 claim（ExecutionRequest+reservedCredit 置入中）
+  // 期间 fence/门①先行通过⇒团队可带在飞冻结资金进 DISBANDING 且会合 PURGING_TEAM 无二次过门。
+  // 修法=team.update（行排他）后**重跑一次 assertSettled**：先到 claim 已提交可见→409 回滚；后到
+  // claim 被 DISBANDING 拒（claimTx FOR SHARE 读 status≠ACTIVE 即拒）。
+  it('P1-1-a 并发未提交 claim 持 Team FOR SHARE+置入 reservedCredit → disbandTeam 阻塞于 team.update→claim 提交→门②见资金→409 回滚（team 仍 ACTIVE 无 run）', async () => {
+    const { teamId } = await mkTeam(0);
+    const prismaB = new PrismaClient();   // 双 PrismaClient 并发夹具（C2-1 红③-c 先例形态）
+    let disbandPromise: Promise<unknown> | null = null;
+    await prismaB.$transaction(async (tx) => {
+      // claim 形态仿真：claimTx 首句 Team FOR SHARE（generation-intent.service.ts:149 同款）+同事务
+      // 置入 ExecutionRequest（reservedCredit>0）——提交前 disband 的门①不可见
+      await tx.$queryRaw`SELECT "status" FROM "Team" WHERE id = ${teamId}::text FOR SHARE`;
+      disbandPromise = service.disbandTeam(teamId, owner);
+      await new Promise((r) => setTimeout(r, 400));
+      // 阻塞面实证：disband 卡在 team.update（行排他等 claim 的 FOR SHARE）——Team 仍 ACTIVE 未置 DISBANDING
+      expect((await prisma.team.findUniqueOrThrow({ where: { id: teamId } })).status).toBe('ACTIVE');
+      await tx.executionRequest.create({
+        data: {
+          requestId: `rq-p11-${teamId}`, projectId: `p11-${teamId}`, generation: 1, historyId: 'h', docSeq: 1n, frozenDocSeq: 1n,
+          userId: owner, teamId, kind: 'text', state: 'ADMITTED', reservedCredit: 4, totalCredit: 4,
+          planHash: 'a'.repeat(64), inputHash: 'b'.repeat(64), expiresAt: new Date(Date.now() + 3_600_000),
+        },
+      });   // claim 载荷在事务内——提交后才对 disband 门②可见
+    });   // claim 提交（FOR SHARE 释放→disband 的 team.update 获得→门②见资金）
+    await expect(disbandPromise).rejects.toMatchObject({ errorCode: 'TEAM_HAS_ACTIVE_FUNDS', status: 409 });
+    expect((await prisma.team.findUniqueOrThrow({ where: { id: teamId } })).status).toBe('ACTIVE');   // 整事务回滚
+    expect(await prisma.projectErasureRun.findFirst({ where: { scopeType: 'team', scopeId: teamId } })).toBeNull();
+    await prisma.executionRequest.deleteMany({ where: { teamId, requestId: `rq-p11-${teamId}` } });
+    await prismaB.$disconnect();
+  });
+
+  it('P1-1-b 对照：claim 持锁提交但零资金载荷 → 门②放行（disband 成功——非误杀）', async () => {
+    const { teamId } = await mkTeam(0);
+    const prismaB = new PrismaClient();
+    let disbandPromise: Promise<unknown> | null = null;
+    await prismaB.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "status" FROM "Team" WHERE id = ${teamId}::text FOR SHARE`;
+      disbandPromise = service.disbandTeam(teamId, owner);
+      await new Promise((r) => setTimeout(r, 300));
+    });   // claim 提交（零资金）
+    const run = await disbandPromise;
+    expect(run).toMatchObject({ scopeType: 'team', scopeId: teamId, state: 'PENDING' });
+    await prismaB.$disconnect();
+  });
+
+  // ═══ 评审 P2-6：资金门 team 维三面独立断言（现仅 project 维有——C4-a 红①-e 补齐对称面） ═══
+  it('P2-6 资金门 team 维三面：ExecutionRequest(teamId)/RefundObligation(经 intent.teamId)/StorageReservation(teamId) 任一在飞 ⇒ 409', async () => {
+    const t1 = (await mkTeam(0)).teamId;
+    await prisma.executionRequest.create({
+      data: {
+        requestId: `rq-p26a-${t1}`, projectId: 'p26-any', generation: 1, historyId: 'h', docSeq: 1n, frozenDocSeq: 1n,
+        userId: owner, teamId: t1, kind: 'text', state: 'EXECUTING', reservedCredit: 2, totalCredit: 2,
+        planHash: 'a'.repeat(64), inputHash: 'b'.repeat(64), expiresAt: new Date(Date.now() + 3_600_000),
+      },
+    });
+    await expect(fundsGate.assertSettled(prisma as any, { teamId: t1 })).rejects.toMatchObject({ errorCode: 'TEAM_HAS_ACTIVE_FUNDS' });
+    await prisma.executionRequest.deleteMany({ where: { teamId: t1 } });
+
+    const t2 = (await mkTeam(0)).teamId;
+    const gi = await prisma.generationIntent.create({
+      data: {
+        projectId: 'p26-any2', nodeId: 'n1', userId: owner, teamId: t2, intentId: `it-p26-${t2}`,
+        kind: 'text', paramsHash: 'ph', creditCost: 1, heartbeatAt: new Date(), deadlineAt: new Date(),
+        idemKey: `idem-p26-${t2}-${Date.now()}`, execSeq: BigInt(Date.now() + 1),
+      },
+    });
+    await prisma.refundObligation.create({ data: { intentRowId: gi.id, execSeq: 1n, reversesId: 'r1', creditAmount: 1 } });
+    await expect(fundsGate.assertSettled(prisma as any, { teamId: t2 })).rejects.toMatchObject({ errorCode: 'TEAM_HAS_ACTIVE_FUNDS' });
+    await prisma.refundObligation.deleteMany({ where: { intentRowId: gi.id } });
+    await prisma.generationIntent.deleteMany({ where: { id: gi.id } });
+
+    const t3 = (await mkTeam(0)).teamId;
+    await prisma.storageReservation.create({ data: { teamId: t3, mediaId: `sr-p26-${t3}-${Date.now()}`, upperBoundBytes: 10n } });
+    await expect(fundsGate.assertSettled(prisma as any, { teamId: t3 })).rejects.toMatchObject({ errorCode: 'TEAM_HAS_ACTIVE_FUNDS' });
+    await prisma.storageReservation.deleteMany({ where: { teamId: t3 } });
+    // 三面全清后放行（门非全拒）
+    await expect(fundsGate.assertSettled(prisma as any, { teamId: t3 })).resolves.toBeUndefined();
+  });
+
+  // ═══ 评审 P2-1：毒丸 run——Team 行缺失（out-of-band/PITR）+子全 DONE→team.delete P2025 裸抛=
+  // 整事务回滚 run 永悬 WAITING_CHILDREN 每 tick WARN 无限重试（评审实跑 dev 库积压已代清） ═══
+  it('P2-1 Team 行缺失+子全 DONE → P2025 折幂等成功置 DONE（零永悬重试——目标态 Team 不在已达成）', async () => {
+    const { teamId, projectIds } = await mkTeam(1);
+    await service.disbandTeam(teamId, owner);
+    await poller.tick();   // 分批置 DELETING+子 run（1 子）
+    const teamRun = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeType: 'team', scopeId: teamId } });
+    const children = await prisma.projectErasureRun.findMany({ where: { parentRunId: teamRun.erasureId } });
+    expect(children).toHaveLength(1);
+    await prisma.projectErasureRun.update({ where: { erasureId: children[0].erasureId }, data: { state: 'DONE', completedAt: new Date() } });
+    // out-of-band Team 行消失（无钱包行——ledger_guard 零触发面；项目行随级联消亡）
+    await prisma.canvasProject.deleteMany({ where: { teamId } });
+    await prisma.teamMember.deleteMany({ where: { teamId } });
+    await prisma.team.delete({ where: { id: teamId } });
+    await poller.tick();   // 修前：P2025 回滚 WARN 永悬；修后：折幂等 DONE
+    expect((await prisma.projectErasureRun.findUniqueOrThrow({ where: { erasureId: teamRun.erasureId } })).state).toBe('DONE');
+    expect(projectIds).toHaveLength(1);   // （fixture 行已随 Team 级联清——afterAll catch 兜底）
+  });
 });

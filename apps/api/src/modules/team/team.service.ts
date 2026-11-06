@@ -453,8 +453,14 @@ export class TeamService {
         if (e instanceof ProjectErasingError) throw new ConflictException('团队已解散或解散进行中');
         throw e;
       }
-      await this.fundsGate.assertSettled(tx, { teamId });   // 资金门（in-tx 持锁检查——C4-a 扩查三面）
+      await this.fundsGate.assertSettled(tx, { teamId });   // 门①：fence 后（C4-a 扩查三面）
       await tx.team.update({ where: { id: teamId }, data: { status: 'DISBANDING' } });
+      // 评审 P1-1（C4-a spec 评审 2026-11-06）：资金门 TOCTOU 回归窗收口——fenceTeam=FOR SHARE 与
+      // generation-intent claim 的 Team FOR SHARE（claimTx 首句）**兼容**，门①对并发未提交 claim 的
+      // reservedCredit 不可见；team.update 行排他后重跑一次门（Z26「穿门窗口关闭」语义承继）：先到
+      // claim 此刻已提交可见 ⇒ 409 回滚；后到 claim 被 DISBANDING 拒（claimTx FOR SHARE 读 status≠ACTIVE
+      // 即拒）。会合 PURGING_TEAM 侧无二次过门面=本重跑为唯一收口点。
+      await this.fundsGate.assertSettled(tx, { teamId });   // 门②：行排他后置可见（TOCTOU 窗关闭）
       return toRunView(await createErasureRun(tx, {
         scopeType: 'team', scopeId: teamId, teamId, requestedBy: userId,
       }));

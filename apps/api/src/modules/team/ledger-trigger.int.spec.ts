@@ -72,6 +72,10 @@ async function mkTeam(ownerId: string, tag: string): Promise<string> {
     await prisma.teamSubscription.deleteMany({ where: { teamId: { in: reg.teamIds } } });
     await prisma.teamPlan.deleteMany({ where: { id: { startsWith: `it-trg-plan-${uniq}` } } });
     await deleteTeamsWithPass(prisma as unknown as PrismaService, [...reg.teamIds, ...personalTeams.map((t) => t.id)]);
+    // 评审 P2-2：⑤ disbandTeam tombstone 化后留 team run 行（PENDING——Team 行已清而 run 无 FK）——
+    // 不清=每轮 int 泄漏毒丸行（P2-1 制造源根除）。scopeId/teamId 双维命中（team run+其子 run）。
+    await prisma.projectErasureRun.deleteMany({ where: { scopeId: { in: reg.teamIds } } });
+    await prisma.projectErasureRun.deleteMany({ where: { teamId: { in: reg.teamIds } } });
     await prisma.user.deleteMany({ where: { id: { in: reg.userIds } } });
     await prisma.$disconnect();
   }, 30000);
