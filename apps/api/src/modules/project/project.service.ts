@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -7,7 +7,9 @@ import { TeamFundsGateService } from '../team/team-funds-gate.service';
 import { toDocLike } from '../collab/doc-like.util';
 import { createCanvasDoc } from '../collab/canvas-doc.factory';
 import { ensureCanvasDocHead } from '../collab/canvas-doc-genesis';
-import { fillDoc, stripAuthorState, stripDerivedKeys, CANVAS_DOC_SCHEMA_VERSION, CANVAS_PROJECT_ORIGIN_USER } from '@flowweb/shared';
+import { lockProject } from '../collab/project-lock';
+import { openProjectErasure, type ErasureRunView } from '../collab/project-erasure';
+import { fillDoc, stripAuthorState, stripDerivedKeys, CANVAS_DOC_SCHEMA_VERSION, CANVAS_PROJECT_ORIGIN_USER, type CanvasProjectOrigin } from '@flowweb/shared';
 import { assertTeamMember } from '../team/team.util';
 import { ensureProjectGovernance } from '../collab/project-governance.service';
 
@@ -29,6 +31,8 @@ interface EdgeInput {
 
 @Injectable()
 export class ProjectService {
+  private readonly logger = new Logger(ProjectService.name);
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TeamService) private readonly teamService: TeamService,
@@ -36,7 +40,7 @@ export class ProjectService {
     @Inject(EventEmitter2) private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async create(name: string, userId?: string, nodes?: any[], edges?: any[], teamId?: string) {
+  async create(name: string, userId?: string, nodes?: any[], edges?: any[], teamId?: string, origin: CanvasProjectOrigin = CANVAS_PROJECT_ORIGIN_USER) {
     let teamIdResolved: string;
     if (teamId && userId) {
       await assertTeamMember(this.prisma, teamId, userId);
@@ -54,8 +58,9 @@ export class ProjectService {
       });
       // C2-0（生产就绪收尾批）：governance 必经——OpsGate ('compact',pid,'OPEN') 项目行+origin
       //  谱系单源写点（同事务原子；漏接=该路径项目 compact 永久 fail-closed〔C2-1 两行校验缺项目行
-      //  即拒〕——census ㊱ 调用点执法）。
-      await ensureProjectGovernance(tx, { projectId: created.id, origin: CANVAS_PROJECT_ORIGIN_USER });
+      //  即拒〕——census ㊱ 调用点执法）。C4-a：origin 参数化（'clone' 谱系——VideoWorkCloneService
+      //  接线+cleanDrafts 判据消费；缺省 'user'）。
+      await ensureProjectGovernance(tx, { projectId: created.id, origin });
       if (userId) {
         await tx.projectMember.create({
           data: { projectId: created.id, userId, role: 'PROJECT_OWNER' },
@@ -136,35 +141,56 @@ export class ProjectService {
     });
   }
 
-  async delete(id: string) {
-    // Y0b-1（§1.4ter/Z4）：删项目前置清算门——在飞 RUNNING∨冻结>0 ⇒ 409（非事务调用点传 this.prisma，
-    // 读后写窗口=reconcile+孤儿巡检兜底）
-    await this.fundsGate.assertSettled(this.prisma, { projectId: id });
-    const deleted = await this.prisma.canvasProject.delete({ where: { id } });
-    // Y0a-2（V11）：提交后 emit（emitAsync await 监听器——处理器禁慢操作：内存终态+关连接；
-    // 回滚安全：删除失败=异常上抛=无 emit=该项目协作写不受影响）
-    await this.eventEmitter.emitAsync('project.gone', { projectIds: [id] });
-    return deleted;
+  /** C4-a（plan Task C4-1 红①——tombstone-only）：删项目=单事务 lockProject（advisory·锁序①）→
+   *  FOR SHARE fence 校验（③位）→资金门（in-tx 持锁检查——C4-a 扩查三面，不过回滚 409）→置
+   *  lifecycleState='DELETING'+插 run 行（PENDING）→提交→emit project.gone→202 返回 run 视图。
+   *  物理删除全归 worker saga（C4-c）。幂等：重复删除请求→活跃 run 存在→同 run 返回；DONE 后再删
+   *  （restore 形态）→新 run（partial unique）。dryRun=跳过置位（项目不隐藏）不 emit。emit 崩溃
+   *  catch-warn（tombstone 已提交=run 行持久恢复锚——kill -9 后重复请求同 run）。 */
+  async delete(id: string, requestedBy?: string, opts: { dryRun?: boolean } = {}): Promise<ErasureRunView> {
+    const run = await this.prisma.$transaction(async (tx) => {
+      await lockProject(tx, id);   // 锁序①：事务首语句（project-lock 单源）
+      return openProjectErasure(tx, {
+        projectId: id,
+        requestedBy: requestedBy ?? '',
+        dryRun: opts.dryRun,
+        gate: (t) => this.fundsGate.assertSettled(t, { projectId: id }),
+      });
+    });
+    if (!opts.dryRun) {
+      // Y0a-2（V11）语义随 tombstone 保留：提交后 emit（处理器禁慢操作——内存终态+关连接）；
+      // emit 失败=best-effort warn（红① kill -9 on emit：run 行=恢复锚，重放面归 worker 轮询）
+      await this.eventEmitter.emitAsync('project.gone', { projectIds: [id] })
+        .catch((e: unknown) => this.logger.warn(`project.gone emit 失败（tombstone 已提交——run 行 ${run.erasureId} 为恢复锚）: ${e}`));
+    }
+    return run;
   }
 
+  /** C4-a 红②：cleanDrafts 同批 tombstone（判据=`(origin IS NULL OR origin='user')`∧无 Template∧24h
+   *  ∧lifecycleState='ACTIVE'——clone 谱系不删）。FOR UPDATE 锁定集→批量资金门（任一未清算整批 409）
+   *  →逐项目 tombstone+run→提交后按确实被 tombstone 的集合 emit。 */
   async cleanDrafts(userId: string) {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    // Y0a-2（V11+X13）：**FOR UPDATE 事务**锁定并删除（关掉"查询→deleteMany 间草稿跃过 cutoff→
-    // 活项目进终态集"的毒化窗——deleteMany 不返回被删 id 是 Prisma 既有限制，FOR UPDATE 把窗口归零），
-    // 提交后按**确实被删的集合** emit。
+    // Y0a-2（V11+X13）：**FOR UPDATE 事务**锁定（毒化窗归零——X13 语义随 tombstone 承继），提交后按
+    // **确实被 tombstone 的集合** emit。
     const deletedIds = await this.prisma.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<{ id: string }[]>`
         SELECT id FROM "CanvasProject"
         WHERE "userId" = ${userId} AND "updatedAt" < ${cutoff}
+          AND ("origin" IS NULL OR "origin" = 'user')
+          AND "lifecycleState" = 'ACTIVE'
           AND NOT EXISTS (SELECT 1 FROM "Template" WHERE "Template"."projectId" = "CanvasProject"."id")
         FOR UPDATE`;
       const ids = rows.map((r) => r.id);
-      // Y0b-1（§1.4ter/Z4）：批量前置清算门——锁定集内任一项目资金未清算 ⇒ 整批 409（tx 同连接同快照）
+      // Y0b-1（§1.4ter/Z4）：批量前置清算门——锁定集内任一项目资金未清算 ⇒ 整批 409（tx 同连接同快照；
+      // C4-a 扩查三面同门）。逐项目 openProjectErasure 幂等（heal-rare 活跃 run→同 run 返回）不重复过门。
       if (ids.length > 0) await this.fundsGate.assertSettled(tx, { projectIds: ids });
-      if (ids.length > 0) await tx.canvasProject.deleteMany({ where: { id: { in: ids } } });
+      for (const id of ids) {
+        await openProjectErasure(tx, { projectId: id, requestedBy: userId });
+      }
       return ids;
     });
     if (deletedIds.length > 0) await this.eventEmitter.emitAsync('project.gone', { projectIds: deletedIds });
-    return { deletedCount: deletedIds.length };   // Y20：保留既有返回键（controller/前端消费不变——X13 只改 SQL/emit 不破形状）
+    return { deletedCount: deletedIds.length };   // Y20：保留既有返回键（controller/前端消费不变——C4-a 只改删除形态不破形状）
   }
 }

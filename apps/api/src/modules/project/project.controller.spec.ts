@@ -1,29 +1,34 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ForbiddenException } from '@nestjs/common';
 import { ProjectController } from './project.controller';
 import { ProjectService } from './project.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ProjectPermissionService } from '../team/project-permission.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('ProjectController', () => {
   let controller: ProjectController;
   let service: any;
   let prisma: any;
+  let perm: any;
 
   beforeEach(async () => {
     service = {
       create: vi.fn().mockResolvedValue({ id: 'p1', name: 'test' }),
       findById: vi.fn().mockResolvedValue({ id: 'p1', nodes: [], edges: [] }),
       updateName: vi.fn().mockResolvedValue({ id: 'p1', name: 'updated' }),
-      delete: vi.fn().mockResolvedValue({}),
+      delete: vi.fn().mockResolvedValue({ erasureId: 'run-1', scopeType: 'project', scopeId: 'p1', state: 'PENDING', dryRun: false }),
       getProjectFolder: vi.fn().mockResolvedValue({ folderId: null }),
     };
     prisma = { teamMember: { findFirst: vi.fn().mockResolvedValue({ role: 'MEMBER' }) } };
+    perm = { resolve: vi.fn().mockResolvedValue('PROJECT_OWNER') };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ProjectController],
       providers: [
         { provide: ProjectService, useValue: service },
         { provide: PrismaService, useValue: prisma },
+        { provide: ProjectPermissionService, useValue: perm },
       ],
     }).compile();
 
@@ -84,8 +89,22 @@ describe('ProjectController', () => {
     expect(service.updateName).toHaveBeenCalledWith('p1', '新名字');
   });
 
-  it('DELETE /api/projects/:id should delete project', async () => {
-    await controller.delete('p1');
-    expect(service.delete).toHaveBeenCalledWith('p1');
+  // C4-a 红⑥-b：DELETE=ProjectPermissionService 判 PROJECT_OWNER（requestedBy 传 userId；?dryRun 透传）
+  it('DELETE /api/projects/:id PROJECT_OWNER 通过→service.delete(id, userId, {dryRun})', async () => {
+    const run = await controller.delete('p1', undefined, { user: { id: 'u1' } } as any);
+    expect(run.erasureId).toBe('run-1');
+    expect(perm.resolve).toHaveBeenCalledWith('p1', 'u1');
+    expect(service.delete).toHaveBeenCalledWith('p1', 'u1', { dryRun: false });
+  });
+
+  it('DELETE /api/projects/:id MEMBER（PROJECT_EDITOR）→403 不入 service', async () => {
+    perm.resolve.mockResolvedValue('PROJECT_EDITOR');
+    await expect(controller.delete('p1', undefined, { user: { id: 'u1' } } as any)).rejects.toThrow(ForbiddenException);
+    expect(service.delete).not.toHaveBeenCalled();
+  });
+
+  it('DELETE /api/projects/:id ?dryRun=true 透传演练档', async () => {
+    await controller.delete('p1', 'true', { user: { id: 'u1' } } as any);
+    expect(service.delete).toHaveBeenCalledWith('p1', 'u1', { dryRun: true });
   });
 });

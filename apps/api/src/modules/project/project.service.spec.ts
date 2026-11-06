@@ -388,57 +388,109 @@ describe('ProjectService', () => {
     });
   });
 
-  describe('delete', () => {
-    it('delete 前置清算门：先 gate 后删（Y0b-1 §1.4ter/Z4——非事务点传 this.prisma）', async () => {
-      prisma.canvasProject.delete.mockResolvedValue({ id: 'p1' });
-      await service.delete('p1');
+  describe('delete（C4-a tombstone-only）', () => {
+    beforeEach(() => {
+      // openProjectErasure 消费面：FOR SHARE 行锁读（ACTIVE 档）+无活跃 run+run 行置入+tombstone update
+      prisma.$queryRaw.mockResolvedValue([{ lifecycleState: 'ACTIVE' }]);
+      prisma.projectErasureRun = {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockImplementation(async (a: { data: { scopeType: string; scopeId: string; dryRun: boolean } }) =>
+          ({ erasureId: 'run-1', state: 'PENDING', ...a.data })),
+      };
+      prisma.canvasProject.update.mockResolvedValue({ id: 'p1' });
+    });
+
+    it('delete=tombstone+run：lockProject+fence→资金门（in-tx）→置 DELETING+run 行→emit project.gone', async () => {
+      const run = await service.delete('p1', 'u1');
+      expect(run).toMatchObject({ erasureId: 'run-1', scopeType: 'project', scopeId: 'p1', state: 'PENDING' });
+      // 锁序①：advisory lockProject 首语句（$executeRaw 消费面）
+      expect(prisma.$executeRaw).toHaveBeenCalled();
+      // 资金门 in-tx（tx 同连接=prisma mock）先于 tombstone update
       expect(gate.assertSettled).toHaveBeenCalledWith(prisma, { projectId: 'p1' });
       expect(gate.assertSettled.mock.invocationCallOrder[0])
-        .toBeLessThan(prisma.canvasProject.delete.mock.invocationCallOrder[0]);
-    });
-
-    it('delete 清算门拦截：在飞资金未清算 ⇒ 不删不 emit（409 上抛）', async () => {
-      gate.assertSettled.mockRejectedValue(Object.assign(new Error('资金未清算'), { status: 409 }));
-      await expect(service.delete('p1')).rejects.toThrow('资金未清算');
-      expect(prisma.canvasProject.delete).not.toHaveBeenCalled();
-      expect(emitter.emitAsync).not.toHaveBeenCalled();
-    });
-
-    it('should delete project by id', async () => {
-      prisma.canvasProject.delete.mockResolvedValue({ id: 'p1' });
-      await service.delete('p1');
-      expect(prisma.canvasProject.delete).toHaveBeenCalledWith({ where: { id: 'p1' } });
-    });
-
-    it('delete：删除提交后 emit project.gone（Y0a-2 V11 后置——先 delete 后 emit）', async () => {
-      prisma.canvasProject.delete.mockResolvedValue({ id: 'p1' });
-      await service.delete('p1');
+        .toBeLessThan(prisma.canvasProject.update.mock.invocationCallOrder[0]);
+      // tombstone（非物理删）+run 行置入
+      expect(prisma.canvasProject.update).toHaveBeenCalledWith({ where: { id: 'p1' }, data: { lifecycleState: 'DELETING' } });
+      expect(prisma.projectErasureRun.create).toHaveBeenCalledWith({
+        data: { scopeType: 'project', scopeId: 'p1', requestedBy: 'u1', dryRun: false, parentRunId: null, teamId: null, state: 'PENDING' },
+      });
+      expect(prisma.canvasProject.delete).not.toHaveBeenCalled();   // 物理删废止
+      // 提交后 emit（V11 后置语义承继）
       expect(emitter.emitAsync).toHaveBeenCalledWith('project.gone', { projectIds: ['p1'] });
-      // 调用序：delete 先于 emit（V11 后置——vitest 无 toHaveBeenCalledBefore，用 invocationCallOrder 比较）
-      expect(prisma.canvasProject.delete.mock.invocationCallOrder[0])
+      expect(prisma.canvasProject.update.mock.invocationCallOrder[0])
         .toBeLessThan(emitter.emitAsync.mock.invocationCallOrder[0]);
     });
 
-    it('delete 回滚（delete reject）→ 不 emit（V11：无假终态——项目仍在，协作写不受影响）', async () => {
-      prisma.canvasProject.delete.mockRejectedValue(new Error('rollback'));
-      await expect(service.delete('p1')).rejects.toThrow('rollback');
+    it('delete 清算门拦截：在飞资金未清算 ⇒ 不置位不 emit 无 run 行（409 上抛=整事务回滚）', async () => {
+      gate.assertSettled.mockRejectedValue(Object.assign(new Error('资金未清算'), { status: 409 }));
+      await expect(service.delete('p1', 'u1')).rejects.toThrow('资金未清算');
+      expect(prisma.canvasProject.update).not.toHaveBeenCalled();
+      expect(prisma.projectErasureRun.create).not.toHaveBeenCalled();
       expect(emitter.emitAsync).not.toHaveBeenCalled();
+    });
+
+    it('幂等：活跃 run 在档 ⇒ 同 run 返回，不重复置位/置入', async () => {
+      prisma.projectErasureRun.findFirst.mockResolvedValue({ erasureId: 'run-existing', scopeType: 'project', scopeId: 'p1', state: 'PENDING', dryRun: false });
+      const run = await service.delete('p1', 'u1');
+      expect(run.erasureId).toBe('run-existing');
+      expect(prisma.canvasProject.update).not.toHaveBeenCalled();
+      expect(prisma.projectErasureRun.create).not.toHaveBeenCalled();
+    });
+
+    it('dryRun：跳过 lifecycle 置位不 emit，run 行 dryRun=true', async () => {
+      const run = await service.delete('p1', 'u1', { dryRun: true });
+      expect(run.dryRun).toBe(true);
+      expect(prisma.canvasProject.update).not.toHaveBeenCalled();   // 项目不隐藏
+      expect(emitter.emitAsync).not.toHaveBeenCalled();
+    });
+
+    it('行缺失 ⇒ 404（P2025 裸 500 收口）', async () => {
+      prisma.$queryRaw.mockResolvedValue([]);
+      await expect(service.delete('p1', 'u1')).rejects.toThrow('Project not found');
+      expect(prisma.projectErasureRun.create).not.toHaveBeenCalled();
+    });
+
+    it('emit 崩溃 catch-warn：tombstone 已提交——delete 仍返回 run（kill -9 恢复锚）', async () => {
+      emitter.emitAsync.mockRejectedValue(new Error('kill -9 on emit'));
+      const run = await service.delete('p1', 'u1');
+      expect(run.erasureId).toBe('run-1');
     });
   });
 
-  describe('cleanDrafts', () => {
-    it('cleanDrafts：$queryRaw FOR UPDATE 锁定集合 → deleteMany → 提交后按确实被删集 emit（Y0a-2 V11+X13）', async () => {
-      // X13 重写（原"删除无 Template 关联…"用例——mock 形态全变：$transaction+$queryRaw，Y20 冲击面）
-      prisma.$queryRaw.mockResolvedValue([{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }]);
-      prisma.canvasProject.deleteMany.mockResolvedValue({ count: 4 });
+  describe('cleanDrafts（C4-a 同批 tombstone）', () => {
+    it('cleanDrafts：FOR UPDATE 锁定集合（origin 判据 SQL）→批量资金门→逐项目 tombstone+run→提交后 emit（V11+X13 承继）', async () => {
+      // 首 call=锁定集选择；后续 call=openProjectErasure FOR SHARE 读（ACTIVE 档）
+      prisma.$queryRaw
+        .mockResolvedValueOnce([{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }])
+        .mockResolvedValue([{ lifecycleState: 'ACTIVE' }]);
+      prisma.projectErasureRun = {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ erasureId: 'run-x', scopeType: 'project', scopeId: 'a', state: 'PENDING', dryRun: false }),
+      };
       const result = await service.cleanDrafts('u1');
       expect(result).toEqual({ deletedCount: 4 });   // Y20：返回键不变（controller/前端消费不变）
-      expect(prisma.canvasProject.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['a', 'b', 'c', 'd'] } } });   // X13：按锁定集精确删
-      expect(emitter.emitAsync).toHaveBeenCalledWith('project.gone', { projectIds: ['a', 'b', 'c', 'd'] });   // V11：提交后按确实被删集 emit
-      // Y0b-1 Z4：批量清算门在事务内（tx 同连接）且先于 deleteMany
+      // X13 承继：谓词含 origin/Template/24h 三判据（C4-a 增 origin IS NULL OR 'user' + lifecycleState）
+      const selectSql = String(prisma.$queryRaw.mock.calls[0][0]);
+      expect(selectSql).toContain(`("origin" IS NULL OR "origin" = 'user')`);
+      expect(selectSql).toContain(`"lifecycleState" = 'ACTIVE'`);
+      expect(selectSql).toContain('FOR UPDATE');
+      // 批量清算门在事务内（tx 同连接）且先于逐项目置位
       expect(gate.assertSettled).toHaveBeenCalledWith(prisma, { projectIds: ['a', 'b', 'c', 'd'] });
       expect(gate.assertSettled.mock.invocationCallOrder[0])
-        .toBeLessThan(prisma.canvasProject.deleteMany.mock.invocationCallOrder[0]);
+        .toBeLessThan(prisma.canvasProject.update.mock.invocationCallOrder[0]);
+      expect(prisma.canvasProject.deleteMany).not.toHaveBeenCalled();   // 物理删废止
+      expect(prisma.canvasProject.update).toHaveBeenCalledTimes(4);     // 逐项目 tombstone
+      expect(prisma.projectErasureRun.create).toHaveBeenCalledTimes(4); // 逐项目 run 行
+      expect(emitter.emitAsync).toHaveBeenCalledWith('project.gone', { projectIds: ['a', 'b', 'c', 'd'] });   // V11：提交后按确实被 tombstone 集 emit
+    });
+
+    it('锁定集空 ⇒ 零门零置位零 emit', async () => {
+      prisma.$queryRaw.mockResolvedValue([]);
+      prisma.projectErasureRun = { findFirst: vi.fn(), create: vi.fn() };
+      const result = await service.cleanDrafts('u1');
+      expect(result).toEqual({ deletedCount: 0 });
+      expect(gate.assertSettled).not.toHaveBeenCalled();
+      expect(emitter.emitAsync).not.toHaveBeenCalled();
     });
   });
 

@@ -5,6 +5,8 @@ import { FolderService } from '../folder/folder.service';
 import { TeamService } from '../team/team.service';
 import { TeamFundsGateService } from '../team/team-funds-gate.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
+import { lockProject } from '../collab/project-lock';
+import { openProjectErasure, type ErasureRunView } from '../collab/project-erasure';
 import { assertTeamMember } from '../team/team.util';
 import { TEMPLATE_CACHE_TTL, DEFAULT_PAGE_SIZE } from './template.constants';
 
@@ -142,7 +144,12 @@ export class TemplateService {
     return updated;
   }
 
-  async delete(id: string, userId: string) {
+  /** C4-a（plan Task C4-1 红③——tombstone-only）：模板级联删工程=**交互事务**（数组事务时代 gate 在
+   *  事务外=「gate 失败模板仍删」竞窗根除）：lockProject（advisory·锁序①）→模板行删除（解除
+   *  projectId FK）→openProjectErasure（FOR SHARE fence+资金门 in-tx+tombstone+run 行）同事务原子
+   *  ——拦截⇒整事务回滚（模板行在/不置位/无 run）。无关联工程=仅删模板（原行为，tombstone 不涉）。
+   *  物理删除全归 worker saga（C4-c）。 */
+  async delete(id: string, userId: string): Promise<ErasureRunView | null> {
     const template = await this.findById(id);
     if (template.userId !== userId) {
       // D1 收紧：template.delete 会级联删 canvasProject，团队成员 EDITOR 不可删他人整个工程。
@@ -153,20 +160,26 @@ export class TemplateService {
       }
     }
     this.clearCache();
-    // Y0b-1（§1.4ter/Z4）：模板级联删工程前置清算门（非事务调用点传 this.prisma）
-    if (template.projectId) await this.fundsGate.assertSettled(this.prisma, { projectId: template.projectId });
-    // 先删 Template 解除 projectId FK，再删工程（nodes/edges 由 DB 级联 Cascade 清理）
-    await this.prisma.$transaction([
-      this.prisma.template.delete({ where: { id } }),
-      ...(template.projectId
-        ? [this.prisma.canvasProject.delete({ where: { id: template.projectId } })]
-        : []),
-    ]);
-    // Y0a-2（V11）：项目删除入口之三——事务提交后 emit（回滚=无 emit=无假终态；emitAsync await
-    // 监听器——处理器禁慢操作：内存终态+关连接）
-    if (template.projectId) await this.eventEmitter.emitAsync('project.gone', { projectIds: [template.projectId] });
+    if (!template.projectId) {
+      // 无关联工程——仅删模板（非项目删除入口：不查门不 emit）
+      await this.prisma.template.delete({ where: { id } });
+      if (template.folderId) await this.folderService.touch([template.folderId]);
+      return null;
+    }
+    const projectId = template.projectId;
+    const run = await this.prisma.$transaction(async (tx) => {
+      await lockProject(tx, projectId);   // 锁序①：事务首语句
+      await tx.template.delete({ where: { id } });   // 解除 projectId FK（回滚安全——gate 拦截即还原）
+      return openProjectErasure(tx, {
+        projectId,
+        requestedBy: userId,
+        gate: (t) => this.fundsGate.assertSettled(t, { projectId }),
+      });
+    });
+    // Y0a-2（V11）语义随 tombstone 保留：提交后 emit（回滚=无 emit=无假终态）
+    await this.eventEmitter.emitAsync('project.gone', { projectIds: [projectId] });
     if (template.folderId) await this.folderService.touch([template.folderId]);
-    return null;
+    return run;
   }
 
   clearCache() {

@@ -93,6 +93,12 @@ describe('VideoWorkCloneService.clone', () => {
     for (const c of aliveChildren) expect(c.parentId).toBe(grp.id);
   });
 
+  it('C4-a 红② 接线：clone 谱系经 create 第 6 参 origin 落列（governance 单源写点——cleanDrafts 判据排除）', async () => {
+    setup();
+    await svc.clone('w1', 'u1');
+    expect(projectService.create.mock.calls[0][5]).toBe('clone');   // create(title, userId, nodes, edges, teamId, origin)
+  });
+
   it('parentId 降级：存活节点 parentId 指向被剥 videoEdit 节点 → 克隆体 null（与 cells 同语义）', async () => {
     setup();
     await svc.clone('w1', 'u1');

@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Patch, Delete, Param, Query, Body, Inject, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Query, Body, Inject, Req, UnauthorizedException, UseGuards, HttpCode, ForbiddenException } from '@nestjs/common';
 import { Request } from 'express';
 import { ProjectService } from './project.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TeamGuard, TeamSource } from '../team/team.guard';
+import { ProjectPermissionService } from '../team/project-permission.service';
 import { assertTeamMember } from '../team/team.util';
 
 @Controller('api/projects')
@@ -10,6 +11,7 @@ export class ProjectController {
   constructor(
     @Inject(ProjectService) private readonly projectService: ProjectService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
   ) {}
 
   @Post()
@@ -48,10 +50,17 @@ export class ProjectController {
     return this.projectService.cleanDrafts(userId);
   }
 
+  // C4-a（红⑥-b）：删项目鉴权=ProjectPermissionService 判 PROJECT_OWNER（ProjectRole 解析链 :894-898
+  // ——显式 PROJECT_OWNER 行/创建者/团队 OWNER；MEMBER→PROJECT_EDITOR→403）。tombstone-only：202+run
+  // 视图；?dryRun=true=演练档（跳过 lifecycle 置位）。TeamGuard 仍在（团队成员面+团队态拦截）。
   @Delete(':id')
   @TeamSource('project')
   @UseGuards(TeamGuard)
-  delete(@Param('id') id: string) {
-    return this.projectService.delete(id);
+  @HttpCode(202)
+  async delete(@Param('id') id: string, @Query('dryRun') dryRun: string | undefined, @Req() req: Request) {
+    const userId = (req as any).user?.id;
+    const role = await this.perm.resolve(id, userId);
+    if (role !== 'PROJECT_OWNER') throw new ForbiddenException('仅项目 OWNER 可删除');
+    return this.projectService.delete(id, userId, { dryRun: dryRun === 'true' || dryRun === '1' });
   }
 }

@@ -13,6 +13,8 @@ describe('TemplateService', () => {
   let service: TemplateService;
   let prisma: {
     $transaction: ReturnType<typeof vi.fn>;
+    $executeRaw: ReturnType<typeof vi.fn>;
+    $queryRaw: ReturnType<typeof vi.fn>;
     template: {
       create: ReturnType<typeof vi.fn>;
       findMany: ReturnType<typeof vi.fn>;
@@ -27,6 +29,11 @@ describe('TemplateService', () => {
     };
     canvasProject: {
       delete: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+    };
+    projectErasureRun: {
+      findFirst: ReturnType<typeof vi.fn>;
+      create: ReturnType<typeof vi.fn>;
     };
     teamMember: {
       findFirst: ReturnType<typeof vi.fn>;
@@ -45,7 +52,11 @@ describe('TemplateService', () => {
 
   beforeEach(async () => {
     prisma = {
-      $transaction: vi.fn((ops: any[]) => Promise.resolve(ops.map(() => ({})))),
+      // C4-a：交互式形态透传（delete=lockProject+fence+tombstone 单事务——tx=prisma 本体）
+      $transaction: vi.fn((arg: any, opts?: any) =>
+        typeof arg === 'function' ? arg(prisma) : Promise.resolve(arg.map(() => ({})))),
+      $executeRaw: vi.fn().mockResolvedValue(0),   // lockProject（advisory）
+      $queryRaw: vi.fn().mockResolvedValue([{ lifecycleState: 'ACTIVE' }]),   // openProjectErasure FOR SHARE 读
       template: {
         create: vi.fn().mockResolvedValue({ id: 't1', name: 'Test', userId: 'u1' }),
         findMany: vi.fn().mockResolvedValue([]),
@@ -60,6 +71,11 @@ describe('TemplateService', () => {
       },
       canvasProject: {
         delete: vi.fn().mockResolvedValue({}),
+        update: vi.fn().mockResolvedValue({ id: 'p1' }),
+      },
+      projectErasureRun: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ erasureId: 'run-1', scopeType: 'project', scopeId: 'p1', state: 'PENDING', dryRun: false }),
       },
       // findFirst：assertTeamMember 用（默认成员放行）；findUnique：update/delete 的 OR 成员直查（默认非成员）
       teamMember: {
@@ -200,10 +216,13 @@ describe('TemplateService', () => {
     });
   });
 
-  describe('delete', () => {
-    it('should delete when user is creator', async () => {
+  // C4-a 红③：delete=交互事务（lockProject+模板行删除+openProjectErasure〔fence+资金门+tombstone+run〕
+  // 同事务原子——数组事务时代 gate 在事务外的竞窗根除）。
+  describe('delete（C4-a tombstone-only）', () => {
+    it('should delete when user is creator（无关联工程=仅删模板，返回 null）', async () => {
       prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1' });
-      await service.delete('t1', 'u1');
+      const res = await service.delete('t1', 'u1');
+      expect(res).toBeNull();
       expect(prisma.template.delete).toHaveBeenCalledWith({ where: { id: 't1' } });
     });
 
@@ -219,56 +238,46 @@ describe('TemplateService', () => {
       expect(prisma.template.delete).not.toHaveBeenCalled();
     });
 
-    it('非创建者但项目 OWNER（perm.resolve 返回 PROJECT_OWNER）放行', async () => {
+    it('非创建者但项目 OWNER（perm.resolve 返回 PROJECT_OWNER）放行（tombstone 链）', async () => {
       prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'creator', projectId: 'p1' });
       perm.resolve.mockResolvedValue('PROJECT_OWNER');
-      await service.delete('t1', 'team-owner');
+      const run = await service.delete('t1', 'team-owner');
+      expect(run).toMatchObject({ erasureId: 'run-1', scopeId: 'p1' });
       expect(prisma.template.delete).toHaveBeenCalledWith({ where: { id: 't1' } });
     });
 
-    it('delete：事务提交后 emit project.gone（Y0a-2 V11——projectId 关联时，级联删项目入口之三）', async () => {
-      prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', projectId: 'p1' });
-      await service.delete('t1', 'u1');
-      expect(emitter.emitAsync).toHaveBeenCalledWith('project.gone', { projectIds: ['p1'] });
+    it('红③：模板行删除+fence+资金门（in-tx）+tombstone+run 同事务原子；提交后 emit project.gone', async () => {
+      prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', folderId: 'f1', projectId: 'p1' });
+      const run = await service.delete('t1', 'u1');
+      expect(run).toMatchObject({ erasureId: 'run-1', scopeType: 'project', scopeId: 'p1', state: 'PENDING' });
+      // 交互事务（数组形态废止）：tx=prisma 本体——模板行删除与 tombstone 同事务
+      expect(prisma.template.delete).toHaveBeenCalledWith({ where: { id: 't1' } });
+      expect(prisma.$executeRaw).toHaveBeenCalled();   // lockProject（advisory·锁序①）
+      expect(gate.assertSettled).toHaveBeenCalledWith(prisma, { projectId: 'p1' });   // in-tx 资金门
+      expect(prisma.canvasProject.update).toHaveBeenCalledWith({ where: { id: 'p1' }, data: { lifecycleState: 'DELETING' } });   // tombstone（物理删废止）
+      expect(prisma.canvasProject.delete).not.toHaveBeenCalled();
+      expect(prisma.projectErasureRun.create).toHaveBeenCalledWith({
+        data: { scopeType: 'project', scopeId: 'p1', requestedBy: 'u1', dryRun: false, parentRunId: null, teamId: null, state: 'PENDING' },
+      });
+      expect(emitter.emitAsync).toHaveBeenCalledWith('project.gone', { projectIds: ['p1'] });   // 提交后 emit（V11）
+      expect(folderService.touch).toHaveBeenCalledWith(['f1']);
     });
 
-    it('delete：无关联工程不 emit（仅删模板，非项目删除入口）', async () => {
-      prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', projectId: null });
-      await service.delete('t1', 'u1');
-      expect(emitter.emitAsync).not.toHaveBeenCalled();
-    });
-
-    it('delete 前置清算门：有关联工程先 gate（Y0b-1 §1.4ter/Z4）；拦截 ⇒ 不删；无关联不查门', async () => {
+    it('红③：资金门拦截 ⇒ 整事务回滚原子（模板行语义还原=不删不置位无 run 行不 emit）', async () => {
       prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', projectId: 'p1' });
-      await service.delete('t1', 'u1');
-      expect(gate.assertSettled).toHaveBeenCalledWith(prisma, { projectId: 'p1' });
-
       gate.assertSettled.mockRejectedValueOnce(Object.assign(new Error('资金未清算'), { status: 409 }));
       await expect(service.delete('t1', 'u1')).rejects.toThrow('资金未清算');
-      expect(prisma.template.delete).toHaveBeenCalledTimes(1);   // 拦截后零删除（前一次放行已删）
-
-      gate.assertSettled.mockClear();
-      prisma.template.findUnique.mockResolvedValue({ id: 't2', userId: 'u1', projectId: null });
-      await service.delete('t2', 'u1');
-      expect(gate.assertSettled).not.toHaveBeenCalled();   // 仅删模板不涉工程——不查门
+      expect(prisma.canvasProject.update).not.toHaveBeenCalled();
+      expect(prisma.projectErasureRun.create).not.toHaveBeenCalled();
+      expect(emitter.emitAsync).not.toHaveBeenCalled();
+      expect(folderService.touch).not.toHaveBeenCalled();
     });
 
-    describe('级联删除工程', () => {
-      it('同事务删除 Template 与关联 CanvasProject，并 touch 文件夹', async () => {
-        prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', folderId: 'f1', projectId: 'p1' });
-        prisma.$transaction.mockResolvedValue([{}, {}]);
-        await service.delete('t1', 'u1');
-        const ops = prisma.$transaction.mock.calls[0][0];
-        expect(ops).toHaveLength(2);
-        expect(folderService.touch).toHaveBeenCalledWith(['f1']);
-      });
-
-      it('无关联工程时不删工程', async () => {
-        prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', folderId: null, projectId: null });
-        prisma.$transaction.mockResolvedValue([{}]);
-        await service.delete('t1', 'u1');
-        expect(prisma.$transaction.mock.calls[0][0]).toHaveLength(1);
-      });
+    it('无关联工程：不查门不 emit（仅删模板，非项目删除入口）', async () => {
+      prisma.template.findUnique.mockResolvedValue({ id: 't1', userId: 'u1', projectId: null });
+      await service.delete('t1', 'u1');
+      expect(gate.assertSettled).not.toHaveBeenCalled();
+      expect(emitter.emitAsync).not.toHaveBeenCalled();
     });
   });
 

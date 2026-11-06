@@ -6,7 +6,7 @@ import { CollabWritePort } from '../collab/collab-write.port';
 import { ProjectService } from '../project/project.service';
 import { RateLimiterService } from '../../common/services/rate-limiter.service';
 import { buildFilteredSnapshot, CLONE_WHITELIST, type RawNode, type FilteredNode, type FilteredEdge } from './snapshot-filter.util';
-import { validateParentGraph } from '@flowweb/shared';
+import { validateParentGraph, CANVAS_PROJECT_ORIGIN_CLONE } from '@flowweb/shared';
 
 const CLONE_TIMEOUT_MS = 10_000; // read + create 同一有界等待（create 内部 withDoc 同样会挂起）
 
@@ -49,7 +49,9 @@ export class VideoWorkCloneService {
       if (violations.some((v) => v.kind === 'nested-group')) throw new BadRequestException('画布存在嵌套组，无法克隆');
       // O0b-0：normalizeLoadedCanvas 补缺层整删——clone 直读 doc（白名单过滤+remap 后直传；
       // 翻转后 doc=完整作者态，补几何语义整族死；盖章由 create 内种子戳点统一落）
-      const project = await this.projectService.create(`${w.title} (副本)`, userId, nodes, edges);
+      // C4-a（红② 接线）：clone 谱系经 create origin 落列（governance 单源写点）——cleanDrafts 判据
+      //  `(origin IS NULL OR origin='user')` 排除 clone，用户草稿清理不删已发布作品的克隆体。
+      const project = await this.projectService.create(`${w.title} (副本)`, userId, nodes, edges, undefined, CANVAS_PROJECT_ORIGIN_CLONE);
       return { projectId: project.id };
     };
     let timer: ReturnType<typeof setTimeout>;
