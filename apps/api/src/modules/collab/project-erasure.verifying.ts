@@ -65,11 +65,12 @@ export async function executeVerifyingStage(deps: VerifyingStageDeps): Promise<V
       })).violations);
       violations.push(...await verifyObjectsPurged(objects, surface.keys));
       violations.push(...await verifyRedisPurged(redis, manifest.redis.workIds, manifest.redis.urlKeys));
+      // dryRun=断言面完整照跑但以预览返回（介质未删时 violations 即预览结果非错误——完整 DRY_RUN
+      // 语义：断言走完整、介质删除/状态写跳过）；非 dryRun 非空即 throw 走租约恢复面重试
+      if (run.dryRun) return { outcome: 'dry-run', violationsPreview: violations.length };
       if (violations.length > 0) {
         throw new Error(`VERIFYING 复验红（${pid}）: ${violations.join('；')}`);
       }
-      // ③ dryRun：三重复验只读面已跑、零状态写（预览=violations 恒 0 才到此——介质未删时上方已 throw）
-      if (run.dryRun) return { outcome: 'dry-run', violationsPreview: 0 };
       // ④ DONE（终态：completedAt 落档+claim/lease 清——team run 会合判定自动推进面）
       await prisma.projectErasureRun.update({
         where: { erasureId: run.erasureId },
