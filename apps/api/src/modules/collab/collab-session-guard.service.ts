@@ -27,6 +27,7 @@ import { parseSessionToken } from '../../common/utils/parse-session-token';
 import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
+import { closeUpgradeTerminal, registerUpgradeSocket } from './collab-auth-terminal-close';   // C4-b：T24 auth 期 terminal 投递器随域拆出（行数锚 1405 收口）
 import { CollabPersistenceService } from './collab-persistence.service';
 import { CollabDocRegistryService } from './collab-doc-registry.service';
 import { parseDocName, isValidDocName, admitDocNameForGeneration, projectDocName } from './doc-name.util';
@@ -375,19 +376,9 @@ export class CollabSessionGuardService {
    *  惰性语义保持（rateAllowed 仅 originAllowed 才 clientIpOf+consume——:620 桶不空转）。 */
   handleUpgrade({ request, socket }: onUpgradePayload): void {
     try {
-      // Y1c T24：升级 socket 登记（request 对象身份键控——onAuthenticate 的 request=同一 IncomingMessage
-      // 实例；版本门 4406 terminal close 经此反查原始 socket：库 onAuthenticate throw 只发 PermissionDenied
-      // 消息**不关连接**〔esm:938-942〕——旧 bundle 客户端无从得知终态=重试无限循环撞同一硬门）。
-      this.upgradeSockets.set(request, socket);
-      // T30b P-2：sec-websocket-key 键控补登记（live auth 期 NodeReqProxy 身份断链的反查面）+陈旧清扫
-      {
-        const wsKey = CollabSessionGuardService.headerOf(request, 'sec-websocket-key');
-        if (wsKey) {
-          const now = Date.now();
-          for (const [k, v] of this.upgradeSocketsByKey) if (now - v.at > CollabSessionGuardService.UPGRADE_KEY_TTL_MS) this.upgradeSocketsByKey.delete(k);
-          this.upgradeSocketsByKey.set(wsKey, { socket: socket as never, at: now });
-        }
-      }
+      // Y1c T24：升级 socket 登记（双轨反查面——T30b P-2 wsKey 断链补登记）随域迁
+      // collab-auth-terminal-close（C4-b 行数锚收口——registerUpgradeSocket 单点）。
+      registerUpgradeSocket(request, socket);
       const origin = request.headers.origin;
       const originAllowed = typeof origin === 'string' && this.allowedOrigins().includes(origin);
       // 惰性：仅 originAllowed 才 clientIpOf+consume（原短路 return 语义——桶不空转，:620）
@@ -413,61 +404,6 @@ export class CollabSessionGuardService {
     } catch { /* 已断 */ }
   }
 
-  /** Y1c T24：升级 socket 台账（WeakMap request 键控——随连接消亡；onAuthenticate 反查面）。 */
-  private readonly upgradeSockets = new WeakMap<object, unknown>();
-
-  /** T30b 演练实弹发现 P-2：live 路径 request 身份断链台账——hocuspocus 4.6.0/crossws 0.4.4 实测
-   *  onUpgrade 收裸 node IncomingMessage 而 onAuthenticate 收 NodeReqProxy（StubRequest 包装，不留
-   *  raw 引用）⇒ WeakMap request 键控恒 miss=4406 close 帧静默不投递（旧 bundle 循环撞门复活）。
-   *  唯一双端稳定键=sec-websocket-key（升级握手头，auth 期 NodeReqProxy.headers 同值）。项带时戳：
-   *  插入时清扫 >60s 陈旧项（握手→认证窗秒级；有界防泄漏）。命中即删（单次投递语义）。 */
-  private readonly upgradeSocketsByKey = new Map<string, { socket: { write?: (b: Buffer) => void; end?: () => void }; at: number }>();
-  private static readonly UPGRADE_KEY_TTL_MS = 60_000;
-
-  /** request 头读取双形态（裸 req=plain object / NodeReqProxy=Headers 实例）。 */
-  private static headerOf(req: unknown, name: string): string | null {
-    const h = (req as { headers?: unknown } | null)?.headers;
-    if (h == null) return null;
-    if (typeof (h as Headers).get === 'function') return (h as Headers).get(name);
-    const v = (h as Record<string, unknown>)[name];
-    return typeof v === 'string' ? v : null;
-  }
-
-  /**
-   * Y1c T24：版本门 terminal close 投递（4406 client-outdated——spec §3.2 v5.4⑧/偏离 37⑰）。
-   * 库行为（4.6.0 esm:938-942）：onAuthenticate throw → writePermissionDenied 消息+簿记清理，
-   * **socket 保持打开**——旧 bundle 客户端（无 4406 终态认知）30s 超时/用户操作重连=无限循环撞门。
-   * 码权威投递=P7 先例（webSocket.close 形态）——auth 期 Connection 未建（esm:1054 new 在 hook 后），
-   * 经 upgradeSockets 反查原始 socket 直写 RFC6455 close 帧（0x88+2B code BE+reason UTF-8≤123B；
-   * server→client 帧不掩码）后 end。throw 照旧（库簿记清理面保持）；close 已先行抵达。
-   */
-  private closeUpgradeTerminal(request: unknown, code: number, reason: string): void {
-    // 反查双轨：同对象（直构测试/同引用形态）→sec-websocket-key（live NodeReqProxy 身份断链形态——T30b P-2）
-    let socket = (request != null ? this.upgradeSockets.get(request as object) : undefined) as
-      | { write?: (b: Buffer) => void; end?: () => void }
-      | undefined;
-    if (socket == null) {
-      const wsKey = CollabSessionGuardService.headerOf(request, 'sec-websocket-key');
-      if (wsKey != null) {
-        const hit = this.upgradeSocketsByKey.get(wsKey);
-        if (hit) { socket = hit.socket; this.upgradeSocketsByKey.delete(wsKey); }   // 命中即删（单次投递）
-      }
-    }
-    if (socket == null) return;   // 未登记（直构测试/非升级路径）——denyAuth throw 面兜底
-    try {
-      const reasonBuf = Buffer.from(reason, 'utf8').subarray(0, 123);
-      const payload = Buffer.alloc(2 + reasonBuf.byteLength);
-      payload.writeUInt16BE(code, 0);
-      reasonBuf.copy(payload, 2);
-      const closeFrame = Buffer.alloc(2 + payload.byteLength);
-      closeFrame[0] = 0x88;   // FIN+opcode 8（Connection Close）
-      closeFrame[1] = payload.byteLength;
-      payload.copy(closeFrame, 2);
-      socket.write?.(closeFrame);
-      socket.end?.();
-      collabWsCloseTotal.inc({ code: String(code), reason });
-    } catch { /* 已断 */ }
-  }
 
   /** Origin 白名单（方法壳建三键快照传 resolveAllowedOrigins verdict 纯函数，§5）。census ㉒：三键
    *  process.env.KEY 显式读在本壳（保键级白名单跟踪——Z79 裸读面登记 SG 条目 14 键含此三；设计 §5
@@ -662,7 +598,7 @@ export class CollabSessionGuardService {
           // resolveCloseAction(4406)=terminal+CLIENT_OUTDATED_REASON 强刷档；csv 缺失/不可解析/过期/
           // server-outdated 全族同投：循环阻断优先于 reload 有效性分档〔server-outdated 档强刷后
           // 部署对齐自然消解〕）。
-          this.closeUpgradeTerminal(request, CollabCloseCode.CLIENT_OUTDATED, CLIENT_OUTDATED_REASON);
+          closeUpgradeTerminal(request, CollabCloseCode.CLIENT_OUTDATED, CLIENT_OUTDATED_REASON);
         }
         if (admission.source === 'version') collabVersionNegotiationRejectTotal.inc({ reason: admission.reason });   // 版本门审计（reason=REASON_BY_VERDICT 映射）
         throw this.denyAuth(admission.reason, admission.message, admission.source);
@@ -695,7 +631,7 @@ export class CollabSessionGuardService {
         );
         if (verdict === 'client-outdated') {
           // Y1c T24：三元硬门 deny=terminal 4406 close 先行（同四档门——sv 缺失/不匹配/hid 不匹配撞门循环阻断）
-          this.closeUpgradeTerminal(request, CollabCloseCode.CLIENT_OUTDATED, CLIENT_OUTDATED_REASON);
+          closeUpgradeTerminal(request, CollabCloseCode.CLIENT_OUTDATED, CLIENT_OUTDATED_REASON);
           collabVersionNegotiationRejectTotal.inc({ reason: CollabAuthReason.SCHEMA_OUTDATED });
           const which = svRaw === null || svRaw === '' || Number(svRaw) !== CANVAS_DOC_SCHEMA_VERSION
             ? `sv ${svRaw === null || svRaw === '' ? '缺失（旧 bundle）' : '不匹配'}` : 'hid 不匹配';
@@ -725,7 +661,7 @@ export class CollabSessionGuardService {
           const lifecycleState = typeof this.perm.lifecycleStateOf === 'function'
             ? await this.withAuthDeadline(this.perm.lifecycleStateOf(projectId)) : null;
           if (lifecycleState === 'DELETING') {
-            this.closeUpgradeTerminal(request, CollabCloseCode.PROJECT_ERASED, PROJECT_ERASED_TERMINAL_REASON);
+            closeUpgradeTerminal(request, CollabCloseCode.PROJECT_ERASED, PROJECT_ERASED_TERMINAL_REASON);
             throw deny(CollabAuthReason.NOT_FOUND, '项目擦除进行中（PROJECT_ERASED terminal）');
           }
           throw deny(CollabAuthReason.NOT_FOUND, '项目不存在');
@@ -740,7 +676,7 @@ export class CollabSessionGuardService {
         if (resolved.teamStatus === 'DISBANDED') {
           // 终态档投递：close(NORMAL, 'team disbanded')——resolveCloseAction 经 reason 映射 terminal
           //（团队解散终态码无独立值域——T6 裁定 25⑸② 先例形态）。
-          this.closeUpgradeTerminal(request, CollabCloseCode.NORMAL, TEAM_DISBANDED_TERMINAL_REASON);
+          closeUpgradeTerminal(request, CollabCloseCode.NORMAL, TEAM_DISBANDED_TERMINAL_REASON);
         }
         throw deny(CollabAuthReason.FORBIDDEN, `团队${resolved.teamStatus === 'DISBANDING' ? '解散进行中' : '已解散'}（拒新连接）`);
       }
@@ -766,7 +702,7 @@ export class CollabSessionGuardService {
             { historyId: this.serverHistory?.historyId ?? '', generation: admission.generation },
           );
           if (verdict === 'server-restored') {
-            this.closeUpgradeTerminal(request, CollabCloseCode.GENERATION_SUPERSEDED, SERVER_RESTORED_TERMINAL_REASON);
+            closeUpgradeTerminal(request, CollabCloseCode.GENERATION_SUPERSEDED, SERVER_RESTORED_TERMINAL_REASON);
           }
           throw deny(
             CollabAuthReason.GENERATION_STALE,
