@@ -148,23 +148,37 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
     }
     await this.prisma.projectErasureRun.update({
       where: { erasureId: run.erasureId },
-      data: { attempts },
+      // P2-1 真退避：leaseUntil 刷 now+60s（=ERASURE_RUN_LEASE_MS）——claim 谓词 attempts>0 分支
+      // 须待该窗过期才重认领（同实例 5s tick 连发重试根修——「重试间隔=租约窗」注释与实现不符的兑现）
+      data: { attempts, leaseUntil: new Date(Date.now() + ERASURE_RUN_LEASE_MS) },
     }).catch(() => undefined);
-    this.logger.warn(`erasure run ${run.erasureId} ${stage} 失败（attempts ${attempts}/${ERASURE_RUN_MAX_ATTEMPTS}——租约到期重认领重试）: ${message}`);
+    this.logger.warn(`erasure run ${run.erasureId} ${stage} 失败（attempts ${attempts}/${ERASURE_RUN_MAX_ATTEMPTS}——退避窗 ${ERASURE_RUN_LEASE_MS / 1000}s 后租约到期重认领）: ${message}`);
   }
 
   /** CAS claim（独立事务提交——处理失败不丢 claim：租约到期即恢复锚）。PENDING→RUNNING 仅升不降
-   *  （WAITING_CHILDREN 会合态保持）；谓词=无主∨租约过期∨本实例续租（多 worker 互斥）。 */
+   *  （WAITING_CHILDREN 会合态保持）；谓词三分（多 worker 互斥+**P2-1 真退避**）：
+   *   ①租约过期（任意实例可认领——kill -9 恢复/他实例接管）∨ ②无主（首认领）∨ ③本实例∧attempts=0
+   *   （健康在飞 saga 无缝续接——**attempts>0 时本实例亦须待租约过期**：noteRunFailure 已把
+   *   leaseUntil 刷为 now+60s=退避窗，同实例 5s tick 不再连发重试烧满上界——瞬时故障误杀根修）。
+   *  attempts 于各 stage 成功推进位清零（stages/objects/cache/verifying/poller 五写点——「连续失败」
+   *  计数语义；一次瞬时失败后的健康 saga 不吃逐 stage 60s 停顿）。 */
   private async claim(erasureId: string): Promise<ProjectErasureRun | null> {
     const now = new Date();
     const leaseUntil = new Date(now.getTime() + ERASURE_RUN_LEASE_MS);
     return this.prisma.$transaction(async (tx) => {
+      // ★时区基准根修（P2-1 保护锚暴露的潜伏真 bug，C4-b 起在位）：leaseUntil 列=timestamp
+      // (naive——Prisma DateTime 映射，delegate 写入=UTC 字面)；raw 绑定 Date=timestamptz(UTC 真值)
+      // ——直接比较时 PG 把 naive 列按会话时区(+08)重解释 → 恒小 8h ⇒ 「leaseUntil < now」恒 TRUE
+      // （租约谓词形同虚设；此前测试只断「能恢复」被宽松腿掩盖，保护锚首断「未过期不得重认领」即暴露）。
+      // 正解=参数显式 AT TIME ZONE 'utc'（timestamptz→UTC naive——与 delegate 写入基准一致）。
       const res = await tx.$executeRaw`
         UPDATE "ProjectErasureRun"
-        SET "claimOwner" = ${this.claimOwner}, "leaseUntil" = ${leaseUntil}, "heartbeatAt" = ${now},
+        SET "claimOwner" = ${this.claimOwner}, "leaseUntil" = ${leaseUntil} AT TIME ZONE 'utc', "heartbeatAt" = ${now} AT TIME ZONE 'utc',
             state = CASE WHEN state = 'PENDING' THEN 'RUNNING' ELSE state END
         WHERE "erasureId" = ${erasureId}
-          AND ("claimOwner" IS NULL OR "leaseUntil" < ${now} OR "claimOwner" = ${this.claimOwner})`;
+          AND ("leaseUntil" < ${now} AT TIME ZONE 'utc'
+               OR "claimOwner" IS NULL
+               OR ("claimOwner" = ${this.claimOwner} AND "attempts" = 0))`;
       if (res === 0) return null;
       return tx.projectErasureRun.findUniqueOrThrow({ where: { erasureId } });
     });
@@ -323,6 +337,7 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
           data: {
             state: 'DRAINING',
             heartbeatAt: new Date(), leaseUntil: new Date(Date.now() + ERASURE_RUN_LEASE_MS),
+            attempts: 0,   // P2-1：成功推进清零连续失败计数（claim attempts=0 分支=健康无缝续接）
           },
         });
         erasureRunsTotal.inc({ state: 'DRAINING' });
@@ -343,6 +358,7 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
           state: 'PURGING_DB', stage: 'DRAINING',
           manifestPath: manifest.manifestPath, manifestSha256: manifest.manifestSha256,
           heartbeatAt: new Date(), leaseUntil: new Date(Date.now() + ERASURE_RUN_LEASE_MS),
+          attempts: 0,
         },
       });
       erasureRunsTotal.inc({ state: 'PURGING_DB' });

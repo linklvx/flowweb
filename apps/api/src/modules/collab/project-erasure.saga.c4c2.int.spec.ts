@@ -8,7 +8,11 @@
 //   ExecutionRequest.totalCredit 原样（allowlist 计费面在 VERIFYING 复用时显式断言）；
 //  ★C1 互斥（plan :191 尾条）：tombstone（DELETING）后 retention sweeper 扫面对本项目零命中
 //   （ACTIVE join 过滤——不误伤）；擦除 DONE 后行集已空零残留；
-//  ★team 会合自动推进：子 run 真 saga 到 DONE→team run tick→PURGING_TEAM→删 Team 行→team run DONE。
+//  ★team 会合自动推进：子 run 真 saga 到 DONE→team run tick→PURGING_TEAM→删 Team 行→team run DONE；
+//  ★VERIFYING 执法腿变异防护（C4-c2 评审 P1-1 保护锚——变异③〔verifyObjectsPurged 接线〕④
+//   〔assertProjectErasureDbComplete 接线〕注释掉后本用例必须红）：三注毒（对象重传/DB 回插/
+//   Redis 残键）→tick→**滞留 VERIFYING 非 DONE**（violations 非空→throw→不置 DONE）+attempts
+//   递增；逐腿清毒后收敛 DONE——执法腿只有 happy path 红锚=「恒返 []」退化不可检出的根修。
 // 运行：DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api test:int
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
@@ -284,6 +288,46 @@ maybe('C4-c2 ★红⑪ 完整锚 saga（真 PG+MinIO+Redis——kill -9 各新 s
     await tickTo(pid, 'DONE');
     expect((await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } })).state).toBe('DONE');
     expect((await prisma.auditLog.findMany({ where: { targetType: 'PROJECT', targetId: pid, action: 'erase_project' } })).length).toBe(1);   // 零双删
+  }, 120_000);
+
+  it('⑪-④ VERIFYING 执法腿注毒（保护锚——变异③④防护）：对象/DB/Redis 三注毒→滞留 VERIFYING 非 DONE+attempts 递增；清毒后收敛 DONE', async (ctx) => {
+    if (!ready) return ctx.skip();
+    const pid = await seedProject();
+    await tombstone(pid);
+    await tickTo(pid, 'VERIFYING');
+    const run0 = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
+    expect(run0.state).toBe('VERIFYING');
+    /** 退避窗流逝模拟（P2-1：失败后同实例重认领须 leaseUntil 过期——手动置过去即窗已过形态）。 */
+    const expireLease = () => prisma.projectErasureRun.update({ where: { erasureId: run0.erasureId }, data: { leaseUntil: new Date(Date.now() - 5_000) } }).then(() => undefined);
+    const stateOf = () => prisma.projectErasureRun.findUniqueOrThrow({ where: { erasureId: run0.erasureId } });
+    // ── 腿①对象注毒（变异③防护面：verifyObjectsPurged 接线）——重传 surface 键对象（版本化桶=新版本在位） ──
+    await minio.upload(`${pid}/exc.bin`, Buffer.from('poison-obj'), 'application/octet-stream');
+    await expireLease(); await p.tick();
+    let run = await stateOf();
+    expect(run.state).toBe('VERIFYING');   // ★复验红→throw→不置 DONE（执法腿命中）
+    expect(run.attempts).toBeGreaterThanOrEqual(1);
+    // 清毒（版本化桶=版本清单全删——deleteObjectsByKeys 只置 DeleteMarker 不净）
+    const refs = await minio.listObjectVersionRefs(`${pid}/exc.bin`);
+    await minio.deleteObjectVersions(refs.map((r) => ({ Key: r.key, VersionId: r.versionId })));
+    // ── 腿②DB 注毒（变异④防护面：assertProjectErasureDbComplete 接线）——回插 RuntimeEvent 行 ──
+    await prisma.runtimeEvent.create({ data: { projectId: pid, generation: 1, feedSeq: 99n, kind: 'exec.status', payload: {} } });
+    await expireLease(); await p.tick();
+    run = await stateOf();
+    expect(run.state).toBe('VERIFYING');
+    expect(run.attempts).toBeGreaterThanOrEqual(2);
+    await prisma.runtimeEvent.deleteMany({ where: { projectId: pid } });
+    // ── 腿③Redis 注毒（verifyRedisPurged 接线）——注残 url 键 ──
+    await redis.set(`videoWork:url:${pid}/exc.bin`, 'poison-redis');
+    await expireLease(); await p.tick();
+    run = await stateOf();
+    expect(run.state).toBe('VERIFYING');
+    expect(run.attempts).toBeGreaterThanOrEqual(3);
+    await redis.del(`videoWork:url:${pid}/exc.bin`);
+    // ── 全清毒→收敛 DONE（三腿全绿后复验通过） ──
+    await expireLease(); await p.tick();
+    run = await stateOf();
+    expect(run.state).toBe('DONE');
+    expect(await minio.listObjectVersionRefs(`${pid}/exc.bin`)).toEqual([]);   // 腿①清毒核验
   }, 120_000);
 
   it('team 会合自动推进：子 run 真 saga DONE→team run tick→删 Team 行→team run DONE', async (ctx) => {

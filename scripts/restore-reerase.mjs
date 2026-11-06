@@ -184,7 +184,7 @@ async function main() {
     process.exit(0);
   }
   if (flag('--no-wait')) {
-    console.log('[restore-reerase] --no-wait：已建 run 行即返回（等待面归人工/后续轮询）');
+    console.log('[restore-reerase] --no-wait：已建 run 行即返回——**gate 未验证**（planned run 仍在飞：开流量前置=本脚本全 DONE 退出 ∧ erasure_pending_age 归零 ∧ 无 FAILED，runbook §13.1 步骤 5）');
     process.exit(0);
   }
   const wait = await waitRestoreReerase(plan.planned, { waitMs: Number(val('--wait-ms', '300000')) });

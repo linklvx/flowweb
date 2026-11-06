@@ -6,7 +6,9 @@
 //  - 非版本化桶：现行对象 DeleteObjects；
 //  - **对象删除面=manifest−DB 现存 media 行**（按 id diff——detach 行留册对象保留：VideoWork detach/
 //    库资产/他引用 detach 行的 key 不进删除面——红⑫ 三档语义的对象侧对拍）；
-//  - capability 披露（replication/object-lock/lifecycle 在位→诚实披露非假绿：指标+结果载荷，不抛）。
+//  - capability 披露（replication/object-lock/lifecycle 在位→诚实披露非假绿：指标+结果载荷，不抛）；
+//  - verifyObjectsPurged **负例直测**（C4-c2 评审 P1-1：原全库仅 happy path「toEqual([])」——
+//    「恒返 []」退化不可检出；对象在位必须 violations 非空，版本化/非版本化双分支各一）。
 // MinIO 不可达=skip（CI RustFS 非版本化+能力 detect 分支单测承载——runbook §13 登记；本地 gate 必跑）。
 // 运行：DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api test:int
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -192,6 +194,21 @@ maybeDb('C4-c2 ★红⑮ PURGING_OBJECTS 版本化 capability detect（真 MinIO
     // 删除面=manifest−DB 现存：kDel 删（现行对象 404）、kKeep 保留（detach 行对象在位）
     await expect(svc.statSize(kDel)).rejects.toThrow();
     expect(await svc.statSize(kKeep)).toBe(1);
+  }, 60_000);
+
+  it('⑮-④ verifyObjectsPurged 负例：对象在位→violations 非空（版本化=版本清单/非版本化=Head 200）；删净→[]', async (ctx) => {
+    if (!minioUp) return ctx.skip();
+    // 版本化分支：上传=现行版本在位→violations 非空；版本清单删净→[]
+    const v = await makeBucket(true);
+    await v.svc.upload('poison-k', Buffer.from('x'), 'application/octet-stream');
+    expect(await verifyObjectsPurged(v.svc, ['poison-k'])).toHaveLength(1);
+    const refs = await v.svc.listObjectVersionRefs('poison-k');
+    await v.svc.deleteObjectVersions(refs.map((r) => ({ Key: r.key, VersionId: r.versionId })));
+    expect(await verifyObjectsPurged(v.svc, ['poison-k'])).toEqual([]);
+    // 非版本化分支：Head 200→violations 非空
+    const nv = await makeBucket(false);
+    await nv.svc.upload('poison-k2', Buffer.from('x'), 'application/octet-stream');
+    expect(await verifyObjectsPurged(nv.svc, ['poison-k2'])).toHaveLength(1);
   }, 60_000);
 
   it('⑮-③ kill -9 重跑幂等：已删键重删零错（NoSuchKey 折幂等）+dryRun 零删', async (ctx) => {

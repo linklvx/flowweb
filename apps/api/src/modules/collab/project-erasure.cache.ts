@@ -170,7 +170,7 @@ export async function executePurgingCacheStage(deps: PurgingCacheStageDeps): Pro
       const now = new Date();
       await prisma.projectErasureRun.update({
         where: { erasureId: run.erasureId },
-        data: { state: 'VERIFYING', stage: 'PURGING_CACHE', heartbeatAt: now, leaseUntil: new Date(now.getTime() + ERASURE_RUN_LEASE_MS) },
+        data: { state: 'VERIFYING', stage: 'PURGING_CACHE', heartbeatAt: now, leaseUntil: new Date(now.getTime() + ERASURE_RUN_LEASE_MS), attempts: 0 },
       });
       erasureRunsTotal.inc({ state: 'VERIFYING' });
       logger.log(JSON.stringify({ event: 'erasure_purging_cache_done', erasureId: run.erasureId, projectId: run.scopeId, workIds: manifest.redis.workIds.length, urlKeys: manifest.redis.urlKeys.length, purgedKeys }));

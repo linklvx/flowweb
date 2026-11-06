@@ -24,8 +24,11 @@ export const ERASURE_ACTIVE_STATES = [
 export const ERASURE_RUN_LEASE_MS = 60_000;
 
 /** C4-c2 P2-2 骑手（毒丸 run FAILED 上界——spec P1-13 claim+attempts/backoff）：连续处理失败
- *  attempts 达界→FAILED+error（终态——partial unique 释放，re-drive 面人工处置）；重试间隔=租约窗
- *  （60s 常数退避）；**re-drive 清 attempts 重数**（人工处置后全新计数——毒化根因已排除的语义）。 */
+ *  attempts 达界→FAILED+error（终态——partial unique 释放，re-drive 面人工处置）；**P2-1 评审
+ *  真退避**：失败即 leaseUntil 刷 now+ERASURE_RUN_LEASE_MS（60s 退避窗）∧ claim 同实例分支
+ *  attempts>0 须待窗过期——重试间隔真 60s（同实例 5s tick 连发重试烧满上界=瞬时故障误杀根修；
+ *  poller claim 谓词单源）；attempts 于各 stage 成功推进位清零（连续失败计数语义）；
+ *  **re-drive 清 attempts 重数**（人工处置后全新计数——毒化根因已排除的语义）。 */
 export const ERASURE_RUN_MAX_ATTEMPTS = 5;
 
 /** run 视图（HTTP 202 响应面——四入口统一形状）。 */

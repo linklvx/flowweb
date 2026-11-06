@@ -183,11 +183,18 @@ maybe('C4-c1 FAILED re-drive+admin 读面（真 PG）', () => {
       { getBucketVersioningStatus: async () => { throw new Error('演练：对象存储不可达'); } } as never,
       {} as never, async () => true,
     );
-    for (let i = 0; i < 4; i++) await badPoller.tick();   // attempts 1..4（每次 tick 失败一次）
+    /** 退避窗流逝模拟（P2-1：失败后 leaseUntil 刷 now+60s——同实例 attempts>0 须待窗过期才重认领；
+     *  手动置过去=窗已过形态〔评审钦定免注入面〕）。 */
+    const expireLease = () => prisma.projectErasureRun.update({ where: { erasureId: run.erasureId }, data: { leaseUntil: new Date(Date.now() - 5_000) } });
+    for (let i = 0; i < 4; i++) { await expireLease(); await badPoller.tick(); }   // attempts 1..4（每次窗已过重认领失败一次）
     run = await prisma.projectErasureRun.findUniqueOrThrow({ where: { erasureId: run.erasureId } });
-    expect(run.state).toBe('PURGING_OBJECTS');   // 未达界仍在位（租约窗退避）
+    expect(run.state).toBe('PURGING_OBJECTS');   // 未达界仍在位
     expect(run.attempts).toBe(4);
-    await badPoller.tick();   // 第 5 次→FAILED
+    // ★P2-1 真退避保护锚：**不**过期租约连发 tick——attempts 不递增（claim attempts>0∧lease 未过期
+    // ⇒同实例不重认领——变异〔移除 claim attempts 约束〕时本断言红：attempts 将每 tick +1）
+    for (let i = 0; i < 3; i++) await badPoller.tick();
+    expect((await prisma.projectErasureRun.findUniqueOrThrow({ where: { erasureId: run.erasureId } })).attempts).toBe(4);
+    await expireLease(); await badPoller.tick();   // 第 5 次（窗已过）→FAILED
     run = await prisma.projectErasureRun.findUniqueOrThrow({ where: { erasureId: run.erasureId } });
     expect(run.state).toBe('FAILED');
     expect(run.attempts).toBe(5);

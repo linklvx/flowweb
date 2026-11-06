@@ -7,11 +7,13 @@
 // 状态机闭集（ERASURE_ACTIVE_STATES+DONE/FAILED）、stage 标签=stage 名闭集、capability=三值闭集。
 import { Counter, Gauge, Histogram, register } from 'prom-client';
 
-/** run 状态转移计数（state=转移目标态闭集——DONE/FAILED 终态与八活跃态；观察面=告警消费
- * erasure_runs_total{state="FAILED"} 增量 P1〔毒丸 run 上界兜底后的人工分诊面〕）。 */
+/** run 状态转移计数（观察面=告警消费 erasure_runs_total{state="FAILED"} 增量 P1〔毒丸 run 上界
+ *  兜底后的人工分诊面〕。发码集=七态：DRAINING/PURGING_DB/PURGING_OBJECTS/PURGING_CACHE/VERIFYING
+ *  活跃转移+DONE/FAILED 终态——RUNNING/WAITING_CHILDREN=claim/会合簿记无 inc（help 与发码集一致——
+ *  C4-c2 评审 P3-1：闭集描述列不发码态=告警面读文案误期）。 */
 export const erasureRunsTotal = new Counter({
   name: 'erasure_runs_total',
-  help: 'C4 project-erasure run 状态转移计数（state=目标态闭集：DONE/FAILED 终态+RUNNING/DRAINING/PURGING_DB/PURGING_OBJECTS/PURGING_CACHE/VERIFYING 活跃转移；worker 3002 进程触发面——FAILED 增量=P1 告警 THRESHOLDS 消费）',
+  help: 'C4 project-erasure run 状态转移计数（state 发码集七态：DRAINING/PURGING_DB/PURGING_OBJECTS/PURGING_CACHE/VERIFYING 活跃转移+DONE/FAILED 终态；RUNNING/WAITING_CHILDREN 簿记无计数；worker 3002 进程触发面——FAILED 增量=P1 告警 THRESHOLDS 消费）',
   labelNames: ['state'],
   registers: [register],
 });
