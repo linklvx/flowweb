@@ -45,6 +45,9 @@ function buildGateway(seed: PermSeed) {
     },
     projectMember: { findUnique: vi.fn().mockResolvedValue(seed.projectMember ? { role: seed.projectMember } : null) },
     teamMember: { findUnique: vi.fn().mockResolvedValue(seed.teamMember ? { role: seed.teamMember, userId: 'u1' } : null) },
+    // C4-b（WS fast-path 分义）：lifecycleStateOf 无过滤 raw 读（[] → null=真缺失档 NOT_FOUND；
+    // DELETING 分义档新增独立形态见 project-erasure.drain.c4b int/spec 面）
+    $queryRaw: vi.fn().mockResolvedValue([]),
   };
   const repo = createMockRepo();
   const lease = createLeaseStub();

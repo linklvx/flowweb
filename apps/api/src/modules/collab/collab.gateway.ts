@@ -854,10 +854,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     // 租约回调接线（W5 单点：启动只经 onAcquired；失守/撤销→selfIsolate）
     this.lease.onAcquired = () => this.startCollabAfterLease();
     this.lease.onLost = (cause) => { void this.selfIsolate(cause); };   // T17 起 async（常驻释放先行）——回调不等待
-    // 事件订阅先于租约（获取窗口内 project.gone/team.disbanded 照常清账——内存终态不依赖 listen）。
-    // I3/M2：解散事件到达时 projects 可能已删——按 payload.projectIds 终态处理（清账+关连接），不查库
-    this.eventEmitter.on('team.disbanded', (payload: { teamId: string; projectIds: string[] }) => {
-      this.handleProjectsGone(payload.projectIds);
+    // 事件订阅先于租约（获取窗口内 project.gone/team.disbanding 照常清账——内存终态不依赖 listen）。
+    // C4-b：team.disbanded（物理删语义）随 C4-a 请求内级联废止=孤儿监听器拆除；换 team.disbanding
+    // （DISBANDING tombstone 信号——team.service 提交后 emitAsync {teamId, projectIds}）。**同进程**
+    // 到达（disband HTTP 请求落 api 进程=gateway 所在——跨进程〔worker 批置 DELETING〕由 SG sweep
+    // 复验 DB 对账承接：recheckConnection 读过滤 404→4414 project-erased 关——裁定注记见彼处）。
+    // I3/M2 语义保持：按 payload.projectIds 终态处理（清账+关连接），不查库。
+    this.eventEmitter.on('team.disbanding', (payload: { teamId: string; projectIds: string[] }) => {
+      this.handleProjectsGone(payload.projectIds ?? []);
     });
     // Y0a-2（V11）：三删除入口（project.delete/cleanDrafts/template.delete 级联）事务提交后 emit——
     // 与解散事件汇入同一终态处理（处理器禁慢操作：内存态+关连接，零磁盘 I/O）

@@ -39,6 +39,8 @@ function buildGateway() {
     canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1', userId: 'other' }) },
     projectMember: { findUnique: vi.fn().mockResolvedValue(null) },
     teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER', userId: 'u1' }) },
+    // C4-b（WS fast-path 分义）：lifecycleStateOf 无过滤 raw 读（[] → null=真缺失档 NOT_FOUND）
+    $queryRaw: vi.fn().mockResolvedValue([]),
   };
   const repo = createMockRepo();
   const lease = createLeaseStub();   // Y0a-3 T5：租约 stub（isServing 恒 true=租约已持有形态）

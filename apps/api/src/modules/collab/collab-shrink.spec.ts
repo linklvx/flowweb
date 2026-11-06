@@ -759,6 +759,9 @@ function buildMaintenancePrisma(opts: { inFlight?: () => number } = {}) {
     }),
   };
   prisma.$transaction = vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma));   // 直透（repository.spec:37 先例）
+  // C4-b（R15 fence 接线）：maintenance.request 首句 lockProject——advisory $executeRaw 直通
+  // （fenceProject lifecycleState 读走上方 $queryRaw 缺省档 [] → 折 ACTIVE 放行）
+  (prisma as any).$executeRaw = vi.fn(async () => 0);
   return { prisma, ops, audits, h };
 }
 
@@ -788,6 +791,9 @@ function buildVacuumPrismaTx(rows: Array<{ id: string; seq: bigint }>) {
       }
       if (sql.includes('"CanaryPin"')) {
         return [];   // 零 pin 放行（红⑤-b defer 档归 int 真 PG 面）
+      }
+      if (sql.includes('FROM "CanvasProject"')) {
+        return [{ lifecycleState: 'ACTIVE' }];   // C4-b fenceProject FOR SHARE 读（ACTIVE 放行）
       }
       throw new Error(`buildVacuumPrismaTx 未知 SQL 形状（mock 随生产面——新增查询须补分派）: ${sql}`);
     }),

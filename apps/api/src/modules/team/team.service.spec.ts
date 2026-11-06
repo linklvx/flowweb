@@ -345,6 +345,8 @@ describe('TeamService 基础 API', () => {
         findFirst: vi.fn().mockResolvedValue(opts.activeRun ?? null),
         create: vi.fn().mockResolvedValue({ erasureId: 'run-1', scopeType: 'team', scopeId: 't1', state: 'PENDING', dryRun: false }),
       };
+      // C4-b：team.disbanding payload 扩 projectIds（提交后 findMany——mock 面随生产）
+      (prisma as any).canvasProject = { findMany: vi.fn().mockResolvedValue([]) };
       prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
     };
 
@@ -367,7 +369,7 @@ describe('TeamService 基础 API', () => {
       // 废止请求内级联：Team 行不物理删（删 Team 归 worker 会合 PURGING_TEAM）；O(1) 请求零收集查询
       expect(prisma.team.delete).not.toHaveBeenCalled();
       // 副作用后移：emit（请求侧信号——旧 team.disbanded 物理删语义废止）+审计
-      expect(emitter.emitAsync).toHaveBeenCalledWith('team.disbanding', { teamId: 't1' });
+      expect(emitter.emitAsync).toHaveBeenCalledWith('team.disbanding', { teamId: 't1', projectIds: [] });   // C4-b：payload 扩 projectIds（api 进程 gateway 关连接面——mock 面随生产）
       expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({
         teamId: 't1', targetType: 'TEAM', targetId: 't1', action: 'disband_team',
       }));

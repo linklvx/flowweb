@@ -310,14 +310,15 @@ describe('CollabGateway + CollabDocumentService（integration）', () => {
     await synced;
     expect(provider.isSynced).toBe(true);
 
-    emitter.emitAsync('team.disbanded', { teamId: 't1', projectIds: ['p9'] });
+    // C4-b：监听事件=team.disbanding（旧 team.disbanded 随 C4-a 请求内级联废止拆除——孤儿面清理）
+    emitter.emitAsync('team.disbanding', { teamId: 't1', projectIds: ['p9'] });
 
     await vi.waitFor(() => {
       expect(provider.isSynced).toBe(false);
     }, { timeout: 4000 });
     // 不查库：关闭路径仅用 payload.projectIds（认证期的 findUnique 调用次数不增加）
     const callsBeforeClose = prisma.canvasProject.findUnique.mock.calls.length;
-    emitter.emitAsync('team.disbanded', { teamId: 't1', projectIds: ['p9'] });
+    emitter.emitAsync('team.disbanding', { teamId: 't1', projectIds: ['p9'] });
     await new Promise((r) => setTimeout(r, 200));
     expect(prisma.canvasProject.findUnique.mock.calls.length).toBe(callsBeforeClose);
   }, 8000);

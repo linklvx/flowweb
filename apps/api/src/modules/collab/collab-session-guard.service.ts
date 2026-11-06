@@ -32,7 +32,7 @@ import { CollabDocRegistryService } from './collab-doc-registry.service';
 import { parseDocName, isValidDocName, admitDocNameForGeneration, projectDocName } from './doc-name.util';
 import { TokenBucket } from './token-bucket';
 import { readFrameType, MessageType } from './collab-frame-type';
-import { CollabAuthReason, CollabCloseCode, negotiateClientVersion, userColorOfUserId, DOC_VACUUMING_TERMINAL_REASON, resolveVersionGate, CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, CLIENT_OUTDATED_REASON, VERSION_GATE_CLIENT_PARAMS, SERVER_RESTORED_TERMINAL_REASON, resolveAuthHistoryVerdict, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
+import { CollabAuthReason, CollabCloseCode, negotiateClientVersion, userColorOfUserId, DOC_VACUUMING_TERMINAL_REASON, resolveVersionGate, CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, CLIENT_OUTDATED_REASON, VERSION_GATE_CLIENT_PARAMS, SERVER_RESTORED_TERMINAL_REASON, resolveAuthHistoryVerdict, PROJECT_ERASED_TERMINAL_REASON, TEAM_DISBANDED_TERMINAL_REASON, type CollabAuthReasonCode, type VersionVerdict } from '@flowweb/shared';
 import { RSS_RELEASE_BYTES, RSS_TRIP_BYTES, measureHeapPressure, releaseHook, type HeapPressureSample } from './heap-pressure';
 import { COLLAB_ROLE_DEFAULT, type CollabRole } from '../../config/env';
 import type { CollabConnection, FreezeReason } from './collab.gateway';   // W3b：type-only 零运行时边（无 design:paramtypes 环——偏离 67 循环前提对纯类型不成立；W3a DR 同款先例，collab-conn.util 候选否因 census ⑤/backpressure 锚词面冲突）
@@ -711,12 +711,38 @@ export class CollabSessionGuardService {
       // 4-5 次冗余往返归 1-3 次，信号量乘积闸才有意义）。⚠ 权限语义 A：removeMember 不触碰
       // ProjectMember 表=移出团队但有显式授权仍保留访问（REST assertEditor 同链既有语义）。
       const projectId = parseDocName(documentName)?.projectId ?? '';
-      let resolved: { role: ProjectRole | null; teamId: string };
+      let resolved: { role: ProjectRole | null; teamId: string; teamStatus?: string };
       try {
         resolved = await this.withAuthDeadline(this.perm.resolveWithTeam(projectId, session.user.id));
       } catch (e) {
-        if (e instanceof NotFoundException) throw deny(CollabAuthReason.NOT_FOUND, '项目不存在');   // 保 NOT_FOUND/FORBIDDEN 分型（客户端 UX 分流依赖）
+        if (e instanceof NotFoundException) {
+          // C4-b（WS fast-path 拒帧·PROJECT_ERASED terminal——C4-a 评审 I-1 承接）：读过滤 Proxy 对
+          // DELETING 行 404 先行（resolveWithTeam 的 canvasProject 读被滤）——一次**无过滤** raw 读
+          // 分义：DELETING=擦除终态 → closeUpgradeTerminal(4414, project-erased)（T24 形态：auth 期
+          // Connection 未建，经 upgradeSockets 反查 socket 直写 RFC6455 close 帧后 end——客户端
+          // resolveCloseAction(4414)=terminal 不自动重连）；真缺失=原 NOT_FOUND 档（404 重试面不变）。
+          // 装置兼容（readGeneration typeof 守卫同款）：stub perm 直构缺面=跳过分义（真缺失档兜底）。
+          const lifecycleState = typeof this.perm.lifecycleStateOf === 'function'
+            ? await this.withAuthDeadline(this.perm.lifecycleStateOf(projectId)) : null;
+          if (lifecycleState === 'DELETING') {
+            this.closeUpgradeTerminal(request, CollabCloseCode.PROJECT_ERASED, PROJECT_ERASED_TERMINAL_REASON);
+            throw deny(CollabAuthReason.NOT_FOUND, '项目擦除进行中（PROJECT_ERASED terminal）');
+          }
+          throw deny(CollabAuthReason.NOT_FOUND, '项目不存在');
+        }
         throw e;   // 其余进 catch 分型（DB_UNAVAILABLE 等）
+      }
+      // C4-b（P2-7 承接——fence 族）：Team.status 非 ACTIVE 拒新连接（DISBANDING=擦除进行态——与
+      // HTTP 面 TeamGuard 同判据；DISBANDED=终态）。resolveWithTeam 同查询随带 team.status（零额外
+      // 往返——select 面扩列）。close 分档：DISBANDED=terminal 4412（TEAM_DISBANDED——客户端终态
+      // 不重连）；DISBANDING=状态档 deny（团队 run FAILED 回 ACTIVE 后重连合法——禁 terminal 误锁）。
+      if (resolved.teamStatus != null && resolved.teamStatus !== 'ACTIVE') {
+        if (resolved.teamStatus === 'DISBANDED') {
+          // 终态档投递：close(NORMAL, 'team disbanded')——resolveCloseAction 经 reason 映射 terminal
+          //（团队解散终态码无独立值域——T6 裁定 25⑸② 先例形态）。
+          this.closeUpgradeTerminal(request, CollabCloseCode.NORMAL, TEAM_DISBANDED_TERMINAL_REASON);
+        }
+        throw deny(CollabAuthReason.FORBIDDEN, `团队${resolved.teamStatus === 'DISBANDING' ? '解散进行中' : '已解散'}（拒新连接）`);
       }
       if (!resolved.role) throw deny(CollabAuthReason.FORBIDDEN, '无项目访问权限');
       // Y1c T12（偏离 27/E23「onAuthenticate∧onLoadDocument 双校验+独立 reason」①auth 面）：docName
@@ -1046,7 +1072,7 @@ export class CollabSessionGuardService {
             if (re.expiresAt) ctx.sessionExpiresAt = re.expiresAt;   // 翻案/刷新：死线快照按新值（下轮按新死线）
             continue;
           }
-          this.scheduleSweepClose(connection, 'revoked');
+          this.scheduleSweepClose(connection, re.cause === 'project-erased' ? 'project-erased' : 'revoked');   // C4-b：擦除终态 4414 分档
         } catch (err) {
           this.host.logger.warn(`sweep recheck failed for ${document.name}: ${(err as Error).message}`);
           const fails = (this.sweepRecheckFails.get(connection) ?? 0) + 1;
@@ -1106,12 +1132,23 @@ export class CollabSessionGuardService {
    *  结论走同一 applyWriteFreeze('viewer',true)——'draining' 原因并存（集合化=prev 快照跟随语义
    *  继任：60s 解除只移 'draining'，viewer 保持——不打穿越权写窗）。
    *  W3b：isShuttingDown→host.isDrainingDerived()（draining——B3 承接账④更名，原 isShuttingDownFlag）；isWritableOrDegraded→persistence 直引（§4.1）。 */
-  private async recheckConnection(connection: { context?: { token?: string }; readOnly?: boolean; socketId?: string }, documentName: string): Promise<{ revoked: boolean; cause?: 'no-role' | 'session-invalid'; expiresAt?: Date }> {
+  private async recheckConnection(connection: { context?: { token?: string }; readOnly?: boolean; socketId?: string }, documentName: string): Promise<{ revoked: boolean; cause?: 'no-role' | 'session-invalid' | 'project-erased'; expiresAt?: Date }> {
     const token = connection.context?.token;
     if (!token) return { revoked: false, expiresAt: undefined };   // 无凭据（authenticate 必播种——理论不可达）不翻案
     const { session } = await this.sessionSvc.resolve(token);
     if (!session) return { revoked: true, cause: 'session-invalid', expiresAt: undefined };   // 过期/登出（resolve 折叠两态）
-    const { role } = await this.perm.resolveWithTeam(parseDocName(documentName)?.projectId ?? '', session.userId);
+    const projectId = parseDocName(documentName)?.projectId ?? '';
+    let role: ProjectRole | null;
+    try {
+      ({ role } = await this.perm.resolveWithTeam(projectId, session.userId));
+    } catch (e) {
+      // C4-b（跨进程裁定·DB 对账面）：worker 进程批置 DELETING（team run 分批）在 api 进程不可达
+      // EventEmitter——本复验 resolve（读过滤 404）即对账点：NotFound ⇒ 项目擦除域 ⇒ revoked 以
+      // 'project-erased' 关（4414 terminal——sweep 延迟上界≈permCache 5min+sweep 5min；快路=写帧
+      // fence 拒+auth 4414）。Redis pub/sub 零先例（grep 实证）+collab lease 单实例=不引入第二通道。
+      if (e instanceof NotFoundException) return { revoked: true, cause: 'project-erased', expiresAt: undefined };
+      throw e;
+    }
     this.permCache.set(connection, { role, at: Date.now() });   // 会话级结论缓存（T8 事件失效消费——仅清不直接 recheck）
     if (role === 'PROJECT_VIEWER' && !connection.readOnly) {
       this.applyWriteFreeze(connection as unknown as CollabConnection, 'viewer', true);   // E13：降级=修越权写不断连（+conn-status 通告）
@@ -1318,9 +1355,22 @@ export class CollabSessionGuardService {
     }
   }
 
-  private scheduleSweepClose(connection: object & { sendStateless?: (p: string) => void; webSocket: { close: (code?: number, reason?: string) => void } }, cause: 'revoked' | 'db-fail') {
+  private scheduleSweepClose(connection: object & { sendStateless?: (p: string) => void; webSocket: { close: (code?: number, reason?: string) => void } }, cause: 'revoked' | 'db-fail' | 'project-erased') {
     if (this.sweepGrace.has(connection)) return;
     this.sweepGrace.add(connection);
+    // C4-b：project-erased=擦除终态——免 5s grace 通知（session-expiring 通知对终态连接无意义）
+    // 直关 4414 PROJECT_ERASED terminal（客户端 resolveCloseAction(4414)=不自动重连）。
+    if (cause === 'project-erased') {
+      this.sweepGrace.delete(connection);
+      try {
+        connection.webSocket.close(CollabCloseCode.PROJECT_ERASED, PROJECT_ERASED_TERMINAL_REASON);
+        collabSweepCloseTotal.inc({ cause });
+        collabWsCloseTotal.inc({ code: String(CollabCloseCode.PROJECT_ERASED), reason: PROJECT_ERASED_TERMINAL_REASON });
+      } catch (err) {
+        this.host.logger.warn(`sweep close (project-erased) failed: ${(err as Error).message}`);
+      }
+      return;
+    }
     try { connection.sendStateless?.(JSON.stringify({ type: 'session-expiring' })); }
     catch (err) { this.host.logger.warn(`sweep pre-notice failed: ${(err as Error).message}`); }
     const grace = setTimeout(() => {
@@ -1373,8 +1423,12 @@ export class CollabSessionGuardService {
       for (const connection of connections) {
         this.connEstablishedAt.delete(connection.socketId);   // Y0b-3 T6 键控清理：解散清该 doc 全部连接寿命条目（防无界）
         try {
-          connection.webSocket.close(CollabCloseCode.NORMAL, 'team disbanded');
-          collabWsCloseTotal.inc({ code: String(CollabCloseCode.NORMAL), reason: 'team disbanded' });   // Y0b-3 T6：close 分布面
+          // C4-b（plan Task C4-2 WS fast-path）：project.gone/team.disbanding 关连接升级 4414
+          // PROJECT_ERASED terminal（旧 1000 normal=客户端自动重连循环撞 auth 门；4414=
+          // resolveCloseAction terminal 档——web 侧终态处理归 C4-c 红⑰）。P7：connection.close 丢
+          // code，统一 webSocket.close。
+          connection.webSocket.close(CollabCloseCode.PROJECT_ERASED, PROJECT_ERASED_TERMINAL_REASON);
+          collabWsCloseTotal.inc({ code: String(CollabCloseCode.PROJECT_ERASED), reason: PROJECT_ERASED_TERMINAL_REASON });   // Y0b-3 T6：close 分布面
         }
         catch (err) { this.host.logger.warn(`close webSocket failed for ${projectId}: ${(err as Error).message}`); }
       }

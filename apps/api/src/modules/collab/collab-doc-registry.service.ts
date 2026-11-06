@@ -342,6 +342,20 @@ export class CollabDocRegistryService {
     if (!isValidDocName(documentName)) {
       throw Object.assign(new Error('invalid doc name'), { reason: CollabAuthReason.INVALID_DOC_NAME });
     }
+    // C4-b（WS fast-path 拒帧·装载门——auth 后竞窗收口）：lifecycleState 非 ACTIVE ⇒ 拒装载（auth 门
+    // 与本门双校验——auth 过后 tombstone 落地的竞窗在此闭合）。throw 带 reason=NOT_FOUND（库面
+    // PermissionDenied 帧；客户端重连即撞 auth 4414 terminal——closeUpgradeTerminal 单一 terminal
+    // 投递面不在此重复）。raw 读零过滤（分义读——Proxy 只辖 delegate 面）。
+    {
+      // 装置兼容（readGeneration :699 同款 typeof 守卫——stubRepo 直构缺面=跳过本门非炸）
+      if (typeof this.repo.readLifecycleState === 'function') {
+        const lifecycleState = await this.repo.readLifecycleState(parseDocName(documentName)?.projectId ?? '');
+        if (lifecycleState != null && lifecycleState !== 'ACTIVE') {
+          collabLoadRejectedTotal.inc({ reason: 'project-erasing' });
+          throw Object.assign(new Error('project erasing'), { reason: CollabAuthReason.NOT_FOUND });
+        }
+      }
+    }
     // Y0b-5 T16 熔断面①（调用点②准入）：open 期拒新装载（503 COLLAB_NOT_SERVING 面——CollabNotServingFilter
     // 附 Retry-After；零 Prisma——防「每条新装载等满 5s 交互事务超时」）；half-open 放行=本次即探测。
     if (!this.pgBreaker.admitQuery()) {

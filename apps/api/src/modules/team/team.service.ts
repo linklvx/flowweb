@@ -88,7 +88,10 @@ export class TeamService {
               take: 1,
               include: { plan: { select: { name: true } } },
             },
-            _count: { select: { members: true, projects: true } },
+            // M-8（C4-b 收口——关系嵌套读裁定落位）：filtered relation count——projects 计数排除
+            // DELETING（tombstone 行=用户态不存在；include/_count 嵌套面不经读过滤 Proxy=谓词注入
+            // 收口面，裁定注记见 read-path.filter.ts 头注「关系嵌套读」段）。
+            _count: { select: { members: true, projects: { where: { lifecycleState: 'ACTIVE' } } } },
           },
         },
       },
@@ -467,9 +470,19 @@ export class TeamService {
     }, { timeout: 15_000, maxWait: 5_000 });
 
     // 提交后副作用 best-effort（Team 行还在——DISBANDING=tombstone 非物理删；各环吞错保后环）
-    // team.disbanding=请求侧信号（监听器消费归 C4-c——跨进程关连接面；旧 team.disbanded〔物理删语义〕
-    // 随请求内级联废止，由 worker 会合终态承接）。
-    await this.eventEmitter.emitAsync('team.disbanding', { teamId }).catch((e: unknown) =>
+    // team.disbanding=请求侧信号（C4-b 监听器消费：api 进程 gateway handleProjectsGone 关连接——
+    // **同进程**事件即达〔disband HTTP 请求落在 api 进程=gateway 所在〕；worker 批置 DELETING 的
+    // 跨进程面由 gateway sweep 复验 DB 对账承接〔collab-session-guard recheckConnection NotFound→
+    // 4414〕。旧 team.disbanded〔物理删语义〕随请求内级联废止，由 worker 会合终态承接）。
+    // projectIds=该时点 team 全部项目（仍 ACTIVE-lifecycle——worker 分批 tombstone 前快照；payload-only
+    // 监听器纪律：查库在本侧完成，监听器零 IO）。
+    const teamProjectIds = await this.prisma.canvasProject.findMany({
+      where: { teamId }, select: { id: true },
+    }).then((rows) => rows.map((r) => r.id)).catch((e: unknown) => {
+      this.logger.warn(`team.disbanding projectIds 查询失败（emit 空 projectIds——sweep 对账兜底）: ${e}`);
+      return [] as string[];
+    });
+    await this.eventEmitter.emitAsync('team.disbanding', { teamId, projectIds: teamProjectIds }).catch((e: unknown) =>
       this.logger.warn(`team.disbanding emit 失败（监听器各自兜底）: ${e}`));
     await this.audit.log({
       operatorId: userId,

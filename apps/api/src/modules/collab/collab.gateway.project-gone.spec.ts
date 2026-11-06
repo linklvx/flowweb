@@ -66,10 +66,10 @@ describe('Y0a-2 project.gone 清账', () => {
     } finally { await kit.dispose(); }
   });
 
-  it('team.disbanded 双订阅汇入同一处理（projectIds 载荷等价）', async () => {
+  it('C4-b：team.disbanding 监听器汇入同一处理（projectIds 载荷等价——旧 team.disbanded 随请求内级联废止拆除）', async () => {
     const kit = await startDualClientServer();
     try {
-      kit.emitter.emit('team.disbanded', { teamId: 't1', projectIds: ['p-x'] });
+      kit.emitter.emit('team.disbanding', { teamId: 't1', projectIds: ['p-x'] });
       expect(gatewayFacade(kit.gateway).deletedProjectsHas('p-x')).toBe(true);
     } finally { await kit.dispose(); }
   });

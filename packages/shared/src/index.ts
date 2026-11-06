@@ -9,7 +9,7 @@ export type { SubscriptionErrorCode } from './constants/subscription-error';
 export { CollabAuthReason, isTerminalReason, COLLAB_AUTH_REASONS, COLLAB_VERSION_TERMINAL_REASONS } from './constants/collab-auth-reason';
 export type { CollabAuthReasonCode } from './constants/collab-auth-reason';
 // Y0b-3 T0：close code 分配表（(code,reason) 双键分型单源）+客户端协议版本（精确相等协商）。
-export { CollabCloseCode, resolveCloseAction, MESSAGE_TOO_BIG_TERMINAL_REASON, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, SS2_OVER_LIMIT_TERMINAL_REASON, TEAM_DISBANDED_TERMINAL_REASON } from './constants/collab-close-code';
+export { CollabCloseCode, resolveCloseAction, MESSAGE_TOO_BIG_TERMINAL_REASON, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, SS2_OVER_LIMIT_TERMINAL_REASON, TEAM_DISBANDED_TERMINAL_REASON, PROJECT_ERASED_TERMINAL_REASON } from './constants/collab-close-code';   // C4-b：PROJECT_ERASED_TERMINAL_REASON 出仓（gateway/auth terminal 投递消费——码值 C4-a 已进）
 // Y1c T5a：4410 三分第三档+4411/4412/4413/4406/1011-EIO reason 字面量单源（载荷类型住 collab/doc-protocol.ts）。
 export { SERVER_RESTORED_TERMINAL_REASON, FRAME_MALFORMED_REASON, RESYNC_REQUIRED_REASON, MAINTENANCE_FREEZE_REASON, CLIENT_OUTDATED_REASON, WAL_FSYNC_EIO_REASON } from './constants/collab-close-code';
 export type { CloseAction, CloseActionKind } from './constants/collab-close-code';

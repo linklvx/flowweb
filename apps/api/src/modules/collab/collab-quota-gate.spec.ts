@@ -472,6 +472,9 @@ function buildMaintenancePrisma() {
     }),
   };
   prisma.$transaction = vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma));
+  // C4-b（R15 fence 接线）：maintenance.request 首句 lockProject——advisory $executeRaw 直通
+  // （fenceProject lifecycleState 读走上方 $queryRaw 缺省档 [] → 折 ACTIVE 放行）
+  (prisma as any).$executeRaw = vi.fn(async () => 0);
   return { prisma, ops };
 }
 
