@@ -92,6 +92,11 @@ describe('信封序列化门禁（R1a——防手抄本复活）', () => {
       // C4-b（project-erasure）：scope-column.registry.ts=scope-alias-registry 单源（AuditLog.targetId
       // 多态列别名登记+targetType 谓词注释——registry 数据面非边序列化面，同款显式登记）。
       'apps/api/src/modules/collab/scope-column.registry.ts',
+      // C4-c2 补登（project-erasure 审计写点——C4-c1 落地未跑 FULL 档的潜伏红收口）：project-erasure.ts
+      // =擦除动作/re-drive AuditLog 写点（targetType/targetId 谓词行——非边序列化面）；assert.ts=脱敏
+      // 断言读面（findMany where targetType+targetId——同款审计参数消费）。
+      'apps/api/src/modules/collab/project-erasure.ts',
+      'apps/api/src/modules/collab/project-erasure.assert.ts',
     ]);
     const offenders: string[] = [];
     for (const file of EDGE_DIRS.flatMap(listTsFiles)) {
