@@ -89,6 +89,9 @@ describe('信封序列化门禁（R1a——防手抄本复活）', () => {
     const AUDIT_PARAM_FILES = new Set([
       'apps/api/src/modules/collab/collab-ready.controller.ts',
       'apps/api/src/modules/collab/collab-ops-gate.service.ts',
+      // C4-b（project-erasure）：scope-column.registry.ts=scope-alias-registry 单源（AuditLog.targetId
+      // 多态列别名登记+targetType 谓词注释——registry 数据面非边序列化面，同款显式登记）。
+      'apps/api/src/modules/collab/scope-column.registry.ts',
     ]);
     const offenders: string[] = [];
     for (const file of EDGE_DIRS.flatMap(listTsFiles)) {
