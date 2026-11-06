@@ -1166,17 +1166,16 @@ if (isMain()) {
     'apps/api/src/modules/collab/retention.sweeper.poller.ts': {   // C1-1（生产就绪收尾批）：worker retention sweeper 轮询周期键（RETENTION_SWEEP_INTERVAL_MS——COMPACT_POLL_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、Number()||默认缺省档、消费面=worker 轮询周期非部署档位）
       RETENTION_SWEEP_INTERVAL_MS: 1,
     },
-    'apps/api/src/modules/collab/project-erasure.poller.ts': {   // C4-a（生产就绪收尾批·project-erasure）：worker erasure run 轮询周期键（ERASURE_POLL_INTERVAL_MS——RETENTION_SWEEP_INTERVAL_MS 同族豁免形态）+C4-b：DRAINING spool 段采集目录键（COLLAB_SPOOL_DIR——共享盘面 worker 侧读，spool service 同键复用非第二真源）+C4-c1：PURGING_DB 执行体 spoolDir 传参第二读（stages 同键缺省档）
+    'apps/api/src/modules/collab/project-erasure.poller.ts': {   // C4-a（生产就绪收尾批·project-erasure）：worker erasure run 轮询周期键（ERASURE_POLL_INTERVAL_MS——RETENTION_SWEEP_INTERVAL_MS 同族豁免形态）+C4-b/C4-c1：DRAINING 采集与执行体传参的 spool 目录读已收敛 manifest 模块 collabSpoolDir() 单源（质量评审 M4——本文件零直接读）
       ERASURE_POLL_INTERVAL_MS: 1,
-      COLLAB_SPOOL_DIR: 2,
     },
-    'apps/api/src/modules/collab/project-erasure.stages.ts': {   // C4-c1（生产就绪收尾批·project-erasure）：PURGING_DB 执行体三键（函数内形态——httpMediaRefsCollector 构造期读 loopback api 基址 PORT/WORKER_WRITE_TOKEN〔HttpCollabWritePort worker.module useFactory 同源键，零 DI 依赖 fetch 采集器=闭包纯度保 census ⑰〕+并集 manifest 重写 spoolDir 缺省档 COLLAB_SPOOL_DIR〔poller 同键复用非第二真源〕）
+    'apps/api/src/modules/collab/project-erasure.stages.ts': {   // C4-c1（生产就绪收尾批·project-erasure）：PURGING_DB 执行体两键（函数内形态——httpMediaRefsCollector 构造期读 loopback api 基址 PORT/WORKER_WRITE_TOKEN〔HttpCollabWritePort worker.module useFactory 同源键，零 DI 依赖 fetch 采集器=闭包纯度保 census ⑰〕；spool 目录读=manifest 模块 collabSpoolDir() 单源〔质量评审 M4〕）
       PORT: 1,
       WORKER_WRITE_TOKEN: 1,
-      COLLAB_SPOOL_DIR: 1,
     },
-    'apps/api/src/modules/collab/project-erasure.manifest.ts': {   // C4-b（生产就绪收尾批·project-erasure）：manifest 目录键（ERASURE_MANIFEST_DIR——R16 主载体目录；env.ts zod 同批注册+构造期绝对路径强制；COLLAB_SPOOL_DIR 同族：缺省=CWD 派生档、消费面=manifest 落盘目录非部署档位）
+    'apps/api/src/modules/collab/project-erasure.manifest.ts': {   // C4-b（生产就绪收尾批·project-erasure）：manifest 目录键（ERASURE_MANIFEST_DIR——R16 主载体目录；env.ts zod 同批注册+构造期绝对路径强制；COLLAB_SPOOL_DIR 同族：缺省=CWD 派生档、消费面=manifest 落盘目录非部署档位）+C4-c1 质量评审 M4：spool 目录缺省式三处重复收敛本模块 collabSpoolDir() 单源（poller DRAINING 采集/执行体传参/并集重写缺省档）
       ERASURE_MANIFEST_DIR: 1,
+      COLLAB_SPOOL_DIR: 1,
     },
     'apps/api/src/modules/collab/collab-append-audit.worker.ts': {   // C3-1（生产就绪收尾批·doc-append-gap-alert）：worker append 审计轮询周期键（DOC_APPEND_AUDIT_INTERVAL_MS——COMPACT_POLL_INTERVAL_MS/RETENTION_SWEEP_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、Number()||默认缺省档 300_000、消费面=worker 轮询周期非部署档位）
       DOC_APPEND_AUDIT_INTERVAL_MS: 1,

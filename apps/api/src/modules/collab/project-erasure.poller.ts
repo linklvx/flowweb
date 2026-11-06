@@ -16,21 +16,18 @@
 // project scope run：claim+RUNNING+租约心跳（PENDING→RUNNING 的 liveness 证明——物理清除 saga 态机
 // 归 C4-c；本骨架不推进物理删除=tombstone-only 承诺的 worker 半边在位）。dryRun run 不消费（C4-c）。
 import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit, Optional } from '@nestjs/common';
-import { join } from 'node:path';
 import { Prisma } from '@prisma/client';
 import type { ProjectErasureRun } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { runWithIncludeDeleted } from '../../prisma/read-path.filter';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { ErasureContextService, lockScope, lockProject, fenceProject, fenceTeam } from './project-lock';
-import { createErasureRun, ERASURE_ACTIVE_STATES } from './project-erasure';
-import { collectSpoolSegments, writeErasureManifest, type ErasureManifestInputs } from './project-erasure.manifest';
+import { createErasureRun, ERASURE_ACTIVE_STATES, ERASURE_RUN_LEASE_MS } from './project-erasure';
+import { collectSpoolSegments, writeErasureManifest, collabSpoolDir, type ErasureManifestInputs } from './project-erasure.manifest';
 import { executePurgingDbStage, httpMediaRefsCollector, type MediaRefsCollector } from './project-erasure.stages';
 
 /** 轮询周期（时间门基线：run 行=唤醒源，间隔即红④兜底延迟上界；env 可调——RETENTION_SWEEP_INTERVAL_MS 同族形态）。 */
 export const ERASURE_POLL_INTERVAL_MS = Number(process.env.ERASURE_POLL_INTERVAL_MS) || 5_000;
-/** claim 租约（kill -9 恢复窗：租约到期即他实例/重启实例可重认领）。 */
-const ERASURE_RUN_LEASE_MS = 60_000;
 /** team 批置批量（O(N) 分批——每 tick 一批，多 tick 排空；retention claim 批 50 同族量级）。 */
 const TEAM_TOMBSTONE_BATCH = 100;
 /** 每 tick 处理 run 数上界（单 tick 事务预算界）。 */
@@ -224,7 +221,7 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
       await executePurgingDbStage({
         prisma: this.prisma, run,
         collectMediaRefs: this.mediaRefs ?? httpMediaRefsCollector(),
-        spoolDir: process.env.COLLAB_SPOOL_DIR ?? join(process.cwd(), '.data', 'collab-spool'),
+        spoolDir: collabSpoolDir(),
       }).catch((e: unknown) => {
         this.logger.warn(`erasure project run ${run.erasureId} PURGING_DB 失败（租约到期重认领——下一 tick 重试）: ${(e as Error).message}`);
       });
@@ -253,7 +250,7 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
         return { mediaRows, workRows };
       }, { timeout: PROJECT_TX_TIMEOUT_MS, maxWait: 10_000 });
       // ②manifest 落盘（spool 段=共享盘面 dir 扫描——worker/api 同机部署形态）
-      const spoolDir = process.env.COLLAB_SPOOL_DIR ?? join(process.cwd(), '.data', 'collab-spool');
+      const spoolDir = collabSpoolDir();
       const manifestInputs: ErasureManifestInputs = {
         erasureId: run.erasureId, scopeType: 'project', scopeId: pid, projectIds: [pid],
         requestedAt: run.requestedAt, mediaRows: inputs.mediaRows, workRows: inputs.workRows,

@@ -37,6 +37,12 @@ export function erasureManifestDir(): string {
   return join(process.cwd(), '.data', 'erasure-manifest');
 }
 
+/** spool 目录（C4-c1 质量评审 M4 单源化：poller DRAINING 采集/执行体传参/stages 缺省档三处同式
+ *  缺省表达式收敛——spool service 同键部署面，本函数=erasure 域消费侧单源）。 */
+export function collabSpoolDir(): string {
+  return process.env.COLLAB_SPOOL_DIR ?? join(process.cwd(), '.data', 'collab-spool');
+}
+
 /**
  * manifest 采集面（DRAINING 排干临界区内收集）。
  * **冻结域诚实注记（spec 评审 P1——C4-b 勘正）**：行集冻结对 **Canvas 族**成立（fence 已拒

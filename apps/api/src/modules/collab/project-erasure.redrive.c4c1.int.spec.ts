@@ -152,10 +152,10 @@ maybe('C4-c1 FAILED re-drive+admin 读面（真 PG）', () => {
     const { readErasureManifest } = await import('./project-erasure.manifest');
     const manifestFinal = await readErasureManifest(manifestPath);
     expect(manifestFinal.media.map((m) => m.id).sort()).toEqual([`${pid}-m-exc`, `${pid}-m-lib`]);
+    expect(run.manifestSha256).toBe(manifestSha);   // 恢复锚 sha 幂等（重驱+并集重写不改既有行集）
     // admin 读面：PURGING_DB 完成后已删项目行=null 非错（DELETING 可见档=上一用例已证）
     const list = await admin.listRuns(undefined);
     const row = list.runs.find((r) => r.erasureId === run.erasureId);
     expect(row).toMatchObject({ state: 'PURGING_OBJECTS', projectName: null, projectLifecycle: null });
-    void manifestSha;
   }, 60_000);
 });

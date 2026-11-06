@@ -164,6 +164,15 @@ maybe('C4-c1 ★红⑫⑬⑯ PURGING_DB 执行体（真 PG）', () => {
     await prisma.nodeArtifact.deleteMany({ where: { projectId: { in: pids } } }).catch(() => undefined);
     await prisma.objectManifest.deleteMany({ where: { objectKey: { startsWith: `c4c1-p-${stamp}` } } }).catch(() => undefined);
     await prisma.projectMember.deleteMany({ where: { projectId: { in: pids } } }).catch(() => undefined);
+    // C4-c1 质量评审 I-1：dryRun 用例零删除=17 张无 FK registry 表 fixture 留库（实证历次运行逐套
+    // 累积——仅 RuntimeEvent 有 7d retention 兜底）；收敛用例行已随 stage 批删不泄漏，此处统一回收
+    for (const m of ['RuntimeFeedCursor', 'DocAuditEvent', 'MaintenanceOperation', 'RuntimeEvent', 'NodeExecution',
+      'ExecutionOutbox', 'MaterializeRun', 'NodeLifecycle', 'DeliveryFence', 'LifecycleObligation', 'CanvasDocCoalesced',
+      'ArtifactProjection', 'MediaFactOutbox', 'CanaryPin', 'CollabCanaryCursor', 'CollabOpsGate'] as const) {
+      await (prisma as unknown as Record<string, { deleteMany(a: unknown): Promise<unknown> }>)[m[0]!.toLowerCase() + m.slice(1)]!
+        .deleteMany({ where: { projectId: { in: pids } } }).catch(() => undefined);
+    }
+    await prisma.videoSeparateTask.deleteMany({ where: { workflowId: { in: pids } } }).catch(() => undefined);
     await prisma.canvasProject.deleteMany({ where: { id: { in: pids } } }).catch(() => undefined);
     await prisma.teamMember.deleteMany({ where: { teamId } }).catch(() => undefined);
     await prisma.team.deleteMany({ where: { id: teamId } }).catch(() => undefined);

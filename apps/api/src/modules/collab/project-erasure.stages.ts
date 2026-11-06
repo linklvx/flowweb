@@ -17,7 +17,7 @@
 //    2026-11-05 随项目擦除）；桥表（ExecutionNodePlan/ExecutionInput 经 ExecutionRequest、
 //    RefundObligation/ReconcileAction 经 GenerationIntent）raw SQL 子查询批删；
 //  ③**Media 三档 registry**（红⑫）：库资产（folderId 非空∨isFavorite∨type='uploaded'——schema
-//    :340-344 素材库语义）→detach（projectId=NULL+清 nodeId/taskId+行对象保留）；他项目/已发布作品
+//    :346-348 素材库语义）→detach（projectId=NULL+清 nodeId/taskId+行对象保留）；他项目/已发布作品
 //    引用→detach 保留（引用图=VideoWork.videoMediaId/coverKey+NodeArtifact.mediaId+MediaBinding+
 //    VideoProject.data 深扫+LightingTask.resultMediaId+VideoTrimTask.sourceFileId/outputFileId+他项目
 //    引用〔collectMediaRefs 内部端点——api 不可达=本轮暂停不删 fail-closed〕+ObjectManifest claim
@@ -39,17 +39,15 @@ import { runWithIncludeDeleted } from '../../prisma/read-path.filter';
 import { ErasureContextService, lockProject, fenceProject } from './project-lock';
 import { PROJECT_COLUMN_MODELS, PROJECT_SCOPE_ALIASES } from './scope-column.registry';
 import {
-  writeErasureManifest, readErasureManifest, collectSpoolSegments, erasureManifestDir, type ErasureManifestInputs,
+  writeErasureManifest, readErasureManifest, collectSpoolSegments, erasureManifestDir, collabSpoolDir, type ErasureManifestInputs,
 } from './project-erasure.manifest';
 import { assertProjectErasureDbComplete, type ErasureAssertDb } from './project-erasure.assert';
 import { ERASURE_MEDIA_REFS_BATCH } from './collab-spool.service';
 import { collectJsonMediaIds } from '../media-delivery/media-gc.service';
+import { ERASURE_RUN_LEASE_MS } from './project-erasure';
 
 /** 两阶段复核窗=一个 claim 租约周期（跨 claim 周期——标记与删除不得同窗：窗内在飞写可观测）。 */
-export const ERASURE_MEDIA_REVIEW_MS = 60_000;
-/** run 租约常量（与 poller ERASURE_RUN_LEASE_MS 同值同义——poller 未导出且 stages↔poller 互引成环，
- *  同域双常量注记：改租约两处同步）。 */
-const ERASURE_LEASE_MS = 60_000;
+const ERASURE_MEDIA_REVIEW_MS = 60_000;
 /** PURGING_DB 批删事务上限（resolution 写批+scope 批删两事务）。 */
 const PURGE_TX_TIMEOUT_MS = 60_000;
 /** FK Cascade 族（CanvasProject 行删除 DB 级联——不显式批删）。 */
@@ -63,7 +61,7 @@ export interface LiveMediaRow {
   nodeId: string | null; taskId: string | null; key: string; objectKey: string | null;
 }
 /** live VideoWork 行（二扫载荷）。 */
-export interface LiveWorkRow { id: string; canvasProjectId: string | null; videoKey: string; coverKey: string | null }
+interface LiveWorkRow { id: string; canvasProjectId: string | null; videoKey: string; coverKey: string | null }
 
 /** 未 reconcile 引用采集器（api 进程 doc 扫描——collectMediaRefs 内部端点的 worker 侧客户端面）。
  *  返回 referenced mediaIds 子集；**null=不可达**（api 停摆/非 serving/限批拒）——调用方 fail-closed
@@ -171,7 +169,7 @@ export function unionManifestRows(
 }
 
 /** 从并集 manifest 派生 AuditLog 脱敏断言的 forbidden 内容（介质键族）。 */
-export function deriveForbiddenContent(union: { media: ErasureManifestInputs['mediaRows']; work: ErasureManifestInputs['workRows'] }): string[] {
+function deriveForbiddenContent(union: { media: ErasureManifestInputs['mediaRows']; work: ErasureManifestInputs['workRows'] }): string[] {
   return [
     ...union.media.flatMap((m) => [m.key, m.thumbnailKey, m.objectKey]),
     ...union.work.flatMap((w) => [w.videoKey, w.coverKey]),
@@ -188,7 +186,7 @@ export async function resolveMediaDisposition(
   const detach: string[] = [];
   const rest: LiveMediaRow[] = [];
   for (const m of candidates) {
-    // 档 a：库资产（schema :340-344 素材库语义——folderId 非空∨收藏∨上传）
+    // 档 a：库资产（schema :346-348 素材库语义——folderId 非空∨收藏∨上传）
     if (m.folderId != null || m.isFavorite || m.type === 'uploaded') detach.push(m.id);
     else rest.push(m);
   }
@@ -256,8 +254,10 @@ type DeleteManyDelegate = { deleteMany(args: unknown): Promise<unknown> };
  *   scrub+VideoWork detach；
  *  批二（scope 批删+行删除）：registry 直列/别名/桥全量 deleteMany+CanvasProject 行删除（FK Cascade
  *   载体；P2025 折幂等——kill -9 重跑行已删）。
+ *  批量界注记（C4-c1 质量评审 M6）：单 scope 行集无界批=已知界——谓词幂等重试+60s tx 上界承载；
+ *  in 列表超 PG 65535 绑定参数上限=硬错（C4-c2 对象重放批化时一并再议）。
  */
-export async function applyProjectErasureWrites(
+async function applyProjectErasureWrites(
   prisma: PrismaService, pid: string,
   opts: { detachMediaIds: readonly string[]; deleteMediaIds: readonly string[] },
 ): Promise<void> {
@@ -343,7 +343,7 @@ export async function executePurgingDbStage(deps: PurgingDbStageDeps): Promise<P
     const live = await rescanProjectMediaWork(prisma, pid);
     const union = unionManifestRows(manifest, live);
     if (union.grew || run.manifestSha256 !== manifest.footer.sha256) {
-      const spoolDir = deps.spoolDir ?? process.env.COLLAB_SPOOL_DIR ?? join(process.cwd(), '.data', 'collab-spool');
+      const spoolDir = deps.spoolDir ?? collabSpoolDir();
       const rewritten = await writeErasureManifest({
         erasureId: run.erasureId, scopeType: 'project', scopeId: pid, projectIds: [pid],
         requestedAt: run.requestedAt, mediaRows: union.media, workRows: union.work,
@@ -383,7 +383,7 @@ export async function executePurgingDbStage(deps: PurgingDbStageDeps): Promise<P
       const now = new Date();
       await prisma.projectErasureRun.update({
         where: { erasureId: run.erasureId },
-        data: { state: 'PURGING_DB', heartbeatAt: now, leaseUntil: new Date(now.getTime() + ERASURE_LEASE_MS) },
+        data: { state: 'PURGING_DB', heartbeatAt: now, leaseUntil: new Date(now.getTime() + ERASURE_RUN_LEASE_MS) },
       });
       return { outcome: 'pending-review', remainingExclusive: remainingExclusive.length, docScanFailed: disposition.docScanFailed };
     }
@@ -394,7 +394,7 @@ export async function executePurgingDbStage(deps: PurgingDbStageDeps): Promise<P
     const now = new Date();
     await prisma.projectErasureRun.update({
       where: { erasureId: run.erasureId },
-      data: { state: 'PURGING_OBJECTS', stage: 'PURGING_DB', heartbeatAt: now, leaseUntil: new Date(now.getTime() + ERASURE_LEASE_MS) },
+      data: { state: 'PURGING_OBJECTS', stage: 'PURGING_DB', heartbeatAt: now, leaseUntil: new Date(now.getTime() + ERASURE_RUN_LEASE_MS) },
     });
     logger.log(JSON.stringify({ event: 'erasure_purging_db_done', erasureId: run.erasureId, projectId: pid, mediaUnion: union.media.length, workUnion: union.work.length, note: 'PURGING_OBJECTS 前置位（对象/Redis saga 归 C4-c2）' }));
     return { outcome: 'purging-objects' };

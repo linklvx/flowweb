@@ -19,6 +19,10 @@ export const ERASURE_ACTIVE_STATES = [
   'PURGING_DB', 'PURGING_OBJECTS', 'PURGING_CACHE', 'VERIFYING',
 ] as const;
 
+/** claim 租约（kill -9 恢复窗：租约到期即他实例/重启实例可重认领）。poller claim 与 stages 执行体
+ *  心跳续租共源（C4-c1 质量评审 M5 单源化——本模块不 import poller/stages 无环）。 */
+export const ERASURE_RUN_LEASE_MS = 60_000;
+
 /** run 视图（HTTP 202 响应面——四入口统一形状）。 */
 export interface ErasureRunView {
   erasureId: string;
