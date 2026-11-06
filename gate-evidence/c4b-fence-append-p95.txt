@@ -1,0 +1,27 @@
+C4-b（Task C4-2 ⑧ append p95 基准——fence 接线前后 A/B，T33 harness smoke profile）
+日期：2026-11-06 · 装置=scripts/bench-load.mjs --profile smoke --confirm --out ...（同机同 profile 背靠背）
+形态裁定：A/B=同 profile（smoke）同机背靠背双跑（pre=b03adb11 worktree / post=C4-b HEAD）；判据单源=
+scripts/lib/load-bench-verdict.mjs（硬门六项——回归>阈值=红）；full profile 既有档（t33-load-benchmark.*，
+2026-11-05）为不同规模档（10×10 并发 71.8 fsync/s vs smoke 3×3 ≈14 fsync/s）不与本档混比。
+产物：gate-evidence/c4b-{pre,post}-smoke.bench.json（axes 全量）+ backups/t33-logs/c4b-{pre,post}-smoke.jsonl（分段）。
+────────────────────────────────────────────────────────────────────
+
+【A/B 矩阵（ms——append 链相关轴：saveBarrier/walFsync/concurrency/apply/echo；锁等待/吞吐/资源）】
+ 轴                        PRE(b03adb11)   POST(C4-b)     Δ
+ save barrier p95/p99/max  31/31/31        33/33/33       +2ms（每 appendBatch 事务 +1 FOR SHARE
+                                                           fence 读——硬门 2000ms 的 1.65%，噪声带内）
+ WAL fsync p50/p95/p99     5/20/20         5/20/20        持平（fsync 面零影响——fence 在 PG 事务内非盘面）
+ fsync ops/s               14.5            14.6           持平（最大 ops/s 面无回归）
+ concurrency 帧回声 p95/p99 23/24           23/26          p95 持平（p99 +2ms 尾部噪声）
+ apply_replay p95          9               10             +1ms（装置代理 RTT——噪声带）
+ wire echo p95             6               6              持平
+ feed lag p95              34              33             持平
+ PG 锁等待峰值             0ms             0ms            持平（FOR SHARE 串行化点零可观测锁等待）
+ 写入吞吐（mixed 微窗）    16.7MB/s        14.7MB/s       微窗抖动（smoke 档窗 ~28ms 单发——非稳态吞吐面）
+ RSS 峰值                  209MB           216MB          +7MB（门禁/读过滤 Proxy+装载门读——预算 1.6GiB 的 13%）
+ verdict                   pass（硬门全过） pass（硬门全过） 两档均零 soft warn
+
+【结论】fence 接线（每 project 维写事务首句 advisory+FOR SHARE 读两语句）在 smoke 档的全部
+append 相关轴均在噪声带内（saveBarrier +2ms 为唯一可归因差——远低于任何预算带）；硬门六项
+两档全过、锁等待峰值恒 0ms。回归判据=verdict（load-bench-verdict 单源）：POST pass=无回归。
+full profile 权威档（固定 Linux runner——runbook §17）归 C4-c 前的 release 硬门复跑（本档=开发基线）。

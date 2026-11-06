@@ -23,6 +23,7 @@
 import { Inject, Injectable, Logger, OnModuleInit, OnApplicationShutdown } from '@nestjs/common';
 import { collectMediaRefs } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
+import { runWithIncludeDeleted } from '../../prisma/read-path.filter';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { MinioService } from '../minio/minio.service';
 import { toDocLike } from '../collab/doc-like.util';
@@ -123,12 +124,15 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
       });
       for (const w of fromWorks) if (w.videoMediaId) referenced.add(w.videoMediaId);
       const teamIds = [...new Set(candidates.map((c) => c.teamId))];
-      const projects = await this.prisma.canvasProject.findMany({
+      // I-2（C4-a 评审承接——C4-b 显式收口）：读过滤 Proxy 恒激活改义面——引用图判定（doc 扫描候选
+      // 项目集）应**含 DELETING 项目**（擦除中项目的 doc 仍引用候选 media：漏扫=引用图缺口误删）。
+      // 方向与擦除一致但语义须显式：runWithIncludeDeleted 包裹（保守侧=全量项目集入扫描）。
+      const projects = await runWithIncludeDeleted(() => this.prisma.canvasProject.findMany({
         where: { teamId: { in: teamIds } },
         orderBy: { id: 'asc' },
         take: MEDIA_GC_DOC_SCAN_PAGE + 1,   // +1=超量探测（===PAGE+1 ⇒ 超阀——本轮全量保守保留）
         select: { id: true, teamId: true },
-      });
+      }));
       const scanOverflow = projects.length > MEDIA_GC_DOC_SCAN_PAGE;
       if (scanOverflow) {
         this.logger.warn(`mediaGc doc 扫描超安全阀（>${MEDIA_GC_DOC_SCAN_PAGE} 项目）——本轮全量保守保留 ${ids.length} 候选`);
