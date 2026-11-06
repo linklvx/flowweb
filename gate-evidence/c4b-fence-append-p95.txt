@@ -3,7 +3,11 @@ C4-b（Task C4-2 ⑧ append p95 基准——fence 接线前后 A/B，T33 harness
 形态裁定：A/B=同 profile（smoke）同机背靠背双跑（pre=b03adb11 worktree / post=C4-b HEAD）；判据单源=
 scripts/lib/load-bench-verdict.mjs（硬门六项——回归>阈值=红）；full profile 既有档（t33-load-benchmark.*，
 2026-11-05）为不同规模档（10×10 并发 71.8 fsync/s vs smoke 3×3 ≈14 fsync/s）不与本档混比。
-产物：gate-evidence/c4b-{pre,post}-smoke.bench.json（axes 全量）+ backups/t33-logs/c4b-{pre,post}-smoke.jsonl（分段）。
+产物（勘正——spec 评审 P2-②：初版注声称 pre jsonl 在 backups 实缺）：权威档=gate-evidence/
+c4b-{pre,post}-smoke.bench.json（axes+verdict 全量，已入 git——恢复重放/对比的可复现单源）；分段
+JSONL 仅 post 在 backups/t33-logs/c4b-post-smoke.jsonl（pre 分段落盘于 pre-fence git worktree
+〔b03adb11 检出〕——A/B 采集毕即随 worktree 清理删除，分段证据以入 git 的 .bench.json 为准，
+不改注不补档〔重生成=worktree 重跑，装置/命令见上行〕）。
 ────────────────────────────────────────────────────────────────────
 
 【A/B 矩阵（ms——append 链相关轴：saveBarrier/walFsync/concurrency/apply/echo；锁等待/吞吐/资源）】

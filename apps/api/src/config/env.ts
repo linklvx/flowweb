@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isAbsolute } from 'node:path';
 
 // B13：空串=未设（dotenv/shell 清开关常见形态——'' 不当值验、按未设走 optional/default，防拒启动）
 const blankToUnset = (v: unknown) => (v === '' ? undefined : v);
@@ -186,7 +187,10 @@ export const envSchema = z.object({
   COLLAB_SPOOL_CAPACITY_BYTES: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   // C4-b（plan Task C4-2——R16 manifest 主载体）：erasure manifest 目录（绝对路径强制——恢复删除前
   // 旧备份时 manifest 不随 DB restore 消失；缺省=CWD/.data/erasure-manifest；消费点 project-erasure.manifest）。
-  ERASURE_MANIFEST_DIR: z.preprocess(blankToUnset, z.string().min(1).optional()),
+  // spec 评审 P2-①：绝对路径校验前移到 zod 启动面（原仅 manifest 首写运行时抛=毒丸 run 每 tick
+  // WARN 重试——与 census 注释「构造期绝对路径强制」不符；COLLAB_SPOOL_DIR 同律差异登记：spool
+  // 由 service validateDir 启动扫承担，本键由 zod 承担〔validateDir 面向已存目录、本键目录可不存在〕）。
+  ERASURE_MANIFEST_DIR: z.preprocess(blankToUnset, z.string().min(1).refine(isAbsolute, { message: 'ERASURE_MANIFEST_DIR 必须为绝对路径（CWD 漂移会静默指向另一个目录——manifest=恢复重放锚不容失锚）' }).optional()),
   COLLAB_LEASE_TTL_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_LEASE_HEARTBEAT_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_ADMIN_TOKEN: z.preprocess(blankToUnset, z.string().min(1).optional()),

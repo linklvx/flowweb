@@ -342,20 +342,6 @@ export class CollabDocRegistryService {
     if (!isValidDocName(documentName)) {
       throw Object.assign(new Error('invalid doc name'), { reason: CollabAuthReason.INVALID_DOC_NAME });
     }
-    // C4-b（WS fast-path 拒帧·装载门——auth 后竞窗收口）：lifecycleState 非 ACTIVE ⇒ 拒装载（auth 门
-    // 与本门双校验——auth 过后 tombstone 落地的竞窗在此闭合）。throw 带 reason=NOT_FOUND（库面
-    // PermissionDenied 帧；客户端重连即撞 auth 4414 terminal——closeUpgradeTerminal 单一 terminal
-    // 投递面不在此重复）。raw 读零过滤（分义读——Proxy 只辖 delegate 面）。
-    {
-      // 装置兼容（readGeneration :699 同款 typeof 守卫——stubRepo 直构缺面=跳过本门非炸）
-      if (typeof this.repo.readLifecycleState === 'function') {
-        const lifecycleState = await this.repo.readLifecycleState(parseDocName(documentName)?.projectId ?? '');
-        if (lifecycleState != null && lifecycleState !== 'ACTIVE') {
-          collabLoadRejectedTotal.inc({ reason: 'project-erasing' });
-          throw Object.assign(new Error('project erasing'), { reason: CollabAuthReason.NOT_FOUND });
-        }
-      }
-    }
     // Y0b-5 T16 熔断面①（调用点②准入）：open 期拒新装载（503 COLLAB_NOT_SERVING 面——CollabNotServingFilter
     // 附 Retry-After；零 Prisma——防「每条新装载等满 5s 交互事务超时」）；half-open 放行=本次即探测。
     if (!this.pgBreaker.admitQuery()) {
@@ -415,6 +401,22 @@ export class CollabDocRegistryService {
       const applyReplayed = (u: Uint8Array) => this.persistence.withReplaySuppressed(document, u);
       // 批3-4：compact 时间门限基线播种（首次 load 起算 60s 窗——B1 随域迁 service）
       this.persistence.seedCompactBaseline(projectId);
+      // C4-b（WS fast-path 拒帧·装载门——auth 后竞窗收口；spec 评审 P0 门序定形）：位于 ①pgBreaker
+      // admitQuery **之后**（open 期短路 503 零 Prisma——:359「防每条新装载等满 5s」不变量）+
+      // ②主 try **之内、observeDocument/seedCompactBaseline 播种之后、hydrateWithRecovery 之前**
+      // ——a) 门读失败经主 catch recordFailure 采样（连接族推闸——不采样=死库期熔断器永不 open）
+      // 并分型 db-unavailable 透传；b) 播种面（装载侧效应）先于门执行=故障腿装载也播种 compact
+      // 基线（缺基线=恢复腿 store 后 maybeCompact 即时触发→purge 吞刚落库行——pg-breaker int 恢复
+      // 腿红形态）；c) DELETING 拒载先于 hydrate 成本（typed reason 透传——主 catch 对带 reason
+      // 异常早退不算 PG 失败样本）。raw 读零过滤（分义读——Proxy 只辖 delegate 面）。装置兼容：
+      // readGeneration :699 同款 typeof 守卫（stubRepo 直构缺面=跳过本门非炸）。
+      if (typeof this.repo.readLifecycleState === 'function') {
+        const lifecycleState = await this.repo.readLifecycleState(projectId);
+        if (lifecycleState != null && lifecycleState !== 'ACTIVE') {
+          collabLoadRejectedTotal.inc({ reason: 'project-erasing' });
+          throw Object.assign(new Error('project erasing'), { reason: CollabAuthReason.NOT_FOUND });
+        }
+      }
       // Y0a-1：装载读唯一入口（契约 §4.3-1）+超时自愈（契约 §4.3-13·仅可重试类）
       const { state, updates, generation, schemaVersion, pgSeq } = await this.repo.hydrateWithRecovery(projectId);
       // T18 版本硬切（Y1b T2/Y1c，Z9''-v14）：meta 门 v2.1 整链退役——版本判据唯一承载=

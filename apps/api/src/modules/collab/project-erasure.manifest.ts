@@ -37,7 +37,17 @@ export function erasureManifestDir(): string {
   return join(process.cwd(), '.data', 'erasure-manifest');
 }
 
-/** manifest 采集面（DRAINING 排干临界区内收集——fence 已拒新写者，行集冻结）。 */
+/**
+ * manifest 采集面（DRAINING 排干临界区内收集）。
+ * **冻结域诚实注记（spec 评审 P1——C4-b 勘正）**：行集冻结对 **Canvas 族**成立（fence 已拒
+ * appendBatch/admit/claim 等全部 Canvas 维写者）；**Media/VideoWork 不成立**——在飞生成
+ * （claim 先于 tombstone 运行数分钟）的 registerInTx 在 finalize 事务内建 Media 行
+ * （artifact-commit.service.ts:288/:312）可在采集**后**落新行+新 S3 键；admin updateWork
+ * coverKey 换绑同窗。DB 行有 scope 批删兜底，但 **manifest=介质（S3 对象/Redis url 键）唯一
+ * 采集面 ⇒ 采集后 finalize 的对象/键泄漏**。契约（C4-c 派发词承接）：PURGING_DB 前置位须
+ * **重扫合并**（DRAINING→PURGING_DB 前二扫取并集）**或 DRAINING 前等待在飞 intent 清算**——
+ * 二择一归 C4-c 定形；本批=DRAINING stage 骨架+采集面先行（poller PURGING_DB 前置位注释同钉）。
+ */
 export interface ErasureManifestInputs {
   erasureId: string;
   scopeType: 'project' | 'team';

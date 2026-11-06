@@ -200,7 +200,13 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
    *  ②manifest 落盘（事务外——temp→fsync→rename→fsync dir；**唯一采集面**：kill -9 于 ①后②前=
    *    重跑幂等覆盖〔行集已冻结〕，于②后③前=DB 无索引但文件在=下一 tick 重写收敛）；
    *  ③DB 索引+前置位：manifestPath/manifestSha256 落 run 行+state=PURGING_DB **即停**（介质批删
-   *    saga/状态机续跑归 C4-c）。幂等档：state=PURGING_DB∧manifestPath 在=已前置位 skip。 */
+   *    saga/状态机续跑归 C4-c）。幂等档：state=PURGING_DB∧manifestPath 在=已前置位 skip。
+   *  **C4-c 契约钉死（spec 评审 P1）**：PURGING_DB 前置位承接「manifest 冻结域缺口」——Media/
+   *  VideoWork 在飞 finalize（claim 先于 tombstone；registerInTx artifact-commit :288/:312）与
+   *  coverKey 换绑可在本采集后落新行/新 S3 键（Canvas 族无此窗——fence 拒其全部写者）⇒ C4-c 进
+   *  PURGING_DB 前**必须**重扫合并（DRAINING→PURGING_DB 二扫并集）或 DRAINING 前等待在飞 intent
+   *  清算（二择一定形）——否则采集后 finalize 的 S3 对象/Redis url 键泄漏（manifest=介质唯一采集
+   *  面；DB 行有 scope 批删兜底——泄漏面仅在介质维）。 */
   private async processProjectRun(run: ProjectErasureRun): Promise<void> {
     const pid = run.scopeId;
     await this.erasureCtx.withErasure(run.erasureId, () => runWithIncludeDeleted(async () => {
