@@ -1096,6 +1096,11 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - doc_snapshot_bytes
 - doc_unload_blocked_total
 - doc_update_origin_total
+- erasure_capability_disclosure_total
+- erasure_objects_deleted_total
+- erasure_pending_age
+- erasure_runs_total
+- erasure_stage_duration_seconds
 - event_loop_lag_seconds
 - exec_outbound_duration_seconds
 - exec_poll_stall_total

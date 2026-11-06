@@ -23,6 +23,11 @@ export const ERASURE_ACTIVE_STATES = [
  *  心跳续租共源（C4-c1 质量评审 M5 单源化——本模块不 import poller/stages 无环）。 */
 export const ERASURE_RUN_LEASE_MS = 60_000;
 
+/** C4-c2 P2-2 骑手（毒丸 run FAILED 上界——spec P1-13 claim+attempts/backoff）：连续处理失败
+ *  attempts 达界→FAILED+error（终态——partial unique 释放，re-drive 面人工处置）；重试间隔=租约窗
+ *  （60s 常数退避）；**re-drive 清 attempts 重数**（人工处置后全新计数——毒化根因已排除的语义）。 */
+export const ERASURE_RUN_MAX_ATTEMPTS = 5;
+
 /** run 视图（HTTP 202 响应面——四入口统一形状）。 */
 export interface ErasureRunView {
   erasureId: string;
@@ -158,11 +163,11 @@ export type ReDriveResult =
 
 /**
  * FAILED erasure run 重驱（C4-c1 最简形态——OpsGate 人工 ack 端点先例 unfreezeOpsGateCompact 同族
- * free function）：**attempts 保留+error/claim/completedAt 清空**；恢复点位=manifest 恢复锚判据——
- * manifestPath 在 ⇒ 直接回 **PURGING_DB**（执行体幂等续跑——并集只增不减；**禁回 PENDING 重走
- * DRAINING**：重采集=live 行集已随批删/detach 收缩，manifest 缩水会丢 C4-c2 对象/Redis 重放面〔
+ * free function）：**attempts 清零重数（C4-c2 P2-2）+error/claim/completedAt 清空**；恢复点位=manifest
+ * 恢复锚判据——manifestPath 在 ⇒ 直接回 **PURGING_DB**（执行体幂等续跑——并集只增不减；**禁回 PENDING
+ * 重走 DRAINING**：重采集=live 行集已随批删/detach 收缩，manifest 缩水会丢对象/Redis 重放面〔
  * detached work/media 行〕）；无 manifest（DRAINING 前失败）⇒ PENDING 从头。同事务 audit 行
- * （action='erasure_re_drive'——非 FAILED 拒〔活跃 run 轮询自愈面已覆盖〕）。runbook 文档归 C4-c2。
+ * （action='erasure_re_drive'——非 FAILED 拒〔活跃 run 轮询自愈面已覆盖〕）。runbook 文档=§13。
  */
 export async function reDriveErasureRun(
   tx: ReDriveTx,
@@ -176,7 +181,8 @@ export async function reDriveErasureRun(
     where: { erasureId: run.erasureId },
     data: {
       state: resumeState, error: null, claimOwner: null, leaseUntil: null, completedAt: null, stage: null,
-      // attempts/manifestPath/manifestSha256 原样保留（重试计数续累+介质恢复锚）
+      attempts: 0,   // C4-c2 P2-2：re-drive 清 attempts 重数（人工处置=毒化根因已排除——全新计数；FAILED 上界 ERASURE_RUN_MAX_ATTEMPTS）
+      // manifestPath/manifestSha256 原样保留（介质恢复锚）
     },
   });
   await tx.auditLog.create({
@@ -189,7 +195,7 @@ export async function reDriveErasureRun(
       action: 'erasure_re_drive',
       beforeValue: { state: 'FAILED', error: run.error },
       afterValue: { state: resumeState, attempts: updated.attempts },
-      remark: `FAILED re-drive（run=${run.erasureId}——attempts ${updated.attempts} 保留${run.manifestPath ? '；恢复锚在=直回 PURGING_DB 执行体' : ''}）`,
+      remark: `FAILED re-drive（run=${run.erasureId}——attempts 清零重数〔P2-2〕${run.manifestPath ? '；恢复锚在=直回 PURGING_DB 执行体' : ''}）`,
     },
   });
   return { ok: true, run: toRunView(updated), attempts: updated.attempts };

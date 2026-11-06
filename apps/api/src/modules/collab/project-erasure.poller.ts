@@ -13,18 +13,26 @@
 //  ③会合判定（WAITING_CHILDREN）：子 run 任一 FAILED→team run FAILED（不删 Team——红⑤-b）；子全
 //    DONE→PURGING_TEAM（ledger 通行证——team.delete 级联 TeamBalance 触发 ledger_guard）→删 Team 行
 //    →team run DONE。
-// project scope run：claim+RUNNING+租约心跳（PENDING→RUNNING 的 liveness 证明——物理清除 saga 态机
-// 归 C4-c；本骨架不推进物理删除=tombstone-only 承诺的 worker 半边在位）。dryRun run 不消费（C4-c）。
+// project scope run：claim+RUNNING+租约心跳（PENDING→RUNNING 的 liveness 证明）。**C4-c2 完整 saga
+// 接线**：PURGING_DB（c1 执行体）→PURGING_OBJECTS（对象删除+版本化 capability detect）→PURGING_CACHE
+// （purgeScope 首步+Redis 全前缀清）→VERIFYING（三重复验）→DONE（team 会合自动推进面）；per-run
+// catch 升级 attempts≥N→FAILED（毒丸上界——spec P1-13：claim+attempts/backoff，重试间隔=租约窗
+// 〔60s 常数退避〕，re-drive 清 attempts 重数）。dryRun run 不消费（完整 DRY_RUN 语义=执行体直调预览）。
 import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { ProjectErasureRun } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { runWithIncludeDeleted } from '../../prisma/read-path.filter';
+import { MinioService } from '../minio/minio.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { ErasureContextService, lockScope, lockProject, fenceProject, fenceTeam } from './project-lock';
-import { createErasureRun, ERASURE_ACTIVE_STATES, ERASURE_RUN_LEASE_MS } from './project-erasure';
+import { createErasureRun, ERASURE_ACTIVE_STATES, ERASURE_RUN_LEASE_MS, ERASURE_RUN_MAX_ATTEMPTS } from './project-erasure';
 import { collectSpoolSegments, writeErasureManifest, collabSpoolDir, type ErasureManifestInputs } from './project-erasure.manifest';
 import { executePurgingDbStage, httpMediaRefsCollector, type MediaRefsCollector } from './project-erasure.stages';
+import { executePurgingObjectsStage, type ErasureObjectPort } from './project-erasure.objects';
+import { executePurgingCacheStage, httpPurgeScope, type PurgeScopeClient, type RedisPurgePort } from './project-erasure.cache';
+import { executeVerifyingStage } from './project-erasure.verifying';
+import { erasurePendingAge, erasureRunsTotal } from './erasure.metrics';
 
 /** 轮询周期（时间门基线：run 行=唤醒源，间隔即红④兜底延迟上界；env 可调——RETENTION_SWEEP_INTERVAL_MS 同族形态）。 */
 export const ERASURE_POLL_INTERVAL_MS = Number(process.env.ERASURE_POLL_INTERVAL_MS) || 5_000;
@@ -53,6 +61,14 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
     /** C4-c1：未 reconcile 引用采集器（PURGING_DB 独占判别 doc 扫描——api 内部端点客户端）。
      *  缺省=构造期惰性解析 httpMediaRefsCollector；int 测试注入 stub。 */
     @Optional() private readonly mediaRefs?: MediaRefsCollector,
+    /** C4-c2：对象删除端口（PURGING_OBJECTS/VERIFYING——worker.module MinioModule @Global 注入；
+     *  int 测试注入 MinioService（temp bucket 绑定）或 stub）。 */
+    @Optional() @Inject(MinioService) private readonly objects?: ErasureObjectPort,
+    /** C4-c2：Redis 清除端口（PURGING_CACHE/VERIFYING——worker.module REDIS_CLIENT 注入；ioredis
+     *  结构子集三面可赋）。 */
+    @Optional() @Inject('REDIS_CLIENT') private readonly redis?: RedisPurgePort,
+    /** C4-c2：purgeScope 客户端（PURGING_CACHE 首步——api 内部端点；缺省 httpPurgeScope）。 */
+    @Optional() private readonly purgeScope?: PurgeScopeClient,
   ) {}
 
   onModuleInit(): void {
@@ -68,15 +84,19 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
     if (this.running) return;
     this.running = true;
     try {
+      // C4-c2：erasure_pending_age gauge 维护（每 tick 重算——max(now-requestedAt) over active 态
+      // ∧非 dryRun；worker 3002 出口，THRESHOLDS P0@1h 消费）
+      await this.refreshPendingAge().catch(() => undefined);
       const candidates = await this.prisma.projectErasureRun.findMany({
         where: {
           dryRun: false,
           OR: [
             { scopeType: 'team', state: { in: ['PENDING', 'RUNNING', 'WAITING_CHILDREN'] } },
           // C4-b：project 含 DRAINING（kill -9 于 ①置 DRAINING 与 ③PURGING_DB 之间=重跑幂等收敛）
-          // C4-c1：含 PURGING_DB（DB 介质批删 saga——project-erasure.stages 执行体；完成置
-          // PURGING_OBJECTS 即停〔对象/Redis 归 C4-c2——不进本 tick 候选〕）
-          { scopeType: 'project', state: { in: ['PENDING', 'RUNNING', 'DRAINING', 'PURGING_DB'] } },
+          // C4-c1：含 PURGING_DB（DB 介质批删 saga——project-erasure.stages 执行体）
+          // C4-c2：含 PURGING_OBJECTS/PURGING_CACHE/VERIFYING（对象/Redis/复验 saga——stages/objects/
+          //  cache/verifying 执行体；红⑪ 完整锚：kill -9 各 stage→tick 重认领续跑至 DONE）
+          { scopeType: 'project', state: { in: ['PENDING', 'RUNNING', 'DRAINING', 'PURGING_DB', 'PURGING_OBJECTS', 'PURGING_CACHE', 'VERIFYING'] } },
           ],
         },
         select: { erasureId: true, scopeType: true },
@@ -87,8 +107,8 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
         const run = await this.claim(c.erasureId);
         if (!run) continue;
         if (c.scopeType === 'team') await this.processTeamRun(run);
-        // C4-b：project scope run=DRAINING stage（同键锁排干+manifest 唯一采集面先行→PURGING_DB
-        // 前置位停——介质批删 saga 归 C4-c）
+        // C4-b/C4-c1/C4-c2：project scope run saga 态机路由（DRAINING→PURGING_DB→PURGING_OBJECTS→
+        // PURGING_CACHE→VERIFYING→DONE——每态执行体独立文件）
         else await this.processProjectRun(run);
       }
     } catch (e) {
@@ -96,6 +116,41 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
     } finally {
       this.running = false;
     }
+  }
+
+  /** erasure_pending_age gauge 重算（active 态∧非 dryRun 的最老 requestedAt 年龄毫秒；无活跃 run=0）。 */
+  private async refreshPendingAge(): Promise<void> {
+    const oldest = await this.prisma.projectErasureRun.findFirst({
+      where: { dryRun: false, state: { in: [...ERASURE_ACTIVE_STATES] } },
+      orderBy: { requestedAt: 'asc' },
+      select: { requestedAt: true },
+    });
+    erasurePendingAge.set(oldest ? Date.now() - oldest.requestedAt.getTime() : 0);
+  }
+
+  /**
+   * P2-2 骑手（毒丸 run FAILED 上界——spec P1-13 claim+attempts/backoff）：per-run catch 升级——
+   * 处理失败 attempts+1；连续失败达 ERASURE_RUN_MAX_ATTEMPTS→FAILED+error 置档（终态：claim/lease
+   * 清空，partial unique 释放——re-drive 面）；未达界=租约窗（60s 常数）到期重认领=退避。
+   * pending-review/pending-api 类**非失败** outcome（执行体内部 state 续租）不经本面。
+   */
+  private async noteRunFailure(run: ProjectErasureRun, stage: string, e: unknown): Promise<void> {
+    const attempts = run.attempts + 1;
+    const message = `${stage} 失败: ${(e as Error).message}`.slice(0, 500);
+    if (attempts >= ERASURE_RUN_MAX_ATTEMPTS) {
+      await this.prisma.projectErasureRun.update({
+        where: { erasureId: run.erasureId },
+        data: { state: 'FAILED', error: message, attempts, completedAt: new Date(), claimOwner: null, leaseUntil: null },
+      }).catch(() => undefined);
+      erasureRunsTotal.inc({ state: 'FAILED' });
+      this.logger.error(`erasure run ${run.erasureId} 连续失败 ${attempts} 次→FAILED（毒丸上界——re-drive 面人工处置）: ${message}`);
+      return;
+    }
+    await this.prisma.projectErasureRun.update({
+      where: { erasureId: run.erasureId },
+      data: { attempts },
+    }).catch(() => undefined);
+    this.logger.warn(`erasure run ${run.erasureId} ${stage} 失败（attempts ${attempts}/${ERASURE_RUN_MAX_ATTEMPTS}——租约到期重认领重试）: ${message}`);
   }
 
   /** CAS claim（独立事务提交——处理失败不丢 claim：租约到期即恢复锚）。PENDING→RUNNING 仅升不降
@@ -165,7 +220,8 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
             where: { erasureId: run.erasureId },
             data: { state: 'FAILED', error: `子擦除 run 失败（${failed}/${children.length}）——Team 行保留`, completedAt: now, claimOwner: null, leaseUntil: null },
           });
-          this.logger.warn(`erasure team run ${run.erasureId} FAILED：子 run 失败 ${failed}/${children.length}（Team ${teamId} 保留——re-drive 归 C4-c ops 面）`);
+          erasureRunsTotal.inc({ state: 'FAILED' });
+          this.logger.warn(`erasure team run ${run.erasureId} FAILED：子 run 失败 ${failed}/${children.length}（Team ${teamId} 保留——re-drive 归 ops 面）`);
           return;
         }
         if (active === 0) {
@@ -183,6 +239,7 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
             where: { erasureId: run.erasureId },
             data: { state: 'DONE', stage: 'PURGING_TEAM', completedAt: now, claimOwner: null, leaseUntil: null },
           });
+          erasureRunsTotal.inc({ state: 'DONE' });
           return;
         }
         await tx.projectErasureRun.update({
@@ -191,7 +248,7 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
         });
       }, { timeout: TEAM_TX_TIMEOUT_MS, maxWait: 10_000 }),
     )).catch((e: unknown) => {
-      this.logger.warn(`erasure team run ${run.erasureId} 处理失败（租约到期重认领——下一 tick 重试）: ${(e as Error).message}`);
+      void this.noteRunFailure(run, 'TEAM', e);
     });
   }
 
@@ -214,17 +271,38 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
    *  mediaRefs 采集器：构造期注入缺省 httpMediaRefsCollector（api 内部端点客户端）。 */
   private async processProjectRun(run: ProjectErasureRun): Promise<void> {
     const pid = run.scopeId;
-    // C4-c1：PURGING_DB 前置位=执行体承接（DB 介质批删+scrub+detach+两阶段复核+列级断言）；
+    // C4-c1：PURGING_DB 前置位=执行体承接（DB 介质批删+scrub+detach+两阶段复核+列级断言）。
     // per-run catch（DRAINING/team 面同律）：单 run 毒丸〔manifest 损坏/断言红〕不吞本 tick 其余
-    // 候选——租约到期重认领重试+FAILED re-drive 面承接。
+    // 候选——C4-c2 升级 attempts 计数（noteRunFailure：连续失败 N 次→FAILED 毒丸上界）。
     if (run.state === 'PURGING_DB' && run.manifestPath) {
       await executePurgingDbStage({
         prisma: this.prisma, run,
         collectMediaRefs: this.mediaRefs ?? httpMediaRefsCollector(),
         spoolDir: collabSpoolDir(),
-      }).catch((e: unknown) => {
-        this.logger.warn(`erasure project run ${run.erasureId} PURGING_DB 失败（租约到期重认领——下一 tick 重试）: ${(e as Error).message}`);
-      });
+      }).catch(async (e: unknown) => { await this.noteRunFailure(run, 'PURGING_DB', e); });
+      return;
+    }
+    // C4-c2：PURGING_OBJECTS（对象删除+版本化 capability detect+multipart 残件——project-erasure.objects）。
+    // 端口缺席（裸构造测试面）=per-run 失败走 attempts 计数（禁裸抛吞本 tick 其余候选——单 run 隔离律）。
+    if (run.state === 'PURGING_OBJECTS' && run.manifestPath) {
+      if (!this.objects) { await this.noteRunFailure(run, 'PURGING_OBJECTS', new Error('缺少对象删除端口（MinioService——worker.module 装配）')); return; }
+      await executePurgingObjectsStage({ prisma: this.prisma, run, objects: this.objects })
+        .catch(async (e: unknown) => { await this.noteRunFailure(run, 'PURGING_OBJECTS', e); });
+      return;
+    }
+    // C4-c2：PURGING_CACHE（purgeScope 首步 fail-closed+Redis 全前缀清——project-erasure.cache）
+    if (run.state === 'PURGING_CACHE' && run.manifestPath) {
+      if (!this.redis) { await this.noteRunFailure(run, 'PURGING_CACHE', new Error('缺少 Redis 端口（REDIS_CLIENT——worker.module 装配）')); return; }
+      await executePurgingCacheStage({ prisma: this.prisma, run, redis: this.redis, purgeScope: this.purgeScope ?? httpPurgeScope() })
+        .catch(async (e: unknown) => { await this.noteRunFailure(run, 'PURGING_CACHE', e); });
+      return;
+    }
+    // C4-c2：VERIFYING（三重复验→DONE——project-erasure.verifying；team run WAITING_CHILDREN 会合
+    // 判定由此自动推进：子 run DONE 链在 processTeamRun 每 tick 重判）
+    if (run.state === 'VERIFYING' && run.manifestPath) {
+      if (!this.objects || !this.redis) { await this.noteRunFailure(run, 'VERIFYING', new Error('缺少对象+Redis 端口（worker.module 装配）')); return; }
+      await executeVerifyingStage({ prisma: this.prisma, run, objects: this.objects, redis: this.redis })
+        .catch(async (e: unknown) => { await this.noteRunFailure(run, 'VERIFYING', e); });
       return;
     }
     await this.erasureCtx.withErasure(run.erasureId, () => runWithIncludeDeleted(async () => {
@@ -247,6 +325,7 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
             heartbeatAt: new Date(), leaseUntil: new Date(Date.now() + ERASURE_RUN_LEASE_MS),
           },
         });
+        erasureRunsTotal.inc({ state: 'DRAINING' });
         return { mediaRows, workRows };
       }, { timeout: PROJECT_TX_TIMEOUT_MS, maxWait: 10_000 });
       // ②manifest 落盘（spool 段=共享盘面 dir 扫描——worker/api 同机部署形态）
@@ -266,13 +345,14 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
           heartbeatAt: new Date(), leaseUntil: new Date(Date.now() + ERASURE_RUN_LEASE_MS),
         },
       });
+      erasureRunsTotal.inc({ state: 'PURGING_DB' });
       this.logger.log(JSON.stringify({
         event: 'erasure_manifest_written', erasureId: run.erasureId, projectId: pid,
         rows: manifest.rows, manifestPath: manifest.manifestPath,
         note: 'PURGING_DB 前置位（下一 tick 进执行体——stages 承接介质 saga）',
       }));
     })).catch((e: unknown) => {
-      this.logger.warn(`erasure project run ${run.erasureId} DRAINING 失败（租约到期重认领——下一 tick 重试）: ${(e as Error).message}`);
+      void this.noteRunFailure(run, 'DRAINING', e);
     });
   }
 }

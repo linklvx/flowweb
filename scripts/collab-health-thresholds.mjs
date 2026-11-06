@@ -197,6 +197,18 @@ export const THRESHOLDS = {
     level: 'P0', kind: 'counter-delta', delta: 0,
     note: 'C2-2b freeze 实弹：canary mismatch→OpsGate FROZEN 落定（charter「不一致告警并冻结」——人工解冻 ack 处置序 runbook §14 归 C2-3；悬置年龄分级另由 collab_ops_gate_frozen_age P1@1h/P0@6h 承接）。声明面（api 3000 恒 0 死键）——操作判定路径=evaluate CANARY 段读 worker 3002（CANARY_CHECKS 单源）。source=worker 3002',
   },
+
+  // ===== C4-c2（生产就绪收尾批·project-erasure——erasure poller worker 面；source=worker 3002：
+  //        ProjectErasureRunPoller 仅 worker 进程装配〔api 3000 恒 0 死键，retention/C3 同款声明面〕；
+  //        两键语义注记 runbook §13/§6） =====
+  erasure_pending_age: {
+    level: 'P0', kind: 'gauge-max', value: 3_600_000,
+    note: 'C4：最老非终态 erasure run 年龄毫秒（max(now-requestedAt) over active 态∧非 dryRun——每 poller tick 重算）——PENDING>1h=P0：tombstone 后项目对用户已消失而介质残留（worker 停摆/毒丸卡死即撕开「用户视角已删」与「数据仍在」的缺口）；处置=查 worker 进程/run 行 state 分布/FAILED 面（spec §3 C4 P1-13）。source=worker 3002',
+  },
+  erasure_runs_total: {
+    level: 'P1', kind: 'counter-delta', delta: 0, labels: { state: 'FAILED' },
+    note: 'C4：run 状态转移计数（state=目标态闭集——DONE/FAILED+各活跃转移）——FAILED 增量=P1（毒丸上界 ERASURE_RUN_MAX_ATTEMPTS=5 兜底后的终态：attempts 已满，无自愈面——人工 re-drive 处置〔POST /api/admin/erasure/runs/:id/re-drive，runbook §13〕）。source=worker 3002',
+  },
 };
 
 /** Y0c T29-II（Z130③/Z116/R6a）：worker 3002 端点族阈值——「巡检即采集面」（Z134 无 Prometheus

@@ -1173,6 +1173,10 @@ if (isMain()) {
       PORT: 1,
       WORKER_WRITE_TOKEN: 1,
     },
+    'apps/api/src/modules/collab/project-erasure.cache.ts': {   // C4-c2（生产就绪收尾批·project-erasure）：PURGING_CACHE 执行体两键（函数内形态——httpPurgeScope 构造期读 loopback api 基址 PORT/WORKER_WRITE_TOKEN〔httpMediaRefsCollector/stages 同源同判据：零 DI 依赖 fetch 客户端=闭包纯度保 census ⑰〕）
+      PORT: 1,
+      WORKER_WRITE_TOKEN: 1,
+    },
     'apps/api/src/modules/collab/project-erasure.manifest.ts': {   // C4-b（生产就绪收尾批·project-erasure）：manifest 目录键（ERASURE_MANIFEST_DIR——R16 主载体目录；env.ts zod 同批注册+构造期绝对路径强制；COLLAB_SPOOL_DIR 同族：缺省=CWD 派生档、消费面=manifest 落盘目录非部署档位）+C4-c1 质量评审 M4：spool 目录缺省式三处重复收敛本模块 collabSpoolDir() 单源（poller DRAINING 采集/执行体传参/并集重写缺省档）
       ERASURE_MANIFEST_DIR: 1,
       COLLAB_SPOOL_DIR: 1,

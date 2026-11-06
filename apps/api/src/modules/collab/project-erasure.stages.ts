@@ -31,6 +31,17 @@
 //    一切除删与 scrub 写（介质删除跳过含 DB 行删除——完整 DRY_RUN 语义定形归 C4-c2）。
 // kill -9 幂等（红⑪）：各内步重跑收敛——并集只增、deleteMany/updateMany 谓词幂等、sidecar 跨 tick
 // 复核、行删除 P2025 折幂等；lease 过期他实例重认领=C4-b claim 谓词（执行体不自持锁跨步）。
+//
+// ═══ C4-c2 骑手裁定登记（2026-11-05——代码注释显性登记非改码；评审需收紧再议）══════════════
+//  **P2-1（dryRun 档 manifestSha256 写 run 行口径）**：dryRun 亦执行 ②并集重写 manifest+DB 索引列
+//   同步——**裁定=维持现行为**（c1 已然：manifest 采集/索引=run 自身簿记非项目数据清除面；「介质
+//   删除跳过含 DB 行删除」的 DRY_RUN 字面不涵盖 run 行自身元数据写；且 dryRun 后真实擦除需要完整
+//   并集 manifest 承接——提前采集是前置价值非副作用。红测锚=c1 dryRun 用例 manifestAfter 断言）。
+//  **P2-3（fail-closed 轮 CanvasProject 行删除宽松档）**：doc 扫描不可达（docScanFailed）时本执行体
+//   仍推进批删+CanvasProject 行删除、**只停独占 media 删除**——裁定=登记非收紧（现行为方向安全：
+//   ①Canvas 族写者已被 fence 拒、行删除不可逆性低〔行集可从备份恢复〕；②独占 media 行+对象删除
+//   〔不可逆+用户数据〕恒走两阶段复核窗；③收敛性成立——恢复可达后下一 tick 续判独占；④收紧
+//   〔fail-closed 停一切〕会让 api 短暂不可达阻塞整个擦除管道=可用性损失换无收益的保守）。
 import { Logger } from '@nestjs/common';
 import { join } from 'node:path';
 import type { ProjectErasureRun } from '@prisma/client';
@@ -45,6 +56,7 @@ import { assertProjectErasureDbComplete, type ErasureAssertDb } from './project-
 import { ERASURE_MEDIA_REFS_BATCH } from './collab-spool.service';
 import { collectJsonMediaIds } from '../media-delivery/media-gc.service';
 import { ERASURE_RUN_LEASE_MS } from './project-erasure';
+import { erasureRunsTotal, erasureStageDuration } from './erasure.metrics';
 
 /** 两阶段复核窗=一个 claim 租约周期（跨 claim 周期——标记与删除不得同窗：窗内在飞写可观测）。 */
 const ERASURE_MEDIA_REVIEW_MS = 60_000;
@@ -336,6 +348,7 @@ export async function executePurgingDbStage(deps: PurgingDbStageDeps): Promise<P
   const pid = run.scopeId;
   const manifestDir = deps.manifestDir ?? erasureManifestDir();
   const logger = new Logger('ProjectErasureStages');
+  const stageStart = Date.now();
   return erasureCtx.withErasure(run.erasureId, () => runWithIncludeDeleted(async () => {
     // ① manifest 读（footer SHA 复算不等=诚实披露抛错——R16）
     const manifest = await readErasureManifest(run.manifestPath!);
@@ -390,12 +403,14 @@ export async function executePurgingDbStage(deps: PurgingDbStageDeps): Promise<P
     // ⑦ 列级机器断言（红⑯——registry 全表清点；violations 非空=不前置位〔租约恢复面重试〕）
     const assertion = await assertProjectErasureDbComplete(prisma as unknown as ErasureAssertDb, pid, { forbiddenContent: deriveForbiddenContent(union) });
     if (!assertion.ok) throw new Error(`PURGING_DB 列级断言红（${pid}）: ${assertion.violations.join('；')}`);
-    // ⑧ 前置位：PURGING_OBJECTS 即停（对象/Redis/VERIFYING 归 C4-c2）
+    // ⑧ 前置位：PURGING_OBJECTS 即停（对象/Redis/VERIFYING 归 C4-c2——objects/cache/verifying 执行体）
     const now = new Date();
     await prisma.projectErasureRun.update({
       where: { erasureId: run.erasureId },
       data: { state: 'PURGING_OBJECTS', stage: 'PURGING_DB', heartbeatAt: now, leaseUntil: new Date(now.getTime() + ERASURE_RUN_LEASE_MS) },
     });
+    erasureRunsTotal.inc({ state: 'PURGING_OBJECTS' });
+    erasureStageDuration.observe({ stage: 'PURGING_DB' }, (Date.now() - stageStart) / 1000);
     logger.log(JSON.stringify({ event: 'erasure_purging_db_done', erasureId: run.erasureId, projectId: pid, mediaUnion: union.media.length, workUnion: union.work.length, note: 'PURGING_OBJECTS 前置位（对象/Redis saga 归 C4-c2）' }));
     return { outcome: 'purging-objects' };
   }));

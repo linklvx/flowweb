@@ -8,6 +8,14 @@ import {
   HeadObjectCommand,
   HeadBucketCommand,
   CreateBucketCommand,
+  GetBucketVersioningCommand,
+  ListObjectVersionsCommand,
+  DeleteObjectsCommand,
+  ListMultipartUploadsCommand,
+  AbortMultipartUploadCommand,
+  GetBucketReplicationCommand,
+  GetObjectLockConfigurationCommand,
+  GetBucketLifecycleConfigurationCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
@@ -191,6 +199,123 @@ export class MinioService {
   async statSize(key: string): Promise<number> {
     const stats = await this.statObject(key);
     return stats.ContentLength ?? 0;
+  }
+
+  // ── C4-c2（plan Task C4-3 ★红⑮——生产就绪收尾批·project-erasure）：对象存储 capability detect
+  //    +版本化/非版本化删除面。既有面零行为变化（纯增量）；消费方=project-erasure.objects 执行体。
+  //    语义契约（spec §3 C4 版本化 capability detect）：
+  //    - GetBucketVersioning→Enabled=ListObjectVersions 逐版本（含 DeleteMarkers）DeleteObjects 带版本
+  //      （旧版本全删——非版本化 delete 只删现行、旧版本静默残留=假绿根修）；
+  //    - 非版本化=DeleteObjects 现行对象（1000/批——S3 单请求上限）；
+  //    - ListMultipartUploads/Abort=multipart 残件清理（未 Complete 残件不计入对象清单、单独面）；
+  //    - replication/object-lock/lifecycle=**能力披露面非执法面**（规则在位→调用方诚实披露
+  //      〔日志+指标+runbook §13〕——本层不假装全清：副本桶/锁定对象的远端保留期超出本系统权限域）。 ──
+
+  /** 桶版本化状态（GetBucketVersioning——Status 缺席=从未开启=Unversioned）。 */
+  async getBucketVersioningStatus(): Promise<'Enabled' | 'Suspended' | 'Unversioned'> {
+    const res = await this.s3Client.send(new GetBucketVersioningCommand({ Bucket: this.bucket }));
+    if (res.Status === 'Enabled') return 'Enabled';
+    if (res.Status === 'Suspended') return 'Suspended';
+    return 'Unversioned';
+  }
+
+  /** 单 key 全版本清单（含 DeleteMarker——VersionId+IsDeleteMarker；分页 1000）。 */
+  async listObjectVersionRefs(key: string): Promise<Array<{ key: string; versionId: string }>> {
+    const out: Array<{ key: string; versionId: string }> = [];
+    let token: string | undefined;
+    do {
+      const res = await this.s3Client.send(new ListObjectVersionsCommand({
+        Bucket: this.bucket, Prefix: key, MaxKeys: 1000, ...(token ? { KeyMarker: token } : {}),
+      }));
+      for (const v of res.Versions ?? []) out.push({ key: v.Key!, versionId: v.VersionId! });
+      for (const d of res.DeleteMarkers ?? []) out.push({ key: d.Key!, versionId: d.VersionId! });
+      token = res.NextKeyMarker ?? undefined;
+    } while (token);
+    return out;
+  }
+
+  /** 非版本化现行对象批删（1000/批；幂等——S3 语义对不存在键静默成功）。返回请求删除数。 */
+  async deleteObjectsByKeys(keys: readonly string[]): Promise<number> {
+    let n = 0;
+    for (let i = 0; i < keys.length; i += 1000) {
+      const batch = keys.slice(i, i + 1000).map((Key) => ({ Key }));
+      if (batch.length === 0) continue;
+      await this.s3Client.send(new DeleteObjectsCommand({ Bucket: this.bucket, Delete: { Objects: batch } }));
+      n += batch.length;
+    }
+    return n;
+  }
+
+  /** 版本化逐版本批删（1000/批——Key+VersionId 精确指版本；幂等同上）。 */
+  async deleteObjectVersions(versions: ReadonlyArray<{ Key: string; VersionId: string }>): Promise<number> {
+    let n = 0;
+    for (let i = 0; i < versions.length; i += 1000) {
+      const batch = versions.slice(i, i + 1000);
+      if (batch.length === 0) continue;
+      await this.s3Client.send(new DeleteObjectsCommand({ Bucket: this.bucket, Delete: { Objects: batch } }));
+      n += batch.length;
+    }
+    return n;
+  }
+
+  /** 在飞 multipart 上传清单（分页；残件=未 Complete 的分片上传——单独计费+残留面）。 */
+  async listMultipartUploads(): Promise<Array<{ key: string; uploadId: string }>> {
+    const out: Array<{ key: string; uploadId: string }> = [];
+    let token: string | undefined;
+    do {
+      const res = await this.s3Client.send(new ListMultipartUploadsCommand({
+        Bucket: this.bucket, MaxUploads: 1000, ...(token ? { KeyMarker: token } : {}),
+      }));
+      for (const u of res.Uploads ?? []) out.push({ key: u.Key!, uploadId: u.UploadId! });
+      token = res.NextKeyMarker ?? undefined;
+    } while (token);
+    return out;
+  }
+
+  /** 中止 multipart 残件（Abort=分片与上传登记一并清）。 */
+  async abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+    await this.s3Client.send(new AbortMultipartUploadCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId }));
+  }
+
+  /** 复制规则数（无配置=0——NoSuchReplicationConfiguration 折零非错；>0=副本桶披露面）。 */
+  async getReplicationRuleCount(): Promise<number> {
+    try {
+      const res = await this.s3Client.send(new GetBucketReplicationCommand({ Bucket: this.bucket }));
+      return res.ReplicationConfiguration?.Rules?.length ?? 0;
+    } catch (e) {
+      if (this.isNotFoundConfig(e)) return 0;
+      throw e;
+    }
+  }
+
+  /** 对象锁在位判定（ObjectLockConfigurationNotFoundError→false；true=合规保留锁披露面）。 */
+  async getObjectLockEnabled(): Promise<boolean> {
+    try {
+      const res = await this.s3Client.send(new GetObjectLockConfigurationCommand({ Bucket: this.bucket }));
+      return res.ObjectLockConfiguration?.ObjectLockEnabled === 'Enabled';
+    } catch (e) {
+      if (this.isNotFoundConfig(e)) return false;
+      throw e;
+    }
+  }
+
+  /** lifecycle 规则数（无配置=0；>0=桶策略可能与擦除交互——披露面）。 */
+  async getLifecycleRuleCount(): Promise<number> {
+    try {
+      const res = await this.s3Client.send(new GetBucketLifecycleConfigurationCommand({ Bucket: this.bucket }));
+      return res.Rules?.length ?? 0;
+    } catch (e) {
+      if (this.isNotFoundConfig(e)) return 0;
+      throw e;
+    }
+  }
+
+  /** 「无该配置」错误分型（S3 族 NotFound 形态各异——名字+404 双判）。 */
+  private isNotFoundConfig(e: unknown): boolean {
+    const name = (e as { name?: string })?.name;
+    if (name === 'NoSuchReplicationConfiguration' || name === 'ObjectLockConfigurationNotFoundError'
+      || name === 'NoSuchLifecycleConfiguration') return true;
+    return (e as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode === 404;
   }
 
   /** Ensure the configured bucket exists; create it if missing */

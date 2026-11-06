@@ -1922,6 +1922,45 @@ export class CollabSpoolService {
     this.logger.error(`spool truncated frame at ${projectId}.${segSeq}——停读该段（坏帧从未持久化或落盘不完整），计数+人工介入`);
   }
 
+  // ── C4-c2（生产就绪收尾批·project-erasure）：purgeScope 内部端点 service 面 ──────────────
+  /** purgeScope 端点限批（projectIds 上界——collectMediaRefs 同族容量防护：worker 单 scope 调用
+   *  恒 1 项，超限=调用方契约违例）。 */
+  async purgeErasureScope(
+    projectIds: string[],
+    deps: { docs: { isLeaseServing(): boolean; invalidateSnapshotCache(projectId: string): void } },
+  ): Promise<{ purgedSegments: number }> {
+    if (projectIds.length > 50) {
+      throw new BadRequestException(`projectIds ${projectIds.length} 超限批 50（worker 单 scope 调用恒 1 项——purgeScope 内部端点容量防护）`);
+    }
+    if (!deps.docs.isLeaseServing()) {
+      throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'purgeScope 端点非 serving（lease 未持有）——fail-closed 调用方本轮暂停' });
+    }
+    const wanted = new Set(projectIds);
+    let purgedSegments = 0;
+    for (const pid of projectIds) {
+      // ① 内存面：dedup 索引/水位三元/walSeq 计数器/世代登记（DB 行已删——这些键永不自愈=必须显式清）
+      this.dedupClearProject(pid);
+      this.watermarks.delete(pid);
+      this.walSeqCounters.delete(pid);
+      this.projectGeneration.delete(pid);
+      // ② 段文件面：全目录枚举按段名归属过滤（own+foreign+隔离 sidecar 一并——CanvasDoc 行已删，
+      //    段内容=用户数据残留；unlink 失败上抛=端点 500→worker fail-closed 本轮暂停下轮重试）
+      for (const f of await listSpoolFiles(this.dir)) {
+        const parsed = parseSegFileName(f.name);
+        if (parsed == null || parsed.projectId !== pid) continue;
+        const path = join(f.dir, f.name);
+        await unlink(path);
+        await unlink(`${path}.quarantine`).catch(() => undefined);   // 隔离 sidecar 同收
+        purgedSegments += 1;
+      }
+      // ③ 内存索引：段元数据整键删（unlink 后记账清——对外键集 hasFrames 即 false）
+      this.index.delete(pid);
+      // ④ 快照缓存 evict（CollabDocumentService.snapshotCache——进程内跨请求 30s 面）
+      deps.docs.invalidateSnapshotCache(pid);
+    }
+    return { purgedSegments };
+  }
+
   // ── C4-c1（生产就绪收尾批·project-erasure）：collectMediaRefs 内部端点 service 面 ──────────────
   /** 未 reconcile 引用采集（erasure worker PURGING_DB 独占判别的 doc 扫描终裁面——「副本/copy 未进
    *  binding 索引〔离线 paste 后 reconcile 未触〕，doc 扫描是删除前最终裁决」media-gc 同律）。

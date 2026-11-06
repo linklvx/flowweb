@@ -95,19 +95,19 @@ maybe('C4-c1 FAILED re-drive+admin 读面（真 PG）', () => {
     // re-drive（恢复锚在=直回 PURGING_DB 执行体——禁回 PENDING 重走 DRAINING〔manifest 缩水丢
     // C4-c2 对象重放面〕）
     const res = await prisma.$transaction((tx) => reDriveErasureRun(tx as never, { erasureId: run.erasureId, operatorId: owner, operatorName: owner }));
-    expect(res).toMatchObject({ ok: true, attempts: 2 });
+    expect(res).toMatchObject({ ok: true, attempts: 0 });   // C4-c2 P2-2：re-drive 清 attempts 重数
     if (res.ok) expect(res.run.state).toBe('PURGING_DB');
     run = await prisma.projectErasureRun.findUniqueOrThrow({ where: { erasureId: run.erasureId } });
     expect(run.state).toBe('PURGING_DB');
     expect(run.error).toBeNull();
-    expect(run.attempts).toBe(2);   // 保留
+    expect(run.attempts).toBe(0);   // C4-c2 P2-2：清零重数（人工处置=毒化根因已排除——FAILED 上界 ERASURE_RUN_MAX_ATTEMPTS=5 全新计数）
     expect(run.claimOwner).toBeNull();
     expect(run.completedAt).toBeNull();
     expect(run.manifestPath).toBeTruthy();   // 恢复锚保留
     expect(run.manifestSha256).toMatch(/^[0-9a-f]{64}$/);
     const audits = await prisma.auditLog.findMany({ where: { targetType: 'PROJECT', targetId: pid, action: 'erasure_re_drive' } });
     expect(audits).toHaveLength(1);
-    expect(audits[0]!.afterValue).toMatchObject({ state: 'PURGING_DB', attempts: 2 });
+    expect(audits[0]!.afterValue).toMatchObject({ state: 'PURGING_DB', attempts: 0 });
     // 非 FAILED 拒（PURGING_DB 活跃态——轮询自愈面已覆盖）
     const again = await prisma.$transaction((tx) => reDriveErasureRun(tx as never, { erasureId: run.erasureId, operatorId: owner, operatorName: owner }));
     expect(again).toEqual({ ok: false, reason: 'STATE_PURGING_DB' });
@@ -157,5 +157,50 @@ maybe('C4-c1 FAILED re-drive+admin 读面（真 PG）', () => {
     const list = await admin.listRuns(undefined);
     const row = list.runs.find((r) => r.erasureId === run.erasureId);
     expect(row).toMatchObject({ state: 'PURGING_OBJECTS', projectName: null, projectLifecycle: null });
+  }, 60_000);
+
+  it('C4-c2 P2-2 毒丸上界：连续处理失败 ERASURE_RUN_MAX_ATTEMPTS 次→FAILED+error 留档；re-drive 清零重数', async () => {
+    const pid = await seedProject('poison');
+    await prisma.$transaction(async (tx) => {
+      await lockProject(tx as never, pid);
+      return openProjectErasure(tx as never, { projectId: pid, requestedBy: owner });
+    });
+    await poller.tick();   // DRAINING+PURGING_DB
+    await poller.tick();   // 首扫（team 零他项目=doc 扫描跳过档——sidecar 标记）
+    let run = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
+    expect(run.state).toBe('PURGING_DB');
+    // 毒化：置 PURGING_OBJECTS+manifest 指向不存在路径（readErasureManifest 抛=每 tick 失败）
+    await prisma.projectErasureRun.update({
+      where: { erasureId: run.erasureId },
+      data: { state: 'PURGING_OBJECTS', manifestPath: join(manifestDir, 'poison-no-such.ndjson') },
+    });
+    // 坏对象端口（持续抛——poller 构造注入）：连续失败至上界→FAILED（attempts=5+error 留档）。
+    // 先清租约（前两 tick 由好 poller 持新鲜租约——CAS 谓词不放行他实例）：
+    await prisma.projectErasureRun.update({ where: { erasureId: run.erasureId }, data: { claimOwner: null, leaseUntil: new Date(Date.now() - 60_000) } });
+    const badPoller = new ProjectErasureRunPoller(
+      prismaService as never, ledger as never, new ErasureContextService(),
+      async () => [],
+      { getBucketVersioningStatus: async () => { throw new Error('演练：对象存储不可达'); } } as never,
+      {} as never, async () => true,
+    );
+    for (let i = 0; i < 4; i++) await badPoller.tick();   // attempts 1..4（每次 tick 失败一次）
+    run = await prisma.projectErasureRun.findUniqueOrThrow({ where: { erasureId: run.erasureId } });
+    expect(run.state).toBe('PURGING_OBJECTS');   // 未达界仍在位（租约窗退避）
+    expect(run.attempts).toBe(4);
+    await badPoller.tick();   // 第 5 次→FAILED
+    run = await prisma.projectErasureRun.findUniqueOrThrow({ where: { erasureId: run.erasureId } });
+    expect(run.state).toBe('FAILED');
+    expect(run.attempts).toBe(5);
+    expect(run.error).toContain('poison-no-such');   // manifest 读首步即抛（ENOENT——毒丸形态本体）
+    expect(run.completedAt).not.toBeNull();
+    expect(run.claimOwner).toBeNull();
+    // 再 tick：FAILED 非候选（零重试——毒丸上界语义）+attempts 不再涨
+    await badPoller.tick();
+    expect((await prisma.projectErasureRun.findUniqueOrThrow({ where: { erasureId: run.erasureId } })).attempts).toBe(5);
+    // re-drive：attempts 清零重数（P2-2——人工处置=根因排除后全新计数）
+    const res = await prisma.$transaction((tx) => reDriveErasureRun(tx as never, { erasureId: run.erasureId, operatorId: owner, operatorName: owner }));
+    expect(res).toMatchObject({ ok: true, attempts: 0 });
+    // 清理：置 DONE 释放（该 fixture 已被首扫批删——直接终态防活跃 run 残留 dev 库）
+    await prisma.projectErasureRun.update({ where: { erasureId: run.erasureId }, data: { state: 'DONE', completedAt: new Date(), claimOwner: null, leaseUntil: null } }).catch(() => undefined);
   }, 60_000);
 });

@@ -21,6 +21,7 @@ import { NoTransform } from '../../common/decorators/no-transform.decorator';
 import { CollabDocumentService } from './collab-document.service';
 import { CollabSpoolService } from './collab-spool.service';
 import { CollectMediaRefsDto } from './dto/collect-media-refs.dto';
+import { PurgeScopeDto } from './dto/purge-scope.dto';
 import { WorkerWriteAuthGuard } from './worker-write-auth.guard';
 import { verifyWorkerScopeToken, WORKER_SCOPE_HEADER, type WorkerScopePayload } from './worker-scope-token';
 
@@ -53,6 +54,19 @@ export class CollabWriteController {
       { docs: this.docs, prisma: this.prisma },
     );
     return { referenced };
+  }
+
+  /** C4-c2（plan C4——project-erasure）：purgeScope 内部端点（erasure worker PURGING_CACHE 首步——
+   *  api 进程内存面清键：spool dedup/水位/世代计数/段索引+段文件 unlink+快照缓存 evict；**这些键以
+   *  DB 行为真源而 DB 行已删=永不自愈**，必须显式清）。body={projectIds}→{purgedSegments}；守卫/
+   *  限批/503 语义见 CollabSpoolService.purgeErasureScope（collectMediaRefs 同族容量防护
+   *  +isLeaseServing；docs 端口 per-call 传入同因 DI 环）；Bearer=WORKER_WRITE_TOKEN 传输层。 */
+  @Post('purge-scope')
+  @NoTransform()
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  @UseGuards(WorkerWriteAuthGuard)
+  async purgeScope(@Body() body: PurgeScopeDto): Promise<{ purgedSegments: number }> {
+    return this.spool.purgeErasureScope(body.projectIds, { docs: this.docs });
   }
 
   /** exec 状态投影写（RuntimeEvent feed——零 doc 写）。body={projectId,nodeId,patch}（patch 键域=
