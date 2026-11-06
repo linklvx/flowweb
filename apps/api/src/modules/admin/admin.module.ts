@@ -15,6 +15,7 @@ import { TeamModule } from '../team/team.module';
 import { AdminIntentService } from './intent/intent.service';
 import { AdminIntentController } from './intent/intent.controller';
 import { CollabOpsUnfreezeController } from './collab/collab-ops-unfreeze.controller';   // C2-3：canary freeze 解冻 ack 端点（AuditLog 在 collab-ops-gate.service 同事务）
+import { AdminErasureController } from './erasure/erasure.controller';   // C4-c1：erasure 运维读面（admin 可见 DELETING/FAILED——includeDeleted 接线）+FAILED re-drive 端点
 import { AuditService } from '../../common/audit/audit.service';
 
 // Y0b-1：PricingResolverService 定价单源经 ExecutionModule（T25 拆分后=ExecutionCoreModule）exports
@@ -23,7 +24,7 @@ import { AuditService } from '../../common/audit/audit.service';
 // TeamModule 注入（TeamModule 传递闭包=Recharge，无反向依赖 AdminModule，无环）；AuditService 直注册（team/subscription 同款先例）
 @Module({
   imports: [ExecutionCoreModule, TeamModule],
-  controllers: [NodeTypeController, ModelController, PricingController, PricingCoverageController, PublicController, SettingsController, AdminIntentController, CollabOpsUnfreezeController],
+  controllers: [NodeTypeController, ModelController, PricingController, PricingCoverageController, PublicController, SettingsController, AdminIntentController, CollabOpsUnfreezeController, AdminErasureController],
   providers: [NodeTypeService, ModelService, PricingService, PublicService, SettingsService, AdminIntentService, AuditService],
 })
 export class AdminModule {}

@@ -137,3 +137,56 @@ export async function openProjectErasure<Tx extends ErasureWriteTx>(
   });
   return view;
 }
+
+/** re-drive 消费面（ErasureTx 扩展：run 行 findUnique/update+audit 写）。 */
+export type ReDriveTx = ErasureTx & {
+  projectErasureRun: {
+    findUnique: (args: Prisma.ProjectErasureRunFindUniqueArgs) => Promise<ProjectErasureRun | null>;
+    update: (args: Prisma.ProjectErasureRunUpdateArgs) => Promise<ProjectErasureRun>;
+  };
+  auditLog: { create: (args: Prisma.AuditLogCreateArgs) => Promise<unknown> };
+};
+
+/** FAILED re-drive 结果（HTTP 面：ok=false+reason → 404 MISSING/409 STATE_*）。 */
+export type ReDriveResult =
+  | { ok: true; run: ErasureRunView; attempts: number }
+  | { ok: false; reason: 'MISSING' | `STATE_${string}` };
+
+/**
+ * FAILED erasure run 重驱（C4-c1 最简形态——OpsGate 人工 ack 端点先例 unfreezeOpsGateCompact 同族
+ * free function）：**attempts 保留+error/claim/completedAt 清空**；恢复点位=manifest 恢复锚判据——
+ * manifestPath 在 ⇒ 直接回 **PURGING_DB**（执行体幂等续跑——并集只增不减；**禁回 PENDING 重走
+ * DRAINING**：重采集=live 行集已随批删/detach 收缩，manifest 缩水会丢 C4-c2 对象/Redis 重放面〔
+ * detached work/media 行〕）；无 manifest（DRAINING 前失败）⇒ PENDING 从头。同事务 audit 行
+ * （action='erasure_re_drive'——非 FAILED 拒〔活跃 run 轮询自愈面已覆盖〕）。runbook 文档归 C4-c2。
+ */
+export async function reDriveErasureRun(
+  tx: ReDriveTx,
+  args: { erasureId: string; operatorId: string; operatorName: string },
+): Promise<ReDriveResult> {
+  const run = await tx.projectErasureRun.findUnique({ where: { erasureId: args.erasureId } });
+  if (!run) return { ok: false, reason: 'MISSING' };
+  if (run.state !== 'FAILED') return { ok: false, reason: `STATE_${run.state}` };
+  const resumeState = run.manifestPath ? 'PURGING_DB' : 'PENDING';
+  const updated = await tx.projectErasureRun.update({
+    where: { erasureId: run.erasureId },
+    data: {
+      state: resumeState, error: null, claimOwner: null, leaseUntil: null, completedAt: null, stage: null,
+      // attempts/manifestPath/manifestSha256 原样保留（重试计数续累+介质恢复锚）
+    },
+  });
+  await tx.auditLog.create({
+    data: {
+      operatorId: args.operatorId,
+      operatorName: args.operatorName,
+      teamId: run.teamId ?? null,
+      targetType: run.scopeType === 'team' ? 'TEAM' : 'PROJECT',
+      targetId: run.scopeId,
+      action: 'erasure_re_drive',
+      beforeValue: { state: 'FAILED', error: run.error },
+      afterValue: { state: resumeState, attempts: updated.attempts },
+      remark: `FAILED re-drive（run=${run.erasureId}——attempts ${updated.attempts} 保留${run.manifestPath ? '；恢复锚在=直回 PURGING_DB 执行体' : ''}）`,
+    },
+  });
+  return { ok: true, run: toRunView(updated), attempts: updated.attempts };
+}
