@@ -615,6 +615,29 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 - R4 水位守护（/tmp 隔离+假 dump，真实备份零接触）：**首跑红=暴露 locale 排序缺陷**（服务器 `find|sort` 走 locale collation，删除顺序非字节时序）→根修=两处 sort 钉 `LC_ALL=C`→复跑绿：形态A（WATERMARK_PCT=1）5 假 dump 按最旧逐个删（01→05）→真新 dump→族耗尽 ERROR+exit 1（守护失败可见）；形态B（WATERMARK_PCT=99）零删除+exit 0；演练目录已清理。
 - **crontab 首跑**=2026-10-17 03:17 自动轮（核 `.data/pg-dump-daily.log` 新增 done OK 行）。T39 已复核承接（2026-10-16 23:38 ssh 只读：crontab `17 3 * * *` 与巡检 `*/5` 两条在位+R3 日志末行 done OK+`daily-20261016230621.dump` 154606B 在 ~/backups）；**自动首跑核对义务归片 B 执行窗首日顺手项**。
 
+### §13.1 项目擦除恢复 SOP（restore gate）+残余披露（C4 project-erasure——2026-11-05 落档；C4-c2）
+
+**擦除三段语义（在线擦除+备份保留期+恢复重擦除）**：项目擦除=「在线介质清除」与「备份域清除」两半——
+①在线擦除（worker saga DRAINING→PURGING_DB→PURGING_OBJECTS→PURGING_CACHE→VERIFYING→DONE）清除 DB 行/对象全版本/Redis 键族，DONE=在线介质零残留（VERIFYING 三重复验背书）；②**备份保留期残余=已知且接受**：pg_dump 每日备份（§13）仍含擦除前数据直至备份轮换出保留窗——这是备份系统的设计属性非缺陷（crypto-shredding/per-scope DEK=登记项，合规需求出现再立项）；③**恢复重擦除**：恢复「删除前」旧备份后，恢复的 DB 含已擦项目行——**开流量前必须过 restore gate**（下述序）对已擦项目重放擦除。manifest（`ERASURE_MANIFEST_DIR` 目录，缺省 `.data/erasure-manifest`）=重放锚：data-dir 外部耐久面，DB restore 不波及（R16）。
+
+**恢复 SOP（restore gate——恢复后开流量前置）**：
+
+1. 按 `docs/superpowers/full-stack-backup.md` 恢复 DB（pg_dump）；**暂不开流量**。
+2. 确认 worker 进程在位（`pm2 ls`——erasure poller 在 worker 进程内，5s tick；`erasure_pending_age` 告警面在位）。
+3. 跑 restore gate：`node scripts/restore-reerase.mjs`（可 `--manifest-dir`/`--wait-ms`/`--no-wait`）——扫 manifest 目录逐文件幂等重放：建 run 行（state=PURGING_DB+恢复锚——**禁重走 DRAINING**：重采集会使 manifest 缩水丢对象重放面）+tombstone（恢复后 ACTIVE→DELETING 禁用户写）+AuditLog `erasure_restore_replay`+sidecar `<erasureId>.replayed.json`；worker saga 全链承接（对象删除面=manifest−DB 现存行——detach 行对象保留语义与在线擦除单源）。
+4. 退出码语义：**0**=全 planned run DONE（或无待重放——gate 前件满足）；**1**=有 run FAILED（处置=re-drive：`POST /api/admin/erasure/runs/:erasureId/re-drive`〔admin session——attempts 清零重数〕后重跑脚本等待）或等待超时（查 worker 进程）；**2=RESIDUAL_RISK 非成功**——DB 有擦除证据（run 行 manifestPath 索引）而 manifest 文件缺失/损坏=**双失诚实披露**：无法证明/重放已删对象的反向清除，**不声称零残留**，人工裁定（核对备份窗内是否有该 scope 的对象残留可对拍；结论登记审计）。
+5. 开流量前置条件：脚本 exit 0＋`erasure_pending_age` 归零（无滞留 active run）＋无 FAILED run（`GET /api/admin/erasure/runs?state=FAILED` 空）。
+
+**残余披露（诚实清单——不写「生产零残留」）**：
+
+- **manifest=外部文件 host 丢失窗**：manifest 目录与 DB 同机（data-dir）——host 级丢失（磁盘/整机）即双失（上述 exit 2 档）；对象存储 `erasure/` 前缀可选副本=登记项未实装。
+- **两阶段复核窗残余**：独占 media 删除经「首扫标记→跨 claim 周期复核」两阶段，但引用图采集与删除间「扫描后新引用」窗**缩小非根除**（MediaRef 引用计数权威表=登记项）；引用图八要素+他项目 doc 扫描（collectMediaRefs 端点）已覆盖已知面。
+- **离线 IDB 残留**：客户端 IndexedDB 本地副本在**下次连接前**残留（4414 PROJECT_ERASED terminal→purgePidCaches 清该 uid:pid 全代库——仅在客户端下次连到服务端时发生；离线设备=窗内残留）。
+- **VideoWork detach 语义**：作品视频/封面/计费/审计保留（/process 404、clone 404——产品裁定 2026-11-05）；Template 随项目擦除（产品裁定同日）。
+- **replication/object-lock 能力披露**：桶配置复制规则/对象锁在位时，对象删除**不保证副本桶异步清除**、锁定版本在保留期内不可删（超出本系统权限域）——PURGING_OBJECTS detect 到即日志+`erasure_capability_disclosure_total{capability}` 计数+run 结果载荷 disclosure（非假绿非失败）；本部署（单 MinIO 桶）当前零规则在位。
+- **日志/Sentry 数据最小化**：erasure 日志载荷=erasureId/scope 键族/计数（零用户内容）；AuditLog 擦除谓词行=操作留痕（状态翻转+run 锚）非项目内容（列级断言钉死）。
+- **告警面**：`erasure_pending_age` P0@1h（tombstone 后介质残留窗撕开——查 worker/state 分布）；`erasure_runs_total{state="FAILED"}` P1（毒丸上界 attempts=5 兜底终态——人工 re-drive 处置）。
+
 ---
 
 ## §14 Y1c 载体协议契约草节（T5a 冻结——2026-10-24；T8/T9/T10/T13 实装时的操作面输入；§14.1=C2 canary cron+处置序——2026-11-05）

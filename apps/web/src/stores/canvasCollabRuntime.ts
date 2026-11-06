@@ -8,7 +8,7 @@
 // ⚠️ 循环依赖裁定（同 canvasStore.ts）：顶层仅 import 声明/函数定义/纯常量。
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
-import { CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, CollabCloseCode, resolveCloseAction, isTerminalReason, CollabAuthReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, SS2_OVER_LIMIT_TERMINAL_REASON, TEAM_DISBANDED_TERMINAL_REASON, isCollabDocStatusPayload, isCollabConnStatusPayload, SERVER_RESTORED_TERMINAL_REASON, CLIENT_OUTDATED_REASON, resolveRecoveryAction, Y1C_RECOVERY_DISPATCH_TIERS, type DraftEnvelope } from '@flowweb/shared';
+import { CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION, CollabCloseCode, resolveCloseAction, isTerminalReason, CollabAuthReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON, DOC_OVER_QUOTA_TERMINAL_REASON, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, SS2_OVER_LIMIT_TERMINAL_REASON, TEAM_DISBANDED_TERMINAL_REASON, PROJECT_ERASED_TERMINAL_REASON, isCollabDocStatusPayload, isCollabConnStatusPayload, SERVER_RESTORED_TERMINAL_REASON, CLIENT_OUTDATED_REASON, resolveRecoveryAction, Y1C_RECOVERY_DISPATCH_TIERS, type DraftEnvelope } from '@flowweb/shared';
 // Y1c T25（§8.1 拒帧恢复+恢复模式）：rejected-recovery 模块（REJECTED/DIVERGED 状态机+DraftEnvelope
 // 类型化导出+#g docName 镜像+historyId 半链）——本模块只做会话接线，机构归彼。
 import {
@@ -663,6 +663,10 @@ const NO_READ_ACCESS_PURGE_REASONS: ReadonlySet<string> = new Set<string>([
   CollabAuthReason.SESSION_EXPIRED,
   ...COLLAB_VERSION_TERMINAL_REASONS,
   TEAM_DISBANDED_TERMINAL_REASON,
+  // C4-c2 红⑰（project-erasure）：4414 项目擦除终态——项目内容已物理删除（DB 行/对象/Redis），
+  // 本地 IDB 副本=已删内容残留（离线残留窗 runbook §13 披露：仅清至下次连接）；与 team disbanded
+  // 同档（无读权终态——重连即对已隐藏项目无限 404，resolveCloseAction(4414)=terminal 不自动重连）。
+  PROJECT_ERASED_TERMINAL_REASON,
 ]);
 
 // 批1-3：transport 薄层句柄已随 Y0b-5 T3b 退役（needKick 语义随归零模型废弃——socket 单实例

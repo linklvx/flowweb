@@ -168,6 +168,15 @@ describe('Y0b-5 T5：世代可见通道+四维缓存键 purge 挂点', () => {
     expect(purgePidCaches).toHaveBeenCalledWith('u1', 'p1');
   });
 
+  // C4-c2 红⑰（project-erasure）：4414 项目擦除终态——清 IDB 全代库（已删内容残留）+terminal UX
+  // （wsAuthNotice terminal=true——SyncBanner 终态档）+不自动重连（supervisor phase='terminal'）。
+  it('close 4414 project-erased ⇒ purgePidCaches 全代清库+wsAuthNotice terminal（不自动重连——TEAM_DISBANDED 先例形态）', async () => {
+    const p = await driveToSyncedFake('p1', META);
+    p.emit('close', { event: { code: 4414, reason: 'project-erased' } });
+    expect(purgePidCaches).toHaveBeenCalledWith('u1', 'p1');
+    expect(useCanvasStore.getState().wsAuthNotice).toMatchObject({ reason: 'project-erased', terminal: true });
+  });
+
   it('close 1009 message-too-big（内容终态——权限/内容健康，escape 导出是设计动作）⇒ 不 purge', async () => {
     const p = await driveToSyncedFake('p1', META);
     p.emit('close', { event: { code: 1009, reason: '' } });
