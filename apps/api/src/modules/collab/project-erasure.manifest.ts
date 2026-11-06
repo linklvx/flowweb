@@ -15,7 +15,7 @@
 //
 // 双失诚实披露（R16）：DB restore（旧备份）时 DB 无擦除行但外部 manifest 文件在=恢复重放锚；
 // 两者皆失=恢复脚本 RESIDUAL_RISK（restore-reerase 归 C4-c——不声称零残留）。
-import { createHash, type Hash } from 'node:crypto';
+import { createHash, type Hash, randomUUID } from 'node:crypto';
 import { open, mkdir, rename } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { listSpoolFiles, parseSegFileName } from './collab-spool.service';
@@ -110,8 +110,13 @@ export async function collectSpoolSegments(spoolDir: string, projectIds: readonl
       .map((f) => ({ f, parsed: parseSegFileName(f.name) }))
       .filter((x) => x.parsed != null && wanted.has(x.parsed.projectId))
       .map((x) => ({ projectId: x.parsed!.projectId, dir: x.f.dir, name: x.f.name }));
-  } catch {
-    return [];   // 目录缺失/不可读=零段（擦除域幂等——C4-c restore 面校验兜底）
+  } catch (e) {
+    // 目录缺失（ENOENT）=零段（擦除域幂等）；其余 IO 错误（权限/磁盘）warn 留痕折零段——
+    // spool 文件泄漏由 C4-c PURGING_DB 前重扫契约兜底（质量评审 Minor#8：静默折空=泄漏无痕）
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.warn(JSON.stringify({ event: 'erasure-manifest-spool-scan-failed', dir: spoolDir, code: (e as NodeJS.ErrnoException).code, message: (e as Error).message }));
+    }
+    return [];
   }
 }
 
@@ -121,7 +126,6 @@ class ManifestWriter {
   private shardHash: Hash = createHash('sha256');
   private shardCount = 0;
   private shardIndex = 0;
-  private readonly lines: string[] = [];
   constructor(private readonly fh: { write: (s: string) => Promise<unknown> }) {}
 
   private async line(obj: Record<string, unknown>, feedShard: boolean): Promise<void> {
@@ -129,7 +133,6 @@ class ManifestWriter {
     await this.fh.write(l);
     this.fileHash.update(l);
     if (feedShard) this.shardHash.update(l);
-    this.lines.push(l);
   }
 
   /** 数据行（进 shard 哈希/计数；满 10k 自动 flush shard 行）。 */
@@ -165,7 +168,9 @@ class ManifestWriter {
 export async function writeErasureManifest(inputs: ErasureManifestInputs, dir = erasureManifestDir()): Promise<{ manifestPath: string; manifestSha256: string; rows: ManifestFooter['rows'] }> {
   await mkdir(dir, { recursive: true });
   const manifestPath = join(dir, `${inputs.erasureId}.ndjson`);
-  const tmpPath = `${manifestPath}.tmp`;
+  // 随机后缀（质量评审 Minor#6）：多实例租约过期重叠时两写者同 path '.tmp' 交错可发布损坏文件——
+  // pid+random 隔离写者（读侧 SHA 复算仍兜底）；残留 .tmp 归 run 目录周期清理（C4-c）
+  const tmpPath = `${manifestPath}.${process.pid}.${randomUUID()}.tmp`;
   const fh = await open(tmpPath, 'w');
   let footer: ManifestFooter;
   let fileSha256: string;

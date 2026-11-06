@@ -267,14 +267,17 @@ export const collabAwarenessRejectTotal = new Counter({
 /** Y0b-3 T6（P-O）：应用侧主动 close 分布——code=CollabCloseCode 分配表值（1000/1008/1009/1011/
  *  1012/4401/4402/4404/4410），reason=close 时附语义串。边界（v3 钉死）：库自发/自然断连的服务端
  *  观测结构性不可达（onDisconnectPayload 无 close code 字段——归 Y0b-5 客户端遥测）；ws 层自发
- *  close（如 1009 maxPayload）不经本指标。**计数点全枚举（恰七个 .inc——新增必须同批补注）**：
+ *  close（如 1009 maxPayload）不经本指标。**计数点全枚举（恰八个 .inc——新增必须同批补注）**：
  *  ①beginDrainAutoRelease（1012 drain released）②enforceConnMaxLifetime（4402 max-lifetime）
- *  ③scheduleSweepClose（4401 session-expired）④closeAllConnections1012（1012 service restart）
- *  ⑤closeTeamDocuments（1000 team disbanded）⑥hardClose 汇聚点（Y0b-4 拒绝链唯一出口——
+ *  ③scheduleSweepClose（4401 session-expired；C4-b 又一档 cause=project-erased→4414 直关免 grace）
+ *  ④closeAllConnections1012（1012 service restart）
+ *  ⑤closeTeamDocuments（C4-b：4414 project-erased——DISBANDED 终态与项目擦除统一擦除域码）
+ *  ⑥hardClose 汇聚点（Y0b-4 拒绝链唯一出口——
  *  调用方九处：vacuum serving 门/terminal close/generation-stale 三处 4410、awareness/sync
  *  帧闸两处 1009 frame-too-large、msg/bytes/awareness 三处 1008、overPush 升级 4404）
  *  ⑦hardCloseWs=wrapBackpressure 二级（1011 slow-consumer，Y0b-4 T7——ws 级变体，
- *  conn 级拒绝链仍走 hardClose）。 */
+ *  conn 级拒绝链仍走 hardClose）⑧auth 期 terminal close 升级帧（C4-b 拆出
+ *  collab-auth-terminal-close——NotFound→DELETING 分义 4414 直写投递器）。 */
 export const collabWsCloseTotal = new Counter({
   name: 'collab_ws_close_total',
   help: 'collab 应用侧主动 webSocket.close 分布（code=分配表值；reason=close 语义串——库自发断连不可观测归客户端遥测）',

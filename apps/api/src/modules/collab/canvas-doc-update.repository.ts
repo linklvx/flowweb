@@ -753,7 +753,8 @@ export class CanvasDocUpdateRepository {
               return { ok: false as const, reason: 'gate-frozen' as const };
             }
             // C4-b（R15 fence 补位——compact 发布③）：DELETING 项目发布拒绝（ErasureContext 内豁免）；
-            // 锁序=gate 行→CanvasProject 行→doc 行（vacuumReplace 同序无环）。
+            // 锁序=gate 行→CanvasProject 行→doc 行（vacuumReplace 为 advisory→CanvasProject→gate→doc——
+            // 分歧对〔gate 行 vs CanvasProject 行〕双方均 FOR SHARE 不互斥，无环结论成立）。
             await fenceProject(tx, projectId);
             // Q-M5（T11 双评审）TOCTOU 收口：schemaVersion/vacuumEpoch 读入 ③ 锁内（随 FOR UPDATE
             // 行锁同读——旧实现锁前无锁读，读-锁间隙换代/升级列写=快照行携带陈旧版本对）。

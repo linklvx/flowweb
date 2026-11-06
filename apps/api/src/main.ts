@@ -17,6 +17,7 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './filters/http-exception.filter';
 import { applyRecoveryImportBodyLimit } from './common/recovery-import-body-limit';
 import { CollabNotServingFilter } from './modules/collab/collab-not-serving.filter';
+import { ProjectErasingFilter } from './modules/collab/project-erasing.filter';
 import { TransformInterceptor } from './interceptors/transform.interceptor';
 import { installProcessErrorGuards } from './bootstrap/guard';
 import { scrubEvent, resolveSentryRelease } from './utils/sentry-scrub';
@@ -130,7 +131,8 @@ async function bootstrap() {
 
   // Y0a-3（V21）：COLLAB_NOT_SERVING 503 统一附 Retry-After: 2（过滤链首中即止：非标记 503 由其
   // 内部委托 HttpExceptionFilter 同壳透出，其余异常类型直接落默认链）
-  app.useGlobalFilters(new HttpExceptionFilter(), new CollabNotServingFilter());   // Nest10 反转求值序——后注册者先求值：窄 Catch 必须排在宽 shell 之后注册（否则被遮蔽）
+  // C4-b：ProjectErasingError→409 统一映射（fence 写点窄竞窗兜底——窄 Catch 最后注册最先求值）
+  app.useGlobalFilters(new HttpExceptionFilter(), new CollabNotServingFilter(), new ProjectErasingFilter());   // Nest10 反转求值序——后注册者先求值：窄 Catch 必须排在宽 shell 之后注册（否则被遮蔽）
   app.useGlobalInterceptors(new TransformInterceptor(app.get(Reflector)));
   const corsOrigins = (env.CORS_ORIGIN || 'http://localhost:5173')
     .split(',')

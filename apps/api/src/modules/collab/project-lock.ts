@@ -43,7 +43,9 @@ function lockMarkKey(scopeType: string, scopeId: string): string {
 }
 
 /** 门禁判据：guarded 模型非 DELETE 写操作，当前链无锁标记即抛（fail-closed）。
- *  注：判据=「本链取过锁」而非 scope 精确匹配——args.where 提取与模型级 scope 映射归 C4-2 census 接线。 */
+ *  注：判据=「本链取过锁」的模型级粗粒度=**终态**（C4-b registry 已填+census ㊲ 执法登记面——
+ *  args.where 行级提取不做：锁标记按模型粗粒度已满足「无锁写入即抛」的机器化目标，
+ *  行级 scope 精确匹配的正确性承载在 fence FOR SHARE 行锁非本门禁）。 */
 function assertLockHeldForWrite(model: string, operation: string): void {
   const marks = writeGateStorage.getStore();
   if (marks == null || marks.size === 0) {

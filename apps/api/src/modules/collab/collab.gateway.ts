@@ -508,7 +508,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  直调，承重细节注释全文随迁见彼处）。 */
 
   /** Y0a-2（V10/V11 单点收敛）：项目消失终态处理——三删除入口（project.delete/cleanDrafts/
-   *  template.delete 级联）**事务提交后** emit 汇入此点（team.disbanded 同点汇入）。事件处理器
+   *  template.delete 级联）**事务提交后** emit 汇入此点（team.disbanding 携 projectIds 同点汇入——
+   *  C4-a 事件更名：tombstone-only 化后 team 逐项目子 run 由 worker 批置，此监听只关连接零 I/O）。
+   *  事件处理器
    *  **禁慢操作**（V11：emitAsync await 监听器——只做内存终态+显式清账+关连接，零磁盘 I/O；
    *  team.service emitAsync 先例同形）。
    *  X1：discardForGoneProject 在此调用=**唯一必然执行点**（doc 卸载后 store 拦截分支结构性

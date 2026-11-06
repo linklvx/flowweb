@@ -142,7 +142,7 @@ export class ProjectService {
   }
 
   /** C4-b（R15 fence 接线）：改名=项目维写——单事务 lockProject→fenceProject（DELETING 拒 409
-   *  域——ProjectErasingError 由 controller 例外映射； ACTIVE 放行）。 */
+   *  域——ProjectErasingError 由全局 ProjectErasingFilter 统一映射 409；ACTIVE 放行）。 */
   async updateName(id: string, name: string) {
     return this.prisma.$transaction(async (tx) => {
       await lockProject(tx, id);

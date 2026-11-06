@@ -1826,13 +1826,15 @@ if (isMain()) {
   // ── ㊳ C4-b（plan Task C4-2 read census 承接——C4-a 评审 P2-8）：CanvasProject raw SQL 读写点
   //    白名单（读过滤 Proxy 旁路面机器执法）。Proxy 只辖 canvasProject delegate 读（findUnique 族
   //    注入 ACTIVE 谓词）——raw SQL（$queryRaw/$executeRaw）经引擎不走 delegate=旁路面。白名单各条
-  //    带语义注记（fence FOR SHARE 分义读/worker ACTIVE 谓词批选/skip 面判定——**旁路≠泄漏**：
-  //    各条读的是 lifecycleState 本身或带 ACTIVE 谓词；新增 raw CanvasProject 语句未登记即红）。──
+  //    带语义注记（fence FOR SHARE 分义读/worker ACTIVE 谓词批选/skip 面判定/tombstone 批置写——
+  //    **旁路≠泄漏**：各条读的是 lifecycleState 本身或带 ACTIVE 谓词或写点在 ErasureContext 域；
+  //    新增 raw CanvasProject 语句未登记即红。C4-b 质量评审 Minor#5：regex 扩 UPDATE|INTO（读写面）。──
   {
     const RAW_CANVASPROJECT_FILES = {
       'apps/api/src/modules/collab/project-lock.ts': 1,                    // fenceProject FOR SHARE（分义读单源）
       'apps/api/src/modules/collab/project-erasure.ts': 1,                 // openProjectErasure FOR SHARE（tombstone 事务内）
-      'apps/api/src/modules/collab/project-erasure.poller.ts': 1,          // team run 批选择（ACTIVE 谓词=游标）
+      'apps/api/src/modules/collab/project-erasure.poller.ts': 2,          // team run 批选择（ACTIVE 谓词=游标）+批置 tombstone UPDATE（C4-b Minor#5 扩 UPDATE 面——worker 写点 ErasureContext 域）
+      'apps/api/src/modules/collab/project-governance.service.ts': 1,      // governance origin 写 UPDATE ... IS DISTINCT FROM（C4-b Minor#5 扩 UPDATE 面——创建路径写点，行集=刚建 ACTIVE 行）
       'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 1,    // readLifecycleState（装载门分义读——C4-b）
       'apps/api/src/modules/collab/collab-append-audit.worker.ts': 1,      // C3 审计 skip 面（inactive 判定列）
       'apps/api/src/modules/collab/collab-replay-canary.poller.ts': 2,     // canary active 计数+候选批（ACTIVE 谓词）
@@ -1844,9 +1846,10 @@ if (isMain()) {
     };
     const details = [];
     const occurrences = {};
-    // raw SQL 探测器：FROM/JOIN "CanvasProject" 词形（**raw 源**——census stripped 剥模板文本不可用；
-    // 计数被白名单锁死=注释伪命中/漂移皆红〔有意动作同步〕）。
-    const RAW_CP_RE = /(?:FROM|JOIN)\s+"CanvasProject"/g;
+    // raw SQL 探测器：FROM/JOIN/UPDATE/INSERT INTO "CanvasProject" 词形（**raw 源**——census stripped
+    // 剥模板文本不可用；计数被白名单锁死=注释伪命中/漂移皆红〔有意动作同步〕。C4-b 质量评审 Minor#5：
+    // 扩 UPDATE|INTO——raw 写面〔批置 tombstone 等〕进执法面）。
+    const RAW_CP_RE = /(?:FROM|JOIN|UPDATE|INTO)\s+"CanvasProject"/g;
     for (const p of files) {
       const n = (byFile.get(p).raw.match(RAW_CP_RE) ?? []).length;
       if (n) occurrences[relOf(p)] = n;
