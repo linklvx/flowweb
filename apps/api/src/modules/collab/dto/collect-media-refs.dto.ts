@@ -1,7 +1,7 @@
 // apps/api/src/modules/collab/dto/collect-media-refs.dto.ts
 // C4-c1（生产就绪收尾批·project-erasure）：collectMediaRefs 内部端点 body DTO（body-param-ratchet
-// v5 棘轮——@Body() inline 对象字面量禁新增，worker 内部端点族=类 DTO 登记〔运行时校验在
-// controller 手工面：内部通道无全局 ValidationPipe 依赖，与 exec-status 同律 fail-closed〕）。
+// v5 棘轮合规形态：@Body() inline 对象字面量/DTO-class-无-pipe 两档均禁新增——运行时校验=controller
+// 侧 @UsePipes(new ValidationPipe({ whitelist: true }))（decorator 类约束在此声明，端点局部 pipe）。
 import { IsArray, IsNotEmpty, IsString } from 'class-validator';
 
 export class CollectMediaRefsDto {
