@@ -219,20 +219,25 @@ export class MinioService {
     return 'Unversioned';
   }
 
-  /** 单 key 全版本清单（含 DeleteMarker——VersionId+IsDeleteMarker；分页 1000）。 */
-  async listObjectVersionRefs(key: string): Promise<Array<{ key: string; versionId: string }>> {
-    const out: Array<{ key: string; versionId: string }> = [];
-    let token: string | undefined;
-    do {
-      const res = await this.s3Client.send(new ListObjectVersionsCommand({
-        Bucket: this.bucket, Prefix: key, MaxKeys: 1000, ...(token ? { KeyMarker: token } : {}),
-      }));
-      for (const v of res.Versions ?? []) out.push({ key: v.Key!, versionId: v.VersionId! });
-      for (const d of res.DeleteMarkers ?? []) out.push({ key: d.Key!, versionId: d.VersionId! });
-      token = res.NextKeyMarker ?? undefined;
-    } while (token);
-    return out;
-  }
+    /** 单 key 全版本清单（含 DeleteMarker——VersionId+IsDeleteMarker；分页 1000）。分页双游标
+     *  KeyMarker+VersionIdMarker 同传（C4-c2 质量 M3：单 KeyMarker 于同 key 多版本会重复首页
+     *  ⇒ while 死循环挂死 tick——NextVersionIdMarker 才是版本位游标）。 */
+    async listObjectVersionRefs(key: string): Promise<Array<{ key: string; versionId: string }>> {
+      const out: Array<{ key: string; versionId: string }> = [];
+      let keyMarker: string | undefined;
+      let versionIdMarker: string | undefined;
+      do {
+        const res = await this.s3Client.send(new ListObjectVersionsCommand({
+          Bucket: this.bucket, Prefix: key, MaxKeys: 1000,
+          ...(keyMarker ? { KeyMarker: keyMarker, VersionIdMarker: versionIdMarker } : {}),
+        }));
+        for (const v of res.Versions ?? []) out.push({ key: v.Key!, versionId: v.VersionId! });
+        for (const d of res.DeleteMarkers ?? []) out.push({ key: d.Key!, versionId: d.VersionId! });
+        keyMarker = res.NextKeyMarker ?? undefined;
+        versionIdMarker = res.NextVersionIdMarker ?? undefined;
+      } while (keyMarker);
+      return out;
+    }
 
   /** 非版本化现行对象批删（1000/批；幂等——S3 语义对不存在键静默成功）。返回请求删除数。 */
   async deleteObjectsByKeys(keys: readonly string[]): Promise<number> {
@@ -258,19 +263,23 @@ export class MinioService {
     return n;
   }
 
-  /** 在飞 multipart 上传清单（分页；残件=未 Complete 的分片上传——单独计费+残留面）。 */
-  async listMultipartUploads(): Promise<Array<{ key: string; uploadId: string }>> {
-    const out: Array<{ key: string; uploadId: string }> = [];
-    let token: string | undefined;
-    do {
-      const res = await this.s3Client.send(new ListMultipartUploadsCommand({
-        Bucket: this.bucket, MaxUploads: 1000, ...(token ? { KeyMarker: token } : {}),
-      }));
-      for (const u of res.Uploads ?? []) out.push({ key: u.Key!, uploadId: u.UploadId! });
-      token = res.NextKeyMarker ?? undefined;
-    } while (token);
-    return out;
-  }
+    /** 在飞 multipart 上传清单（分页双游标 KeyMarker+UploadIdMarker 同传——C4-c2 质量 M3 同型；
+     *  残件=未 Complete 的分片上传——单独计费+残留面）。 */
+    async listMultipartUploads(): Promise<Array<{ key: string; uploadId: string }>> {
+      const out: Array<{ key: string; uploadId: string }> = [];
+      let keyMarker: string | undefined;
+      let uploadIdMarker: string | undefined;
+      do {
+        const res = await this.s3Client.send(new ListMultipartUploadsCommand({
+          Bucket: this.bucket, MaxUploads: 1000,
+          ...(keyMarker ? { KeyMarker: keyMarker, UploadIdMarker: uploadIdMarker } : {}),
+        }));
+        for (const u of res.Uploads ?? []) out.push({ key: u.Key!, uploadId: u.UploadId! });
+        keyMarker = res.NextKeyMarker ?? undefined;
+        uploadIdMarker = res.NextUploadIdMarker ?? undefined;
+      } while (keyMarker);
+      return out;
+    }
 
   /** 中止 multipart 残件（Abort=分片与上传登记一并清）。 */
   async abortMultipartUpload(key: string, uploadId: string): Promise<void> {

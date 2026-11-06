@@ -19,7 +19,7 @@ import { CreditLedgerService } from '../team/credit-ledger.service';
 import { ErasureContextService, lockProject } from './project-lock';
 import { openProjectErasure, reDriveErasureRun } from './project-erasure';
 import { ProjectErasureRunPoller } from './project-erasure.poller';
-import { executePurgingDbStage, pendingMediaMarkerPath, type MediaRefsCollector } from './project-erasure.stages';
+import { pendingMediaMarkerPath, type MediaRefsCollector } from './project-erasure.stages';
 import { AdminErasureController } from '../admin/erasure/erasure.controller';
 
 const hasDb = !!process.env.DATABASE_URL;

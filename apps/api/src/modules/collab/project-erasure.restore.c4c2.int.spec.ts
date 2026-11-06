@@ -177,7 +177,7 @@ maybe('C4-c2 ★红⑱ restore-reerase 恢复重擦除（真 PG+MinIO+Redis+脚�
     if (!ready) return ctx.skip();
     const pid = await seedRestoredProject();
     // 「过往擦除的 manifest 在外部耐久面」形态：直建 manifest（并集档含全行——worker 二扫并集承接）
-    const manifest = await writeErasureManifest({
+    await writeErasureManifest({
       erasureId: `c4c2r-er-${pid}`, scopeType: 'project', scopeId: pid, projectIds: [pid],
       requestedAt: new Date(),
       mediaRows: [

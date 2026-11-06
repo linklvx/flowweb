@@ -79,7 +79,6 @@ maybe('C4-c2 ★红⑪ 完整锚 saga（真 PG+MinIO+Redis——kill -9 各新 s
   const projects: string[] = [];
   const teams: string[] = [];
   let execSeq = BigInt(Date.now());
-  const bucketCleaned = false;
 
   const adminClient = () => new S3Client({
     region: 'us-east-1', endpoint, forcePathStyle: true,
@@ -175,7 +174,7 @@ maybe('C4-c2 ★红⑪ 完整锚 saga（真 PG+MinIO+Redis——kill -9 各新 s
   afterAll(async () => {
     const pids = [...projects];
     // 桶回收（版本化=全版本+残件清后删桶）
-    if (bucket && !bucketCleaned) {
+    if (bucket) {
       try {
         const c = adminClient();
         for (;;) {

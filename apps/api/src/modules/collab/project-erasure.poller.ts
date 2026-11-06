@@ -160,8 +160,9 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
    *   ①租约过期（任意实例可认领——kill -9 恢复/他实例接管）∨ ②无主（首认领）∨ ③本实例∧attempts=0
    *   （健康在飞 saga 无缝续接——**attempts>0 时本实例亦须待租约过期**：noteRunFailure 已把
    *   leaseUntil 刷为 now+60s=退避窗，同实例 5s tick 不再连发重试烧满上界——瞬时故障误杀根修）。
-   *  attempts 于各 stage 成功推进位清零（stages/objects/cache/verifying/poller 五写点——「连续失败」
-   *  计数语义；一次瞬时失败后的健康 saga 不吃逐 stage 60s 停顿）。 */
+   *  attempts 于成功推进位清零（stages/objects/cache/verifying+poller〔project 双推进位+team 批置/
+   *  WAITING_CHILDREN/DONE——C4-c2 质量 M4〕——「连续失败」计数语义；一次瞬时失败后的健康 saga
+   *  不吃逐 stage 60s 停顿、不跨成功累计达界）。 */
   private async claim(erasureId: string): Promise<ProjectErasureRun | null> {
     const now = new Date();
     const leaseUntil = new Date(now.getTime() + ERASURE_RUN_LEASE_MS);
@@ -217,6 +218,7 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
             data: {
               ...(drained ? { state: 'WAITING_CHILDREN' as const } : {}),
               heartbeatAt: now, leaseUntil: new Date(now.getTime() + ERASURE_RUN_LEASE_MS),
+              attempts: 0,   // P2-1（C4-c2 质量 M4）：成功推进清零——team run 瞬时失败后不吃逐窗停顿/跨成功累计
             },
           });
           return;
@@ -251,14 +253,14 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
           }
           await tx.projectErasureRun.update({
             where: { erasureId: run.erasureId },
-            data: { state: 'DONE', stage: 'PURGING_TEAM', completedAt: now, claimOwner: null, leaseUntil: null },
+            data: { state: 'DONE', stage: 'PURGING_TEAM', completedAt: now, claimOwner: null, leaseUntil: null, attempts: 0 },
           });
           erasureRunsTotal.inc({ state: 'DONE' });
           return;
         }
         await tx.projectErasureRun.update({
           where: { erasureId: run.erasureId },
-          data: { state: 'WAITING_CHILDREN', heartbeatAt: now, leaseUntil: new Date(now.getTime() + ERASURE_RUN_LEASE_MS) },
+          data: { state: 'WAITING_CHILDREN', heartbeatAt: now, leaseUntil: new Date(now.getTime() + ERASURE_RUN_LEASE_MS), attempts: 0 },
         });
       }, { timeout: TEAM_TX_TIMEOUT_MS, maxWait: 10_000 }),
     )).catch((e: unknown) => {
