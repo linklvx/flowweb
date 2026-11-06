@@ -1,0 +1,100 @@
+gate-evidence/production-readiness-exit.txt
+════════════════════════════════════════════════════════════════════
+生产就绪收尾批（charter 本地四项闭环）批末出口门呈报包
+日期：2026-11-07｜分支：master｜认证 commit：1bbf078c
+════════════════════════════════════════════════════════════════════
+
+【定位】本批目标=`scripts/production-charter.json` 八个 pending 中的四个本地
+开发项闭环翻 passed（C1 retention-worker / C2 replay-canary /
+C3 doc-append-gap-alert / C4 project-erasure）。spec v5+plan v3.1 联合确认门
+✅（2026-11-05，c282e3b9）；四卡 subagent-driven 双评审全闭环。
+**本批闭环≠可上线**——上线门槛=服务器窗（下「限制诚实登记」）。
+
+【charter 终态快照】（node scripts/check-production-charter.mjs PASS）
+  passed 6 项：backup-RTO、slo、retention-worker、replay-canary、
+              doc-append-gap-alert、project-erasure
+  waived 2 项：http-seed（T33 触发条件未达）、exec-input-bundle（实测豁免）
+  na     1 项：frame-audit（无逐帧审计合规需求——用户裁定 2026-11-05）
+  pending 4 项（全服务器窗）：pitr、pg-sync-commit、minio-versioning、
+              restore-drill
+  trafficTier：dev-test 维持（改档=显式用户指令+服务器窗前置）
+
+【四卡终态链关键数字】
+  C1 retention-worker（95d18923..2ccfc8b3）：
+    每 tick 单事务四扫面+pg_try_advisory 单飞+claim≤50 SKIP LOCKED+每 tick
+    200 批上界防活锁+stuck 三档+终态重写 expiresAt=now(UTC)+30d；
+    红①-⑦ int 全绿；verify FULL 31/31。
+  C3 doc-append-gap-alert（f4f40d36..38f0d80a）：
+    阈值=charter 裁定值 increase(doc_append_gap_total[5m])>0（P0+exit 2+
+    SMS）；SQL CTE 三断言权威档+T30b 侧表吞行根修（I-1/I-2 PK 重放守卫）+
+    purge 义务年龄+轮转游标；c31 int 14/14。
+  C2 replay-canary（27e14d1f..ca325d88）：
+    捕获=withFrozenPrefix 复用（:1631）+pin-first 五步+CanaryPin lease+
+    N=ceil(active×1.25/24)+min(N,8) 双层 SLO；语义摘要深比（Yjs delete
+    不进 SV——真实反例根修）；skip_lag 组合档 P0（doc_pg_lag_seq 年龄）；
+    freeze 实弹+Sentry；解冻端点+smoke 参数化。
+  C4 project-erasure（eeb63f93..6e78d92b，四子批双评审）：
+    四入口 tombstone-only+team 会合（FAILED 不删 Team）；fence 写串行化
+    R15（写路径 census=schema 闭包+scope-alias registry 双向 diff CI 红+
+    写锁门禁+ErasureContext 豁免——红⑨ 三态+双真连接交错+装载门 T16 熔断
+    P0 根修）；manifest 唯一采集面 R16（data-dir 外部绝对路径主载体+
+    NDJSON SHA 链+二扫并集——在飞 finalize 泄漏窗根除）；DB 介质层（Media
+    三档+引用图八要素含 VideoProject.data 深扫+两阶段复核 sidecar 禁加列+
+    Template 显式删+VideoWork detach=/process、clone 404+GenerationIntent
+    scrub 计费列保留+AuditLog 双谓词脱敏+列级机器断言 registry 全表红⑯）；
+    对象面（manifest−DB by id diff+版本化 capability detect 本地 MinIO
+    真桶实弹红⑮+multipart Abort+replication/object-lock/lifecycle 诚实
+    披露非假绿）；Redis R18（workId targeted SCAN 全前缀+like/view 保留+
+    红⑭ 零残留）；WAL 段（purge-scope 端点三层守卫）；IDB（PROJECT_ERASED
+    4414 web terminal 红⑰ 12/12 不自动重连）；备份 tombstone
+    （restore-reerase 幂等重放+双失=RESIDUAL_RISK exit 2 非假绿+runbook
+    §13.1 restore gate）；kill -9 全 stage 幂等 resume DONE 零双删（红⑪）；
+    毒丸上界 attempts5→FAILED+re-drive 清零直回 PURGING_DB；DRY_RUN 全
+    stage 预览；erasure 指标五件+THRESHOLDS；append p95 基准 31→33ms
+    （硬门 1.65%+锁等待峰值 0——零回归）。
+    ★批内重大根修：claim 租约谓词时区基准错位（timestamp naive 列 vs raw
+    timestamptz 参数=会话时区 8h 偏移致谓词恒真——C4-b 潜伏真 bug，评审保护
+    锚暴露；AT TIME ZONE 'utc' 对齐 delegate 墙钟，materialize/node-artifact
+    既有纪律同款；四组变异红实证）。
+
+【出口门验证数字】
+  pnpm verify（FULL）：31 步 PASS（exit 0；eslint 0 error/147 pre-existing warnings）
+  api 单测：~3100 用例全绿｜api int 全量：88 文件（真 PG）
+  erasure 域 int：38 用例（真 PG+本地 MinIO 版本化桶+真 Redis）零 skip
+  census：36/36｜check-production-charter：PASS（四项本地全 passed）
+  六 G 门重认证（output/prod-exit-recert/）：runner ran=43 skip=0 fail=0
+    +g1 探针 11 cases 重跑 0 失败；manifest 全六门 commit=1bbf078c
+    cases 95（g1 11+g2 15+g3 19+g4 14+g5 18+g6a 18）全 pass；
+  check-gate-evidence.mjs：PASS（release 门——生产码零漂移+证据文件 4 件在位）
+
+【限制诚实登记——不写「生产就绪/零残留」】
+  1. 单机无 HA/无 PITR：可用性/RPO 风险不变——上线门槛=服务器窗（pitr/
+     pg-sync-commit/minio-versioning/restore-drill 四项+部署 v4.1+容量
+     soak 校准+密钥化+告警值班——runbook §15/§16 操作序）。
+  2. 在线介质零残留 ✓ / 备份残余披露：擦除断言=在线 DB/对象/Redis/IDB
+     零残留；**备份保留期内的旧备份不含擦除**（恢复=擦除项目复活）——
+     恢复 SOP=restore-reerase 幂等重放（runbook §13.1 restore gate：
+     恢复后开流量前置）；manifest 双失=RESIDUAL_RISK exit 2 诚实披露；
+     PITR 级残余归服务器窗。
+  3. crypto-shredding 缺位（登记项）：备份/版本化副本「不可恢复」的唯一
+     方案（per-scope DEK+KMS）=合规需求出现再立项；出口口径=在线介质
+     零残留+备份残余披露。
+  4. MediaRef 复核窗残余：两阶段复核把「扫描后新引用」窗缩小非根除
+     （refcount 权威表=登记项）；media-gc 引用图+collectMediaRefs 端点
+     fail-closed（api 不可达=本轮暂停不删）。
+  5. canary freeze 实弹：CANARY_FREEZE_ENABLED 缺省 true（!== 'false'
+     判）——本地真连 freeze+Sentry 已测；生产环境变量核对归服务器窗。
+  6. 版本化桶：本地 MinIO gate 版本化实弹已测；生产桶版本化开启=运维
+     决策（capability detect 双向兼容已测——非版本化分支 CI RustFS 承载）。
+  7. SMS 实弹：本地无 TENCENT_SMS_* 凭据——测试面 P0→exit 2→SMS 恰一条
+     全链已钉（注入 sender）；真实网络实弹=runbook §6 五步手工演练留
+     服务器窗。
+  8. 已知环境事实：全仓 raw 时间比较「delegate UTC 墙 vs DB/会话墙」
+     混用普查=登记项（@default(now()) 列=DB 墙、delegate Date 列=UTC 墙、
+     短窗敏感——intent-reconcile 15min 窗/snapshot 日级窗审计归后续批）。
+
+【呈报】四项 charter 证据闭环+改档前置就绪——停等用户。
+  服务器窗（pitr/minio-versioning/pg-sync-commit/restore-drill+部署
+  v4.1+soak）与 trafficTier 改档=用户显式指令后开窗；本呈报包不构成
+  开放生产流量的授权。
+════════════════════════════════════════════════════════════════════

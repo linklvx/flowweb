@@ -1,8 +1,8 @@
 {
   "gate": "G5",
-  "commit": "72fc45d258e6340d71e64e4b795d1e3f6eb6fd81",
+  "commit": "1bbf078c8117711de8fa4a6eabe641aba119d5ff",
   "env": {
-    "date": "2026-10-28（T28 P3 出口全量重认证——认证对象 c29ff6c3 滞后 HEAD 18 commit〔T23-T27 各批+微批〕，按确认点②先例 G2 重跑 e93a0c91 形态全量用例在最终代码树重跑；零适配=原 17 cases 断言/命令原样全绿〔全文件调用形态=末轮选型 a 承袭〕+新增量投影用例 C18〔T28 卡内点名——真红根修〕）；前序链=f3abe9a7→三扫尾→cbec3fc5→末轮小收口 c29ff6c3",
+    "date": "2026-11-06T16:29:02+00:00",
     "runtime": "windows 10.0.26300（Git Bash）+ Node vitest 2.1.9；int 池=真 PostgreSQL（localhost:5432/flowweb，vitest.int.config）；零新迁移",
     "suite": "T22 收口面=runtime-feed.t22-g5.int（16：主体 13+收口 C-3 快照竞态〔RR+先 cursor 后 events+≤lastSeq 过滤——末轮确定性命中窗=外持 RuntimeFeedCursor 表锁+pg_sleep〕/I-5 租约重派崩溃窗/I-9 跨项目同 nodeId 串扰）+runtime-feed.t22-closeout.spec（M-15 lastKnown 提交后写+M-16 after 畸形 400）+collab-t22-delivery-switch.int（7：主体 5+M-10 并发幂等〔fence 锁外持确定性 TOCTOU〕+I-8 payload 契约键）+web runtimeFeedWiring.spec（2：C-1 生产接线+心跳同形）+web runtimeArtifactOverlay.spec（2：C-2 overlay 红→绿+legacy 兜底序）+runtimeStore.t22.spec（15：主体 12+I-7 gap 两档+M-2 historyId）+主体批全部既有面（poller int 15/harness 6/exec-map 7/execView 21）",
     "scope": "spec §9.1 G5 行+双评审收口定性「同切片切交付只完成了删除半边」——客户端半链生产接线（C-1）/产物渲染 overlay（C-2）/snapshotEnvelope 竞态（C-3）+I-4..I-9+M-2/3/5/10/11/13..18",

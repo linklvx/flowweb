@@ -1,10 +1,10 @@
 {
   "gate": "G2",
-  "commit": "72fc45d258e6340d71e64e4b795d1e3f6eb6fd81",
+  "commit": "1bbf078c8117711de8fa4a6eabe641aba119d5ff",
   "env": {
     "pg": "PostgreSQL 16.13 (localhost:5432/flowweb)",
     "migration": "20261024140000_y1c_t10_drop_canvas_doc_update_seq",
-    "date": "2026-11-05（Y1c T34 发布门全量重认证——认证对象 ee958acc 滞后 HEAD 105 commit〔P3/P4 各批+微批〕，确认点②裁定「manifest==最终代码」兑现：全部 cases 断言/命令原样在最终代码树（T34 代码批 72fc45d2+证据批工作树）重跑全绿）；前序=2026-10-25T13:08:00.000Z",
+    "date": "2026-11-06T16:29:02+00:00",
     "suite": "apps/api/src/modules/collab/collab-t10-g2.int.spec.ts（真 PG/真 spool tmpdir/真 repo——vitest.int.config；kill -9=进程内 seam 注入+服务重实例化+recoverScan 本地路径模拟——生产 boot 接线归 T13）+C1 lease-fence：canvas-doc-update.repository.append.int.spec.ts（facet A 真 PG——vitest.int.config）+canvas-doc-update.repository.spec.ts（facet B 词法 sim+形状锚——默认池）；barrier/unload=collab-t10-barrier-unload.spec.ts（默认池）；F7=packages/shared collab-close-code.test.ts+recovery-flow.spec.ts"
   },
   "cases": [

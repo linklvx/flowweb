@@ -1,9 +1,9 @@
 {
   "gate": "G6a",
-  "commit": "72fc45d258e6340d71e64e4b795d1e3f6eb6fd81",
+  "commit": "1bbf078c8117711de8fa4a6eabe641aba119d5ff",
   "env": {
     "pg": "PostgreSQL 16.13（localhost:5432/flowweb——pg_dump 16.13 实弹工具链 D:/programfiles/PostgreSQL/16/bin）",
-    "date": "2026-11-05（Y1c T34 发布门全量重认证——认证对象 32194478 滞后 HEAD 109 commit〔P3/P4 各批+微批〕，确认点②裁定「manifest==最终代码」兑现：18 cases 断言/命令原样在最终代码树（T34 代码批 72fc45d2+证据批工作树）重跑全绿）；前序=2026-10-25",
+    "date": "2026-11-06T16:29:02+00:00",
     "suite": "collab-t13-g6a.spec（boot 接线 K1-K7+K2b/M4 收口单池）+collab-t13-kill9.process.spec（真子进程 spawn+SIGKILL P1-P3）+collab-t13-g6a.int.spec（真 PG 实弹 I1-I4——vitest.int 配置池，pg 工具探测平台化 win=.exe/unix 无后缀+缺工具 it.skip 显式化）+collab-spool-wal.spec M3/T13 收口 C1①②/I1/M1；kill -9=进程内 seam（NoConfirmSpool/FaultRepo——T8/T9/T10 先例）+真子进程物理形态双轨；「重启」=服务重实例化+boot 生产恢复路径（T13 接线——与 G2 套件直调函数形态的差异面）"
   },
   "cases": [

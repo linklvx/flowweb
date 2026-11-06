@@ -1,8 +1,8 @@
 {
   "gate": "G3",
-  "commit": "72fc45d258e6340d71e64e4b795d1e3f6eb6fd81",
+  "commit": "1bbf078c8117711de8fa4a6eabe641aba119d5ff",
   "env": {
-    "date": "2026-11-05（Y1c T34 发布门全量重认证——认证对象 fc6a4d68 滞后 HEAD 90 commit〔P3/P4 各批+微批〕，确认点②裁定「manifest==最终代码」兑现：19 cases 断言/命令原样在最终代码树（T34 代码批 72fc45d2+证据批工作树）重跑全绿）；前序=2026-10-24",
+    "date": "2026-11-06T16:29:02+00:00",
     "runtime": "windows 10.0.26300（Git Bash）+ Node vitest 2.1.9；web=jsdom（真 @tiptap/react 2.10.0 Editor 实例×双 Y.Doc 帧交换——非单 doc 模拟）+y-prosemirror 1.3.7 exact pin（S3 结论②）+yjs 13.6.32；int 池=真 PostgreSQL（localhost:5432/flowweb，vitest.int.config）",
     "suite": "T16 面=apps/web src/collab/t16-g3-dual-end.spec（真编辑器双端 6）+src/stores/canvasIntents.t16-xml-domains.spec（容器 seam 7）+src/collab/xmlSchemaParity.spec（6）+apps/api src/modules/collab/collab-t16-xml-l1.spec（L1 对抗语料 11）+packages/shared src/canvas/xml-schema.spec（单表契约 14）；T15 面=canvasIntents.t15-text-domains.spec（17）；T17 面=canvasIntents.t17-array-domains.spec（26）；T18 面=canvasUndo.test（9）+canvasUndo.nested-scope.spec（7）+canvasCollabRuntime.t18.spec（8）；T19 面=api read-model-census.fixtures.spec（29）+read-model-exit.t19.spec（3）+web read-model-census.fixtures.spec（4）+shared read-model-census.spec（6）",
     "scope": "P2 内容门全量形态（spec §9.1 G3 行+plan 门禁总览「G3=T16-T20 含 XML L1」+spec §10「P2 内容→G3 过→用户确认点③」）：Y.Text 三域（T15）/嵌套 XmlFragment+mention+双端并发+XML L1（T16）/媒体 Y.Array 相邻域（T17）/undo-redo 全形态含栈≤100 整栈 clear 收口+per-tab 缓存（T18）/读者面相邻收编（T19——归属注记见 C16）；L2/全类型矩阵=T24",
