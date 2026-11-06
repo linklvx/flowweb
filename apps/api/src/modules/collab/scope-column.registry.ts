@@ -13,8 +13,17 @@
 //    画布载体族（appendBatch/vacuumReplace/compact 发布/maintenance 关闸/genesis 创建）、admit 受理、
 //    intent claim、项目改名/成员写、VideoProject CRUD（workflowId 别名维）——用户内容写面。
 //  B 档·入口边界门（HTTP 层 TeamGuard/perm.resolve 链——读路径过滤 Proxy 先行 404）：team 维资金/成员
-//    面已由 C4-a 红⑥-a 全路径拦截（DISBANDING 403）+claimTx Z26 in-tx Team FOR SHARE；本卡不逐资金
-//    事务加 lockScope（ledger 单写者纪律独立——加锁改变资金域串行化面，登记 C4-c 评审后定）。
+//    面已由 C4-a 红⑥-a 全路径拦截（DISBANDING 403）+claimTx Z26 in-tx Team FOR SHARE；不逐资金
+//    事务加 lockScope（ledger 单写者纪律独立——加锁改变资金域串行化面）。
+//    **C4-c1 资金域 gate 评审裁定（2026-11-05，钉死「登记 C4-c 评审后定」悬项）=不入 A 档/gate**，实证：
+//    ①tombstone 后入口门已拒新写——claim 事务首句 Team FOR SHARE ∧ status≠ACTIVE 拒
+//    （generation-intent.service.ts :154-155，DISBANDING 含）；admit 事务 lockProject→fenceProject
+//    （execution-request.service.ts :437-441，DELETING 拒——C4-b 接线）；②资金行=allowlist 计费行保留
+//    （PURGING_DB：GenerationIntent 只 scrub 内容列〔resultText/gestureKey/resultRef→null〕计费列原样、
+//    ExecutionRequest 整行保留——project-erasure.stages.ts allowlist 单源）；③ledger 单写者纪律不变
+//    ——ledger_guard 触发器仅辖 TeamBalance/TeamCreditTransaction（迁移 20261009140100 :1433-1436），
+//    project 维擦除零触碰该两表；team 维删 Team 行走 ledgerTx 通行证（poller 会合分支既有）；
+//    ④请求侧资金门（TeamFundsGateService.assertSettled 扩查三面——C4-a）保证擦除开始时资金已清算。
 //  C 档·scope 扫除面（不 fence——行集由 erasure worker 按 scope 批删/C4-c 列级断言核销）：执行完成面
 //    （NodeExecution/ExecutionOutbox/MaterializeRun/DeliveryFence/NodeLifecycle 在飞完成写）、feed 面
 //    （RuntimeEvent/RuntimeFeedCursor——observability 7d retention+sweeper join ACTIVE）、retention/canary
@@ -96,7 +105,11 @@ export const PROJECT_SCOPE_ALIASES = [
 /** 写锁门禁 registry 填充清单（C1-0 机制·本卡填——**登记=该模型全部 delegate 写点已 A 档接线**：
  *  测试态无锁写入抛 WriteLockRequiredError。closure≠gate：C 档模型与「资金/完成面多写点模型」
  *  （ExecutionRequest 族经 team-credit void/settle、GenerationIntent 经 finalize/reconcile 族——
- *  写点横跨资金域 ledger 纪律）不入 gate（登记即要求全部写点加锁=改资金域串行化面，归 C4-c 评审）；
+ *  写点横跨资金域 ledger 纪律）不入 gate（登记即要求全部写点加锁=改资金域串行化面）——
+ *  **C4-c1 资金域评审裁定（2026-11-05）=维持不入**：tombstone 后入口门已拒新写（claim Team FOR SHARE
+ *  generation-intent.service :154/admit fenceProject execution-request.service :441）+擦除侧资金行
+ *  =allowlist 计费行保留（stages allowlist）+ledger_guard 仅辖 TeamBalance/TeamCreditTransaction
+ *  （project 维零触碰）——见上方 B 档注释四点实证；
  *  raw SQL 写点（$executeRaw）不经 delegate=门禁不可见（fence 正确性由行锁承担，census 为覆盖检查）。
  *  新模型接 A 档 fence 时同批登记此处+接线写点。 */
 export const GUARDED_WRITE_MODELS = [

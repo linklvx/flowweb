@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { resolve } from 'node:path';
 import {
   envSchema, envSchemaValidated, validateEnv, resolveSecureTransport,
   DB_CONNECTION_LIMIT, withConnectionLimit, applyDatabaseUrlConnectionLimit,
@@ -145,6 +146,24 @@ describe('Y0a-4 env zod 收口：COLLAB_* 全族（P3 校验层不写默认+B13 
     expect(envSchema.safeParse({ ...good, COLLAB_SWEEP_ENABLED: 'true' }).success).toBe(true);
     expect(envSchema.safeParse({ ...good, COLLAB_SWEEP_ENABLED: 'flase' }).success).toBe(false);
     expect(envSchema.safeParse({ ...good, COLLAB_SWEEP_ENABLED: '' }).success).toBe(true);
+  });
+
+  // C4-c1（生产就绪收尾批·project-erasure）：C4-b 已注册 ERASURE_MANIFEST_DIR zod（env.ts :193
+  // isAbsolute refine——spec 评审 P2-① 绝对路径校验前移到启动面）但 zod 用例缺——本块补钉三档
+  //（缺省回落〔optional——默认值落使用点 erasureManifestDir() 防双源 P3〕/相对路径拒/绝对路径过）。
+  it('ERASURE_MANIFEST_DIR 三档：缺省回落（含空串=未设）/相对路径拒（isAbsolute refine）/绝对路径过', () => {
+    // ① 缺省回落：未设过验（目录默认=CWD/.data/erasure-manifest——使用点单源，zod 不写 default）
+    expect(envSchema.safeParse({ ...good }).success).toBe(true);
+    expect(envSchema.safeParse({ ...good, ERASURE_MANIFEST_DIR: '' }).success).toBe(true);   // B13：空串=未设同档
+    // ② 相对路径拒：CWD 漂移会静默指向另一个目录（manifest=恢复重放锚不容失锚——R16）
+    const rel = envSchema.safeParse({ ...good, ERASURE_MANIFEST_DIR: 'data/erasure-manifest' });
+    expect(rel.success).toBe(false);
+    if (!rel.success) expect(rel.error.issues[0]!.message).toContain('绝对路径');
+    // ③ 绝对路径过（resolve('.') 跨平台绝对形态）+ 值透传
+    const abs = resolve('erasure-manifest');
+    const ok = envSchema.safeParse({ ...good, ERASURE_MANIFEST_DIR: abs });
+    expect(ok.success).toBe(true);
+    if (ok.success) expect(ok.data.ERASURE_MANIFEST_DIR).toBe(abs);
   });
 });
 
