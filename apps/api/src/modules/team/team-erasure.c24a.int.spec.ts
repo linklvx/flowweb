@@ -148,9 +148,9 @@ maybe('C4-a 红④⑤⑤-b⑥-a team tombstone-only+会合（真 PG）', () => {
     await poller.tick();   // 会合判定：FAILED 传染
     expect((await prisma.projectErasureRun.findUniqueOrThrow({ where: { erasureId: teamRun1.erasureId } })).state).toBe('FAILED');
     expect(await prisma.team.findUnique({ where: { id: t1 } })).not.toBeNull();   // 不删 Team
-    // 正路径：子全 DONE→删 Team
+    // 正路径：子全 DONE→删 Team（TeamBalance 行经 ledger 单一口 ensureBalance 建——single-writer 门禁）
     const { teamId: t2, projectIds: p2 } = await mkTeam(2);
-    await prisma.teamBalance.create({ data: { teamId: t2, credits: 0, subscriptionCredits: 0 } }).catch(() => undefined);
+    await ledger.runInTx(async (tx) => ledger.ensureBalance(tx, t2));   // 钱包行在=级联删 TeamBalance 触发 ledger_guard（通行证面实证载体）
     await service.disbandTeam(t2, owner);
     await poller.tick();   // 分批+子 run（子 PENDING）
     const teamRun2 = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeType: 'team', scopeId: t2 } });
