@@ -48,6 +48,11 @@ describe('ProjectService', () => {
       canvasDocSnapshot: { upsert: vi.fn().mockResolvedValue({}) },
       runtimeFeedCursor: { upsert: vi.fn().mockResolvedValue({}) },
       projectMember: { create: vi.fn().mockResolvedValue({}) },
+      projectErasureRun: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: data.erasureId ?? 'run1', ...data })),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },   // C4-c1：擦除动作 AuditLog 补位（openProjectErasure 同事务）
     };
     prisma.$transaction = vi.fn(async (fn: (tx: any) => Promise<any>) => fn(prisma));
     prisma.$queryRaw = vi.fn().mockResolvedValue([]);   // Y0a-2 X13：cleanDrafts FOR UPDATE 锁定集

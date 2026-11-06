@@ -28,7 +28,7 @@ describe('全局 filter 注册序（main.ts 静态守卫）', () => {
     const registered = (m![1] as string)
       .split(',')
       .map((s) => s.replace(/\s+/g, ' ').trim());
-    expect(registered).toEqual(['new HttpExceptionFilter()', 'new CollabNotServingFilter()']);
+    expect(registered).toEqual(['new HttpExceptionFilter()', 'new CollabNotServingFilter()', 'new ProjectErasingFilter()']);   // C4-b 22845eee 加第三 filter（窄 Catch 后注册先求值）——stale 期望收口（C4-c1 发现 HEAD 红）
   });
 });
 

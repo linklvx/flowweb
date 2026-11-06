@@ -35,6 +35,7 @@ describe('TemplateService', () => {
       findFirst: ReturnType<typeof vi.fn>;
       create: ReturnType<typeof vi.fn>;
     };
+    auditLog: { create: ReturnType<typeof vi.fn> };   // C4-c1：擦除动作 AuditLog 补位
     teamMember: {
       findFirst: ReturnType<typeof vi.fn>;
       findUnique: ReturnType<typeof vi.fn>;
@@ -77,6 +78,7 @@ describe('TemplateService', () => {
         findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({ erasureId: 'run-1', scopeType: 'project', scopeId: 'p1', state: 'PENDING', dryRun: false }),
       },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },   // C4-c1：擦除动作 AuditLog 补位（openProjectErasure 同事务）
       // findFirst：assertTeamMember 用（默认成员放行）；findUnique：update/delete 的 OR 成员直查（默认非成员）
       teamMember: {
         findFirst: vi.fn().mockResolvedValue({ role: 'MEMBER' }),

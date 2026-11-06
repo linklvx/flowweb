@@ -15,10 +15,12 @@
 // AuthGuard 会话面由 auth.guard 精确谓词放行 POST exec-status（静态路径全等）。
 import { BadRequestException, Body, Controller, ForbiddenException, Inject, Post, UseGuards, Headers } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
+import { UsePipes, ValidationPipe } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NoTransform } from '../../common/decorators/no-transform.decorator';
 import { CollabDocumentService } from './collab-document.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { CollectMediaRefsDto } from './dto/collect-media-refs.dto';
 import { WorkerWriteAuthGuard } from './worker-write-auth.guard';
 import { verifyWorkerScopeToken, WORKER_SCOPE_HEADER, type WorkerScopePayload } from './worker-scope-token';
 
@@ -43,19 +45,11 @@ export class CollabWriteController {
    *  传输层（readCanvas 读族同款——非资金写面无 scope 令牌需求）。 */
   @Post('media-refs')
   @NoTransform()
+  @UsePipes(new ValidationPipe({ whitelist: true }))   // body-param-ratchet v5 合规形态（DTO-class+pipe——inline/无-pipe 两档棘轮均禁新增）
   @UseGuards(WorkerWriteAuthGuard)
-  async collectMediaRefs(
-    @Body() body: { teamId?: unknown; excludeProjectId?: unknown; mediaIds?: unknown },
-  ): Promise<{ referenced: string[] }> {
-    if (body === null || typeof body !== 'object' || Array.isArray(body)
-      || typeof body.teamId !== 'string' || body.teamId === ''
-      || typeof body.excludeProjectId !== 'string' || body.excludeProjectId === ''
-      || !Array.isArray(body.mediaIds) || body.mediaIds.length === 0
-      || body.mediaIds.some((m) => typeof m !== 'string' || m === '')) {
-      throw new BadRequestException({ code: 'MEDIA_REFS_BAD_BODY', message: 'body 须为 { teamId: 非空 string, excludeProjectId: 非空 string, mediaIds: 非空 string[] }' });
-    }
+  async collectMediaRefs(@Body() body: CollectMediaRefsDto): Promise<{ referenced: string[] }> {
     const referenced = await this.spool.collectProjectMediaRefs(
-      { teamId: body.teamId, excludeProjectId: body.excludeProjectId, mediaIds: body.mediaIds as string[] },
+      { teamId: body.teamId, excludeProjectId: body.excludeProjectId, mediaIds: body.mediaIds },
       { docs: this.docs, prisma: this.prisma },
     );
     return { referenced };

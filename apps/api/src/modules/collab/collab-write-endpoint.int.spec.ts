@@ -110,6 +110,7 @@ maybe('Y1c T32 exec-status 端点（端到端真链+三探针——RuntimeEvent 
       providers: [
         { provide: CollabDocumentService, useValue: docSvc },
         { provide: PrismaService, useValue: prisma },   // T13：scope 全档绑定校验读点（intent 行）
+        { provide: CollabSpoolService, useValue: new CollabSpoolService() },   // C4-c1：media-refs 端点面（exec-status 用例零消费——裸构造即可）
       ],
     }).compile();
     app = moduleRef.createNestApplication();
