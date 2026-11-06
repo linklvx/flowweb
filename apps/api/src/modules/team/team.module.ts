@@ -14,7 +14,6 @@ import { TeamController } from './team.controller';
 import { TeamGuard } from './team.guard';
 import { TeamCloseExpiredProcessor } from './task/team-recharge-close-expired.processor';
 import { TeamActiveQueryProcessor } from './task/team-recharge-active-query.processor';
-import { TeamMediaCleanupProcessor } from './task/team-media-cleanup.processor';
 import { AdminTeamPlanController } from './admin-team-plan.controller';
 import { RechargeModule } from '../recharge/recharge.module';
 import { AuditService } from '../../common/audit/audit.service';
@@ -22,7 +21,6 @@ import { AuditService } from '../../common/audit/audit.service';
 @Module({
   imports: [
     BullModule.registerQueue(
-      { name: 'team-media-cleanup' },
       { name: 'team-recharge-close-expired' },
       { name: 'team-recharge-active-query' },
     ),
@@ -33,7 +31,7 @@ import { AuditService } from '../../common/audit/audit.service';
     CreditLedgerService, TeamFundsGateService,
     TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, StorageQuotaService, TeamGuard,
     ProjectPermissionService, ProjectMemberService, AuditService,
-    TeamCloseExpiredProcessor, TeamActiveQueryProcessor, TeamMediaCleanupProcessor,
+    TeamCloseExpiredProcessor, TeamActiveQueryProcessor,
   ],
   exports: [CreditLedgerService, TeamFundsGateService, TeamService, TeamCreditService, TeamRechargeService, TeamSubscriptionService, StorageQuotaService, TeamGuard, ProjectPermissionService],
 })

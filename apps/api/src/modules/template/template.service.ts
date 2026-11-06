@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FolderService } from '../folder/folder.service';
@@ -28,6 +28,7 @@ interface UpdateTemplateInput {
 @Injectable()
 export class TemplateService {
   private cache = new Map<string, { data: any; timestamp: number }>();
+  private readonly logger = new Logger(TemplateService.name);
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
@@ -176,8 +177,11 @@ export class TemplateService {
         gate: (t) => this.fundsGate.assertSettled(t, { projectId }),
       });
     });
-    // Y0a-2（V11）语义随 tombstone 保留：提交后 emit（回滚=无 emit=无假终态）
-    await this.eventEmitter.emitAsync('project.gone', { projectIds: [projectId] });
+    // Y0a-2（V11）语义随 tombstone 保留：提交后 emit（回滚=无 emit=无假终态）；评审 P2-4：catch-warn
+    // 对齐 project 入口形态——提交后 emit 拒绝裸抛=500（客户端重试撞 404 假失败；tombstone 已提交=
+    // run 行持久恢复锚）
+    await this.eventEmitter.emitAsync('project.gone', { projectIds: [projectId] })
+      .catch((e: unknown) => this.logger.warn(`project.gone emit 失败（tombstone 已提交——run 行 ${run.erasureId} 为恢复锚）: ${e}`));
     if (template.folderId) await this.folderService.touch([template.folderId]);
     return run;
   }

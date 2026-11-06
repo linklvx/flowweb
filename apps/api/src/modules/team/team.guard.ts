@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable, NotFoundException, SetMetadata } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Inject, Injectable, NotFoundException, SetMetadata } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -12,7 +12,9 @@ export const SkipTeamGuard = () => SetMetadata(SKIP_TEAM_GUARD, true);
 
 @Injectable()
 export class TeamGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector, private readonly prisma: PrismaService) {}
+  // 评审 P1-2 装置面：显式 @Inject（AuthGuard 同款——esbuild 无 emitDecoratorMetadata 下类
+  // provider 构造注入不解析，int HTTP 装置（app.listen 真守卫链）需显式令牌；tsc 生产面同值零行为变化）
+  constructor(@Inject(Reflector) private readonly reflector: Reflector, @Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     if (this.reflector.get<boolean>(SKIP_TEAM_GUARD, context.getHandler())) return true;

@@ -81,7 +81,6 @@ import { CreditLedgerService } from './modules/team/credit-ledger.service';
 import { TeamSubscriptionService } from './modules/team/team-subscription.service';
 import { StorageQuotaService } from './modules/team/storage-quota.service';
 import { AuditService } from './common/audit/audit.service';
-import { TeamMediaCleanupProcessor } from './modules/team/task/team-media-cleanup.processor';
 import { TeamActiveQueryProcessor } from './modules/team/task/team-recharge-active-query.processor';
 import { TeamCloseExpiredProcessor } from './modules/team/task/team-recharge-close-expired.processor';
 // ── recharge（PAYMENT_PROVIDER/PaymentGateway——平铺，RechargeModule 闭包带 controller） ──
@@ -175,7 +174,6 @@ const env = validateEnv();
     DailyReconProcessor,
     CloseExpiredSubOrderProcessor,
     BannerCleanupProcessor,
-    TeamMediaCleanupProcessor,
     TeamActiveQueryProcessor,
     TeamCloseExpiredProcessor,
     // ── execution 链服务（processor 传递依赖平铺） ──

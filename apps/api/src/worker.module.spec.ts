@@ -38,7 +38,6 @@ import { CloseExpiredSubOrderProcessor } from './modules/subscription/task/close
 import { BannerCleanupProcessor } from './modules/subscription/task/banner-cleanup.processor';
 import { ThumbnailGeneratorConsumer } from './modules/material-library/consumers/thumbnail-generator.consumer';
 import { TempCleanupProcessor } from './modules/temp-cleanup/temp-cleanup.processor';
-import { TeamMediaCleanupProcessor } from './modules/team/task/team-media-cleanup.processor';
 import { TeamActiveQueryProcessor } from './modules/team/task/team-recharge-active-query.processor';
 import { TeamCloseExpiredProcessor } from './modules/team/task/team-recharge-close-expired.processor';
 // 关键服务+端口形态
@@ -73,7 +72,7 @@ const PROCESSORS = [
   GrantCreditProcessor, PaymentSuccessProcessor, ExpireSubscriptionProcessor,
   DailyReconProcessor, CloseExpiredSubOrderProcessor, BannerCleanupProcessor,
   ThumbnailGeneratorConsumer, TempCleanupProcessor,
-  TeamMediaCleanupProcessor, TeamActiveQueryProcessor, TeamCloseExpiredProcessor,
+  TeamActiveQueryProcessor, TeamCloseExpiredProcessor,
 ];
 
 describe('Y0c T26 worker.module——结构面（Z131 闭包纯净的模块侧对偶）', () => {
