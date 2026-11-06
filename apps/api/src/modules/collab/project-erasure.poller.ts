@@ -16,13 +16,15 @@
 // project scope run：claim+RUNNING+租约心跳（PENDING→RUNNING 的 liveness 证明——物理清除 saga 态机
 // 归 C4-c；本骨架不推进物理删除=tombstone-only 承诺的 worker 半边在位）。dryRun run 不消费（C4-c）。
 import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
+import { join } from 'node:path';
 import { Prisma } from '@prisma/client';
 import type { ProjectErasureRun } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { runWithIncludeDeleted } from '../../prisma/read-path.filter';
 import { CreditLedgerService } from '../team/credit-ledger.service';
-import { ErasureContextService, lockScope, fenceTeam } from './project-lock';
+import { ErasureContextService, lockScope, lockProject, fenceProject, fenceTeam } from './project-lock';
 import { createErasureRun, ERASURE_ACTIVE_STATES } from './project-erasure';
+import { collectSpoolSegments, writeErasureManifest, type ErasureManifestInputs } from './project-erasure.manifest';
 
 /** 轮询周期（时间门基线：run 行=唤醒源，间隔即红④兜底延迟上界；env 可调——RETENTION_SWEEP_INTERVAL_MS 同族形态）。 */
 export const ERASURE_POLL_INTERVAL_MS = Number(process.env.ERASURE_POLL_INTERVAL_MS) || 5_000;
@@ -34,6 +36,8 @@ const TEAM_TOMBSTONE_BATCH = 100;
 const TICK_RUN_LIMIT = 20;
 /** team run 处理事务上限（批选择+批置+会合判定单事务）。 */
 const TEAM_TX_TIMEOUT_MS = 30_000;
+/** C4-b：project run DRAINING 事务上限（排干等待在飞写者+采集单事务——上界含在飞批收尾时间）。 */
+const PROJECT_TX_TIMEOUT_MS = 30_000;
 
 @Injectable()
 export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutdown {
@@ -68,7 +72,8 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
           dryRun: false,
           OR: [
             { scopeType: 'team', state: { in: ['PENDING', 'RUNNING', 'WAITING_CHILDREN'] } },
-            { scopeType: 'project', state: { in: ['PENDING', 'RUNNING'] } },
+            // C4-b：project 含 DRAINING（kill -9 于 ①置 DRAINING 与 ③PURGING_DB 之间=重跑幂等收敛）
+            { scopeType: 'project', state: { in: ['PENDING', 'RUNNING', 'DRAINING'] } },
           ],
         },
         select: { erasureId: true, scopeType: true },
@@ -79,7 +84,9 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
         const run = await this.claim(c.erasureId);
         if (!run) continue;
         if (c.scopeType === 'team') await this.processTeamRun(run);
-        // project scope：claim+RUNNING+租约心跳已足（骨架 liveness 面——saga 态机归 C4-c）
+        // C4-b：project scope run=DRAINING stage（同键锁排干+manifest 唯一采集面先行→PURGING_DB
+        // 前置位停——介质批删 saga 归 C4-c）
+        else await this.processProjectRun(run);
       }
     } catch (e) {
       this.logger.warn(`erasure poller tick 失败（下一 tick 重试）: ${(e as Error).message}`);
@@ -182,6 +189,67 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
       }, { timeout: TEAM_TX_TIMEOUT_MS, maxWait: 10_000 }),
     )).catch((e: unknown) => {
       this.logger.warn(`erasure team run ${run.erasureId} 处理失败（租约到期重认领——下一 tick 重试）: ${(e as Error).message}`);
+    });
+  }
+
+  /** C4-b（plan Task C4-2——project run DRAINING stage）：三步（R15/R16）：
+   *  ①排干：单事务 lockProject（同键 advisory——**等待**在飞写事务〔appendBatch/vacuumReplace/admit/
+   *    claim 同键〕排空；fence 已拒新写者=排干后行集冻结）+fenceProject（ErasureContext 内 DELETING
+   *    豁免——worker=唯一合法 DELETING 写者）+行集采集（media/work——DELETING 行是工作对象经
+   *    runWithIncludeDeleted）+置 state=DRAINING；
+   *  ②manifest 落盘（事务外——temp→fsync→rename→fsync dir；**唯一采集面**：kill -9 于 ①后②前=
+   *    重跑幂等覆盖〔行集已冻结〕，于②后③前=DB 无索引但文件在=下一 tick 重写收敛）；
+   *  ③DB 索引+前置位：manifestPath/manifestSha256 落 run 行+state=PURGING_DB **即停**（介质批删
+   *    saga/状态机续跑归 C4-c）。幂等档：state=PURGING_DB∧manifestPath 在=已前置位 skip。 */
+  private async processProjectRun(run: ProjectErasureRun): Promise<void> {
+    const pid = run.scopeId;
+    await this.erasureCtx.withErasure(run.erasureId, () => runWithIncludeDeleted(async () => {
+      if (run.state === 'PURGING_DB' && run.manifestPath) return;   // 前置位已达成（C4-c 续）
+      // ①排干+采集+置 DRAINING（单事务——advisory 等待即「DRAINING 只持锁排干在飞」的执法点）
+      const inputs = await this.prisma.$transaction(async (tx) => {
+        await lockProject(tx, pid);   // 同键锁等待排干（在飞写者持锁期间本事务阻塞）
+        await fenceProject(tx, pid);  // DELETING∧ErasureContext→豁免（行缺失折 ACTIVE——FK 域）
+        const [mediaRows, workRows] = await Promise.all([
+          tx.$queryRaw<ErasureManifestInputs['mediaRows']>`
+            SELECT id, bucket, key, "thumbnailKey", "objectKey", size FROM "Media"
+            WHERE "projectId" = ${pid}::text ORDER BY id`,
+          tx.$queryRaw<ErasureManifestInputs['workRows']>`
+            SELECT id, "canvasProjectId", "videoKey", "coverKey" FROM "VideoWork"
+            WHERE "canvasProjectId" = ${pid}::text ORDER BY id`,
+        ]);
+        await tx.projectErasureRun.update({
+          where: { erasureId: run.erasureId },
+          data: {
+            state: 'DRAINING',
+            heartbeatAt: new Date(), leaseUntil: new Date(Date.now() + ERASURE_RUN_LEASE_MS),
+          },
+        });
+        return { mediaRows, workRows };
+      }, { timeout: PROJECT_TX_TIMEOUT_MS, maxWait: 10_000 });
+      // ②manifest 落盘（spool 段=共享盘面 dir 扫描——worker/api 同机部署形态）
+      const spoolDir = process.env.COLLAB_SPOOL_DIR ?? join(process.cwd(), '.data', 'collab-spool');
+      const manifestInputs: ErasureManifestInputs = {
+        erasureId: run.erasureId, scopeType: 'project', scopeId: pid, projectIds: [pid],
+        requestedAt: run.requestedAt, mediaRows: inputs.mediaRows, workRows: inputs.workRows,
+        spoolSegs: await collectSpoolSegments(spoolDir, [pid]),
+      };
+      const manifest = await writeErasureManifest(manifestInputs);
+      // ③DB 索引+前置位（PURGING_DB 即停——C4-c 续介质 saga）
+      await this.prisma.projectErasureRun.update({
+        where: { erasureId: run.erasureId },
+        data: {
+          state: 'PURGING_DB', stage: 'DRAINING',
+          manifestPath: manifest.manifestPath, manifestSha256: manifest.manifestSha256,
+          heartbeatAt: new Date(), leaseUntil: new Date(Date.now() + ERASURE_RUN_LEASE_MS),
+        },
+      });
+      this.logger.log(JSON.stringify({
+        event: 'erasure_manifest_written', erasureId: run.erasureId, projectId: pid,
+        rows: manifest.rows, manifestPath: manifest.manifestPath,
+        note: 'PURGING_DB 前置位（介质 saga 归 C4-c）',
+      }));
+    })).catch((e: unknown) => {
+      this.logger.warn(`erasure project run ${run.erasureId} DRAINING 失败（租约到期重认领——下一 tick 重试）: ${(e as Error).message}`);
     });
   }
 }

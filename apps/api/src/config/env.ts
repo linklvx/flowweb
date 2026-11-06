@@ -184,6 +184,9 @@ export const envSchema = z.object({
   COLLAB_SWEEP_ENABLED: z.preprocess(blankToUnset, z.enum(['true', 'false']).optional()),
   COLLAB_SPOOL_DIR: z.preprocess(blankToUnset, z.string().min(1).optional()),
   COLLAB_SPOOL_CAPACITY_BYTES: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
+  // C4-b（plan Task C4-2——R16 manifest 主载体）：erasure manifest 目录（绝对路径强制——恢复删除前
+  // 旧备份时 manifest 不随 DB restore 消失；缺省=CWD/.data/erasure-manifest；消费点 project-erasure.manifest）。
+  ERASURE_MANIFEST_DIR: z.preprocess(blankToUnset, z.string().min(1).optional()),
   COLLAB_LEASE_TTL_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_LEASE_HEARTBEAT_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_ADMIN_TOKEN: z.preprocess(blankToUnset, z.string().min(1).optional()),
