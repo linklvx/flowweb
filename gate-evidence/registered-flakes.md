@@ -147,3 +147,8 @@
   ×3/9b 竞态/M-R2 salvage），本批全改 pumpUntil；四处「导出闸悬挂窗内」语义位（closeout-1/mr1-1/
   mr1-2/iso-1）保留。终局=**0372904b push CI 四 job 全绿**（test job CI 面二连绿——t25/Theme 两族
   彻底销案）+t25 文件 5/5×26/26+tsc 0。
+- 2026-11-07（服务器窗部署 preflight 登记）：collab-spool-wal.spec C1①「gap 段收养后 peek=裁定前缀」
+  于 deploy.sh preflight verify full 满载轮红一例（02:5x——web 池背靠背后 api 池起步负载态）；同码
+  隔离跑 2/2 绿+全文件连跑 48/48×2 绿（00:45 出口门 verify FULL 同码 31 步亦全绿）；归因=该用例族
+  标题即含「fsync 时延失败尾」——文件系统时序敏感面在满载窗放大（与 Y7 硬阈 coalesce/rate-gate
+  pollUntil 同族口径）；处置=复现时单独复跑收口（禁以环境态调阈值/不动判据）。
