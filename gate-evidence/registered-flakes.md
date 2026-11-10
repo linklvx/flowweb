@@ -157,3 +157,9 @@
   deploy#3；同码隔离跑 30/30 绿+00:45 出口门 verify FULL 同码全绿）；与同夜 C1① 同族=段收养
   mtime/fsync 时序窗（ms 边界竞态——写入与 stat 同毫秒时 NTFS mtime 取整可后移一 tick）；归因口径
   同台账 Y7 coalesce/rate-gate 行=环境负载态非回归；处置=复现时单独复跑收口（禁调阈值/不动判据）。
+- 2026-11-07（服务器窗部署 gate-collab 观测——台账 2026-11-03/04「未定性」行第三次观测）：
+  specb-perf reconcile max=5.100ms（retry 5.500ms）vs 冻结预算 5ms（v3.16 终裁 58②数字冻结）——
+  首开 1622ms≪15s+零差异订阅回调=0 双绿（「先证伪零差异短路」前置已过=短路在位，超限=全表遍历
+  成本边际）；同机同夜 deploy#7 gate-collab 全绿（≤5ms 过）+deploy#9 两试 5.1/5.5——满载后热机
+  边际形态与非定性先例一致（隔离跑须 gate-collab.mjs 形态——spec 头注 ECONNREFUSED 3100 预期）；
+  处置=复跑收口（禁调冻结预算——脏域优化不做=plan 终裁；定性归后续 nightly 观测面）。
