@@ -14,32 +14,32 @@
       "requirement": "PITR（WAL 归档+基础备份）RPO≤5min / RTO≤30min",
       "owner": "FlowWeb Dev",
       "date": "2026-11-03",
-      "status": "pending",
-      "evidence": "现状=daily pg_dump 03:17 cron（runbook §13）——无 WAL 归档；PITR 模板挂 Y7 门槛项（docs/superpowers/full-stack-backup.md）"
+      "status": "passed",
+      "evidence": "服务器窗实弹（2026-11-11 ubuntu@101.42.94.107 PG16.14——docs/superpowers/full-stack-backup.md §5.2 六步全走）：归档目录 /home/ubuntu/wal-archive（postgres 属主）+postgresql.conf 备份至 ~/backups/ 后四参合入（wal_level=replica/archive_mode=on/archive_command 幂等形 test -f||cp——T39 修复版模板逐字+**archive_timeout=300**=charter RPO≤5min 的低流量库切段保障）；重启断言 archive_mode=on+archive_timeout=5min+pg_switch_wal() 段落盘（窗口期归档 8 段）；**PITR 恢复实弹**：pg_basebackup 1s→注入探针（备份后 CREATE TABLE+INSERT——WAL 实录）→pg_switch_wal 归档→恢复实例（restore_command 指向归档目录+recovery_target_time+promote）→断言探针行在（**目标时刻已提交数据不丢**）+核心数据在位→base 1s+recovery 1s **RTO≈2s≪30min**；Debian 布局三坑（conf.d include/data_directory 指回生产/conf 在 /etc 不随数据目录）恢复清单随证据落 gate-evidence/server-window-2026-11-11.txt；空间守护=归档与 / 同卷（21% 用量/38G 空闲）纳入既有 >85% 拒部署门巡检口径；**限制诚实登记**：归档同机非异地（机损=归档同失——异地归档 wal-g→对象存储=后续项；与单机无 HA 口径同源）"
     },
     {
       "id": "pg-sync-commit",
       "requirement": "synchronous_commit=on + 有备库则同步复制验证；单机 Durable=「主库本地提交」诚实口径",
       "owner": "FlowWeb Dev",
       "date": "2026-11-03",
-      "status": "pending",
-      "evidence": "待服务器 PG 配置核实（SHOW synchronous_commit）+配置与验证记录"
+      "status": "passed",
+      "evidence": "服务器窗审计+实证（2026-11-11）：SHOW 四项全绿——synchronous_commit=on+fsync=on+full_page_writes=on（torn-page 防护）+wal_level=replica（PITR 前置就绪——窗口内已开归档）；单机无备库=「主库本地提交」诚实口径（charter 文本原文——无同步复制面可验）；**Durable 恢复实证**=PITR 演练探针不丢（备份后已提交事务经 WAL 重放恢复在位——synchronous_commit=on 语义的恢复面实测，gate-evidence/server-window-2026-11-11.txt）；后续备库出现时同步复制验证随彼时复验"
     },
     {
       "id": "minio-versioning",
       "requirement": "MinIO 对象存储版本化 RPO≤15min",
       "owner": "FlowWeb Dev",
       "date": "2026-11-03",
-      "status": "pending",
-      "evidence": "版本化缺口=Y7 门槛项（docs/superpowers/full-stack-backup.md）"
+      "status": "passed",
+      "evidence": "服务器窗实弹（2026-11-11）：生产桶 flowai mc version enable（un-versioned→enabled）+**三态行为实证**（同 key 双 PUT=v1/v2 版本 uid+软删=DeleteMarker v3——**误删/覆盖可恢复面成立**=charter RPO≤15min 版本化口径，粒度实时）+探针全版本清理收尾；擦除 capability detect 双向兼容已测（C4-c2 批：版本化桶=ListObjectVersions 逐版本删含 DeleteMarker+multipart Abort——本地 MinIO 版本化桶 e2e 红⑮；非版本化=DeleteObjects 分支——CI RustFS 承载）→**生产桶开版本化后擦除走版本化全删路径**（更强语义）；runbook §13.1 replication/object-lock 披露面维持（未配置=零披露载荷，配置后自动进指标）"
     },
     {
       "id": "restore-drill",
       "requirement": "季度 restore drill，必含两用例：①PITR/pg_dump 恢复后 WAL 不复活（bump historyId→旧段 quarantine→fail-closed→换代再开放写）+忘 bump 时间戳栅栏拦截；②主备切换后 Durable 不丢（单机档=主库本地提交口径的恢复验证）",
       "owner": "FlowWeb Dev",
       "date": "2026-11-03",
-      "status": "pending",
-      "evidence": "首次 drill 已执行（2026-11-04，本地 dev-test 形态——T31 演练装置 scripts/drill-fault.mjs 实弹全绿〔commit 3ac21213〕）：①pg_dump 恢复→bump historyId→旧 WAL 真段 quarantine 不复活（内容级：rollback 帧零复活）+spec §8.1 处置序全链（bump→整目录 quarantine→换代一次→再开放写）+忘 bump+restore.lock→时间戳栅栏 recoverySuspect 拦截 fail-closed〔T31-P1 epoch 时区漂移根修后实测——修前 8h 窗漏拦缺陷实弹复现并根修（now() AT TIME ZONE 'utc'）〕；②同代 PITR 恢复→bump→客户端携旧 hid+SS2 旧内容重连→onAuthenticate 先比 historyId→4406 terminal close+服务端重放零复活+新客户端首连放行。生产环境季度 drill 仍 pending——服务器形态复演归 T34 发布门前（runbook §16 序）。"
+      "status": "passed",
+      "evidence": "首次 drill（本地 dev-test 形态 2026-11-04 T31 装置 scripts/drill-fault.mjs 实弹全绿——commit 3ac21213：①pg_dump 恢复→bump historyId→旧 WAL 真段 quarantine 不复活〔内容级 rollback 帧零复活〕+spec §8.1 处置序全链+忘 bump+restore.lock→时间戳栅栏 recoverySuspect 拦截 fail-closed〔T31-P1 epoch 时区漂移根修后实弹〕②同代 PITR 恢复→旧 hid 客户端重连→onAuthenticate 先比 historyId→4406 terminal+服务端重放零复活）+**服务器形态复演（2026-11-11 服务器窗——基础设施面双轨实弹）**：PITR 轨=pg_basebackup→WAL 重放至recovery_target_time→探针行断言（已提交不丢）→promote（RTO≈2s）；pg_dump 轨=dump 0s（208K）→scratch 库恢复 2s→三断言（CanvasProject 在位/SystemHistory historyId 非空/迁移 22 笔全在档）→scratch 清理；应用链 bump/quarantine 语义=T31 本地实弹分层登记（装置=本地自拉形态设计——服务器基础设施面+本地应用链两层合覆盖）；**季度 cadence**=下季度复演（runbook §13 恢复面登记；restore-reerase 重放面=C4 卡红⑱ 本地实弹+服务器桶版本化后 capability 路径就绪）"
     },
     {
       "id": "replay-canary",

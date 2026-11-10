@@ -49,12 +49,7 @@
         {
           "src": "scripts/production-charter.json",
           "line": 18,
-          "text": "\"evidence\": \"现状=daily pg_dump 03:17 cron（runbook §13）——无 WAL 归档；PITR 模板挂 Y7 门槛项（docs/superpowers/full-stack-backup.md）\""
-        },
-        {
-          "src": "scripts/production-charter.json",
-          "line": 34,
-          "text": "\"evidence\": \"版本化缺口=Y7 门槛项（docs/superpowers/full-stack-backup.md）\""
+          "text": "\"evidence\": \"服务器窗实弹（2026-11-11 ubuntu@101.42.94.107 PG16.14——docs/superpowers/full-stack-backup.md §5.2 六步全走）：归档目录 /home"
         },
         {
           "src": "scripts/reset-collab.mjs",

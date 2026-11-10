@@ -56,7 +56,7 @@ pg_restore -d "$DSN" -c --if-exists ~/backups/daily-<ts>.dump
 
 ### 5.1 模板指针
 
-`deploy/postgres/pitr-template.conf`（仓内模板，**服务器零动作**）：wal_level=replica+archive_mode=on+archive_command（WAL 归档至 /home/ubuntu/wal-archive）。当前恢复面=daily dump（RPO≤24h）；PITR（RPO≈WAL 段粒度）为 Y7 上线前升级项。
+`deploy/postgres/pitr-template.conf`（仓内模板）：wal_level=replica+archive_mode=on+archive_command（WAL 归档至 /home/ubuntu/wal-archive）。**服务器窗 2026-11-11 已启用**（+archive_timeout=300=RPO≤5min 低流量保障；§5.2 六步全走+PITR 恢复实弹 RTO≈2s——证据 gate-evidence/server-window-2026-11-11.txt；Debian 布局三坑恢复清单同文件在档；限制=归档同机非异地，wal-g 异地归档=后续项）。恢复面=daily dump+WAL 归档双轨。
 
 ### 5.2 上线前执行清单（Y7 携带）
 

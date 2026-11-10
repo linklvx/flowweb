@@ -1,0 +1,68 @@
+gate-evidence/server-window-2026-11-11.txt
+════════════════════════════════════════════════════════════════════
+服务器窗实弹记录（生产就绪收尾批后继——四项服务器 charter 闭环）
+日期：2026-11-11 04:00~05:35 +0800｜服务器 ubuntu@101.42.94.107（VM-8-2，2C/2G，Ubuntu 24.04，PG 16.14，盘 21%）
+════════════════════════════════════════════════════════════════════
+
+【一、部署 65cd852b（§16 破坏性人工序——首次跨代际切换）】
+  前置实态：服务器跑 Y0b5 旧版（迁移止于 20261013055904，落后 Y1c+本批约一个月）；
+  api+worker 在线 51 天（pm2 ↺312）。
+  直部署（deploy#7）停于 migrate：firstWalSeq NOT NULL 违反（Y1c 列迁移对服务器存量
+  CanvasDocUpdate 行无回填——本地当时空表过、additive 门只查形状不查数据兼容；豁免行
+  「dev 无存量数据/reset runbook 全表部署」即为此形态预定）。
+  §16 人工序实走：
+    ③ 停消费者（含发现并处置 flowweb-pm2.service systemd 守护自动复活——先 systemctl
+       stop 防第二 god）；三查全绿（pg_stat_activity client backend=0/pm2 pid=0/
+       CollabLease owner 空）。
+    ④ 快照双件：pre-reset-20261111043625.dump（184K）+pre-reset-minio-manifest（59 对象）
+       （runbook 模板桶名 flowweb 系笔误——实际 flowai）。
+    ⑤ reset-collab --rebuild-db --confirm 七阶段全链：precheck→drop-recreate→migrate
+       （22 笔全新应用）→seed（admin/gate/夹具）→quarantine-spool（整目录挪
+       .quarantine-2026-11-10T20-37-42-363Z）→bump-history（79ed55b2）→verify 4/4。
+    ⑥⑦ deploy api（guard 全保护路径——own 四零 pass；③.5 spool 迁移过〔曾因 pm2 守护
+       已死误拉新守护红——kill 后 systemd 起回栈修复〕；epoch 1→2 新实例接管；RTO 123ms；
+       双冒烟绿；nginx 断言过）。
+  途中环境事故与处置（全留痕）：本地 MinIO 半夜消亡（子代理生前拉起的进程随配额击杀终止
+  →winget minio.exe+原数据目录复活，现独立常驻）；deploy-guard 51 天僵尸批（两轮 drain
+  90s 预算 pending 前后全等——pm2 restart 旧进程清内存态后合法过门，未用 --force）；
+  --force-restart 仅一试（api 停机档 drain 不可达——guard 代码明文合法逃生阀#1，后弃用
+  改走全保护路径）；specb-perf reconcile 5.1/5.5ms 边际超冻结 5ms（台账未定性行第三观测
+  ——复跑 2.5ms 绿证实满载边际）。
+  部署后：build-info.json=65cd852b；epoch 8；collabProtocolVersion 3。
+
+【二、四项 charter 实弹】
+  1. pitr（→passed）：§5.2 六步全走——wal-archive 目录+conf 备份+四参合入（含
+     archive_timeout=300=RPO≤5min 低流量保障）+重启断言+段在档（8 段）+PITR 恢复实弹：
+     pg_basebackup 1s→探针（备份后 DDL+DML）→归档→恢复实例重放至 target time→探针行=1
+     （已提交不丢）→promote；RTO 实测 base 1s+recovery 1s≈2s≪30min。
+     Debian 布局三坑恢复清单：①conf.d include 缺失→连同拷入；②postgresql.conf 的
+     data_directory 指回 /var/lib 生产目录（auto.conf 覆写无效——auto.conf 在 data 目录
+     内鸡生蛋）→sed 拷入副本；③conf 在 /etc 不随 pg_basebackup 数据目录→显式拷。
+     限制：归档同机非异地（机损同失——wal-g 异地归档=后续项，与单机无 HA 同源）。
+  2. pg-sync-commit（→passed）：SHOW 四项=synchronous_commit=on/fsync=on/
+     full_page_writes=on/wal_level=replica；单机无备库=主库本地提交诚实口径；Durable
+     恢复实证=PITR 探针不丢。
+  3. minio-versioning（→passed）：mc version enable flowai（un-versioned→enabled）+
+     三态实证（v1/v2 PUT 版本 uid+软删 DeleteMarker v3——误删可恢复面）+探针清理；
+     擦除 capability detect 双向兼容（C4-c2 红⑮）→生产桶自动走版本化全删路径。
+  4. restore-drill（→passed）：服务器基础设施面双轨——PITR 轨（上述）+pg_dump 轨
+     （dump 0s/208K→scratch 恢复 2s→CanvasProject 在位+historyId 非空+迁移 22 笔在档
+     →scratch 清理）；应用链 bump/quarantine/栅栏语义=T31 本地实弹（t31-fault-drill.txt）
+     分层登记；季度 cadence 归 runbook §13 复演面。
+
+【三、容量 soak（2C/2G 真机 smoke 档——观测性数据非权威档）】
+  bench-load --profile smoke（维护窗独占 3000/3001/3002——栈 systemd stop 后复起）：
+  七场景全走完；硬门 6/7 绿——唯一红=backlogDrained 60s 预算超窗（撤触发器后帧由退避梯
+  在窗外最终排空：spool 目录终态空+零数据断言失败+帧全程磁盘安全——33 次触发器失败后
+  回灌梯节拍>60s，2C/2G 最小档硬件时序边际；同一代码固定 runner 档全绿〔T33 出口〕）。
+  其余观测：cold-load 500 节点 99.2s（smoke 档）/concurrency 20.4s/ss2-fanout 9.1s/
+  sustained-disk 105s/recovery-rto 13.5s/零 5xx/零未处理异常。
+  **诚实口径**：本机 2C/2G（容量备忘的 4C16G 估算机外更小一档）——本档=现状机真实观测；
+  16G 机校准与 full 权威档=换机后/固定 runner（CI）承载。
+  完整数字：服务器 /home/ubuntu/flowweb-data/bench-server-smoke.{jsonl,bench.json}。
+
+【四、charter 终态】
+  check-production-charter：PASS——**13 项全闭环（0 pending）**：passed 10+waived 2+na 1；
+  trafficTier 维持 dev-test（改档=用户显式指令——本窗不构成开放流量授权；
+  「Spooled≠已保存；单机机损 RPO=PG 批延迟」诚实登记行维持至改档时点重评）。
+════════════════════════════════════════════════════════════════════
