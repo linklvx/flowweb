@@ -152,3 +152,8 @@
   隔离跑 2/2 绿+全文件连跑 48/48×2 绿（00:45 出口门 verify FULL 同码 31 步亦全绿）；归因=该用例族
   标题即含「fsync 时延失败尾」——文件系统时序敏感面在满载窗放大（与 Y7 硬阈 coalesce/rate-gate
   pollUntil 同族口径）；处置=复现时单独复跑收口（禁以环境态调阈值/不动判据）。
+- 2026-11-07（服务器窗部署 preflight 登记②——同夜第二例同族）：collab-spool.service.spec W21
+  「adoptSilentForeignSegments(0) mtime 静默后收养」满载轮红一例（expect [] length 1 got 0——03:17
+  deploy#3；同码隔离跑 30/30 绿+00:45 出口门 verify FULL 同码全绿）；与同夜 C1① 同族=段收养
+  mtime/fsync 时序窗（ms 边界竞态——写入与 stat 同毫秒时 NTFS mtime 取整可后移一 tick）；归因口径
+  同台账 Y7 coalesce/rate-gate 行=环境负载态非回归；处置=复现时单独复跑收口（禁调阈值/不动判据）。
