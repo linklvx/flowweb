@@ -22,7 +22,6 @@ const prisma = new PrismaClient();
 
 const UID = `it-c22w-owner-${Date.now()}`;
 let TID = '';
-const createdMedia: string[] = [];
 
 /** 上传形态行（probe/confirm 服务路径用——不经 prepareUpload 配额面，直接落 DB 等价行） */
 async function makeMedia(opts: {
@@ -42,7 +41,6 @@ async function makeMedia(opts: {
       ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
     },
   });
-  createdMedia.push(m.id);
   return m.id;
 }
 

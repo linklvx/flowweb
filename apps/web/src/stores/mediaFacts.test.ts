@@ -107,6 +107,26 @@ describe('T16 mediaFacts 纯模块', () => {
     expect(pending.get('mv3')?.entry.natural).toEqual({ width: 800, height: 600, rotation: null });
   });
 
+  it('C2-3 wire 归一契约：state+natural 同 max 版本两行——两序（state 前/natural 前）合并两脸全（服务端版本归一+state 合成=unionFact 等值正交合并前提；改前红=natural 先到被丢→state-only 条目）', () => {
+    const wire = (order: 'state-first' | 'natural-first') => [
+      { mediaId: 'm-c23', facts: order === 'state-first'
+        ? [
+          { factVersion: '5', factType: 'state', payload: { status: 'completed' } },
+          { factVersion: '5', factType: 'natural', payload: { naturalWidth: 1280, naturalHeight: 720 } },
+        ]
+        : [
+          { factVersion: '5', factType: 'natural', payload: { naturalWidth: 1280, naturalHeight: 720 } },
+          { factVersion: '5', factType: 'state', payload: { status: 'completed' } },
+        ] },
+    ];
+    const stateFirst = mergeFactRows(new Map(), wire('state-first'));
+    expect(stateFirst.get('m-c23')?.state).toBe('completed');
+    expect(stateFirst.get('m-c23')?.natural).toEqual({ width: 1280, height: 720, rotation: null });
+    const naturalFirst = mergeFactRows(new Map(), wire('natural-first'));
+    expect(naturalFirst.get('m-c23')?.state).toBe('completed');
+    expect(naturalFirst.get('m-c23')?.natural).toEqual({ width: 1280, height: 720, rotation: null });   // natural 先到不丢（行内 state 后到补基线）
+  });
+
   it('T16 登记收口（T19）：stagePendingFactRows 两类行 union 暂存+容量帽（超帽逐出最早到期——静止会话防滞留）', () => {
     // 两类行 union 暂存（改前红=只 stage state 行——natural 丢失）
     let pending = stagePendingFactRows(new Map(), 'm1', [

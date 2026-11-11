@@ -119,7 +119,10 @@ function unionFact(base: MediaFactEntry | undefined, part: Partial<MediaFactEntr
 }
 
 /** 响应批合并（at-least-once 幂等）：批内升序末者胜+旧批次忽略。
- *  T17 登记收口：多类行 union 进同 mediaId 条目（state+natural 正交）。 */
+ *  T17 登记收口：多类行 union 进同 mediaId 条目（state+natural 正交）。
+ *  C2-3 wire 归一契约：state+natural 同 max 版本两行**行内完全序无关**——natural-only part 在
+ *  state 基线未立时先暂存（行内 state 后到→union 补入 natural 面）；行末仍无 state→随「纯 natural
+ *  不建条目」语义丢弃（服务端每 media 必有 state 行〔含合成〕——暂存=未升级端点/异常序加固面）。 */
 export function mergeFactRows(
   current: ReadonlyMap<string, MediaFactEntry>,
   rows: readonly MediaFactsResponseRow[],
@@ -127,13 +130,23 @@ export function mergeFactRows(
   let next: Map<string, MediaFactEntry> | null = null;
   for (const row of rows) {
     let entry = (next ?? current).get(row.mediaId);
+    let held: Partial<MediaFactEntry> & { factVersion: string } | undefined;   // natural-only 先到暂存
     for (const f of row.facts) {
       const part = parseFactRow(f);
       if (!part) continue;
+      if (entry === undefined && part.state === undefined) {
+        if (held === undefined || factVersionNewer(part.factVersion, held.factVersion)) held = part;
+        continue;
+      }
       const merged = unionFact(entry, part);
       if (merged === entry) continue;
       entry = merged;
       if (entry === undefined) continue;
+      if (held !== undefined) {
+        const withHeld = unionFact(entry, held);
+        if (withHeld !== undefined) entry = withHeld;
+        held = undefined;
+      }
       next = next ?? new Map(current);
       next.set(row.mediaId, entry);
     }
