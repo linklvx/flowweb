@@ -1655,8 +1655,10 @@ model MediaFact {
   @@id([mediaId, factType])
 }
 
-/// v11——媒体事实 outbox（Z1''-v13b：替换 probedAt watermark；at-least-once+客户端 factVersion 幂等去重）。
-/// 写入点三处（probe done/server natural/processing 态创建）与 Media.factVersion+1 同事务；来源=union(Media.projectId,binding.projectId)。
+/// v11——媒体事实 outbox（Z1''-v13b 遗产：at-least-once+客户端 factVersion 幂等去重）。
+/// **C2-4 断流暂留（2026-11-12）**：写点已全数改道 MediaFact 当前态表（C2-2），本模型零写者；
+/// **C1-1 rebaseline 物删**——届时同步除名 scope-column.registry/lifecycle 台账/c4c1 fixture/
+/// retirement.spec 白名单（六点清单=media-fact-outbox.retirement.spec.ts 头注）。
 model MediaFactOutbox {
   id            String         @id @default(cuid())
   mediaId       String

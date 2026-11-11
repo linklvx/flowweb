@@ -320,6 +320,8 @@ const restoreBalance = async () => {
     expect(out.outcome).toBe('committed');
     expect(out.mediaId).toBe(stage.mediaId);            // 复用 stage 行（零新行）
     expect((await prisma.media.findUnique({ where: { id: stage.mediaId } }))!.status).toBe('completed');
+    // C2 卡出口门补钉：image 终态 completed state fact 钉值（video〔materialize〕/上传〔confirm〕路径已钉——本格补 image 分支）
+    expect((await prisma.mediaFact.findUnique({ where: { mediaId_factType: { mediaId: stage.mediaId, factType: 'state' } } }))?.payload).toEqual({ status: 'completed' });
     expect(await prisma.media.count({ where: { teamId: TID, sourceIntentRowId: c.intent.id } })).toBe(1);
   });
 

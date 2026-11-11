@@ -62,6 +62,18 @@ describe('C2-3：facts 端点归一与合成', () => {
     ]);
   });
 
+  it('①d 分源优先：Media.status=completed 与实际 state 行 {failed,scope:probe} 发散——实际行胜（合成仅兜底缺行/坏行）', () => {
+    // C2 卡出口门补钉：probe 失败矩阵「分源优先」格——实际 fact 行（probe 终态失败产物）与 Media.status
+    // 分歧时以实际行为准，不被 Media.status=completed 合成覆盖（spec §3.1-2 实际行优先语义）
+    const r = normalizeFactRows(
+      [{ id: 'm1', status: 'completed', factVersion: 4n }],
+      [{ mediaId: 'm1', factType: 'state', factVersion: 4n, payload: { status: 'failed', scope: 'probe' } }],
+    );
+    expect(r.rows).toEqual([
+      { mediaId: 'm1', facts: [{ factVersion: '4', factType: 'state', payload: { status: 'failed', scope: 'probe' } }] },
+    ]);
+  });
+
   it('①c state+natural 双在（v6/v5 错位）：两行版本归一到同一 max+state 恒前（wire 端 unionFact 等值合并前提）', () => {
     const r = normalizeFactRows(
       [{ id: 'm1', status: 'completed', factVersion: 6n }],
