@@ -10,7 +10,7 @@
 // （非视频字节=mismatch permanent）→ffprobe natural（**复用同一次下载**——spec :45 P1 免 probe 二次
 // 下载 1GB；probe 仅上传路径）→sha256+content-addressed key `{预分配base}-{sha}`→MinIO 上传。
 // 完成单事务：status CAS processing→completed+key/size/sha/sniff/mimeType+natural 族+probeState=done
-// +factVersion+1+outbox（state completed+natural 双 fact 同版本——S0.1 四元组唯一互不撞）
+// +factVersion+1+MediaFact 当前态行（state completed+natural 双 fact 同版本——C2-2 改道）
 // +NodeArtifact materializing→stored（资金锚 CAS——replace 改锚后 miss=产物仍入库槽位归 replace）。
 // 失败面（自有 processingLeaseUntil/processingAttempts/nextMaterializeAt 退避——与 intent
 // attempts/rearm 彻底解耦：存储抖动不污染资金/交付状态机）：瞬态→attempts+1+nextMaterializeAt
@@ -19,7 +19,7 @@
 // 入口，重跑恰一次）+单事务 Media failed+failed fact+NodeArtifact materializing→failed（不清
 // mediaId——UI 失败/重试非撤回交付）+Sentry 告警。
 // errorCode=MATERIALIZE_FAILED 送达双通道（评审 P1 裁定）：①**failed fact payload 携带
-// {status:'failed',errorCode,error}**（durable 进 MediaFactOutbox——T16 pendingFacts 消费=UI
+// {status:'failed',errorCode,error}**（durable 进 MediaFact——T16 pendingFacts 消费=UI
 // 失败/重试的**真实通道**：本 Job 仅装配于 worker.module，worker 的 EmitPort=WorkerEmitPort 计数
 // no-op，双进程拓扑下 emit 到不了任何客户端——事实流是唯一可达载道）②emitNodeStatus 保留
 // （api-role/单进程形态下有义；worker 形态=降级计数——emit.port.ts 既有语义）。materialize 不写
@@ -58,6 +58,7 @@ import { MinioService } from '../minio/minio.service';
 import { SafeRemoteFetchService } from '../media/safe-remote-fetch.service';
 import { sniffMimeType } from '../media/sniff';
 import { TeamCreditService } from '../team/team-credit.service';
+import { upsertMediaFactInTx } from './media-fact-write';   // C2-2：MediaFact 写双函数纪律（完成/终态=已 increment 路径①）
 import { StorageQuotaService } from '../team/storage-quota.service';
 import { EmitPort } from '../gateway/emit.port';
 import { ObjectManifestService } from './object-manifest.service';   // Y1c T23：delete-claim（上传前 claim/锚定后 release——GC 交错误删收口）
@@ -403,31 +404,23 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
           data: { state: 'stored' },
         });
       }
-      // fact outbox：state completed+natural 双 fact 同 factVersion（S0.1 四元组唯一互不撞）；
-      // 来源=union(Media.projectId, binding.projectId)——doneNatural 同语义。
-      const media = await tx.media.findUniqueOrThrow({ where: { id: row.id }, select: { factVersion: true, projectId: true } });
-      const bindings = await tx.mediaBinding.findMany({ where: { mediaId: row.id }, select: { projectId: true } });
-      const projects = new Set<string>([media.projectId, ...bindings.map((b) => b.projectId)].filter((p): p is string => !!p));
-      if (projects.size > 0) {
-        await tx.mediaFactOutbox.createMany({
-          data: [...projects].flatMap((projectId) => [
-            {
-              mediaId: row.id, projectId, factVersion: media.factVersion,
-              factType: 'state', payload: { status: 'completed' },
-            },
-            {
-              mediaId: row.id, projectId, factVersion: media.factVersion,
-              factType: 'natural',
-              // F4c P2-3：natural payload wire 契约单源（同 probe doneNatural——视频路径零 downscaledFrom）
-              payload: {
-                naturalWidth: r.naturalWidth, naturalHeight: r.naturalHeight,
-                naturalRotation: r.naturalRotation, source: 'materialize',
-              } satisfies MediaNaturalFactPayload,
-            },
-          ]),
-          skipDuplicates: true,   // [mediaId,projectId,factType,factVersion] 四元组唯一（S0.1）
-        });
-      }
+      // C2-2 改道：fact=MediaFact 当前态行（state completed+natural 双 fact 同 factVersion——①纪律：
+      // 读回上方 increment 后真实值；MediaFact 无 projectId 列——outbox 时代的 union 门随改道拆除）。
+      const { factVersion } = await tx.media.findUniqueOrThrow({ where: { id: row.id }, select: { factVersion: true } });
+      const now = new Date();
+      await upsertMediaFactInTx(tx, {
+        mediaId: row.id, factType: 'state', factVersion,
+        payload: { status: 'completed' }, now,
+      });
+      await upsertMediaFactInTx(tx, {
+        mediaId: row.id, factType: 'natural', factVersion,
+        // F4c P2-3：natural payload wire 契约单源（同 probe doneNatural——视频路径零 downscaledFrom）
+        payload: {
+          naturalWidth: r.naturalWidth, naturalHeight: r.naturalHeight,
+          naturalRotation: r.naturalRotation, source: 'materialize',
+        } satisfies MediaNaturalFactPayload,
+        now,
+      });
       return true;
     });
   }
@@ -548,21 +541,15 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
           emitTarget = anchored;
         }
       }
-      // failed state fact 同事务——payload 携带 errorCode+error（P1：durable 事实流=UI 失败/重试真实
-      // 通道，T16 pendingFacts 消费；error=reason 截断= intent.error 同源同义锚）
-      const media = await tx.media.findUniqueOrThrow({ where: { id: row.id }, select: { factVersion: true, projectId: true } });
-      const bindings = await tx.mediaBinding.findMany({ where: { mediaId: row.id }, select: { projectId: true } });
-      const projects = new Set<string>([media.projectId, ...bindings.map((b) => b.projectId)].filter((p): p is string => !!p));
-      if (projects.size > 0) {
-        await tx.mediaFactOutbox.createMany({
-          data: [...projects].map((projectId) => ({
-            mediaId: row.id, projectId, factVersion: media.factVersion,
-            factType: 'state',
-            payload: { status: 'failed', errorCode: 'MATERIALIZE_FAILED', error: reason.slice(0, 180) },
-          })),
-          skipDuplicates: true,
-        });
-      }
+      // failed state fact 同事务（C2-2 改道——①纪律读回上方 increment 后真实值）——payload 携带
+      // errorCode+error（P1：durable 事实流=UI 失败/重试真实通道，T16 pendingFacts 消费；
+      // error=reason 截断= intent.error 同源同义锚）
+      const { factVersion } = await tx.media.findUniqueOrThrow({ where: { id: row.id }, select: { factVersion: true } });
+      await upsertMediaFactInTx(tx, {
+        mediaId: row.id, factType: 'state', factVersion,
+        payload: { status: 'failed', errorCode: 'MATERIALIZE_FAILED', error: reason.slice(0, 180) },
+        now: new Date(),
+      });
       return true;
     }).catch((e) => {
       this.logger.error(`[materialize] mediaId=${row.id} 终态标记事务失败（行仍 processing——重 claim 自愈）: ${e}`);

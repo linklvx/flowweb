@@ -220,15 +220,12 @@ maybe('Y1a+Y1b T7：probe 单相（真 PG+真 S3+真 sharp/ffprobe）', () => {
     expect(after?.probedAt).toBeTruthy();
     expect(after?.factVersion).toBe(2n);      // confirm=1 → probe done=2
 
-    const facts = await prisma.mediaFactOutbox.findMany({ where: { mediaId: id } });
-    expect(facts).toHaveLength(1);
-    expect(facts[0].factType).toBe('natural');
-    expect(facts[0].factVersion).toBe(2n);
-    expect(facts[0].projectId).toBe('it-t7-proj-exif');
-    expect(facts[0].state).toBe('pending');
-    expect((facts[0].payload as { naturalWidth: number }).naturalWidth).toBe(2);
+    const fact = await prisma.mediaFact.findUnique({ where: { mediaId_factType: { mediaId: id, factType: 'natural' } } });
+    expect(fact).toBeTruthy();
+    expect(fact!.factVersion).toBe(2n);
+    expect((fact!.payload as { naturalWidth: number }).naturalWidth).toBe(2);
     // F4c：正常图（未超限）payload 不含 downscaledFrom 键（防过度携带）
-    expect('downscaledFrom' in (facts[0].payload as Record<string, unknown>)).toBe(false);
+    expect('downscaledFrom' in (fact!.payload as Record<string, unknown>)).toBe(false);
 
     // 对象重编码已剥 EXIF：重读对象 sharp metadata 无 orientation
     const meta = await sharp(await getObjBytes(key)).metadata();
@@ -249,7 +246,7 @@ maybe('Y1a+Y1b T7：probe 单相（真 PG+真 S3+真 sharp/ffprobe）', () => {
     expect(after!.naturalWidth).toBeLessThan(7000);
 
     // F4c（用户裁定④）：payload 携 downscaledFrom=降尺度前原尺寸（web「已自动缩小至支持尺寸」告知源）
-    const facts = await prisma.mediaFactOutbox.findMany({ where: { mediaId: id } });
+    const facts = await prisma.mediaFact.findMany({ where: { mediaId: id } });
     expect(facts).toHaveLength(1);
     const p = facts[0].payload as {
       naturalWidth: number; naturalHeight: number; downscaledFrom?: { width: number; height: number };
@@ -282,7 +279,7 @@ maybe('Y1a+Y1b T7：probe 单相（真 PG+真 S3+真 sharp/ffprobe）', () => {
     expect(typeof md?.videoCodec).toBe('string');
     // 「metadata 只留 codec/duration/bitrate」——无 width/height 旁路键（natural 列承载尺寸）
     expect(Object.keys(md!).every((k) => ['duration', 'bitrate', 'videoCodec', 'audioCodec'].includes(k))).toBe(true);
-    const facts = await prisma.mediaFactOutbox.findMany({ where: { mediaId: id } });
+    const facts = await prisma.mediaFact.findMany({ where: { mediaId: id } });
     expect(facts).toHaveLength(1);
     expect(facts[0].factType).toBe('natural');
     // F4c：视频路径 payload 不含 downscaledFrom 键（仅图片超限降尺度路径携带）
@@ -339,7 +336,7 @@ maybe('Y1a+Y1b T7：probe 单相（真 PG+真 S3+真 sharp/ffprobe）', () => {
     expect(row?.probeFailureKind).toBeTruthy();
   }, 60_000);
 
-  it('outbox 来源 union：Media.projectId=null+binding 一行（他项目）→ done 后恰一 outbox 行且 projectId=binding 侧', async () => {
+  it('C2-2 改道：无 projectId 媒体+binding 在他项目 → done 后 MediaFact natural 行恰一（当前态无 projectId 维度——outbox union 门随改道拆除）', async () => {
     const id = await makeUploadMedia({ bytes: await png(7, 7), sniffed: 'image/png', projectId: null });
     const bindingProject = `it-t7-bp-${Date.now()}`;
     await prisma.mediaBinding.create({
@@ -349,8 +346,8 @@ maybe('Y1a+Y1b T7：probe 单相（真 PG+真 S3+真 sharp/ffprobe）', () => {
     const target = claimed.find((r) => r.id === id);
     await poller.probeRow(target!);
 
-    const facts = await prisma.mediaFactOutbox.findMany({ where: { mediaId: id } });
-    expect(facts).toHaveLength(1);
-    expect(facts[0].projectId).toBe(bindingProject);
+    const facts = await prisma.mediaFact.findMany({ where: { mediaId: id } });
+    expect(facts).toHaveLength(1);            // 当前态：natural 恰一行（projectId 维度不存在）
+    expect(facts[0].factType).toBe('natural');
   }, 30_000);
 });

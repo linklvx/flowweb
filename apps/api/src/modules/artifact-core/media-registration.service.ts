@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { StorageQuotaService } from '../team/storage-quota.service';   // Y1c T23 收口 I-2：presign 门禁事务内形态（Q7 根修）
+import { upsertMediaFactInTx, bumpFactVersionAndUpsert } from './media-fact-write';   // C2-2：MediaFact 写双函数纪律
 
 /** pending 上传 TTL（spec Z7''-v14：24h——presign 900s×重试窗后仍未 confirm 即弃；现状永不过期可占满 MinIO） */
 export const PENDING_UPLOAD_TTL_MS = 24 * 3600_000;
@@ -163,6 +164,15 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
       where: { mediaId: params.mediaId, state: 'ACTIVE' },
       data: { state: 'SETTLED' },
     });
+    // C2-2：上传 confirm 同事务 state fact（spec §1 基线②缺口收口——上传媒体此前纯 natural 无 state，
+    // 客户端 unionFact 丢弃）。①纪律：上方 updateMany 已 increment——读回真实递增值传入（禁预读+1）。
+    const { factVersion } = await tx.media.findUniqueOrThrow({
+      where: { id: params.mediaId }, select: { factVersion: true },
+    });
+    await upsertMediaFactInTx(tx, {
+      mediaId: params.mediaId, factType: 'state', factVersion,
+      payload: { status: 'completed' }, now: new Date(),
+    });
   }
 
   /** mismatch/白名单拒共享清理分支：守卫只删 pending 行（并发 confirm 已完成时零副作用）。
@@ -255,19 +265,10 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
     // toISOString()::timestamp（PG 对 timestamp 忽略 Z 后缀取 UTC 墙钟，round-trip 精确）。消费面=
     // upstream resolveCallUrl 新鲜判定+T12 materialize 源过期重试判据——漂移即判错方向。
     const media = await tx.media.findUniqueOrThrow({ where: { bucket_key: { bucket: 'flowai', key: params.key } } });
-    if (params.projectId) {
-      await tx.mediaFactOutbox.createMany({
-        data: [{
-          mediaId: media.id, projectId: params.projectId, factVersion: media.factVersion,
-          factType: 'state', payload: { status: 'processing' },
-        }],
-        // [mediaId,projectId,factType,factVersion] 四元组唯一（S0.1）——skipDuplicates 在此是承载
-        // 非巧合：并发双 stage（(bucket,key) 败者回读同 mediaId 行，两事务同插 version=0 元组）与
-        // 资金锚复用路径的重复插 fact 均被吞；completed fact 在 version+1 的不同元组（doneNatural
-        // 同款）。若未来 fact 语义改动使该四元组不再天然互斥，此处将静默丢 fact——改前必读本注。
-        skipDuplicates: true,
-      });
-    }
+    // C2-2 改道：新行=无 increment 路径——bump 单源（factVersion 0→1+state processing fact 同事务；
+    // MediaFact 无 projectId 列——「if (params.projectId)」门随 outbox 改道拆除，无项目锚媒体同样有
+    // state fact；幂等差异=复驱落 (bucket,key) 既有行时 bump 再前进一版〔单调门吞旧版，payload 同〕）。
+    await bumpFactVersionAndUpsert(tx, media.id, 'state', { status: 'processing' });
     return media;
   }
 
@@ -295,13 +296,13 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
       },
     });
     if (count !== 1) return;   // 幂等重入（已完成/R3 复驱）——零动作
-    await tx.mediaFactOutbox.createMany({
-      data: [{
-        mediaId: params.mediaId, projectId: params.projectId,
-        factVersion: (await tx.media.findUniqueOrThrow({ where: { id: params.mediaId }, select: { factVersion: true } })).factVersion,
-        factType: 'state', payload: { status: 'completed' },
-      }],
-      skipDuplicates: true,
+    // C2-2 改道：completed state fact 同事务（①纪律——上方 updateMany 已 increment，读回真实值传入）。
+    const { factVersion } = await tx.media.findUniqueOrThrow({
+      where: { id: params.mediaId }, select: { factVersion: true },
+    });
+    await upsertMediaFactInTx(tx, {
+      mediaId: params.mediaId, factType: 'state', factVersion,
+      payload: { status: 'completed' }, now: new Date(),
     });
   }
 

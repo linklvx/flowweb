@@ -310,8 +310,8 @@ const restoreBalance = async () => {
     expect(media!.sourceUrlExpiresAt!.getTime()).toBeGreaterThan(Date.now());
     expect(media!.sourceIntentRowId).toBe(c.intent.id);
     expect(media!.sourceExecSeq).toBe(c.intent.execSeq);
-    // processing fact 同事务在案（UI「处理中」推送来源）
-    expect(await prisma.mediaFactOutbox.findFirst({ where: { mediaId: stage.mediaId } })).toBeTruthy();
+    // processing fact 同事务在案（UI「处理中」推送来源——C2-2 改道=MediaFact 当前态行）
+    expect(await prisma.mediaFact.findFirst({ where: { mediaId: stage.mediaId, factType: 'state' } })).toBeTruthy();
     // R3 复驱：凭 stage 行（(bucket,key) 幂等复用）重下+finalize——同一 Media 行收敛 completed
     await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
     const out = await artifactCommit.commitImage({

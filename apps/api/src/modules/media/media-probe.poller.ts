@@ -5,8 +5,8 @@
 // 分型批（v10 裁决）：图片批 4/lease 180s+sharp 并发 1（批内串行）；视频 batch 1/lease 5min
 // （批 2×90s 覆盖不了下载+ffprobe）；nextProbeAt jitter 指数退避。
 // server natural done 同事务：natural 列（EXIF 处理后 display 语义——EXIF 5/6/7/8（90° 系）宽高
-// 全交换；rotation 血缘留存不渲染，v5 裁决一律 display）+factVersion+1+MediaFactOutbox
-// （factType='natural'，来源=union(Media.projectId, binding.projectId)——spec :288-304）。
+// 全交换；rotation 血缘留存不渲染，v5 裁决一律 display）+factVersion+1+MediaFact natural 当前行
+// （C2-2 改道——无 projectId 门；终态失败另写 state fact {failed,scope:probe}，见 fail）。
 // 图片：sharp 40MP+downscale 产品策略+重编码剥 EXIF/polyglot 载荷（spec「图片 sharp 40MP+downscale
 // +并发 1+EXIF 5-8」；F4c 用户裁定④：降尺度时 natural fact payload 携 downscaledFrom 原尺寸——
 // web 侧「已自动缩小至支持尺寸」告知的数据源）；视频：ffprobe 15s+SIGKILL+protocol_whitelist，
@@ -29,6 +29,7 @@ import { Counter, register } from 'prom-client';
 import type { MediaNaturalFactPayload } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
+import { upsertMediaFactInTx, bumpFactVersionAndUpsert } from '../artifact-core/media-fact-write';   // C2-2：MediaFact 写双函数纪律
 import { FFMPEG_PROTOCOL_WHITELIST, FFPROBE_TIMEOUT_MS, ffprobePath } from '../media-process/media-process.service';
 
 // ── 分型批参数（v10 裁决——G23 韧性门的机制本体） ──
@@ -390,7 +391,8 @@ export class MediaProbePoller implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** done 同事务：probeRunId CAS（lease 易主后旧代 0 行=fenced）+natural 列+factVersion+1
-   *  +outbox（来源 union(Media.projectId, binding.projectId)；无项目锚=零行——无消费房间）。 */
+   *  +MediaFact natural 行（C2-2 改道——①纪律读回 increment 后真实值；MediaFact 无 projectId 列，
+   *  无项目锚媒体同样有 natural fact——outbox 时代的 union(Media.projectId,binding.projectId) 门拆除）。 */
   async doneNatural(params: DoneNaturalParams): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const { count } = await tx.media.updateMany({
@@ -411,55 +413,49 @@ export class MediaProbePoller implements OnModuleInit, OnApplicationShutdown {
         },
       });
       if (count !== 1) return false;   // fenced：lease 过期已被新代接管（或行已删）
-      const row = await tx.media.findUnique({
-        where: { id: params.mediaId },
-        select: { factVersion: true, projectId: true },
+      const { factVersion } = await tx.media.findUniqueOrThrow({
+        where: { id: params.mediaId }, select: { factVersion: true },
       });
-      if (!row) return false;
-      const bindings = await tx.mediaBinding.findMany({
-        where: { mediaId: params.mediaId },
-        select: { projectId: true },
+      await upsertMediaFactInTx(tx, {
+        mediaId: params.mediaId, factType: 'natural', factVersion,
+        // F4c（用户裁定④）：downscaledFrom 仅图片超限降尺度路径携（正常/视频路径零键）——
+        // 语义=「该产物曾被降尺度，原尺寸为 w×h」（web 告知「已自动缩小至支持尺寸」数据源）；
+        // 形态单源=shared MediaNaturalFactPayload。幂等安全（factVersion 单调+EXCLUDED>当前 吞旧版）。
+        payload: {
+          naturalWidth: params.naturalWidth,
+          naturalHeight: params.naturalHeight,
+          naturalRotation: params.naturalRotation,
+          source: 'probe',
+          ...(params.downscaledFrom ? { downscaledFrom: params.downscaledFrom } : {}),
+        } satisfies MediaNaturalFactPayload,
+        now: new Date(),
       });
-      const projects = new Set<string>([row.projectId, ...bindings.map((b) => b.projectId)].filter((p): p is string => !!p));
-      if (projects.size > 0) {
-        await tx.mediaFactOutbox.createMany({
-          data: [...projects].map((projectId) => ({
-            mediaId: params.mediaId,
-            projectId,
-            factVersion: row.factVersion,
-            factType: 'natural',
-            // F4c（用户裁定④）：downscaledFrom 仅图片超限降尺度路径携（正常/视频路径零键）——
-            // 语义=「该产物曾被降尺度，原尺寸为 w×h」（web 告知「已自动缩小至支持尺寸」数据源）；
-            // 形态单源=shared MediaNaturalFactPayload。幂等安全（factVersion 单调+四元组唯一）。
-            payload: {
-              naturalWidth: params.naturalWidth,
-              naturalHeight: params.naturalHeight,
-              naturalRotation: params.naturalRotation,
-              source: 'probe',
-              ...(params.downscaledFrom ? { downscaledFrom: params.downscaledFrom } : {}),
-            } satisfies MediaNaturalFactPayload,
-          })),
-          skipDuplicates: true,   // [mediaId,projectId,factType,factVersion] 四元组唯一（S0.1）
-        });
-      }
       return true;
     });
   }
 
   /** 失败：permanent（mismatch/missing）或瞬态耗尽（MAX_PROBE_ATTEMPTS）→ failed 终态；
-   *  瞬态 → pending+nextProbeAt jitter 指数退避（热循环红线：非立即重投）。同 probeRunId CAS。 */
+   *  瞬态 → pending+nextProbeAt jitter 指数退避（热循环红线：非立即重投）。同 probeRunId CAS。
+   *  C2-2：包 $transaction+count===1 才动 fact（lease 失守 0 行=零递增零 fact）；终态失败同事务
+   *  bump+state fact {status:'failed',scope:'probe'}（spec §3.1-2 语义钉死——与 Media.status 分源）；
+   *  非终态重试零递增零 fact（中间态不落 MediaFact）。 */
   private async fail(row: Media, failure: ProbeFailure): Promise<void> {
     const attempts = row.probeAttempts + 1;
     const terminal = failure.permanent || attempts >= MAX_PROBE_ATTEMPTS;
-    await this.prisma.media.updateMany({
-      where: { id: row.id, probeRunId: row.probeRunId },
-      data: {
-        probeAttempts: attempts,
-        probeError: failure.message.slice(0, 512),
-        probeFailureKind: failure.kind,
-        probeState: terminal ? 'failed' : 'pending',
-        nextProbeAt: terminal ? null : new Date(Date.now() + computeProbeBackoffMs(attempts)),
-      },
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.media.updateMany({
+        where: { id: row.id, probeRunId: row.probeRunId },
+        data: {
+          probeAttempts: attempts,
+          probeError: failure.message.slice(0, 512),
+          probeFailureKind: failure.kind,
+          probeState: terminal ? 'failed' : 'pending',
+          nextProbeAt: terminal ? null : new Date(Date.now() + computeProbeBackoffMs(attempts)),
+        },
+      });
+      if (count !== 1) return;   // lease 失守（fenced）——零递增零 fact
+      if (!terminal) return;     // 非终态重试——中间态不落 MediaFact
+      await bumpFactVersionAndUpsert(tx, row.id, 'state', { status: 'failed', scope: 'probe' });
     }).catch((e) => this.logger.warn(`probe fail 写回失败 mediaId=${row.id}（下轮 lease 过期自愈）: ${e}`));
   }
 }

@@ -203,13 +203,14 @@ const anchoredArtifact = (s: Seed) => prisma.nodeArtifact.findUnique({
     // artifactState：materializing→stored（同事务）
     expect((await anchoredArtifact(s))!.state).toBe('stored');
     expect((await anchoredArtifact(s))!.mediaId).toBe(s.mediaId);   // fileId 不清（交付锚保留）
-    // fact outbox：state completed+natural 双 fact 同 factVersion
-    const facts = await prisma.mediaFactOutbox.findMany({ where: { mediaId: s.mediaId }, orderBy: { factVersion: 'asc' } });
-    const stateDone = facts.filter((f) => f.factType === 'state' && (f.payload as any).status === 'completed');
-    const natural = facts.filter((f) => f.factType === 'natural');
-    expect(stateDone).toHaveLength(1);
-    expect(natural).toHaveLength(1);
-    expect(stateDone[0].factVersion).toBe(natural[0].factVersion);
+    // fact=MediaFact 当前态行（C2-2 改道）：state completed+natural 双行同 factVersion
+    // （seed registerInTx 的 processing v1 被同键 upsert 覆盖——当前态每 factType 恰一行）
+    const facts = await prisma.mediaFact.findMany({ where: { mediaId: s.mediaId } });
+    expect(facts).toHaveLength(2);
+    const stateDone = facts.find((f) => f.factType === 'state')!;
+    const natural = facts.find((f) => f.factType === 'natural')!;
+    expect((stateDone.payload as any).status).toBe('completed');
+    expect(stateDone.factVersion).toBe(natural.factVersion);
     // kill 后重跑：completed 出池——claim 零命中+复驱 fenced+零二次下载
     expect(await job.claim()).toEqual([]);
     const again = await job.materializeRow(media!);
@@ -267,9 +268,9 @@ const anchoredArtifact = (s: Seed) => prisma.nodeArtifact.findUnique({
       nodeId: s.nodeId, status: 'error', error: expect.stringContaining('MATERIALIZE_FAILED'),
     }));
     // P1：errorCode durable 进事实流（failed fact payload——T16 pendingFacts 消费=UI 失败/重试真实通道；
-    // worker EmitPort=no-op，事实流是双进程拓扑下唯一可达载道）
-    const failedFact = await prisma.mediaFactOutbox.findFirst({
-      where: { mediaId: s.mediaId, factType: 'state' }, orderBy: { factVersion: 'desc' },
+    // worker EmitPort=no-op，事实流是双进程拓扑下唯一可达载道；C2-2 改道=MediaFact 当前态行）
+    const failedFact = await prisma.mediaFact.findUnique({
+      where: { mediaId_factType: { mediaId: s.mediaId, factType: 'state' } },
     });
     expect((failedFact!.payload as any)).toMatchObject({ status: 'failed', errorCode: 'MATERIALIZE_FAILED' });
     expect((failedFact!.payload as any).error).toEqual(expect.stringContaining('MATERIALIZE_FAILED'));   // intent.error 同源锚
@@ -364,8 +365,8 @@ const anchoredArtifact = (s: Seed) => prisma.nodeArtifact.findUnique({
     expect((await prisma.generationIntent.findUnique({ where: { id: s.intentId } }))!.status).toBe('VOIDED');
     expect((await prisma.media.findUnique({ where: { id: s.mediaId } }))!.status).toBe('failed');
     expect((await anchoredArtifact(s))!.state).toBe('failed');
-    const failedFact = await prisma.mediaFactOutbox.findFirst({
-      where: { mediaId: s.mediaId, factType: 'state' }, orderBy: { factVersion: 'desc' },
+    const failedFact = await prisma.mediaFact.findUnique({
+      where: { mediaId_factType: { mediaId: s.mediaId, factType: 'state' } },
     });
     expect((failedFact!.payload as any).errorCode).toBe('MATERIALIZE_FAILED');
   });

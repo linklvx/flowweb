@@ -275,6 +275,11 @@
           "src": "apps/api/src/modules/artifact-core/media-fact-roundtrip.int.spec.ts",
           "line": 2,
           "text": "// MediaFact 当前态表 timestamptz round-trip 行为钉（spec 2026-11-11-foundation-batch-design.md §3.1）。"
+        },
+        {
+          "src": "apps/api/src/modules/artifact-core/media-fact-write.int.spec.ts",
+          "line": 2,
+          "text": "// 写点改道+双函数版本纪律红测（spec 2026-11-11-foundation-batch-design.md §3.1-2，plan v3）。"
         }
       ]
     },

@@ -3,8 +3,10 @@
 // 背景：本仓既有 ~167 个 DateTime 列为 naive timestamp(3)（@default(now())=DB 会话墙 vs Prisma Date=UTC 墙
 // 的时间墙混用——C1 卡终态 rebaseline）；MediaFact 作为新表自第一天即 @db.Timestamptz(3)，本测试钉死
 // instant 语义（Date 参数绑定写入——批序纪律「C2/C3a 开发期时间写法=Date 参数绑定」）。
-// 防回归锚：Asia/Shanghai（+8）会话下用独立 pg Client（独占连接非 Prisma 池——SET TIME ZONE 在连接池
-// 不可靠）读回。naive 列在 +8 会话被 pg 按 +8 墙解析 → 以下两断言均出现 8h 偏斜；tsz 恒 instant：
+// 防回归锚：独立 pg Client（独占连接非 Prisma 池——SET TIME ZONE 在连接池不可靠）切 Asia/Shanghai 会话读回。
+// naive 列 8h 偏斜的真实机理=**node-postgres 客户端按进程时区解析无 offset 字符串**（服务端输出不受
+// 会话 TimeZone 影响——naive 直出无 offset 串；CI Linux TZ=UTC 下该负对照不会红）→ 本机
+// （TZ=Asia/Shanghai）读 naive 列即现 8h 偏斜；tsz 恒 instant：
 //   ① 读回 updatedAt 的 epoch ms 与写入 Date 的 epoch ms 相等（毫秒级容差）；
 //   ② 同会话 SELECT now() 与读回 updatedAt 差在秒级小窗（8h=28_800_000ms 必红）。
 // 无 DATABASE_URL（CI 未起库）自动 skip；vitest 不自动加载 apps/api/.env——靠 shell export 注入。

@@ -125,8 +125,10 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
     expect(media!.sourceExecSeq).toBe(c.intent.execSeq);
     expect(media!.artifactIndex).toBe(0);
     expect((media!.metadata as any)?.sourceUrl ?? null).toBeNull();   // 禁入 metadata（media-batch spread 泄漏根修——专用列承载）
-    // processing fact 同事务在案（UI「处理中」推送来源——spec :45 P1）
-    const procFact = await prisma.mediaFactOutbox.findFirst({ where: { mediaId: media!.id, factType: 'state' } });
+    // processing fact 同事务在案（UI「处理中」推送来源——spec :45 P1；C2-2 改道=MediaFact 当前态行）
+    const procFact = await prisma.mediaFact.findUnique({
+      where: { mediaId_factType: { mediaId: media!.id, factType: 'state' } },
+    });
     expect(procFact).toBeTruthy();
     expect((procFact!.payload as any)).toMatchObject({ status: 'processing' });
     // ── 件二：NodeArtifact=materializing（㉔-2 四态：video finalize 时 materializing）+fileId 槽 ──
