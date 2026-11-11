@@ -2,8 +2,8 @@
 // 行为钉（spec 2026-11-11-foundation-batch-design.md §0 水位不变量/§3.2-6）：
 //   ① CanvasDoc.{mediaBindingSeq,bindingsDirty} 新列默认——新建行走 schema 默认（0n/false），迁移内
 //      `UPDATE "CanvasDoc" SET "bindingsDirty"=true` 只改既有行（既有项目全置 dirty——修 0==0 假覆盖，
-//      第七轮 P0-5）：文件级钉「ADD COLUMN 形态的迁移必同文件带回填」（C1 终态 init 整表 CREATE
-//      TABLE 形态后本条件空真——届时回填已在生产应用完成）；
+//      第七轮 P0-5）：文件级钉「ADD COLUMN 形态的迁移必同文件带回填」+匹配数兜底（0 匹配即红——
+//      C1 终态 init 整表 CREATE TABLE 形态后本钉由 C1-1 显式改写，防静默空真）；
 //   ② Media.deletionState 默认 'ACTIVE'+CHECK 拒域外值（'BOGUS'）——列本卡落位，C3b-4 才消费；
 //   ③ ProjectionBackfillState 四态 CHECK+verifiedSeq BigInt（超 Number.MAX_SAFE_INTEGER——BigInt
 //      读写路径）+updatedAt（@db.Timestamptz(3)——C2-1 tsz 纪律，无 @updatedAt：C1 触发器前显式写）；
@@ -52,13 +52,17 @@ const MIG_DIR = join(__dirname, '../../../prisma/migrations');
     expect(doc.bindingsDirty).toBe(false); // schema 默认如实——迁移 UPDATE 只改既有行（回填≠新行默认）
 
     // 迁移回填钉：给既有表 ADD COLUMN "bindingsDirty" 的迁移文件必含全量置 dirty（既有项目≠假覆盖绿）。
-    const adders = readdirSync(MIG_DIR).filter((d) => /^\d+_/.test(d)).filter((d) =>
-      readFileSync(join(MIG_DIR, d, 'migration.sql'), 'utf8').includes('ADD COLUMN "bindingsDirty"'));
+    // 空白容忍正则+匹配数兜底（死断言根修）：prisma 生成物 ADD COLUMN 与列名间为多空格（实测 5 格），
+    // 单空格 includes 恒 0 匹配→for 零迭代=恒绿假覆盖；兜底钉 ADD COLUMN 时代真匹配≥1——0 即红
+    // （正则/迁移失守），C1 终态 init 整表 CREATE TABLE 形态后本钉由 C1-1 显式改写（届时回填已在
+    // 生产应用完成——防静默空真）。
+    const sqlOf = (d: string) => readFileSync(join(MIG_DIR, d, 'migration.sql'), 'utf8');
+    const adders = readdirSync(MIG_DIR).filter((d) => /^\d+_/.test(d))
+      .filter((d) => /ADD COLUMN\s+"bindingsDirty"/.test(sqlOf(d)));
+    expect(adders.length, 'ADD COLUMN 形态迁移须在场（C1 init 整表形态前；0=正则/迁移失守）').toBeGreaterThan(0);
     for (const d of adders) {
       expect(
-        readFileSync(join(MIG_DIR, d, 'migration.sql'), 'utf8')
-          .replace(/--[^\n]*/g, '')
-          .includes('UPDATE "CanvasDoc" SET "bindingsDirty" = true'),
+        sqlOf(d).replace(/--[^\n]*/g, '').includes('UPDATE "CanvasDoc" SET "bindingsDirty" = true'),
         `${d} 加列必带回填`,
       ).toBe(true);
     }
