@@ -163,3 +163,7 @@
   成本边际）；同机同夜 deploy#7 gate-collab 全绿（≤5ms 过）+deploy#9 两试 5.1/5.5——满载后热机
   边际形态与非定性先例一致（隔离跑须 gate-collab.mjs 形态——spec 头注 ECONNREFUSED 3100 预期）；
   处置=复跑收口（禁调冻结预算——脏域优化不做=plan 终裁；定性归后续 nightly 观测面）。
+- 2026-11-11（改档部署 preflight 登记③——同夜第三例）：collab-upgrade.spec T2「Origin 校验真连
+  onUpgrade socket 直写」满载 api 池轮红一例（改档部署 verify full [20/31]）；同码隔离跑 15/15 绿
+  +同夜此前 verify FULL 多轮全绿；同族口径=真连 socket 时序窗满载放大（与 spool 族两例/Y7 coalesce
+  同判——环境态非回归）；处置=复跑收口（禁调判据）。
