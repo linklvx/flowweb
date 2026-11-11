@@ -30,6 +30,8 @@ export const OBLIGATION_KIND_CONSUMERS: Readonly<Record<ObligationKind, string>>
 
 /** 排除候选留档（census⑪「非 T5b enum 候选」结论——禁复活：如需再入册走 spec 修订+census 重跑） */
 export const OBLIGATION_EXCLUDED_CANDIDATES: Readonly<Record<string, string>> = {
+  // C2-4 断流暂留——C1-1 删 MediaFactOutbox 模型时本条目随除（同步面：scope-column.registry 条目+
+  // project-erasure.purge.c4c1 fixture+media-fact-outbox.retirement.spec 白名单——六点清单在彼头注）。
   MediaFactOutbox: '键域无 nodeId（按 (mediaId,projectId,factType,factVersion)——媒体生命周期驱动非节点删除）',
   'material-library-search': '按 Media 行检索——无 nodeId 引用（grep 零命中 node 键）',
   'public-snapshot': '请求时派生（换代 doc.vacuumed 事件通知缓存失效=已有链）——无持久 per-node 状态',

@@ -2,9 +2,12 @@
 // C2-4（spec 2026-11-11-foundation-batch-design.md §3.1-4/⑥，plan v3）：MediaFactOutbox 旧面退役
 // grep 锚（collab-t32-deletion.spec 同形态先例）。写点（C2-2）/读道（C2-3）已改道 MediaFact——本锚
 // 钉「读者/清理面/指标/脚本/测试对旧表零触碰」：camelCase delegate（prisma.mediaFactOutbox）与
-// gauge 名（media_fact_outbox_lag）在 生产+测试+脚本 全域零命中（白名单外红）。
+// gauge 名（media_fact_outbox_lag）在扫描全域零命中（白名单外红）。扫描全域=apps/api/src+
+// apps/web/src+apps/web/e2e+packages/shared/src（生产+测试 TS/TSX）+根 scripts（*.mjs+*.ts/*.mts）+
+// apps/api/scripts（*.mjs）。
 //
-// 白名单（=C2-4 census 放行项，逐处理由；C1-1 删表时随模型除名清零）：
+// 白名单（=C2-4 census 放行项，逐处理由；C1-1 删表时随模型除名清零——六点清单的 registry/
+// c4c1/lifecycle×2 同步面另在 scope-column.registry 条目注记与 lifecycle.ts 条目注记在档）：
 //  - scope-column.registry.ts：PROJECT_COLUMN_MODELS schema 闭包条目——表暂留 C1（㊲ 门=双向 diff，
 //    除名须与模型删除同批；erasure 批删/断言由 registry 驱动，提前除名=擦除项目在仍存在的表里留孤儿行）；
 //  - project-erasure.purge.c4c1.int.spec.ts：erasure 全表清点 fixture（registry 闭包断言面同源）；
@@ -12,7 +15,7 @@
 //    排除台账（键域无 nodeId 的既档理由——表在册一日台账真一日）；
 //  - packages/shared/src/collab/runtime-event.ts：T22 修正批 #3 历史裁定注记（决策史档非触碰）；
 //  - media-facts.controller.ts：C2-3 头注的历史改道说明（「旧读道已断流」缘由在档）。
-// PascalCase 模型名仅上列五处合法；schema.prisma+prisma/migrations+apps/api/soak-t19.json
+// PascalCase 模型名仅上列六文件合法；schema.prisma+prisma/migrations+apps/api/soak-t19.json
 // （历史证据）不在本锚扫描域（表本体与迁移史=表暂留 C1 的明确豁免面）。
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -23,7 +26,8 @@ const ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
 
 const SELF = 'apps/api/src/modules/media/media-fact-outbox.retirement.spec.ts';
 
-/** 扫描域：生产+测试 TS（apps 两端+shared src）与根/api 两处脚本 *.mjs（本 spec 自身排除——锚词面自 hit）。 */
+/** 扫描域：生产+测试 TS（apps 两端 src+shared src+web e2e）+根 scripts（*.mjs+*.ts/*.mts）+
+ *  apps/api/scripts（*.mjs）（本 spec 自身排除——锚词面自 hit）。 */
 function collectScanFiles(): string[] {
   const out: string[] = [];
   const walk = (dir: string, ext: RegExp) => {
@@ -35,8 +39,9 @@ function collectScanFiles(): string[] {
   };
   walk('apps/api/src', /\.(ts|tsx)$/);
   walk('apps/web/src', /\.(ts|tsx)$/);
+  walk('apps/web/e2e', /\.ts$/);
   walk('packages/shared/src', /\.ts$/);
-  walk('scripts', /\.mjs$/);
+  walk('scripts', /\.(mjs|m?ts)$/);
   walk('apps/api/scripts', /\.mjs$/);
   return out.filter((p) => p !== SELF).sort();
 }
@@ -70,7 +75,7 @@ describe('C2-4 MediaFactOutbox 旧面退役 grep 锚（表暂留 C1 物删——
     expect(hits('media_fact_outbox_lag')).toEqual([]);
   });
 
-  it('PascalCase 模型名 `MediaFactOutbox`：仅 census 放行五处（registry 闭包/c4c1 fixture/lifecycle 台账×2/runtime-event 史注/media-facts 头注）', () => {
+  it('PascalCase 模型名 `MediaFactOutbox`：仅 census 放行清单（registry 闭包/c4c1 fixture/lifecycle 台账×2/runtime-event 史注/media-facts 头注）', () => {
     assertWithin('MediaFactOutbox', [
       'apps/api/src/modules/collab/scope-column.registry.ts',
       'apps/api/src/modules/collab/project-erasure.purge.c4c1.int.spec.ts',

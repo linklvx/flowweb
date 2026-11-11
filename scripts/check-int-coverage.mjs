@@ -54,7 +54,6 @@ const FILES_MIN = {
   'write-frozen-chain.int.spec.ts': 2,   // Y0b-5 T9：write-frozen 断言链 int 等价用例
   'worker-naming.int.spec.ts': 3,        // Y0c T31：偏离 46 命名分裂机制/修复/生产结构三 case
   'collab-write-endpoint.int.spec.ts': 5,   // Y0c T33：T27 端到端四例+Z125-4 drain×write-batch 相遇
-  'media-fact-outbox.int.spec.ts': 2,       // Y1a+Y1b S0.1：factType 入键（natural/state 共存+同类 P2002）
   'media-content.int.spec.ts': 7,           // Y1a+Y1b T5：单门四例+删旁路两例+ready 真 S3 全链（「CI 真 S3」出口判据本体）
   'storage-upload.int.spec.ts': 7,          // Y1a+Y1b T4 六例+T5 写 ACL viewer presign 403（真权限链）
   'media-probe.int.spec.ts': 9,             // Y1a+Y1b T7：probe 单相九例（真 PG SKIP LOCKED/真 S3/真 sharp+ffprobe）

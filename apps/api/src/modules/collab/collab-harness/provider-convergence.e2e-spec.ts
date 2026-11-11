@@ -17,15 +17,19 @@
 //    →binding current-state reconcile 反映 doc 现值」（场景 B——投影×binding 跨系统）。
 //  ③video materialize 矩阵：单系统锚=artifact-core/materialize.int.spec（claim 恰一/瞬态退避/
 //    mismatch 终态退款/lease fence/退款抛错收敛）+media-probe.int.spec（40MP/natural fact）——
-//    本 spec 消费其 facts 面幂等（场景 C 串联 facts outbox 重复投递）。
+//    本 spec 消费其 facts 面读侧（场景 C 保留重启读侧+观测计数断言；facts outbox 重复投递幂等段
+//    已随 C2-4 旧面退役——写点 C2-2 改道后该形态不复存在，见 ⑦）。
 //  ④R3 五窗：单系统锚=execution/intent-reconcile-r3.int.spec（五窗全+并发恰一次+保留矩阵）——
 //    本 spec 串联 invariant_violation 巡检计数（观测面，场景 C 断言计数器存在性）。
 //  ⑤copy/binding/GC：单系统锚=binding-reconcile.int.spec+media-gc.int.spec——本 spec 串联场景 B
 //    （replace 后 current-state upsert）；GC 阀分桶锚=media-gc.int.spec T19 分桶用例。
 //  ⑥guard 检测→exec cache 修复→ACL 拒绝链路：单系统锚=collab-document.exec-map.spec（代次守卫）+
 //    team.util.spec（assertTeamMember）——本 spec 串联场景 A（exec cache）+场景 D（ACL 计数+移除拒写）。
-//  ⑦outbox 乱序+重复投递幂等：单系统锚=media/media-fact-outbox.int.spec——场景 C 串联投影完成→
-//    facts 落 outbox 同事务→重复 createMany skipDuplicates 幂等。
+//  ⑦facts 乱序+重复投递幂等（C2-4 改口——outbox 锚文件 media-fact-outbox.int.spec 与场景 C outbox
+//    幂等段均已随旧面退役）：单系统锚=api media-fact-write.int.spec（C2-2 版本门槛 upsert——重复
+//    写同 (mediaId,factType) 高版本赢恰一行）+media-facts.controller.spec/int.spec（C2-3 读侧归一
+//    与合成）+web mediaFacts.test/mediaFactsRuntime.test（客户端单调合并——factVersion 旧忽略/
+//    批内乱序末者胜）；场景 C 不再复刻（形态归写点纪律承载）。
 //  ⑧双端收敛+分镜并发零成员丢失+读序稳定：本 spec 场景 E（真 WS 双客户端并发 slot/order 写——
 //    零成员丢失+两端收敛）+场景 F（用户裁定④：真双端并发写**同一分镜组同格位**——E 的重复键=单端
 //    自造，F=双客户端无协调路径分配同 slot 键，E 不能替代 F）；读序 tie-break 锚=shared
