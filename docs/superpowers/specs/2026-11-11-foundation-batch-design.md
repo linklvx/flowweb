@@ -1,9 +1,9 @@
-<!-- doc-status: draft | created: 2026-11-11 | v3（同日第三轮三份外审实证后重写）：三审共识 P0 全采纳——C3a 投影时点改帧级快照（inTx 读活 doc=v2 实错：applied 队列领先 pgSeq，水位说谎）/C3b 改 PG-based oracle worker（binding=候选筛选，doc 扫描语义永久保留为删除独立证人——换实现不退役；v2「applied 对两者均不可见」等价句实错：活读注释自证 doc oracle 可见 applied）/投影 SAVEPOINT 隔离不挡帧/去 MediaBinding FK/命令面读写两改（CloneBinding 只写 binding 无他写者+BindMedia pairBinding 读 binding——均实证）/C2 补四口（unionFact 丢 natural 实证+factType 契约+去 if(projectId)+观测替代）/C1 四层对象 delta 门（schema-dump 五组不含 function/trigger——ledger_guard() 资金触发器会静默丢，实证）+updatedAt 触发器/批序重排 C2→C3a→C1→C3b（C2 DROP 撞 additive 门——v2 §4 流程矛盾）。两处用户前裁定的变化点：①批序（v2 裁 C1→C2→C3a→C3b→技术必要性重排）；②C3b 不再退役 doc 扫描（v2 裁影子期满退役→三审一致改永久证人）。降级不采纳：clock_timestamp/Node 日历/旧 lag 保留期/lastWalSeq 列/30d tombstone/所有权重设计/doc schema lazy migration=登记。 -->
-# 地基修复批 v3（时间语义终态 baseline + MediaFact 当前态 + MediaBinding 帧级投影 + PG oracle 证人）设计 spec
+<!-- doc-status: draft | created: 2026-11-11 | v4（同日第四轮外审分项裁定）：六个具体修正采纳——①删除保护=引用**并集**（Binding∪Oracle∪结构化图，任一命中→保留——v3「候选∩裁决」措辞歧义修正）；②水位判定 `mediaBindingSeq === pgSeq`（同 historyEpoch，替代 ≥——投影不得超前持久化头）；③Oracle 产出**可查询行** CanvasReferenceOracle(projectId,historyEpoch,verifiedSeq,mediaId)（refsHash 降审计）；④Oracle 扫描=**通用 UUID 交叉**（重建 doc 扫全部 Yjs 容器 string 叶×team 媒体 UUID 集——允许误保留绝不误删，防未来字段漏入引用图）；⑤Media.deletionState 状态机（ACTIVE|DELETING——DELETING 拒新引用封「扫描后重引用」竞态窗+删除事务内全证人再复核）；⑥出口门指标补集（durable-ack 延迟/恢复耗时/投影 lag/oracle coverage/拒绝更新/GC fail-closed——低基数）。**总结论不采纳（四理由）**：Y2 触发条件在册未到（产品驱动）；「过渡式迁移」定性系误读（v3=增量开发+批末一次 reset 终态，无兼容层无双写）；PG 同步提交替代 spool-first=为未触发的 Y7 重写最敏感写管线（RPO 契约≤3s 窗+延迟画像实测在档）；CanvasCommandExecutor=Y2 范围。C3a 全量扫描投影不采纳（频率混淆：投影高频需前缀边界状态——全量扫描只能 PG 重建〔每批不可承受〕或活读〔即 P0-1 时点错〕；全量扫描的正确位置=低频 oracle）。客户端双修不采纳（服务端归一=契约单源）。v3=7ad592da 留史。 -->
+# 地基修复批 v4（时间语义终态 baseline + MediaFact 当前态 + MediaBinding 帧级投影 + PG oracle 证人）设计 spec
 
-日期：2026-11-11（v1=b849381b；v2=bafd26de；v3=第三轮三外审实证重写版）
+日期：2026-11-11（v1=b849381b；v2=bafd26de；v3=7ad592da；v4=第四轮外审六修正并入版）
 
-定位：foundation correctness batch（正确性地基批——不宣称架构升级，不改变单实例/无 HA/无 S3 边界）。**四卡序（v3 重排）：C2（MediaFact 代码）→ C3a（binding 帧级投影）→ C1（终态 rebaseline）→ C3b（PG oracle 证人+候选化）**。核心原则（三审共识）：**派生索引可以很快，但不能是"不存在"的唯一证人**——binding=快速候选，PG 重建 oracle=删除独立证人（永久）。
+定位：foundation correctness batch（正确性地基批——**投影平面的第一 instalement，Y2 typed-ref 的底座**；不宣称架构升级，不改变单实例/无 HA/无 S3 边界）。**四卡序：C2（MediaFact 代码）→ C3a（binding 帧级投影）→ C1（终态 rebaseline）→ C3b（PG oracle 证人+候选化）**。核心原则（三审共识+四审强化）：**派生索引可以很快，但不能是"不存在"的唯一证人；删除保护=引用并集（任一证人命中→保留）**——binding=快速候选，PG 重建 oracle=删除独立证人（永久）。
 
 ## §0 已裁定（v3——含两处对 v2 裁定的修正，请用户确认）
 
@@ -51,7 +51,7 @@
 ### §3.2 C3a：MediaBinding 帧级投影（真值成立，不动消费面）
 
 1. **帧级快照（v2 错误的根修）**：apply-post 临界区逐帧捕获——本帧 touched nodeIds（**修剪：仅 data 子树/媒体键/数组事件标 touched**，position/edge 不标）→ 对每 touched node 调 `collectMediaRefsForNode(nodeId, node)`（**新单源函数**：按节点 type+DOC_SCHEMA_V4+ARRAY_DOMAINS 计算槽位终态集，targetField/targetItemId 天然可得；`collectMediaRefs(doc)` 改为其逐节点聚合）→ 存 `AppliedEntry.bindingDelta`（Map<nodeId,槽位集>）；批 flush 按 walSeq 合并（后帧覆盖前帧）传 inTx；**inTx 只持久化快照，绝不读活 doc**——binding 严格=batch prefix，`mediaBindingSeq=newPgSeq` 语义成立。
-2. **SAVEPOINT 失败隔离**（投影不挡帧）：inTx 内 `SAVEPOINT media_binding_projection`→投影→`RELEASE`；异常→`ROLLBACK TO SAVEPOINT`+同事务置 `bindingsDirty=true`+**水位不推进**+`media_binding_projection_failed_total{reason}` 计数——帧照常提交。数据性无效（media 不存在/跨队/软删/超长值）=预检跳过+`media_binding_skip_total{reason}`，非异常。
+2. **SAVEPOINT 失败隔离**（投影不挡帧）：inTx 内 `SAVEPOINT media_binding_projection`→投影→`RELEASE`；异常→`ROLLBACK TO SAVEPOINT`+同事务置 `bindingsDirty=true`+**水位不推进**+`media_binding_projection_failed_total{reason}` 计数——帧照常提交。数据性无效（media 不存在/跨队/软删/**deletionState=DELETING**/超长值）=预检跳过+`media_binding_skip_total{reason}`，非异常。
 3. **去 FK+单写者**：`MediaBinding.mediaId` FK 移除（终态 init 落地；过渡期先靠 SAVEPOINT 兜 FK 竞态）+周期孤儿清扫（`DELETE WHERE NOT EXISTS Media`——reconcile 漂移检测的一部分）；**命令面读写两改**：`bindInTx` 全调用方退役——BindMedia 源配对改 `pairArtifact` 唯一腿（NodeArtifact，现状已备选）+doc 源节点兜底；**CloneBinding 改为 doc 命令**（服务端代发目标节点 data 引用帧→投影器落 binding）+copy/paste e2e；replaceMedia 只写 NodeArtifact/Projection；**静态门禁**：`mediaBinding.upsert/create/delete` 仅允许出现于 projector/rebuild 文件（其他文件出现即红）。
 4. **水位+dirty**：`CanvasDoc.mediaBindingSeq`（appendBatch 同事务推进）+`bindingsDirty Boolean`；**恢复四路**——①boot：`replayed>0 ∨ mediaBindingSeq<pgSeq`→置 dirty+启动受控 rebuild；②replayAll：接帧级投影同链重派生（或 dirty+rebuild）；③recovery-import：**前置**置 dirty（与 apply 同事务窗，修崩溃窗）→消费前锁内 rebuild；④vacuum/换代：`vacuumReplace` 同事务置 dirty。rebuild=锁外读 pgSeq 快照+分页写+短事务 CAS（清 dirty+推水位）；`BindingReconcileService` 降只读漂移检测（`media_binding_drift_total` 告警+触发受控 rebuild），发现面扩 CanvasDoc 全表轮转。
 5. **索引单源化**：`ProjectDocIndex.mediaRefsByNode` 改由同一 `collectMediaRefsForNode` 维护（修数组 splice 漏洞——不再留两套词表）；slot 键含 role。
@@ -62,27 +62,29 @@
 ### §3.3 C1：终态 rebaseline（时间语义+最终 schema 一次切）
 
 1. **前置**：C2/C3a 代码已兼容终态 schema。
-2. **新 init=最终 schema**：全列 timestamptz；MediaFact 终态形；**无 MediaFactOutbox/MediaFactState**；MediaBinding 去 FK 形+无 lastWalSeq（无消费者不加）；CanvasDoc.{mediaBindingSeq,bindingsDirty}；**`set_updated_at()` 触发器挂全部 updatedAt 表**（BEFORE INSERT OR UPDATE——appendBatch/raw UPDATE 不再手补，类级根修；触发器与 Prisma @updatedAt 共存：DB 钟覆盖）；全部 raw 对象（CHECK/partial unique/**ledger_guard()+两资金触发器**/enum 域——逐字保留）。
+2. **新 init=最终 schema**：全列 timestamptz；MediaFact 终态形；**无 MediaFactOutbox/MediaFactState**；MediaBinding 去 FK 形+无 lastWalSeq（无消费者不加）；CanvasDoc.{mediaBindingSeq,bindingsDirty}；**Media.deletionState（ACTIVE|DELETING——DELETING 拒新引用，见 C3b）**；**`set_updated_at()` 触发器挂全部 updatedAt 表**（BEFORE INSERT OR UPDATE——appendBatch/raw UPDATE 不再手补，类级根修；触发器与 Prisma @updatedAt 共存：DB 钟覆盖）；全部 raw 对象（CHECK/partial unique/**ledger_guard()+两资金触发器**/enum 域——逐字保留）。
 3. **四层对象 delta 门**（主门；schema-dump 基建降辅助）：reset 前 `pg_dump --schema-only` 旧库留档（gate-evidence/schema-before.sql+manifest）vs 新 init 重放同 dump——①对象集合（table/column/constraint/index/sequence/enum/**function/trigger/policy/grant/comment**）全覆盖+新增对象白名单；②列类型 delta **恰好 165 个 timestamp(3)→timestamptz(3)**（白名单外零变化）；③默认值/种子 delta（now() 形态+catalog 种子等价）；④函数/触发器 body 逐字对拍。
 4. **时间代码**：补偿谓词全仓拆（含 C2 过渡形态）+`::timestamp`→`::timestamptz`/参数绑定+脚本三件 bump SQL+deploy-guard 断言翻转（裸 now()+不含 AT TIME ZONE+新增 epochStartedAt=timestamptz schema 断言）+测试锚全量翻转。
 5. **三门禁+连接纪律**：schema 门（DateTime 必带 Timestamptz）/raw SQL 门（timestamp(3)/::timestamp 参数 cast/补偿式 AT TIME ZONE/无显式时区的 ::date·date_trunc·extract——报表层显式时区+注释豁免）/双时区集成测试（**连接级注入**：独立 client `options=-c timezone=...` 或 $transaction 内 SET LOCAL；用例集扩全部 claim 面：lease/probe/materialize/projection-outbox/object-manifest/erasure/runtime-retention/execution-retention/heartbeat+epochStartedAt 用例改 DB 钟比较）；CI +8 矩阵腿（TZ+PGTZ）；生产连接 `timezone=UTC` 显式参数。
 6. canary 容量评估收口（updatedAt 修复后 active 宇宙变大→采样量复核）；runbook：回滚=旧备份+旧代码树（非 down migration）+旧 dump/tag 留档+baseline ADR+本地状态文件（deploy-guard-state/reset-collab-state）重置清单。
 7. reset 序：dev=prisma migrate reset；服务器=reset-collab §16（部署窗=用户指令）。
 
-### §3.4 C3b：PG oracle 证人 + binding 候选化（doc 扫描不退役）
+### §3.4 C3b：PG oracle 证人 + binding 候选化（doc 扫描不退役；v4 六修正并入）
 
-1. **PG-based oracle worker**（新组件）：从 `CanvasDocSnapshot+CanvasDocUpdate` 在 `pgSeq` 重建 doc→`collectMediaRefs`→产出 `(projectId,pgSeq,refsHash)`——same-seq、无 residency/lease 依赖、分页无 500 上限。**doc 扫描语义永久保留为删除独立证人**（金句裁定：派生索引不能是「不存在」的唯一证人）。
-2. **binding=快速候选筛选**（便宜预判+Y2 typed-ref 底座）；erasure/media-gc 判定改：binding 候选∩oracle 裁决。
-3. **全局 coverage epoch**：删除前要求 team 内全部 CanvasDoc 项目的 oracle 结果到齐（同 epoch）∧`mediaBindingSeq≥pgSeq`∧非 dirty——任一缺/落后→整体 bail-out 保留（fail-closed，不按项目抽样）。
-4. **引用图单源**：抽 `isMediaReferenced(mediaId)`（erasure 八要素单源：binding+NodeArtifact+VideoWork+LightingTask+VideoTrim+VideoProject.data+ObjectManifest+oracle）——**GC 引用图补 Lighting/Trim/Manifest 缺口**；每个 referrer 单独保护红测。
-5. **删除纵深**：软删 7d grace 维持+条件删除同事务 re-check（`DELETE..WHERE NOT EXISTS isMediaReferenced`）+复核窗保留（拆窗=单独立项维持）+对象删除失败重试容忍（404 行清理既有语义）。
-6. **抽样长期对拍+回滚开关**：`media_ref_shadow_mismatch_total{consumer=media-gc|erasure,dir=missing-in-binding|extra-in-binding}`（missing=阻断保留，extra=仅告警）；运行时开关（binding 候选可一键降级纯 oracle）；mismatch 修复 runbook。
-7. **退役后移**：loopback 端点/collectProjectMediaRefs/httpMediaRefsCollector/DTO/auth.guard 例外/路由/常量/测试三件=**单独立项**（前置：PG oracle 跑满一个保留期+coverage 零缺口证据）。
-8. 红测：注入 binding 少一行/多一行→保留+告警不删；某项目水位落后/dirty→全局 bail-out；「GC 扫描后新增 binding」交错→保留；每个 referrer 单独保护；删除窗内新增引用→re-check 保留；对象删除失败→行保留下轮重试；团队大项目集/大 doc/超时→保守保留不部分扫描。
+1. **PG-based oracle worker**（新组件）：从 `CanvasDocSnapshot+CanvasDocUpdate` 在 `pgSeq` 重建 doc——same-seq、无 residency/lease 依赖、分页无 500 上限。**删除独立证人（永久保留）**。
+2. **Oracle 产出可查询行**（v4）：`CanvasReferenceOracle(projectId,historyEpoch,verifiedSeq,mediaId)`——删除 worker 按 mediaId 直查证人；`refsHash` 降级为审计/观测（不作删除判据）。
+3. **Oracle 扫描=通用 UUID 交叉**（v4）：重建 doc 后扫**全部 Yjs 容器 string 叶子值**×该 team 媒体 UUID 集交叉匹配（不限 `MEDIA_REF_TARGET_FIELDS` 词表）——允许误保留、绝不误删；未来新增媒体字段漏入引用图的词表缺口类风险在证人层根除。频率边界：oracle 低频（GC/erasure/抽样对拍），扫描成本可受。
+4. **删除保护=引用并集**（v4 措辞修正）：判定语义=`Binding ∪ Oracle ∪ 结构化引用图（NodeArtifact/VideoWork/LightingTask/VideoTrim/VideoProject.data/ObjectManifest）`——**任一证人命中→保留**（fail-closed 并集；v3「binding 候选∩oracle 裁决」的措辞歧义勘正：binding 只加速候选发现，不缩小保护面）；并集判定抽 `isMediaReferenced(mediaId)` 单源函数（erasure 八要素收编）——**GC 引用图补 LightingTask/VideoTrim/ObjectManifest 缺口**（第三轮实证：GC 现缺三臂）。
+5. **Media.deletionState 状态机**（v4）：GC/erasure 判定独占→`ACTIVE→DELETING`（状态机先行，非「软删后补救」）——DELETING 期：绑定命令（BindMedia/CloneBinding/replaceMedia）拒、投影预检跳过（§3.2.2）、oracle 仍照常计入；**删除事务内全证人再复核**（并集 NOT EXISTS 同事务 re-check）后行删+对象删。封「扫描后离线客户端/并发命令重新引用」竞态窗。
+6. **全局 coverage epoch**：删除前要求 team 内全部 CanvasDoc 项目的 oracle 结果到齐（同 epoch）∧`mediaBindingSeq === pgSeq`（v4：同 historyEpoch 严格相等——投影不得超前持久化头，`≥` 会掩盖代际/错误水位）∧非 dirty——任一缺/落后/dirty→整体 bail-out 保留（fail-closed，不按项目抽样）。
+7. **删除纵深**：软删 7d grace 维持+DELETING 状态机（5）+条件删除同事务 re-check+复核窗保留（拆窗=单独立项维持）+对象删除失败重试容忍（404 行清理既有语义）。
+8. **抽样长期对拍+回滚开关**：`media_ref_shadow_mismatch_total{consumer=media-gc|erasure,dir=missing-in-binding|extra-in-binding}`（missing=阻断保留，extra=仅告警）；运行时开关（binding 候选可一键降级纯 oracle）；mismatch 修复 runbook。
+9. **退役后移**：loopback 端点/collectProjectMediaRefs/httpMediaRefsCollector/DTO/auth.guard 例外/路由/常量/测试三件=**单独立项**（前置：PG oracle 跑满一个保留期+coverage 零缺口证据）。
+10. 红测：注入 binding 少一行/多一行→保留+告警不删；某项目水位 `≠pgSeq`/dirty→全局 bail-out；「GC 扫描后新增 binding」交错→保留；**DELETING 期绑定命令拒绝+投影跳过+oracle 计入**；**未知字段含 media UUID**（词表外）→oracle 通用扫描命中→保留；每个 referrer 单独保护；删除窗内新增引用→状态机拒绝+re-check 保留；对象删除失败→行保留下轮重试；团队大项目集/大 doc/超时→保守保留不部分扫描。
 
 ### §3.5 批级出口门
 
-verify FULL+四卡双评审 ✅+四层对象 delta 门/三门禁/单写者门禁负控红证+bench-smoke 不回归（C3a 收口）+PG oracle coverage 证据+抽样影子首轮零 mismatch（或 mismatch 全部处置留痕）+呈报包（gate-evidence/foundation-exit.txt——诚实登记：loopback 未退役/投影异常挡帧已由 savepoint 隔离但投影 bug 仍致 binding 降级/Node 日历族/clock_timestamp）+部署窗（用户指令，全环境 reset §16）。
+verify FULL+四卡双评审 ✅+四层对象 delta 门/三门禁/单写者门禁负控红证+bench-smoke 不回归（C3a 收口）+PG oracle coverage 证据+抽样影子首轮零 mismatch（或 mismatch 全部处置留痕）+**指标面（v4 补集）：durable-ack 延迟/恢复耗时（kill -9 重放）/投影 lag/oracle coverage 龄/拒绝更新计数（ACL/DELETING/词表外）/GC fail-closed 计数——标签低基数禁 projectId/userId**+呈报包（gate-evidence/foundation-exit.txt——诚实登记：loopback 未退役/投影异常挡帧已由 savepoint 隔离但投影 bug 仍致 binding 降级/Node 日历族/clock_timestamp）+部署窗（用户指令，全环境 reset §16）。
 
 ## §4 机器门与登记影响面（批级）
 
@@ -94,7 +96,7 @@ verify FULL+四卡双评审 ✅+四层对象 delta 门/三门禁/单写者门禁
 
 ## §5 确认点（批流程门）
 
-1. spec v3 确认门（本文件——**含两处 v2 裁定修正：批序重排+C3b oracle 永久证人**）→ 2. plan 确认门 → 3. C2→C3a→C1→C3b 每卡双评审 → 4. 批末出口门（§3.5）→ 5. 部署窗（用户显式指令）。
+1. spec v4 确认门（本文件——含 v3 两处裁定修正〔批序重排+C3b oracle 永久证人〕+v4 六修正）→ 2. plan 确认门 → 3. C2→C3a→C1→C3b 每卡双评审 → 4. 批末出口门（§3.5）→ 5. 部署窗（用户显式指令）。
 
 ## §6 登记/偏离表（v3 全量）
 
@@ -111,5 +113,8 @@ verify FULL+四卡双评审 ✅+四层对象 delta 门/三门禁/单写者门禁
 | 登记 | 30d 硬删保留+MediaDeletion tombstone（生产桶 MinIO 版本化已在位部分覆盖） | 后续 |
 | 偏离登记 | DerivedIndexContract 升格：七条语义（source/watermark/total-write/read-check/rebuild/verify/repair）以 MediaBindingProjector 接口+测试承载（不建泛型框架——Y2 第二投影出现再抽象） | C3a |
 | 不采纳 | `MediaBinding.lastWalSeq` 行级列（无消费者——R3 4.8 自证）；旧 lag gauge 保留过渡期（旧表即删无意义）；R2 P0-4 方案 B（C1+C2 合并卡——R2 方案 A 批序更优） | 裁定记录 |
+| 不采纳（第四轮） | **「v3 降级+一次性 Y2 重建」总结论**——四理由：①Y2 立项触发条件在册未到（产品驱动四条均未发生）；②「过渡式迁移」定性系误读（v3=增量开发+批末一次 reset 终态，无兼容层/无双写/无长期过渡表——报告诉求已满足）；③PG 同步提交替代 spool-first=为未触发的 Y7 重写最敏感写管线（T8-T11 重评审资产+RPO 契约≤3s 窗+延迟画像实测在档）；④CanvasCommandExecutor 统一写入路径=Y2 typed-ref 命令语义主体，属 Y2 范围 | 第四轮裁定 |
+| 不采纳（第四轮） | **C3a 全量扫描投影替代帧级快照**——频率混淆：投影=高频（每 flush 批）需前缀边界状态，全量扫描只能在 PG 重建（每批不可承受）或活读（即 P0-1 时点错）下做；全量扫描的正确位置=低频 oracle（已采纳为通用 UUID 证人）。**客户端双修合并函数**——服务端归一=契约单源（简洁优先） | 第四轮裁定 |
+| 维持澄清（第四轮） | 单活 fail-fast（第二实例拒流）=E23 刻意设计+multi-instance.spec 测试在案（非缺陷）；单人/多人=Team 数据层统一是现状，isDefault 产品层分支=Y2/R2 在册产品判断题；Runtime feed 独立于 Y.Doc/Redis 非 durable/Y.Doc 范围界定（计费/任务/媒体对象留 PG）=既有设计确认 | 第四轮澄清 |
 
-**v1→v2→v3 裁定史**：v1（A/A/路线1，b849381b）→两外审重裁→v2（rebaseline/MediaFact/C3a+C3b 影子，bafd26de）→三外审实证（核心：inTx 读活 doc 时点错+水位等价句反了+CloneBinding 无写者+客户端丢 natural+对象门会丢资金触发器+C2 DROP 撞门）→v3（帧级快照/PG oracle 永久证人/批序重排/四层 delta 门/updatedAt 触发器/命令面读写两改/去 FK+SAVEPOINT）。三轮评审采纳/降级/反对逐项记录于 2026-11-11 对话。
+**v1→v2→v3→v4 裁定史**：v1（A/A/路线1，b849381b）→两外审重裁→v2（rebaseline/MediaFact/C3a+C3b 影子，bafd26de）→三外审实证（inTx 读活 doc 时点错+水位等价句反了+CloneBinding 无写者+客户端丢 natural+对象门丢资金触发器+C2 DROP 撞门）→v3（帧级快照/PG oracle 永久证人/批序重排/四层 delta 门/updatedAt 触发器/命令面读写两改/去 FK+SAVEPOINT，7ad592da）→四外审分项（六修正采纳：并集语义/===水位/oracle 可查询行+通用 UUID 扫描/DELETING 状态机/出口指标补集；总结论一次性 Y2 重建不采纳）→v4。四轮评审采纳/降级/反对逐项记录于 2026-11-11 对话。
