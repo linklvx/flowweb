@@ -1,7 +1,7 @@
 {
   "v": 1,
   "charter": "Y1c T29 生产前置批 charter（spec 偏离 35 D10 + 偏离 38⑳——实体化非占位；数据单源=本文件，人读面=docs/superpowers/collab-ops-runbook.md §15）",
-  "trafficTier": "dev-test",
+  "trafficTier": "production",
   "registeredAt": "2026-11-03",
   "tierSemantics": {
     "dev-test": "单机开发/测试——诚实登记放行，未开放生产流量（Spooled≠已保存；单机机损 RPO=PG 批延迟）",
@@ -63,7 +63,7 @@
       "owner": "FlowWeb Dev",
       "date": "2026-11-03",
       "status": "passed",
-      "evidence": "用户裁定采纳建议值（2026-11-05 确认点⑤终出口后续裁「全部确认」）：月可用性≥99.5%（单机无 HA 诚实目标——运行期观测累计口径）+编辑保存 Durable（save barrier）p95≤2s+恢复 RTO≤30min。T33 实测对照（gate-evidence/t33-load-benchmark.txt：本地档 save barrier p95=137ms≤2s ✓/RTO=9.96s≤30min ✓/feed lag p95=171ms；Linux 固定 runner 权威档【六】：barrier 158ms/RTO 10.07s——两档均达标）。月可用性数值=目标锚非实测声明（需运行期累计）。改档裁决承袭：trafficTier 维持 dev-test（开放生产流量前置=其余 charter 项闭环+显式改档留痕）"
+      "evidence": "用户裁定采纳建议值（2026-11-05 确认点⑤终出口后续裁「全部确认」）：月可用性≥99.5%（单机无 HA 诚实目标——运行期观测累计口径）+编辑保存 Durable（save barrier）p95≤2s+恢复 RTO≤30min。T33 实测对照（gate-evidence/t33-load-benchmark.txt：本地档 save barrier p95=137ms≤2s ✓/RTO=9.96s≤30min ✓/feed lag p95=171ms；Linux 固定 runner 权威档【六】：barrier 158ms/RTO 10.07s——两档均达标）。月可用性数值=目标锚非实测声明（需运行期累计）。改档落痕：2026-11-11 用户显式指令「改档」——13 项全闭环（0 pending）后 dev-test→production（runbook §15 操作序四步走齐；服务器窗四项实弹证据 gate-evidence/server-window-2026-11-11.txt）"
     },
     {
       "id": "doc-append-gap-alert",
