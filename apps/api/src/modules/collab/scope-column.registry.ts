@@ -56,7 +56,7 @@ export const PROJECT_COLUMN_MODELS = [
   'NodeArtifact',   // C 档（产物权威——C4-c 引用图消费）
   'ArtifactProjection',   // C 档
   'MediaBinding',   // C 档（C4-c 引用图消费）
-  'MediaFactOutbox',   // C 档
+  'MediaFactOutbox',   // C 档（C2-4 断流暂留——表/模型本体暂留至 C1 物删：㊲ 门=schema 双向 diff，除名须与模型删除同批〔提前除名=census 持续红〕；erasure 批删/断言由本 registry 驱动，条目在=擦除项目仍清该表残留行）
   'CanaryPin',   // C 档（canary 面）
   'CollabCanaryCursor',   // C 档
   'CollabOpsGate',   // C 档（compact 哨兵行——A 档发布事务带 gate FOR SHARE；擦除归 C4-c）

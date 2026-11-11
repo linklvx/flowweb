@@ -24,7 +24,9 @@ import { basename } from 'node:path';
 // storage-upload +1〔T5 写 ACL viewer presign 403〕）→187。
 // Y1a+Y1b T7 增补（media-probe 9 例——新文件〔claim 并发/lease 接管 fenced/sniffed 路由/EXIF 交换/
 // 40MP downscale/视频 ffprobe/mismatch permanent/jitter 退避耗尽/outbox union〕）→196（实测口径）。
-const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 196);
+// C2-4 旧面退役（2026-11-12）：media-fact-outbox.int.spec 整文件删（2 例——表断流后唯一键约束=僵尸
+// 断言，表暂留 C1 物删；S0.1 约束实证史注见上）→194。
+const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 194);
 
 // Y0b-1 资金门 6 文件逐文件下限（T7 标定——记录现状非拔高，初值为 plan 预估、实测全部 ≥ 初值故按实测落库：
 // ledger-invariants 14/pricing-resolver 10/funds-four-way 3/credit-ledger 10/team-lifecycle-funds 4/di-smoke 2）。

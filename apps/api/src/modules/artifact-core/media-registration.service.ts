@@ -276,7 +276,7 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
    *  status CAS 守卫——已 completed（幂等重入）零动作；probeState=skipped（T7：probe 仅上传路径——
    *  生成产物不入 probe 池，natural 归 materialize/后续）；completed state fact 同事务（factVersion+1）。 */
   async completeRegisteredInTx(tx: Prisma.TransactionClient, params: {
-    mediaId: string; projectId: string; key: string; sha256: string;
+    mediaId: string; key: string; sha256: string;
     mimeType: string; sniffedMimeType: string | null; size: number | bigint;
     /** sniff 终判扩展名分档的原始名（质评收口 Minor#7——stage 行 .png 是 provisional，此处改写）。 */
     originalName?: string;

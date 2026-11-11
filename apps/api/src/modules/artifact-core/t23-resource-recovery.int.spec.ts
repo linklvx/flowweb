@@ -92,7 +92,6 @@ const balanceFrozenOf = async () => {
     await prisma.artifactProjection.deleteMany({ where: { projectId: PID } });
     await prisma.nodeArtifact.deleteMany({ where: { projectId: PID } });
     await prisma.mediaBinding.deleteMany({ where: { projectId: PID } });
-    await prisma.mediaFactOutbox.deleteMany({ where: { projectId: PID } });
     await prisma.media.deleteMany({ where: { teamId: TID } });
     await prisma.generationIntent.deleteMany({ where: { projectId: PID } });
     await ledgerWipe(ledger, { teamId: TID });

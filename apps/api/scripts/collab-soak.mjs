@@ -351,14 +351,13 @@ async function runSoak() {
     const lagSummary = {
       docDeliveryLagSeconds: { max: lagMax('docDeliverySeconds'), p95: lagP95('docDeliverySeconds') },
       projectionPendingAgeSeconds: { max: lagMax('projectionPendingAgeSeconds'), p95: lagP95('projectionPendingAgeSeconds') },
-      mediaFactOutboxLag: { max: lagMax('mediaFactOutbox'), p95: lagP95('mediaFactOutbox') },
       mediaMaterializeLag: { max: lagMax('mediaMaterialize'), p95: lagP95('mediaMaterialize') },
       appliedUnpersistedMax: lagMax('appliedUnpersisted'),
     };
     const mins = Math.max(OPTS.duration, 1 / 60);
     const spoolGrowth = Math.max(0, (finalS.spoolBytes ?? 0) - (baseline.spoolBytes ?? 0)) / mins;
     console.log(`[soak] 汇总：edits=${edits} connErrors=${connErrors} frameP95=${frameP95 ?? frameNA} frameP99=${frameP99 ?? frameNA} storeP99=${fmtMs(storeP99)} maxRSS=${(maxRss / 1048576).toFixed(1)}MB maxHeap=${(maxHeap / 1048576).toFixed(1)}MB maxLoadedDocs=${maxDocs} spoolGrowth=${spoolGrowth.toFixed(1)}B/min`);
-    console.log(`[soak] lag 族（T19 证据）：deliveryLag=${lagSummary.docDeliveryLagSeconds.p95 ?? 'n/a'}s(p95)/${lagSummary.docDeliveryLagSeconds.max ?? 'n/a'}s(max) outboxLag=${lagSummary.mediaFactOutboxLag.p95 ?? 'n/a'}s materializeLag=${lagSummary.mediaMaterializeLag.p95 ?? 'n/a'}s appliedUnpersistedMax=${lagSummary.appliedUnpersistedMax ?? 'n/a'}（null=序列未上报——旧构建缺 gauge）`);
+    console.log(`[soak] lag 族（T19 证据）：deliveryLag=${lagSummary.docDeliveryLagSeconds.p95 ?? 'n/a'}s(p95)/${lagSummary.docDeliveryLagSeconds.max ?? 'n/a'}s(max) materializeLag=${lagSummary.mediaMaterializeLag.p95 ?? 'n/a'}s appliedUnpersistedMax=${lagSummary.appliedUnpersistedMax ?? 'n/a'}（null=序列未上报——旧构建缺 gauge）`);
     const noKnee = (storeP99 === null || (Number.isFinite(storeP99) && storeP99 <= 1000));
     console.log(`[soak] runbook 数①并发容量上限：${noKnee ? `本档 ${OPTS.docs} docs × ${OPTS.clients} conns 无拐点（storeP99≤1s）→ 容量上限 ≥ ${OPTS.docs}×${OPTS.clients}（单档下界——正式档多档跑归 T18）` : `本档见拐点（storeP99>1s）——容量上限 < ${OPTS.docs}×${OPTS.clients}`}`);
     const cap = Number(process.env.COLLAB_SPOOL_CAPACITY_BYTES) > 0 ? Number(process.env.COLLAB_SPOOL_CAPACITY_BYTES) : 256 * 1024 * 1024;
@@ -369,7 +368,7 @@ async function runSoak() {
       docs: OPTS.docs, clients: OPTS.clients, rateMs: OPTS.rate, durationMin: OPTS.duration,
       counts: { edits, connErrors }, frameP95, frameP99, storeP99, frameMaxBytes,
       seedNodes: OPTS.seedNodes || undefined, docBytes,   // T19：10k 造档档数+doc 全量编码字节（<8MB 断言面）
-      lag: lagSummary,   // T19（P1#1②）：四 lag gauge 采样时序 max/p95+applied_unpersisted 稳态判读
+      lag: lagSummary,   // T19（P1#1②）：三 lag gauge 采样时序 max/p95+applied_unpersisted 稳态判读（outbox lag 已随 C2-4 退役）
       maxRssBytes: maxRss, maxHeapBytes: maxHeap, maxLoadedDocs: maxDocs, spoolGrowthPerMin: spoolGrowth,
       samples,
     });

@@ -1,8 +1,9 @@
 // apps/api/src/modules/media/media-probe.int.spec.ts —— Y1a+Y1b T7 红测（int：真 PG+真 S3+真 sharp/ffprobe）
 // probe 单相（spec Z7'' v13/v14 口径）：DB poller claim（FOR UPDATE SKIP LOCKED+probeRunId CAS）
 // +分型批（image 4/lease 180s；video 1/lease 5min）+sniffed 路由+server natural done 同事务
-// （factVersion+1+MediaFactOutbox factType='natural'）+sharp 40MP downscale+EXIF 5-8 交换+ffprobe 沙箱
-// （spawn 数组+15s SIGKILL+protocol_whitelist）+mismatch permanent 不无限重试+transient jitter 退避。
+// （factVersion+1+MediaFact factType='natural'——C2-2 改道当前态表）+sharp 40MP downscale+EXIF 5-8 交换
+// +ffprobe 沙箱（spawn 数组+15s SIGKILL+protocol_whitelist）+mismatch permanent 不无限重试+transient
+// jitter 退避。
 // probe 仅上传路径：claim 只吃 sniffedMimeType（confirm 面=唯一 sniffed 写点；生成路径 sniffed=null 不入池）。
 // 无 DATABASE_URL/MINIO_ENDPOINT 自动 skip（vitest 不自动加载 apps/api/.env——靠 shell export 注入）。
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -120,7 +121,6 @@ maybe('Y1a+Y1b T7：probe 单相（真 PG+真 S3+真 sharp/ffprobe）', () => {
 
   afterAll(async () => {
     for (const id of createdMedia) {
-      await prisma.mediaFactOutbox.deleteMany({ where: { mediaId: id } }).catch(() => {});
       await prisma.mediaBinding.deleteMany({ where: { mediaId: id } }).catch(() => {});
     }
     await prisma.media.deleteMany({ where: { id: { in: createdMedia } } });

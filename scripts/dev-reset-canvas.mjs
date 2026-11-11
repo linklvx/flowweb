@@ -15,8 +15,9 @@
 // reset-canvas-schema.mjs（O0b-0 画布域含项目行）与本脚本**并存非取代**：范围不同〔本卡=
 // collab/产物/媒体/资金任务运维域；旧卡=格式批项目域〕——处置裁定见 T18 报告）：
 //   ProjectMember? 否——项目壳保留故成员保留；删：NodeArtifact→ArtifactProjection→MediaBinding
-//   →MediaFactOutbox→CanvasDocUpdate→CanvasDoc→Media 全量（含上传）→GenerationIntent→
-//   TeamCreditTransaction→LightingTask。
+//   →MediaFact（Media 行删 Cascade）→CanvasDocUpdate→CanvasDoc→Media 全量（含上传）→
+//   GenerationIntent→TeamCreditTransaction→LightingTask（媒体事实 outbox 表已随 C2-4 断流退役——
+//   零新行，残留行随 C1 物删）。
 //
 // 两轮零回灌：连跑两轮，第二轮全计数为零（api/worker 停写前提——回灌源=进程重建行/队列回投）。
 //
@@ -70,13 +71,12 @@ function runGates() {
 
 // ── PG：全表清（FK 子表先行——纯列关联表无 FK 约束序敏感，仍按依赖语义序） ──
 const TABLES = [
-  'NodeArtifact',          // 产物权威（无 FK——先清供投影/outbox 语义归零）
+  'NodeArtifact',          // 产物权威（无 FK——先清供投影语义归零）
   'ArtifactProjection',    // 投影 outbox
   'MediaBinding',          // doc 引用索引（FK→Media——先于 Media）
-  'MediaFactOutbox',       // 媒体事实 outbox
   'CanvasDocUpdate',       // 增量账本（FK→CanvasProject）
   'CanvasDoc',             // doc 态（FK→CanvasProject）
-  'Media',                 // 全量（含上传——projectId 无关行同清）
+  'Media',                 // 全量（含上传——projectId 无关行同清；MediaFact 随 FK Cascade）
   'GenerationIntent',      // 资金意图
   'TeamCreditTransaction', // 团队积分流水（append-only 审计——dev 全清）
   'LightingTask',          // 打光任务

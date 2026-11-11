@@ -89,7 +89,6 @@ const agePastGrace = async (id: string) =>
     await prisma.reconcileAction.deleteMany({ where: { intentRowId: { in: rows.map((r) => r.id) } } }).catch(() => undefined);
     await prisma.nodeArtifact.deleteMany({ where: { projectId: PID } });
     await prisma.artifactProjection.deleteMany({ where: { projectId: PID } });
-    await prisma.mediaFactOutbox.deleteMany({ where: { projectId: PID } });
     await prisma.media.deleteMany({ where: { teamId: TID } });
     await prisma.generationIntent.deleteMany({ where: { projectId: PID } });
     await ledgerWipe(ledger, { teamId: TID });
@@ -434,25 +433,19 @@ const agePastGrace = async (id: string) =>
     expect(await prisma.reconcileAction.count({ where: { intentRowId: fresh.id, action: 'projection-backfill' } })).toBe(1);
   }, 30_000);
 
-  it('保留矩阵 retention：ArtifactProjection 终态 30d 清理+MediaFactOutbox published 7d 清理+dead-letter 告警（计数行保留）', async () => {
+  it('保留矩阵 retention：ArtifactProjection 终态 30d 清理+ReconcileAction 审计行 90d 清理（outbox 段已随 C2-4 退役）', async () => {
     await prisma.artifactProjection.create({ data: { artifactId: `art-old-${randomUUID().slice(0, 6)}`, artifactRev: 1, projectId: PID, nodeId: 'n-r3-old', targetField: 'fileId', targetItemId: '', state: 'orphaned', createdAt: new Date(Date.now() - 31 * 24 * 3600_000) } });
     await prisma.artifactProjection.create({ data: { artifactId: `art-new-${randomUUID().slice(0, 6)}`, artifactRev: 1, projectId: PID, nodeId: 'n-r3-new', targetField: 'fileId', targetItemId: '', state: 'orphaned' } });
-    const ob1 = `m-ob1-${randomUUID().slice(0, 6)}`;
-    const ob2 = `m-ob2-${randomUUID().slice(0, 6)}`;
-    await prisma.mediaFactOutbox.create({ data: { mediaId: ob1, projectId: PID, factVersion: 1n, factType: 'state', payload: {}, state: 'published', publishedAt: new Date(Date.now() - 8 * 24 * 3600_000) } });
-    await prisma.mediaFactOutbox.create({ data: { mediaId: ob2, projectId: PID, factVersion: 1n, factType: 'state', payload: {}, state: 'dead' } });
 
-    await (reconcile as any).cleanProjectionAndOutbox();
+    await (reconcile as any).cleanProjection();
 
     expect(await prisma.artifactProjection.count({ where: { projectId: PID, nodeId: 'n-r3-old' } })).toBe(0);   // 30d 外删
     expect(await prisma.artifactProjection.count({ where: { projectId: PID, nodeId: 'n-r3-new' } })).toBe(1);   // 30d 内留
-    expect(await prisma.mediaFactOutbox.count({ where: { mediaId: ob1 } })).toBe(0);                        // published 7d 外删
-    expect(await prisma.mediaFactOutbox.count({ where: { mediaId: ob2, state: 'dead' } })).toBe(1);        // dead 行保留（告警面）
     // 评审 Minor#6：ReconcileAction 审计行 90d 清理（旧删新留——行 id 随机化防跨 run 残留计数）
     const auditNewId = `gi-r3-audit-new-${randomUUID().slice(0, 8)}`;
     const auditOldId = (await prisma.reconcileAction.create({ data: { intentRowId: `gi-r3-audit-old-${randomUUID().slice(0, 8)}`, action: 'settle-backfill', createdAt: new Date(Date.now() - 91 * 24 * 3600_000) } })).id;
     await prisma.reconcileAction.create({ data: { intentRowId: auditNewId, action: 'settle-backfill' } });
-    await (reconcile as any).cleanProjectionAndOutbox();
+    await (reconcile as any).cleanProjection();
     expect(await prisma.reconcileAction.findUnique({ where: { id: auditOldId } })).toBeNull();
     expect(await prisma.reconcileAction.count({ where: { intentRowId: auditNewId } })).toBe(1);
   }, 30_000);

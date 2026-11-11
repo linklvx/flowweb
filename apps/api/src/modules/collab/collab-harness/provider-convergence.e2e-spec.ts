@@ -310,7 +310,7 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     await teardownProject(PID);
   }, 30_000);
 
-  it('场景 C（投影完成→重启读侧+facts 幂等+观测计数存在串联）：projected→releaseSession 重启→PG 重放 doc 现值仍在；facts outbox 重复投递 skipDuplicates 幂等；invariant_violation 计数器在线', async () => {
+  it('场景 C（投影完成→重启读侧+观测计数存在串联）：projected→releaseSession 重启→PG 重放 doc 现值仍在；invariant_violation 计数器在线', async () => {
     const PID = `t19-e2e-facts`;
     const NODE = 'n-facts';
     await seedProject(PID);
@@ -327,23 +327,11 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     await residency.releaseSessionFor(PID);
     const delivered = await prisma.runtimeEvent.findFirst({ where: { projectId: PID, kind: 'exec.artifact' } });
     expect((delivered?.payload as { mediaId?: string })?.mediaId).toBe('media-c');
-
-    // facts outbox 重复投递幂等（实况=重复插入同四元组行——at-least-once 重放形态；乱序容忍面=
-    // 客户端单调合并 mediaFacts.test〔factVersion 旧忽略/批内乱序末者胜〕+DB 四元组唯一约束双面，
-    // 此处只钉服务端幂等行）：同 (mediaId,projectId,factType,factVersion) 双写 skipDuplicates 零重复行
-    await prisma.mediaFactOutbox.createMany({
-      data: [{ mediaId: 'media-c', projectId: PID, factVersion: 1, factType: 'state', payload: { status: 'completed' } }],
-      skipDuplicates: true,
-    });
-    await prisma.mediaFactOutbox.createMany({
-      data: [{ mediaId: 'media-c', projectId: PID, factVersion: 1, factType: 'state', payload: { status: 'completed' } }],
-      skipDuplicates: true,
-    });
-    expect(await prisma.mediaFactOutbox.count({ where: { mediaId: 'media-c', projectId: PID, factType: 'state', factVersion: 1 } })).toBe(1);
+    // （facts outbox 重复投递幂等段已随 C2-4 旧面退役——写点改道 MediaFact 当前态表后「重复插入同
+    // 四元组」形态不复存在；客户端单调合并面=mediaFacts.test 承载。）
     // 观测面：invariant_violation（资金-产物不一致巡检——R3 manual-required 同事件）真触发锚
     // =intent-reconcile.service.spec「T19 计数」用例（歧义态行→计数恰 +1）+intent-reconcile-r3.
     // int.spec 窗④（有交付凭据→manual-required 不动钱）——本 e2e 不复刻资金链装置（重复造轮禁）。
-    await prisma.mediaFactOutbox.deleteMany({ where: { projectId: PID } });
     await teardownProject(PID);
   }, 30_000);
 

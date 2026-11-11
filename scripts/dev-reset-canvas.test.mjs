@@ -39,7 +39,7 @@ test('安全门③④：默认 dry-run（--apply 缺席才执行）+ 路径限�
   const { RESET_TABLES, REDIS_PATTERNS, MINIO_PREFIXES, isLocalDbHost } = await import('./dev-reset-canvas.mjs');
   // ④ 路径限定：三清单精确集合（漂移即红——新增表/键/前缀必须有意识地改本测试）
   assert.deepEqual(RESET_TABLES, [
-    'NodeArtifact', 'ArtifactProjection', 'MediaBinding', 'MediaFactOutbox', 'CanvasDocUpdate',
+    'NodeArtifact', 'ArtifactProjection', 'MediaBinding', 'CanvasDocUpdate',
     'CanvasDoc', 'Media', 'GenerationIntent', 'TeamCreditTransaction', 'LightingTask',
   ]);
   assert.deepEqual(REDIS_PATTERNS, ['videoWork:process:*', 'videoWork:categories', 'user:video-separate:*', 'lock:video-separate:*']);

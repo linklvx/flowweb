@@ -1,6 +1,6 @@
 // apps/api/src/modules/media/media-facts.controller.ts —— C2-3（地基修复批·C2 卡，spec §3.1-3）
 // facts 端点改道 MediaFact 当前态表+归一与合成（旧 MediaFactOutbox 读道已断流——写点 C2-2 改道后
-// outbox 零新行；outbox 表/读者退役归 C2-4）：
+// outbox 零新行；旧读者/清理面/指标已随 C2-4 退役，表本体暂留 C1 物删）：
 //   POST /api/media/facts?teamId=...  body {mediaIds: string[]}（≤200 超限 400）
 //   → [{mediaId, facts: [{factVersion, factType, payload}]}]（factVersion wire=string——BigInt
 //     JSON 序列化纪律；当前态行经 normalizeFactRows 归一：每 media 恰一行 state〔无则自 Media.status

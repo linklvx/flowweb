@@ -176,8 +176,9 @@ interface FinalizeParams {
   /** intent.resultRef 写入值（image=mediaId；text=`text:` 截断占位——既有语义；video=mediaId〔行在
    *  事务内建，completeInTx 实参取 videoMedia.id——本字段 video 不消费〕）。 */
   resultRef: string;
-  /** image 系：stage 行提升描述符（text/video 不传——video 建行不提升）。 */
-  media?: { mediaId: string; projectId: string; key: string; sha256: string; mimeType: string; sniffedMimeType: string | null; size: number; originalName: string };
+  /** image 系：stage 行提升描述符（text/video 不传——video 建行不提升；C2-4 评审：projectId 字段
+   *  随 completeRegisteredInTx 孤儿参数清理删除——提升面以 mediaId 定位，无需项目维）。 */
+  media?: { mediaId: string; key: string; sha256: string; mimeType: string; sniffedMimeType: string | null; size: number; originalName: string };
   /** T12 video：finalize 事务内 registerInTx 建行参数（Media(processing)+sourceUrl 专用列+预分配 key）。 */
   video?: { sourceUrl: string; sourceMimeType?: string | null; sourceUrlExpiresAt?: Date };
   resultText?: string;
@@ -248,7 +249,7 @@ export class ArtifactCommitService {
       kind: 'image', resultRef: stage.mediaId, artifactIndex,
       settlement: params.settlement,
       media: {
-        mediaId: stage.mediaId, projectId: params.projectId, key, sha256,
+        mediaId: stage.mediaId, key, sha256,
         mimeType, sniffedMimeType: sniffed, size: fetched.buffer.length,
         originalName: `${params.originalNameBase ?? `ai-${params.nodeId}`}.${ext}`,
       },

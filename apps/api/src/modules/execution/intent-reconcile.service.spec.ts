@@ -105,7 +105,6 @@ describe('IntentReconcileService（F12/F13 两档收敛——T13 R3 重写后语
       canvasProject: { findMany: vi.fn().mockResolvedValue([]) },
       nodeArtifact: { findUnique: vi.fn().mockResolvedValue(null) },
       artifactProjection: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
-      mediaFactOutbox: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), count: vi.fn().mockResolvedValue(0) },
       reconcileAction: { create: vi.fn().mockResolvedValue({}), findFirst: vi.fn().mockResolvedValue(null), count: vi.fn().mockResolvedValue(0), deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
       $executeRaw: vi.fn().mockResolvedValue(0),
       // Y0b-1 F1/Z6：chargeRows 改 anti-join $queryRaw（未被冲销行）；mock 默认零命中
@@ -449,19 +448,15 @@ describe('IntentReconcileService（F12/F13 两档收敛——T13 R3 重写后语
       expect(del).toContain('"reservedCredits" = 0');   // 冻结未销禁删
     });
 
-    it('T13 保留矩阵：projection 终态 30d/outbox published 7d 清理+dead-letter 告警计数', async () => {
-      prisma.mediaFactOutbox.count.mockResolvedValueOnce(3);
-      const warnSpy = vi.spyOn((service as any).logger, 'warn').mockImplementation(() => {});
+    it('T13 保留矩阵：projection 终态 30d 清理+ReconcileAction 审计行 90d 清理（outbox 段已随 C2-4 退役——delegate 零触碰）', async () => {
       await service.reconcileDaily();
 
       expect(prisma.artifactProjection.deleteMany).toHaveBeenCalledWith(expect.objectContaining({
         where: expect.objectContaining({ state: { in: ['projected', 'orphaned', 'superseded', 'dead'] } }),
       }));
-      expect(prisma.mediaFactOutbox.deleteMany).toHaveBeenCalledWith(expect.objectContaining({
-        where: expect.objectContaining({ state: 'published' }),
-      }));
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('dead-letter'));
-      warnSpy.mockRestore();
+      expect(prisma.reconcileAction.deleteMany).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ createdAt: expect.objectContaining({ lt: expect.any(Date) }) }),
+      }));   // 审计行 90d 滚动清理（Minor#6）
     });
 
     it('video-separate 陈旧任务对账+并发额度归还（自 video-separate.cron 搬入）', async () => {

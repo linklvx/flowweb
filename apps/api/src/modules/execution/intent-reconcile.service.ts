@@ -30,10 +30,9 @@ const WAITING_UPGRADE_GRACE_MS = 30 * 60_000;
  *  （T13 保留矩阵——spec Z18''⑥：text 产物正文保留）。 */
 const RETENTION_MS = 7 * 24 * 3600_000;
 export const TEXT_RETENTION_MS = 90 * 24 * 3600_000;
-/** T13 保留矩阵：ArtifactProjection 终态（projected=delivered 语义/orphaned/superseded/dead）30d；
- *  MediaFactOutbox published 7d（spec Z18''⑥）+dead-letter 告警。 */
+/** T13 保留矩阵：ArtifactProjection 终态（projected=delivered 语义/orphaned/superseded/dead）30d。
+ *  （媒体事实 outbox published 7d+dead-letter 段已随 C2-4 退役——表暂留 C1 物删。） */
 export const PROJECTION_RETENTION_MS = 30 * 24 * 3600_000;
-export const OUTBOX_RETENTION_MS = 7 * 24 * 3600_000;
 const TERMINAL = ['SUCCEEDED', 'FAILED', 'VOIDED'] as const;
 /** T13 R3 护栏：每行有界尝试 3 次+jitter（spec Z18''⑥——毒行不冻结整轮）。 */
 const R3_MAX_ATTEMPTS = 3;
@@ -505,9 +504,9 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
         this.logger.warn(`[资损前兆] 意图 ${r.intentId} creditsConsumed=${r.creditsConsumed} vs 流水=${charged}`);
       }
     }
-    // ② 保留矩阵清理（T13：7d/90d/锚守护 + projection 30d/outbox 7d/dead-letter 告警 + 审计行 90d）
+    // ② 保留矩阵清理（T13：7d/90d/锚守护 + projection 30d + 审计行 90d——outbox 段已随 C2-4 退役）
     await this.cleanTerminalIntents();
-    await this.cleanProjectionAndOutbox();
+    await this.cleanProjection();
     // ④ video-separate 陈旧任务对账+并发额度归还（自 video-separate.cron.ts 搬入，注记见类头）
     await this.reconcileStaleVideoSeparateTasks();
     // ⑤ 三不变量运行时巡检（Z11——drift 指标+WARN，台账为真源）
@@ -536,19 +535,12 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
   }
 
   /** T13 保留矩阵：ArtifactProjection 终态（projected=delivered 语义/orphaned/superseded/dead）30d
-   *  清理 + MediaFactOutbox published 7d 清理 + dead-letter 告警（dead 行保留——人工处置面，计数观测）。 */
-  private async cleanProjectionAndOutbox(): Promise<void> {
+   *  清理 + ReconcileAction 审计行 90d 清理（媒体事实 outbox published 7d+dead-letter 段已随 C2-4
+   *  退役——写点 C2-2 改道后表断流，补偿拉取语义随读道切当前态表消亡；表暂留 C1 物删）。 */
+  private async cleanProjection(): Promise<void> {
     await this.prisma.artifactProjection.deleteMany({
       where: { state: { in: ['projected', 'orphaned', 'superseded', 'dead'] }, createdAt: { lt: new Date(Date.now() - PROJECTION_RETENTION_MS) } },
     });
-    await this.prisma.mediaFactOutbox.deleteMany({
-      where: { state: 'published', publishedAt: { lt: new Date(Date.now() - OUTBOX_RETENTION_MS) } },
-    });
-    const dead = await this.prisma.mediaFactOutbox.count({ where: { state: 'dead' } });
-    if (dead > 0) {
-      reconcileManualRequiredTotal.inc({ action: 'outbox-dead-letter' });
-      this.logger.warn(`[R3] MediaFactOutbox dead-letter ${dead} 行（投递终态失败——人工处置面，行保留告警不自动删）`);
-    }
     // 评审 Minor#6：ReconcileAction 审计行 90d 清理（与 text 产物保留对齐；Important#2 去重面下增长有界——
     // 'finalize-from-stage-failed' 失败计数除外〔每败一行〕，90d 滚动清理防预算计数跨窗残留误伤）。
     await this.prisma.reconcileAction.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - RECONCILE_ACTION_RETENTION_MS) } } });
