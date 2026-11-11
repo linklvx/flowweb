@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';   // Y1c T17：真 Yjs 容器收敛锚（doc-codec 同款——测试面 yjs 可用）
 import { fillDoc, type DocLike } from './docShape';
 import type { StoredNodeRecord } from './collab-doc-ops';
-import { collectMediaRefs, collectMediaIds, MEDIA_REF_TARGET_FIELDS } from './media-refs';
+import { collectMediaRefs, collectMediaIds, collectMediaRefsForNode, MEDIA_REF_TARGET_FIELDS } from './media-refs';
 import type { YArrayLike } from './array-domains';
 
 /** 最小可用 YArrayLike fake（fillDoc 物化真持有 items——collectMediaRefs 迭代消费）。 */
@@ -143,5 +143,114 @@ describe('T17 media-refs 读侧双形态收敛维持（Y.Array 载体语义不�
       nodes.set(nid, new Map<string, unknown>([['type', type], ['data', data]]));
     }
     expect(collectMediaRefs(plain).map((r) => [r.nodeId, r.targetField, r.targetItemId]).sort()).toEqual(refs);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// C3a-1（spec 2026-11-11 §3.2-1）：collectMediaRefsForNode 单源收口——C3a-3 帧级快照与
+// C3a-5 投影器的 doc→引用唯一读取源。四族：①候选无关（不按 type/schema 收窄——第五轮
+// P0 保守收集，type 仅用于 array 形态解析、未知 type 照扫）/②数组槽 item.id=targetItemId
+// 双形态/③role 槽位键字段（MediaBinding 五元组对齐）/④聚合等价（collectMediaRefs=
+// 逐节点并集——C3a-9 对拍契约与 C3b oracle 端到端面）。
+// ══════════════════════════════════════════════════════════════════════════
+describe('C3a-1 collectMediaRefsForNode 单源收口', () => {
+  /** 直建 plain Map 节点条目（扫描器输入面=nodes map 条目本身——type 是否在 schema 词表非其关心；
+   *  type=null 表示节点无 type 键）。 */
+  const plainNode = (type: string | null, data: Map<string, unknown>): Map<string, unknown> =>
+    new Map<string, unknown>([...(type === null ? [] : [['type', type] as [string, unknown]]), ['data', data]]);
+
+  /** 排序键（聚合等价双侧归一——禁依赖对象字面量键序）。 */
+  const refKey = (r: { nodeId: string; role: string; targetField: string; targetItemId: string; mediaId: string }): string =>
+    [r.nodeId, r.role, r.targetField, r.targetItemId, r.mediaId].join('|');
+
+  it('① 候选无关：未知/乱写/缺失 type 照常产出（不按 type/schema 收窄——第五轮 P0 保守收集钉死）', () => {
+    const doc = makeDoc();
+    const nodes = doc.getMap('nodes') as unknown as Map<string, unknown>;
+    nodes.set('n1', plainNode('warp-drive-3000', new Map([['fileId', 'm-unk']])));        // 词表外 type
+    nodes.set('n2', plainNode('', new Map([['trimmedFileId', 'm-notype-empty']])));        // 空串 type
+    nodes.set('n3', plainNode(null, new Map([['images', [{ id: 'm-missing-type' }]]])));   // 无 type 键
+    // 聚合面：三节点引用全产出（type 不参与判定）
+    expect(collectMediaRefs(doc).map(refKey).sort()).toEqual([
+      'n1|primary|fileId||m-unk',
+      'n2|primary|trimmedFileId||m-notype-empty',
+      'n3|primary|images|m-missing-type|m-missing-type',
+    ]);
+    // 逐节点面同口径：词表外 type 节点单扫=同引用（全对象形状钉死——含 role 槽）
+    expect(collectMediaRefsForNode('n1', nodes.get('n1'))).toEqual([
+      { nodeId: 'n1', mediaId: 'm-unk', role: 'primary', targetField: 'fileId', targetItemId: '' },
+    ]);
+    expect(collectMediaRefsForNode('n3', nodes.get('n3'))).toEqual([
+      { nodeId: 'n3', mediaId: 'm-missing-type', role: 'primary', targetField: 'images', targetItemId: 'm-missing-type' },
+    ]);
+  });
+
+  it('② 数组槽 item.id=targetItemId：Y.Array 载体（Y.Map item+plain item 混载）与 plain array 双形态', () => {
+    // Y.Array 载体（fillDoc 物化默认形态）：Y.Map item（get('id')）与 plain object item（.id）混载
+    //（先入 doc 再写内容——standalone 预集成写读不回，标准 Yjs 集成序）
+    const ydoc = new Y.Doc();
+    const ynode = new Y.Map();
+    ydoc.getMap('nodes').set('n1', ynode);
+    ynode.set('type', 'multiImageGen');
+    const ydata = new Y.Map();
+    ynode.set('data', ydata);
+    const yarr = new Y.Array();
+    ydata.set('images', yarr);
+    yarr.push([new Y.Map([['id', 'm-y']]), { id: 'm-p' }]);
+    expect(collectMediaRefsForNode('n1', ynode)).toEqual([
+      { nodeId: 'n1', mediaId: 'm-y', role: 'primary', targetField: 'images', targetItemId: 'm-y' },
+      { nodeId: 'n1', mediaId: 'm-p', role: 'primary', targetField: 'images', targetItemId: 'm-p' },
+    ]);
+    // plain array 载体（对抗/异形 doc——T17 读侧双形态收敛在逐节点面维持）
+    expect(collectMediaRefsForNode('n2', plainNode('imageGen', new Map([['allImages', [{ id: 'm-a' }, { id: 'm-b' }]]])))).toEqual([
+      { nodeId: 'n2', mediaId: 'm-a', role: 'primary', targetField: 'allImages', targetItemId: 'm-a' },
+      { nodeId: 'n2', mediaId: 'm-b', role: 'primary', targetField: 'allImages', targetItemId: 'm-b' },
+    ]);
+  });
+
+  it('③ role 槽位键字段：标量槽/列表槽（逐节点+聚合两出口）恒 primary——MediaBinding 五元组对齐，C3a-5 投影器直接消费', () => {
+    const doc = makeDoc();
+    fillDoc(doc, [{
+      id: 'n1', type: 'imageGen',
+      data: { fileId: 'm-file', referenceImage: 'm-ref', images: [{ id: 'm-i1' }] },
+    } as unknown as StoredNodeRecord], []);
+    const node = doc.getMap('nodes').get('n1');
+    // 逐节点面：每条引用 role='primary'（类型面=常量字面量槽——非自由 string）
+    for (const r of collectMediaRefsForNode('n1', node)) {
+      expect(r.role).toBe('primary');
+    }
+    // 聚合面：全形态（标量槽+列表槽）role 集恰 {'primary'}
+    const roles = new Set(collectMediaRefs(doc).map((r) => r.role));
+    expect(roles).toEqual(new Set(['primary']));
+  });
+
+  it('④ 聚合等价：collectMediaRefs(doc) = 逐节点 collectMediaRefsForNode 并集（单源委托——含未知 type/非 map 条目/无 data 节点）', () => {
+    // 真 Y.Doc 载体（生产形态）：fillDoc 物化正参节点 + 未知 type 节点 + 非 map 条目 + 无 data 节点
+    const ydoc = new Y.Doc();
+    const docLike: DocLike = {
+      getMap: (name) => ydoc.getMap(name) as never,
+      createMap: () => new Y.Map() as never,
+      createText: () => new Y.Text() as never,
+      createXmlFragment: () => new Y.XmlFragment() as never,
+      createXmlElement: (name: string) => new Y.XmlElement(name) as never,
+      createXmlText: () => new Y.XmlText() as never,
+      createArray: () => new Y.Array() as never,
+    };
+    fillDoc(docLike, [
+      { id: 'n1', type: 'imageGen', data: { fileId: 'm-file', allImages: [{ id: 'm-i1' }, { id: 'm-i2' }] } } as unknown as StoredNodeRecord,
+      { id: 'n2', type: 'videoGen', data: { videoFileId: 'm-vid' } } as unknown as StoredNodeRecord,
+    ], []);
+    const odd = new Y.Map();
+    odd.set('type', 'quantum-fold');
+    odd.set('data', new Y.Map([['referenceAudio', 'm-odd']]));
+    ydoc.getMap('nodes').set('n3', odd);                          // 未知 type（① 族在等价面复现）
+    ydoc.getMap('nodes').set('n4', 'plain string entry');         // 非 map 条目（逐节点=空，不断言抛错）
+    ydoc.getMap('nodes').set('n5', new Y.Map([['type', 'textGen']])); // 无 data 域节点
+    // 逐节点耐受口径钉死：非 map 条目/无 data=空集（聚合跳过同源语义）
+    expect(collectMediaRefsForNode('n4', 'plain string entry')).toEqual([]);
+    expect(collectMediaRefsForNode('n5', ydoc.getMap('nodes').get('n5'))).toEqual([]);
+    // 并集=聚合（逐位一致——聚合除委托外零自有逻辑）
+    const perNode = [...ydoc.getMap('nodes').entries()].flatMap(([nid, entry]) => collectMediaRefsForNode(nid, entry));
+    expect(collectMediaRefs(docLike).map(refKey).sort()).toEqual(perNode.map(refKey).sort());
+    expect(perNode).toHaveLength(5);   // m-file+m-i1+m-i2（n1）/m-vid（n2）/m-odd（n3）
   });
 });

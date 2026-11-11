@@ -1,5 +1,6 @@
 // packages/shared/src/canvas/media-refs.ts —— Y1a+Y1b T16（spec :25 裁决③/:80 Z7''/:91 Z18''）：
-// doc 媒体引用键扫描单源（mediaRefsOf）——API（binding-reconcile 惰性 reconcile/GC 引用图）与
+// doc 媒体引用键扫描单源（C3a-1 收口：collectMediaRefsForNode 逐节点+collectMediaRefs 聚合委托）——
+// API（binding-reconcile 惰性 reconcile/GC 引用图/C3a-3 帧级快照投影）与
 // web（pendingFacts 消费 fileId 到达判定/重连全量拉 mediaId 集）共用，禁双侧各写一份漂移。
 // 结构性入参=DocLike（零 yjs import——api/web 各自 toDocLike 适配注入，fillDoc 同款纪律）。
 //
@@ -39,10 +40,11 @@ const SCALAR_REF_FIELDS: readonly MediaRefTargetField[] = [
 const LIST_REF_FIELDS: readonly MediaRefTargetField[] = ['images', 'allImages'];
 
 /** 单条 doc 引用（MediaBinding 槽位键 [projectId,nodeId,role,targetField,targetItemId] 的 doc 侧来源；
- *  role 恒 primary——引用键均为主槽引用）。 */
+ *  role 恒 primary——引用键均为主槽引用（C3a 收口：常量字段钉死槽位键五元组——C3a-5 投影器直接消费）。 */
 export interface MediaRef {
   nodeId: string;
   mediaId: string;
+  role: 'primary';
   targetField: MediaRefTargetField;
   targetItemId: string;
 }
@@ -65,28 +67,38 @@ function refItemId(item: unknown): string | null {
   return typeof id === 'string' && id !== '' ? id : null;
 }
 
-/** mediaRefsOf：扫 doc nodes map 全量节点的 data 域引用键 → 引用集（同槽位键天然去重输入——map
- *  键唯一+列表 item.id 唯一；跨节点同 media 产多行 binding 是索引语义）。空串/非 string 标量槽跳过
- *  （fileId:null 是 clearMedia 钉 null 写语义——非引用）。 */
+/** C3a（spec §3.2-1）：单节点引用扫描单源——帧级快照（C3a-3）对每 touched node 调用，
+ *  collectMediaRefs 聚合的逐节点腿。候选无关（第五轮 P0 保守收集）：不按 node type/schema 收窄
+ *  （不读 type 键）——全词表扫 data 域，未知/缺失 type 照扫。非 map 条目/无 data 域=空集
+ *  （聚合跳过同源语义）。空串/非 string 标量槽跳过（fileId:null 是 clearMedia 钉 null 写语义——
+ *  非引用）。 */
+export function collectMediaRefsForNode(nodeId: string, entry: unknown): MediaRef[] {
+  const out: MediaRef[] = [];
+  if (!isDocMap(entry)) return out;
+  const data = entry.get('data');
+  if (!isDocMap(data)) return out;
+  for (const field of SCALAR_REF_FIELDS) {
+    const v = data.get(field);
+    if (typeof v === 'string' && v !== '') {
+      out.push({ nodeId, mediaId: v, role: 'primary', targetField: field, targetItemId: '' });
+    }
+  }
+  for (const field of LIST_REF_FIELDS) {
+    for (const item of refListOf(data.get(field))) {
+      const id = refItemId(item);
+      if (id) out.push({ nodeId, mediaId: id, role: 'primary', targetField: field, targetItemId: id });
+    }
+  }
+  return out;
+}
+
+/** collectMediaRefs：扫 doc nodes map 全量节点 → 引用集（聚合=逐节点 collectMediaRefsForNode
+ *  并集——单源委托，聚合与帧级快照投影永不漂移；C3a-9 对拍契约与 C3b oracle 端到端消费面）。
+ *  同槽位键天然去重输入——map 键唯一+列表 item.id 唯一；跨节点同 media 产多行 binding 是索引语义。 */
 export function collectMediaRefs(doc: DocLike): MediaRef[] {
   const out: MediaRef[] = [];
-  const nodes = doc.getMap('nodes');
-  for (const [nodeId, entry] of nodes.entries()) {
-    if (!isDocMap(entry)) continue;
-    const data = entry.get('data');
-    if (!isDocMap(data)) continue;
-    for (const field of SCALAR_REF_FIELDS) {
-      const v = data.get(field);
-      if (typeof v === 'string' && v !== '') {
-        out.push({ nodeId, mediaId: v, targetField: field, targetItemId: '' });
-      }
-    }
-    for (const field of LIST_REF_FIELDS) {
-      for (const item of refListOf(data.get(field))) {
-        const id = refItemId(item);
-        if (id) out.push({ nodeId, mediaId: id, targetField: field, targetItemId: id });
-      }
-    }
+  for (const [nodeId, entry] of doc.getMap('nodes').entries()) {
+    out.push(...collectMediaRefsForNode(nodeId, entry));
   }
   return out;
 }
