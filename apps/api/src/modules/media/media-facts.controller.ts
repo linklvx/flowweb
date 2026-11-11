@@ -14,6 +14,7 @@ import { Body, Controller, Inject, Post, Query, Req, BadRequestException, Logger
 import type { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getOwnerTeamId, assertTeamMember } from '../team/team.util';
+import { mediaFactReadTotal } from './media-fact.metrics';
 
 /** 单批 mediaId 上界（spec :45 P1：POST ≤200——与 batchGet 的 BatchGetMediaDto @ArrayMaxSize(200) 同源）。 */
 export const MEDIA_FACTS_MAX_IDS = 200;
@@ -45,10 +46,13 @@ export interface FactRowForFacts {
   payload: unknown;
 }
 
-/** 坏 payload 跳过计数（spec §3.1-1 读侧再校验——出口=warn 日志；media_fact_read_total metric 归 C2-5）。 */
+/** 坏 payload 跳过计数+首坏行锚（spec §3.1-1 读侧再校验——出口=warn 日志（带 teamId/样本 mediaId）+
+ * media_fact_read_total{result=bad_payload} metric〔C2-5〕）。 */
 export interface NormalizeFactsResult {
   rows: MediaFactsRow[];
   skippedBadPayload: number;
+  /** 首个坏 payload 行的 mediaId（warn 日志排查锚——C2-3 质评遗留①；零坏行=null）。 */
+  badPayloadSampleMediaId: string | null;
 }
 
 /** Media.status → 合成 state payload 映射（spec §3.1-3：pending→processing；completed/failed 直传；
@@ -91,6 +95,7 @@ export function normalizeFactRows(
     byMedia.set(f.mediaId, list);
   }
   let skippedBadPayload = 0;
+  let badPayloadSampleMediaId: string | null = null;
   const rows: MediaFactsRow[] = [];
   for (const m of mediaRows) {
     const usable: FactRowForFacts[] = [];
@@ -99,6 +104,7 @@ export function normalizeFactRows(
         : f.factType === 'natural' ? isUsableNaturalPayload(f.payload) : false;
       if (!usablePayload) {
         skippedBadPayload += 1;
+        badPayloadSampleMediaId ??= f.mediaId;
         continue;
       }
       usable.push(f);
@@ -119,7 +125,7 @@ export function normalizeFactRows(
     }
     rows.push({ mediaId: m.id, facts });
   }
-  return { rows, skippedBadPayload };
+  return { rows, skippedBadPayload, badPayloadSampleMediaId };
 }
 
 @Controller('api/media/facts')
@@ -159,9 +165,13 @@ export class MediaFactsController {
       where: { mediaId: { in: ownMedia.map((m) => m.id) } },
       select: { mediaId: true, factType: true, factVersion: true, payload: true },
     });
-    const { rows, skippedBadPayload } = normalizeFactRows(ownMedia, factRows);
+    const { rows, skippedBadPayload, badPayloadSampleMediaId } = normalizeFactRows(ownMedia, factRows);
+    // C2-5 读计数（spec §3.1-5 media_fact_read_total{result}）：ok=进入响应的表行数（合成 state 行不计）/
+    // bad_payload=坏 payload 跳过行数（C2-3 warn 计数出口的 metric 升级，warn 保留双出口）
+    mediaFactReadTotal.inc({ result: 'ok' }, factRows.length - skippedBadPayload);
     if (skippedBadPayload > 0) {
-      this.logger.warn(`media facts 坏 payload 跳过：count=${skippedBadPayload}`);
+      mediaFactReadTotal.inc({ result: 'bad_payload' }, skippedBadPayload);
+      this.logger.warn(`media facts 坏 payload 跳过：count=${skippedBadPayload} teamId=${resolved} sampleMediaId=${badPayloadSampleMediaId ?? 'n/a'}`);
     }
     return rows;
   }

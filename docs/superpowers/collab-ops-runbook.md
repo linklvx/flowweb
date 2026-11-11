@@ -640,7 +640,7 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 
 ---
 
-## §14 Y1c 载体协议契约草节（T5a 冻结——2026-10-24；T8/T9/T10/T13 实装时的操作面输入；§14.1=C2 canary cron+处置序——2026-11-05）
+## §14 Y1c 载体协议契约草节（T5a 冻结——2026-10-24；T8/T9/T10/T13 实装时的操作面输入；§14.1=C2 canary cron+处置序——2026-11-05；§14.2=MediaFact 观测金丝雀——2026-11-11）
 
 **单一真源=`packages/shared/src/collab/doc-protocol.ts`（+close-code 增补 constants/collab-close-code.ts）**——本节只列运维语义，数字/类型以代码单源为准。
 
@@ -687,6 +687,33 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 - **delete-only 指纹**：`svMutual=true` 而 mismatch=纯删除帧丢失（SV 互支≠语义等——Yjs delete 不进 state vector；指纹面=worker 结构化日志 svMutual 诊断位+semanticDigest 两根摘要差）。
 - **超限档盲区**：canonical>8MiB（`CANARY_HASH_MAX_BYTES`）捕获 hash+digest 双跳过→verify 降级 SV 同代辅助→**delete-only 形态在该档不可检**（10k doc 预算护栏的代价）；观测=`collab_canary_hash_skipped_total` 持续增长（该档覆盖面扩大信号）。
 - **freeze-delete 间崩溃 Sentry 重复窗**：mismatch→freeze 落定→pin 删除前进程崩溃=pin 残留→TTL 15min 内每 verify tick 重复告警（间隔 60s≈≤15 条）；自愈=pin TTL 过期清扫；重复窗内处置以首条事件为准（SMS 侧由 P0 节流窗 SMS_THROTTLE_MS 承接）。
+
+### §14.2 MediaFact 观测金丝雀（2026-11-11 落档——C2-5；spec 2026-11-11-foundation-batch-design §3.1-5）
+
+**指标面三件（apps/api/src/modules/media/media-fact.metrics.ts；进程拓扑：read_total 在 api 进程〔facts 端点 3000〕、两行龄 gauge 在 worker 进程〔MediaProbePoller 每 10s tick 头刷新〕——Prometheus 双进程各自抓取聚合）**：
+
+- `media_fact_age_seconds{factType}`：每 factType 最老当前态行行龄秒（dashboard 用；**不做 version_lag 告警**——Media.factVersion 跨 factType 全局递增，natural 行版本天然滞后=永久假 lag，反模式钉死）。空 factType 归零（防冻结陈旧正值）。
+- `media_fact_unfinished_state_age_seconds`：state 维健康观测口径=Media.status≠completed 且未软删的最老 state 行龄（「status≠completed 且 age>阈值」——阈值**先不告警只观测**，P1 级记录性；告警定案时挂该 gauge 即可零代码变更）。
+- `media_fact_read_total{result}`：facts 读计数（ok=进入响应的 MediaFact 表行数〔Media.status 合成 state 行不计〕；bad_payload=坏 payload 跳过行数——api 日志同步 warn〔count/teamId/sampleMediaId〕双出口）。
+
+**canary 资产清单（装置单一真源=`apps/api/src/prisma/mediafact-canary.seed.ts` 固定 id——幂等 upsert，重跑不动行〔canary 行龄锚=首 seed 时点保真〕）**：
+
+| 资产 | 固定 id | 备注 |
+|---|---|---|
+| User | `canary-mediafact-user` | synthetic 系统用户（无 session/无认证路径） |
+| Team | `canary-mediafact-team` | 命名 `canary-` 前缀=防误清理误判；isDefault 恒 false；无钱包行（零台账交互） |
+| TeamMember | （上两者 OWNER） | 完整团队形状 |
+| Media | `canary-mediafact-media`（对象键 `canary/mediafact-age-probe.bin`——**无真实对象**） | 惰性行：completed+uploaded+sniffedMimeType NULL+expiresAt NULL=materialize/probe/retention/GC 全不触 |
+| MediaFact ×2 | （mediaId+state / +natural） | state={status:'completed'}、natural={1×1}；canary 进 age 统计但 status=completed 不进 unfinished 口径（不污染健康信号） |
+
+**注入与清理责任**：dev=`prisma db seed`（seed.ts 调 seedMediaFactCanary）；dev reset/擦库即清、重 seed 即复建（无需手工维护）。**生产不 seed**（seed 仅 dev 链路）——生产 canary=只读断言，**不写任何生产数据**。
+
+**canary 断言形态（dev 实测序）**：
+1. **行龄在预期窗（证 age 指标真在算）**：查 DB canary state 行 `updatedAt`（=首 seed 时点）→worker /metrics（3002）`media_fact_age_seconds{factType="state"}` ≥ (now−seededAt)−容差（canary 行必在 max 行龄统计内）；对照同 endpoint natural series 同理。
+2. **read_total 在动（证计数器接线）**：任意 facts 读（如真实团队拉一批 media）后 api /metrics（3000）`media_fact_read_total{result="ok"}` 增量>0；坏 payload 路径同验 bad_payload。
+3. **生产只读断言**：`curl -s <worker>/metrics | grep media_fact_age_seconds` 与 `curl -s <api>/metrics | grep media_fact_read_total` 两指标名存在即绿（指标缺失=观测面断链：查 worker 进程 MediaProbePoller tick 日志/api 进程部署面）——零生产写入。
+
+**分诊速查**：age gauge 冻结（陈旧正值不动）→worker MediaProbePoller 停摆（查 pm2 worker/`probe tick` 日志）；unfinished-state 持续增长→查非终态 media 分布（processing 卡行=materialize 退避/lease 争用分诊面 §11）+bad_payload 增长→api 日志 `sampleMediaId` 锚定位坏行排查（读侧再校验命中=写点 payload 漂移信号）。
 
 ---
 

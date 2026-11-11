@@ -30,6 +30,7 @@ import type { MediaNaturalFactPayload } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { upsertMediaFactInTx, bumpFactVersionAndUpsert } from '../artifact-core/media-fact-write';   // C2-2：MediaFact 写双函数纪律
+import { refreshMediaFactAgeMetrics } from './media-fact.metrics';   // C2-5：MediaFact 行龄 gauge 刷新（prom-client 单依赖——census ⑰ 闭包纯度不破）
 import { FFMPEG_PROTOCOL_WHITELIST, FFPROBE_TIMEOUT_MS, ffprobePath } from '../media-process/media-process.service';
 
 // ── 分型批参数（v10 裁决——G23 韧性门的机制本体） ──
@@ -146,11 +147,14 @@ export class MediaProbePoller implements OnModuleInit, OnApplicationShutdown {
     this.timer = null;
   }
 
-  /** 一轮：图片批（批内串行=sharp 并发 1）→ 视频批（batch 1）。busy 防重入（长视频不叠轮）。 */
+  /** 一轮：图片批（批内串行=sharp 并发 1）→ 视频批（batch 1）。busy 防重入（长视频不叠轮）。
+   *  C2-5：tick 头惰性刷新 MediaFact 行龄 gauge（spec §3.1-5——materialize observeLag 同纪律，
+   *  空轮归零防冻结；非每请求扫——两聚合查询单往返）。 */
   async tick(): Promise<void> {
     if (this.busy) return;
     this.busy = true;
     try {
+      void refreshMediaFactAgeMetrics(this.prisma).catch(() => {});   // 观测面失败不阻 probe 主链
       for (const row of await this.claimImageBatch()) await this.probeRow(row);
       for (const row of await this.claimVideoBatch()) await this.probeRow(row);
     } finally {

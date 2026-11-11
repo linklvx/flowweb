@@ -9,6 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Logger } from '@nestjs/common';
 import { MediaFactsController, normalizeFactRows } from './media-facts.controller';
+import { mediaFactReadTotal } from './media-fact.metrics';
 import type { PrismaService } from '../../prisma/prisma.service';
 
 /** ownMedia 查询行形态（controller select：id/status/factVersion）。 */
@@ -25,6 +26,12 @@ function makePrisma(media: MediaRow[], facts: FactRow[]) {
 }
 
 const req = () => ({ user: { id: 'u1' } }) as never;
+
+/** media_fact_read_total 某 result 的当前累计值（C2-5 计数器接线断言用）。 */
+async function readTotal(result: string): Promise<number> {
+  const m = await mediaFactReadTotal.get();
+  return m.values.find((v) => (v.labels as { result?: string }).result === result)?.value ?? 0;
+}
 
 describe('C2-3：facts 端点归一与合成', () => {
   beforeEach(() => { vi.restoreAllMocks(); });
@@ -96,8 +103,10 @@ describe('C2-3：facts 端点归一与合成', () => {
     ]);
   });
 
-  it('③b controller 出口：坏行不进响应+warn 日志计数出口（metric 归 C2-5）', async () => {
+  it('③b controller 出口：坏行不进响应+warn 日志带 teamId/样本 mediaId 上下文+read_total 计数（ok/bad_payload 双计数）', async () => {
     const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    const ok0 = await readTotal('ok');
+    const bad0 = await readTotal('bad_payload');
     const ctrl = new MediaFactsController(makePrisma(
       [{ id: 'm1', status: 'completed', factVersion: 4n }],
       [{ mediaId: 'm1', factType: 'natural', factVersion: 4n, payload: { naturalWidth: -1, naturalHeight: 5 } }],
@@ -105,6 +114,10 @@ describe('C2-3：facts 端点归一与合成', () => {
     const rows = await ctrl.facts(req(), 't1', { mediaIds: ['m1'] });
     expect(rows[0].facts).toEqual([{ factVersion: '4', factType: 'state', payload: { status: 'completed' } }]);
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]?.[0])).toContain('1');   // 计数入日志
+    expect(String(warn.mock.calls[0]?.[0])).toContain('count=1');   // 计数入日志（C2-3 遗留收紧：含键名防 '1' 误匹配）
+    expect(String(warn.mock.calls[0]?.[0])).toContain('teamId=t1');   // 排查坏 payload 缺锚修复（C2-3 质评遗留①）
+    expect(String(warn.mock.calls[0]?.[0])).toContain('sampleMediaId=m1');
+    expect(await readTotal('ok')).toBe(ok0);   // 唯一 fact 行坏→ok 零增（合成 state 行不计——计数面=MediaFact 表行）
+    expect(await readTotal('bad_payload')).toBe(bad0 + 1);
   });
 });

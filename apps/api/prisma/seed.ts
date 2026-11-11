@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { getAuth } from '../src/auth/auth';   // T34：betterAuth 惰性单例
 import { CreditLedgerService } from '../src/modules/team/credit-ledger.service';
 import { seedPlatformTeam } from '../src/prisma/platform-team.seed';
+import { seedMediaFactCanary } from '../src/prisma/mediafact-canary.seed';
 
 const prisma = new PrismaClient();
 const ledger = new CreditLedgerService(prisma as any);
@@ -235,6 +236,10 @@ async function main() {
   // 第九轮抽取：实 体 迁 platform-team.seed.ts（seed 与 platform-team.seed.spec 共用——spec 自带前置）；
   // admin 缺失语义变化：原 if(platformAdmin) 静默跳过 → 抽函数后 fail-fast 抛（本调用点 admin 必在前段建成，不可达分支）。
   await seedPlatformTeam(prisma, ledger, adminEmail);
+
+  // ===== MediaFact 观测金丝雀（C2-5——spec 2026-11-11-foundation-batch-design §3.1-5）=====
+  // synthetic user/team/media/fact 行（幂等固定 id——资产清单+清理责任+生产只读断言语义=runbook §14.2）
+  await seedMediaFactCanary(prisma);
 
   // ====== 风格库初始分类（spec §5，固定 id 幂等 upsert） ======
   const STYLE_CATEGORIES: Array<{ id: string; name: string; sortOrder: number }> = [
