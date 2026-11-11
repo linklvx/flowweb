@@ -349,6 +349,10 @@ model Media {
   thumbnailKey String? // 缩略图对象键（URL动态生成，避免过期）
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime? // 软删除
+  // C3a-2（spec §0 C3b/§3.2-6）：删除事务态 ACTIVE|DELETING——DELETING=删除事务进行中（doc 帧照写
+  // binding=recheck 证人，「引用即中止删除」；列本卡落位解 C1 前引用冲突，**消费归 C3b-4**）。
+  // DB CHECK IN ('ACTIVE','DELETING') 为 raw 迁移附（Prisma 不可表达——MediaFact.factType 同款先例）。
+  deletionState String @default("ACTIVE")
 
   folder MaterialFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
@@ -899,6 +903,13 @@ model CanvasDoc {
   // maintenanceId：行级关闸（§6.6 REQUESTED 同事务写入+执行受理读 IS NULL 放行）——stage 单源在
   // MaintenanceOperation；无 FK 无 @@unique（唯一性=活跃维护 partial unique，非 CanvasDoc 责任）
   maintenanceId      String?
+  // ── C3a-2（spec 2026-11-11-foundation-batch-design.md §0 水位不变量/§3.2-6）：binding 投影水位两列 ──
+  // mediaBindingSeq=连续投影前缀（dirty 期间任何增量成功不得推进；仅全量 rebuild CAS 清 dirty 并推
+  // 水位——恒 mediaBindingSeq<=pgSeq；推进/回填消费归 C3a-4/6/8）；bindingsDirty=脏标记（SAVEPOINT
+  // 回滚/恢复四路置位；**迁移内 UPDATE 既有项目全置 true——修 0==0 假覆盖，第七轮 P0-5**，新建行走
+  // schema 默认 false、genesis 同事务置 dirty 归 C3a-6）。BigInt 默认 @default(0)（非 0n——§纪律）。
+  mediaBindingSeq    BigInt  @default(0)
+  bindingsDirty      Boolean @default(false)
 }
 
 enum ProjectRole {
@@ -1653,6 +1664,21 @@ model MediaFact {
   media       Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
 
   @@id([mediaId, factType])
+}
+
+// C3a-2（spec 2026-11-11-foundation-batch-design.md §0「ProjectionBackfillState 持久表」/§3.2-3）：
+// backfill 持久状态行——跨进程 GC/erasure 可查（runner 归 C3a-8；枚举条件含 mediaBindingSeq=0 既有
+// 项目——修 0==0 假覆盖）。**projectId 即主键非 FK**（spec 钉「projectId @id」独立状态行——项目删除
+// 清行由 scope-column.registry PROJECT_COLUMN_MODELS 批删承载〔门㊲ schema 闭包〕，无 Cascade 耦合；
+// RuntimeFeedCursor 同款纯列业务平面形态）。state 域 CHECK IN ('PENDING','RUNNING','DONE','FAILED')
+// 为 raw 迁移附（Prisma 不可表达）。updatedAt 自第一天即 timestamptz(3)（C2-1 tsz 纪律）且**不挂
+// @updatedAt**——C1 触发器前显式写（写点归 C3a-8 runner）。
+model ProjectionBackfillState {
+  projectId     String   @id
+  backfillEpoch String
+  state         String
+  verifiedSeq   BigInt
+  updatedAt     DateTime @db.Timestamptz(3)
 }
 
 /// v11——媒体事实 outbox（Z1''-v13b 遗产：at-least-once+客户端 factVersion 幂等去重）。

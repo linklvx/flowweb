@@ -71,7 +71,7 @@ export * from './canvas/doc-schema-v4';
 // Y1a T3（plan v11.2 片 S0）：media 事实域出口——compareExecSeq 单源（execSeq BigInt string 化
 // 比较——T9 代际围栏/T15 投影 recheck 消费前置；T8 续入 resolveUpstreamMediaUrl）。
 export * from './canvas/media-fact';
-// Y1a+Y1b T16：doc 媒体引用七键扫描单源（collectMediaRefsForNode 逐节点+collectMediaRefs/
+// Y1a+Y1b T16：doc 媒体引用九键扫描单源（collectMediaRefsForNode 逐节点+collectMediaRefs/
 // collectMediaIds 聚合——C3a-1 收口）——api binding-reconcile 惰性 reconcile/GC 引用图与
 // web pendingFacts/fileId 到达判定共用（DocLike 结构入参，fillDoc 同款零 yjs 纪律）。
 export * from './canvas/media-refs';

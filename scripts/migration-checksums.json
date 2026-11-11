@@ -67,5 +67,8 @@
   },
   "20261111183002_mediafact_current_state": {
     "migration.sql": "ef4bd3219e9c1c97530f36403069e2047ca3dc91870aabd622165292ddc2d8d4"
+  },
+  "20261111233207_c3a_binding_projection_additive": {
+    "migration.sql": "25d6e56f671978f52d7c6775bb29fc06f505113276718716f8a452990713d939"
   }
 }

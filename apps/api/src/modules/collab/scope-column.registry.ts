@@ -60,6 +60,8 @@ export const PROJECT_COLUMN_MODELS = [
   'CanaryPin',   // C 档（canary 面）
   'CollabCanaryCursor',   // C 档
   'CollabOpsGate',   // C 档（compact 哨兵行——A 档发布事务带 gate FOR SHARE；擦除归 C4-c）
+  'ProjectionBackfillState',   // C 档（C3a-2 backfill 持久状态行——projectId @id 独立状态行无 FK〔spec §0
+  //   钉形〕，项目删除清行=本 registry 批删承载；零写点期=空集批删幂等，runner 写点归 C3a-8）
 ] as const;
 
 /** 字面 teamId 列模型闭包（同 CI ㊲ diff 面。Team 自身=fence 行本体非引用列）。 */

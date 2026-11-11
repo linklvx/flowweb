@@ -272,14 +272,14 @@
           "text": "-- C2-1（spec 2026-11-11-foundation-batch-design.md §3.1）：MediaFact 当前态表（additive）——每 media 每"
         },
         {
+          "src": "apps/api/prisma/migrations/20261111233207_c3a_binding_projection_additive/migration.sql",
+          "line": 1,
+          "text": "-- C3a-2（spec 2026-11-11-foundation-batch-design.md §0 水位不变量/§3.2-6）：binding 投影 schema 地基"
+        },
+        {
           "src": "apps/api/prisma/seed.ts",
           "line": 240,
           "text": "// ===== MediaFact 观测金丝雀（C2-5——spec 2026-11-11-foundation-batch-design §3.1-5）====="
-        },
-        {
-          "src": "apps/api/src/modules/artifact-core/media-fact-roundtrip.int.spec.ts",
-          "line": 2,
-          "text": "// MediaFact 当前态表 timestamptz round-trip 行为钉（spec 2026-11-11-foundation-batch-design.md §3.1）。"
         }
       ]
     },

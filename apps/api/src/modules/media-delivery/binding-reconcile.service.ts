@@ -3,7 +3,7 @@
 // 废止」/:91 Z18''「MediaBinding current-state upsert+finalize 同步 upsert」）：
 // MediaBinding=doc 引用纯索引（降级纯索引——T2 已无状态机列），本服务=该索引的唯一惰性维护者：
 //
-//   mediaRefsOf(doc) 九键扫描（shared collectMediaRefs 单源——fileId/referenceImage/
+//   collectMediaRefs(doc) 九键扫描（shared 单源——fileId/referenceImage/
 //   referenceVideo/referenceAudio/images[].id/allImages/trimmedFileId/videoFileId/audioFileId）
 //   →逐引用：Media 行存在性+Media.teamId===project.teamId 校验（跨 team 拒+计数+不建行——读侧
 //   ACL 403 兜底已由 content 单门承载，binding 只管索引不执法）
@@ -66,7 +66,7 @@ function inc(outcome: ReconcileOutcome, n = 1): void {
 }
 
 /** 槽位键（MediaBinding @@unique([projectId,nodeId,role,targetField,targetItemId]) 的应用层形态）。
- *  九键引用 role 恒 primary——MediaRef 无 role 字段即此义。 */
+ *  九键引用 role 恒 primary（MediaRef.role 常量槽——C3a-1 加）——slotKey 省略 role 即此义。 */
 function slotKeyOf(r: { nodeId: string; targetField: string; targetItemId: string }): string {
   return `${r.nodeId}\u0000${r.targetField}\u0000${r.targetItemId}`;
 }

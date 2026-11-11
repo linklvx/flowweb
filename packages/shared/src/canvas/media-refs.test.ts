@@ -1,4 +1,5 @@
-// packages/shared/src/canvas/media-refs.test.ts —— Y1a+Y1b T16：mediaRefsOf 七键扫描单源纯测。
+// packages/shared/src/canvas/media-refs.test.ts —— Y1a+Y1b T16：collectMediaRefs/collectMediaIds/
+// collectMediaRefsForNode 九键扫描单源纯测。
 // Y1c T17：读侧双形态收敛维持锚（Y.Array 载体=fillDoc 物化默认路径——真 Yjs 容器与 plain
 // 数组两形态同收敛；spec §3.1 media-refs 条款）。
 import { describe, it, expect } from 'vitest';
@@ -149,7 +150,7 @@ describe('T17 media-refs 读侧双形态收敛维持（Y.Array 载体语义不�
 // ══════════════════════════════════════════════════════════════════════════
 // C3a-1（spec 2026-11-11 §3.2-1）：collectMediaRefsForNode 单源收口——C3a-3 帧级快照与
 // C3a-5 投影器的 doc→引用唯一读取源。四族：①候选无关（不按 type/schema 收窄——第五轮
-// P0 保守收集，type 仅用于 array 形态解析、未知 type 照扫）/②数组槽 item.id=targetItemId
+// P0 保守收集，扫描器不读 type 键、未知 type 照扫）/②数组槽 item.id=targetItemId
 // 双形态/③role 槽位键字段（MediaBinding 五元组对齐）/④聚合等价（collectMediaRefs=
 // 逐节点并集——C3a-9 对拍契约与 C3b oracle 端到端面）。
 // ══════════════════════════════════════════════════════════════════════════
@@ -186,7 +187,7 @@ describe('C3a-1 collectMediaRefsForNode 单源收口', () => {
 
   it('② 数组槽 item.id=targetItemId：Y.Array 载体（Y.Map item+plain item 混载）与 plain array 双形态', () => {
     // Y.Array 载体（fillDoc 物化默认形态）：Y.Map item（get('id')）与 plain object item（.id）混载
-    //（先入 doc 再写内容——standalone 预集成写读不回，标准 Yjs 集成序）
+    //（先入 doc 再写内容——先 integrate 后写=规范健壮模式，避免 standalone 容器语义差异）
     const ydoc = new Y.Doc();
     const ynode = new Y.Map();
     ydoc.getMap('nodes').set('n1', ynode);
