@@ -64,5 +64,8 @@
   },
   "20261105150000_c4_pen_four_erasure_dryrun_uq": {
     "migration.sql": "afc6fda66a16829de08da3fb6b4b1d978c13e3e68a2e08b360ae1eae72689c2c"
+  },
+  "20261111183002_mediafact_current_state": {
+    "migration.sql": "ef4bd3219e9c1c97530f36403069e2047ca3dc91870aabd622165292ddc2d8d4"
   }
 }
