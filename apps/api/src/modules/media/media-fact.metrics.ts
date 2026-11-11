@@ -13,7 +13,8 @@
 //   - media_fact_read_total{result}：facts 读计数（ok=进入响应的 MediaFact 表行数——Media.status 合成
 //     行不计；bad_payload=坏 payload 跳过行数——C2-3 的 Logger.warn 计数出口升级为 metric，warn 保留双出口）。
 // 进程拓扑：read_total 在 api 进程（facts 端点）；两 gauge 由 worker 进程 MediaProbePoller 每 tick 头
-// 刷新（materialize observeLag 同款——非每请求全表扫，两聚合查询单往返）。
+// 刷新（materialize observeLag 同款——非每请求全表扫，一次刷新并发两聚合查询；api 进程同名 series
+// 恒 0 幽灵——抓取/告警只认 worker 实例，分诊注记=runbook §14.2）。
 import { Counter, Gauge, register } from 'prom-client';
 import { Prisma } from '@prisma/client';
 

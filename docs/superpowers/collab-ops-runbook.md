@@ -690,7 +690,7 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 
 ### §14.2 MediaFact 观测金丝雀（2026-11-11 落档——C2-5；spec 2026-11-11-foundation-batch-design §3.1-5）
 
-**指标面三件（apps/api/src/modules/media/media-fact.metrics.ts；进程拓扑：read_total 在 api 进程〔facts 端点 3000〕、两行龄 gauge 在 worker 进程〔MediaProbePoller 每 10s tick 头刷新〕——Prometheus 双进程各自抓取聚合）**：
+**指标面三件（apps/api/src/modules/media/media-fact.metrics.ts；进程拓扑：read_total 在 api 进程〔facts 端点 3000〕、两行龄 gauge 在 worker 进程〔MediaProbePoller 每 10s tick 头刷新〕——Prometheus 双进程各自抓取聚合。**注意**：api 进程经 controller→metrics import 链也注册两 gauge 同名 series 但恒 0（api 侧永不刷新）——抓取/告警/聚合只认 worker 实例的行龄 series，否则 avg 类聚合被 0 稀释、且「冻结」分诊在 api 实例恒假阳性）**：
 
 - `media_fact_age_seconds{factType}`：每 factType 最老当前态行行龄秒（dashboard 用；**不做 version_lag 告警**——Media.factVersion 跨 factType 全局递增，natural 行版本天然滞后=永久假 lag，反模式钉死）。空 factType 归零（防冻结陈旧正值）。
 - `media_fact_unfinished_state_age_seconds`：state 维健康观测口径=Media.status≠completed 且未软删的最老 state 行龄（「status≠completed 且 age>阈值」——阈值**先不告警只观测**，P1 级记录性；告警定案时挂该 gauge 即可零代码变更）。
