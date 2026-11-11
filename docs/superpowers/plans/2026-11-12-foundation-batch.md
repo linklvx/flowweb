@@ -1,8 +1,8 @@
-# 地基修复批（foundation correctness batch）Implementation Plan v2
+# 地基修复批（foundation correctness batch）Implementation Plan v3
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 落地 spec v5.1（docs/superpowers/specs/2026-11-11-foundation-batch-design.md，active）四卡——C2 MediaFact 当前态表 → C3a MediaBinding 帧级投影 → C1 时间语义终态 rebaseline → C3b PG oracle 证人+DeletionBarrier，批末一次全环境 reset 部署（用户指令时点）。
+**Goal:** 落地 spec v5.2 四卡——C2 MediaFact 当前态表 → C3a MediaBinding 帧级投影 → C1 时间语义终态 rebaseline → C3b PG oracle 证人+DeletionBarrier（持久 fence），批末一次全环境 reset 部署（用户指令时点）。
 
 **Architecture:** 派生索引单写者（appendBatch inTx 帧级快照+SAVEPOINT 隔离）+连续投影前缀水位（**帧/binding 水位两 UPDATE 解耦**）+PG 重建 oracle 永久删除证人（**候选无关全 UUID 叶**+DeletionBarrier fence/drain）+引用并集保护（**保留 mediaId FK=锁耦合**）；时间语义经单一终态 init 全列 timestamptz 归一。每卡 additive 独立 verify 绿，C1 为终态 schema cut。
 
@@ -63,21 +63,18 @@ model MediaFact {
 
 - [ ] **Step 1：红测**（五族）：①版本单调（v5→3n 不倒退→7n 前进）；②并发两写者→版本 6/7 双落；③无 projectId media 有 natural fact；④confirm 后 state fact 存在且 **factVersion=DB 递增返回值**（禁预读+1）；⑤probe 终态失败：已有 processing state vN→终态后 state=`failed` 且 **factVersion=N+1**（非终态重试不写 fact）。
 - [ ] **Step 2：跑红**：`cd apps/api && pnpm test:int -- media-fact-write`。
-- [ ] **Step 3：实现**——统一版本入口：
+- [ ] **Step 3：实现（双函数纪律——第七轮 P0-2）**：
 
 ```ts
-// media-fact-write.ts
-export async function bumpFactVersionAndUpsert(tx, mediaId, factType, payload, now = new Date()) {
-  const rows = await tx.$queryRaw<{ factVersion: bigint }[]>`
-    UPDATE "Media" SET "factVersion" = "factVersion" + 1
-    WHERE "id" = ${mediaId} AND "deletedAt" IS NULL RETURNING "factVersion"`;
-  if (rows.length === 0) return { skipped: 'media-missing' as const };
-  // upsertMediaFactInTx：ON CONFLICT (mediaId,factType) DO UPDATE SET ..., "updatedAt"=${now}
-  // WHERE EXCLUDED."factVersion" > "MediaFact"."factVersion"（updatedAt=Date 参数绑定）
-}
+// ①已 increment 路径用（confirm/complete/materialize/doneNatural——各自删除原 factVersion:{increment:1}，UPDATE 改 RETURNING 读回）：
+upsertMediaFactInTx(tx, { mediaId, factType, factVersion /*=读回值*/, payload: JSON.stringify(p)::jsonb 绑定, now: new Date() })
+// ②仅无 increment 路径用（register 新行/probe 终态失败）：
+bumpFactVersionAndUpsert(tx, mediaId, factType, payload)  // UPDATE Media SET factVersion=factVersion+1 ... RETURNING → upsert
+// probe.fail 包 $transaction：updateMany(probeRunId CAS) count===1 才 bump；0 行（lease 失守）零递增零 fact。
+// ON CONFLICT DO UPDATE SET ... WHERE EXCLUDED.factVersion > 当前行版本。
 ```
-confirmInTx/probe 终态/register/complete/materialize 全部经此入口（已有 increment 的路径改为读回 RETURNING 值传同版本）；probe 非终态不写；`Media.status` 不变（probe 失败=probe 维失败，state fact 记 `{status:'failed',errorCode}` 语义在 payload）。
-- [ ] **Step 4：绿+`pnpm verify:fast`；Step 5：Commit** `feat(c2): 5 写点改道+bumpFactVersionAndUpsert 版本纪律（RETURNING 原子递增）`。
+红测 negative control：对已 increment 路径误调 bump→版本恰 +1 非 +2（或静态门禁禁此调用形态）。
+- [ ] **Step 4：绿+`pnpm verify:fast`；Step 5：Commit** `feat(c2): 5 写点改道+双函数版本纪律（RETURNING 读回/bump 单源——防双递增）`。
 
 ### Task C2-3：facts 端点归一与合成
 
@@ -111,7 +108,7 @@ confirmInTx/probe 终态/register/complete/materialize 全部经此入口（已�
 
 ### Task C3a-2：schema additive
 
-CanvasDoc 加 `mediaBindingSeq BigInt @default(0)`+`bindingsDirty Boolean @default(false)`；Media 加 `deletionState String @default("ACTIVE")`（CHECK IN ACTIVE,DELETING）；additive+immutability --write+verify:fast+Commit。
+CanvasDoc 加 `mediaBindingSeq BigInt @default(0)`+`bindingsDirty Boolean @default(false)`；Media 加 `deletionState String @default("ACTIVE")`（CHECK IN ACTIVE,DELETING）；**`ProjectionBackfillState` 表**（projectId @id/backfillEpoch String/state String CHECK(PENDING,RUNNING,DONE,FAILED)/verifiedSeq BigInt/updatedAt）；**迁移内 `UPDATE "CanvasDoc" SET "bindingsDirty"=true`（既有项目全置——修 0==0 假覆盖，第七轮 P0-5）**；additive+immutability --write+verify:fast+Commit。
 
 ### Task C3a-3：帧级快照捕获（actor）
 
@@ -143,9 +140,12 @@ repository 内**两条 UPDATE 解耦**（第六轮 P0-1）：
 ```sql
 -- ① 帧水位：永远推进（与 binding 无关）
 UPDATE "CanvasDoc" SET "walCheckpointSeq"=$wc,"pgSeq"=$newPg WHERE "projectId"=$pid AND "pgSeq"=$expectedPg;
--- ② binding 水位：独立 CAS，允许 0 行（失败/落后不影响 ①）
-UPDATE "CanvasDoc" SET "mediaBindingSeq"=$newPg WHERE "projectId"=$pid AND "mediaBindingSeq"=$expectedContiguous AND "bindingsDirty"=false AND $covered;
+-- ② binding 水位：仅 ① 落定（rowCount=1 或既有 cas-miss 分支确认 pgSeq>=newPg）后执行+双门（第七轮 P0-4）
+UPDATE "CanvasDoc" SET "mediaBindingSeq"=$newPg WHERE "projectId"=$pid AND "mediaBindingSeq"=$expectedContiguous AND "bindingsDirty"=false AND "pgSeq">=$newPg AND $covered;
+-- 懒建档 INSERT 分支显式：mediaBindingSeq=(covered∧非dirty)?newPg:0；不 covered 时 bindingsDirty=true。
+-- inTx 返回 typed {bindingCovered, lifecycleCounts}；repository 按返回值+①结果决定②；接入既有 cas-miss/adopt/懒建档分支的成功出口。
 ```
+红测四档：①0 行（fenced/cas-miss/并发）→②不执行；①成功+covered→②推进；懒建档→初始化正确；covered=false→②不进——恒 `mediaBindingSeq<=pgSeq`。
 - [ ] **Step 3：绿+`pnpm verify`（full——高风险 commit）+Commit**。
 
 ### Task C3a-5：MediaBindingProjector
@@ -166,14 +166,14 @@ return writeBinding();
 
 ### Task C3a-6：水位不变量闭环
 
-**Files:** `canvas-doc-genesis.ts:32-53`（同事务置 dirty）、actor boot 判定（`replayed>0 ∨ mediaBindingSeq<pgSeq ∨ dirty`）、Create `binding-rebuild.service.ts`+repository 加 `loadForHydrationAt(pid, pgSeq)`（选 `stateSeq<=S` 最新 snapshot+`(stateSeq,S]` updates——rebuild/漂移检测专用，**禁 live doc**）
+**Files:** `canvas-doc-genesis.ts:32-53`（同事务置 dirty）、actor boot 判定（`replayed>0 ∨ mediaBindingSeq<pgSeq ∨ dirty`）、Create `binding-rebuild.service.ts`+repository 加 `loadForHydrationAt(pid,{generation,pgSeq})`（**固定 generation** 选 `stateSeq<=S` 最新 snapshot+`(stateSeq,S]` 同代 updates——第七轮 P0-5：vacuum 换代 pgSeq 不重置内容变；rebuild/漂移检测专用，**禁 live doc**）
 
-- [ ] **Step 1：红测**：①genesis 种子含 fileId→新项目 dirty；②rebuild 读 S 后 append→**CAS（`mediaBindingSeq=expected ∧ pgSeq=S ∧ dirty=true` 三条件，第六轮 P0-5）失败→dirty 保持**；再 rebuild 至新 S→清 dirty 且 `mediaBindingSeq===pgSeq`；③持续写→持续 dirty+`projection_backfill_remaining` 告警分诊（安全但可见）。
+- [ ] **Step 1：红测**：①genesis 种子含 fileId→新项目 dirty；既有项目（C3a 前已存）→迁移置 dirty→backfill 选中；②rebuild 读 (G,S) 后 append→**CAS 四条件（`mediaBindingSeq=expected ∧ pgSeq=S ∧ generation=G ∧ dirty=true`）失败→dirty 保持**；再 rebuild 至新 S→清 dirty 且相等；③**rebuild 读 S 后 vacuum 换代（pgSeq 不变 generation+1）→CAS 失败（generation 门）→dirty 保持**；④持续写→持续 dirty+告警分诊。
 - [ ] **Step 2：实现+绿+Commit**。
 
 ### Task C3a-7：命令面+静态门禁（红先行）
 
-**Files:** Modify `collab-binding.controller.ts`（**CloneBinding 确定删除**：路由/handler/DTO/测试——grep 证据〔第六轮实证〕：web 生产零调用〔仅 collabApi.ts 导出+collabApi.test.ts〕、生产 copy/paste 走 BindMedia〔canvasStore.ts:579〕；web 侧同步删 collabApi.cloneBinding 导出+类型+测试）、`collab-media.controller.ts:111-146`（replaceMedia 去 bindInTx）、`artifact-commit.service.ts:594-615`（finalize 去 bindInTx）、**`media-registration.service.ts:186-212`（bindInTx 方法本体删除——白名单不含本文件）**；BindMedia pairArtifact 唯一腿+doc 源节点兜底读（withSession read+400 分档 plan 内定义）；Create `scripts/check-media-binding-writers.mjs`（delegate+raw SQL 文本扫描；白名单=projector/binding-rebuild/erasure 批删/orphan-cleanup/tests）
+**Files:** Modify `collab-binding.controller.ts`（**CloneBinding 确定删除**：路由/handler/DTO/测试——grep 证据〔第六轮实证〕：web 生产零调用〔仅 collabApi.ts 导出+collabApi.test.ts〕、生产 copy/paste 走 BindMedia〔canvasStore.ts:579〕；web 侧同步删 collabApi.cloneBinding 导出+类型+测试）、`collab-media.controller.ts:111-146`（replaceMedia 去 bindInTx）、`artifact-commit.service.ts:594-615`（finalize 去 bindInTx）、**`media-registration.service.ts:186-212`（bindInTx 方法本体删除——白名单不含本文件）**；BindMedia：pairArtifact 唯一腿+**doc 源节点兜底经窄端口 `MediaRefsReadPort`**（`readNodeRefs(projectId,nodeId): Promise<MediaRef[]|null>`——由 CollabDocumentService 适配，controller 注入端口防 DI 环，第七轮 P1-3；**分档映射写死**：源节点不存在→400 `SOURCE_NODE_MISSING`；源 media 不在源节点→400 `SOURCE_MEDIA_MISMATCH`；跨队→403；doc 不可读/lease 失守→503）；Create `scripts/check-media-binding-writers.mjs`（delegate+raw SQL 文本扫描；白名单=projector/binding-rebuild/erasure 批删/orphan-cleanup/tests）
 
 - [ ] **Step 1：红测**：①copy/paste e2e（客户端 doc 帧自足→目标节点 binding 经投影出现+零裂图）；②门禁负控（非白名单加 mediaBinding.delete→红；media-registration 残留 bindInTx→红）；③BindMedia 零 binding 读写。
 - [ ] **Step 2：实现+门禁入 verify 链+绿+`pnpm verify`（full）+Commit**。
@@ -203,7 +203,7 @@ return writeBinding();
 
 ### Task C1-2：三向 allowlist 对象门
 
-**Files:** Create `scripts/check-rebaseline-delta.mjs`：对比重放库 vs `schema-before-v2.sql`（baseline=pre-batch）——old-only 命中 removed（MediaFactOutbox 表+索引列/MediaFactState enum）/new-only 命中 added（MediaFact/CanvasDoc 两列/Media.deletionState/set_updated_at 函数+触发器/**CanvasProject.mediaBindings 关系**）/列类型 delta 由列级 census 派生（存活 naive 恰好全转换——不 hardcode）；函数/触发器 body 逐字；**allowlist JSON 生成一次+人工审阅+入库，gate 只读不自动写**（防自证，第六轮 P1）。
+**Files:** Create `scripts/check-rebaseline-delta.mjs`：对比重放库 vs `schema-before-v2.sql`（baseline=pre-batch）——old-only 命中 removed（MediaFactOutbox 表+索引列/MediaFactState enum/**MediaBinding_mediaId_fkey**）/new-only 命中 added（**MediaFact/CanvasDoc 两列/Media.deletionState/set_updated_at 函数+触发器/MediaBinding_projectId_fkey+索引/ProjectionBackfillState/DeletionBarrier/oracle 双表——只列 DB 对象，Prisma 反向关系不入 pg_dump allowlist**，第七轮 P1-5）/列类型 delta 由列级 census 派生（不 hardcode）；**changed 域**（FK onDelete/约束 body 变化）；函数/触发器 body 逐字；allowlist JSON 生成一次+人工审阅+入库，gate 只读。
 
 - [ ] **Step 1：门自测负控**（缺 ledger_guard→红/多一列 naive→红/少 removed 条目→红/**多一个非预期对象→红**）→verify 链注册→Commit。
 
@@ -229,28 +229,28 @@ return writeBinding();
 
 ### Task C3b-1：oracle 双表 schema
 
-`CanvasReferenceOracle{projectId,mediaId,verifiedSeq BigInt,@@id([projectId,mediaId]),@@index([mediaId])}`+`CanvasReferenceOracleScan{projectId @id,historyEpoch,**generation Int**,verifiedSeq BigInt,status CHECK(VERIFYING|COMPLETE|FAILED),refCount Int,scannedAt @db.Timestamptz(3),error String?}`；additive+immutability --write+verify:fast+Commit。
+`CanvasReferenceOracle{projectId,mediaId,verifiedSeq BigInt,@@id([projectId,mediaId]),@@index([mediaId])}`+`CanvasReferenceOracleScan{projectId @id,historyEpoch,**generation Int**,verifiedSeq BigInt,status CHECK(VERIFYING|COMPLETE|FAILED),refCount Int,scannedAt @db.Timestamptz(3),error String?}`+`DeletionBarrier` 表（4a）——**三表均加 project FK Cascade**（项目删除零残留，第七轮 P1-6）；additive+immutability --write+verify:fast+Commit。
 
 ### Task C3b-2：PG oracle worker（候选无关）
 
 **Files:** Create `oracle-worker.service.ts`（**worker 进程装配**——第六轮 P2；入锚）；Test `oracle-worker.int.spec.ts`
 
-- [ ] **Step 1：红测**：①**候选无关**：重建 doc 遍历全 Yjs 容器（Map/Array/Text/XmlElement/XmlText 五类型各一用例）string 叶，**UUID 形态全量写入 CanvasReferenceOracle**（查询按候选过滤——候选集外引用不假阴性，第六轮 P0-6）；②**短事务纪律**：RR 短事务只读 pgSeq+snapshot+updates→事务外重建扫描→另起事务 CAS pgSeq 未变+写行/header（防长 RR）；③header 状态机（VERIFYING→COMPLETE〔refCount=0 也写〕/FAILED）+oracle 行按 project 原子替换；④**复用条件=historyEpoch+generation+verifiedSeq 三同且非 dirty**（vacuum 换代不复用）；⑤单 doc 预算/超时→bail-out。
+- [ ] **Step 1：红测**：①**候选无关+JOIN 过滤**：重建 doc 遍历全 Yjs 容器（Map/Array/Text/XmlElement/XmlText 五类型各一用例）string 叶，UUID 形态经 `INSERT..SELECT unnest(${uuids}) JOIN "Media" m ON m.id=u.value AND m."teamId"=$teamId` 过滤写入（**nodeId 不入表**——第七轮 P1-1；未知字段 media UUID 仍捕获）；②短事务纪律（RR 短读→事务外扫描→另事务 CAS pgSeq 未变写行/header）；③header 状态机+oracle 行按 project 原子替换；④复用条件=epoch+generation+verifiedSeq 三同∧非 dirty∧`CanvasDoc.bindingsDirty=false`；⑤单 doc 预算超时 bail-out。
 - [ ] **Step 2：实现+绿+`--write-metric-names`（scan_age/coverage_ratio）+Commit**。
 
 ### Task C3b-3：decision snapshot+isMediaReferenced+referrer registry
 
 **Files:** Create `media-reference.service.ts`+`media-referrer.registry.ts`
 
-- [ ] **Step 1：红测**：①`decideTeamReferenceSnapshot`：DELETING/erased 项目**保守计入**（最后 COMPLETE oracle 行——排除仍引用项目会误删，第六轮 P1-8）；②oracle 臂 join header 校验 epoch+generation+verifiedSeq；③referrer registry 每条 `{table,column,kind:mediaId|objectKey,resolve}`（ObjectManifest/VideoTrim/coverKey 是**对象键**需 key→mediaId 映射——第六轮 P1-6）；每个 referrer 单独保护（binding-only/oracle-only/structured-only/objectKey-only 四组）；④erasure scope（A 擦 B 引用→detach；仅 A→删）。
+- [ ] **Step 1：红测**：①`decideTeamReferenceSnapshot(teamId,{excludeProjectId?})`——**GC 不传全计入（含其他 DELETING 项目）；erasure 传被擦项目（其自身引用不算保护——第七轮 P0-4，对齐现 resolveMediaDisposition 的 projectId not pid）**；②oracle 臂 join header 校验 epoch+generation+verifiedSeq；③referrer registry 每条 `{table,column,kind:mediaId|objectKey,resolve}`（ObjectManifest/VideoTrim/coverKey 是**对象键**需 key→mediaId 映射）；每个 referrer 单独保护（binding-only/oracle-only/structured-only/objectKey-only 四组）；④erasure scope（A 擦 B 引用→detach；仅 A 自引用→删；A 擦时 B 为 DELETING→B 仍计入保护）。
 - [ ] **Step 2：实现+绿+Commit**。
 
-### Task C3b-4a：DeletionBarrier（新增任务——第六轮 P0）
+### Task C3b-4a：DeletionBarrier——持久 fence+admission（第七轮重设计）
 
-**Files:** `media-reference.service.ts`（barrier 编排）；Test `deletion-barrier.int.spec.ts`
+**Files:** `DeletionBarrier` 表（C3b-1 迁移收编：teamId @id+barrierId+state CHECK(ACQUIRING,ACTIVE,RELEASING,FAILED)+expiresAt）；api 侧 `DeletionBarrierPort` 实现+**loopback 端点** `POST /api/collab/deletion-barrier`（WORKER_WRITE_TOKEN——erasure worker 跨进程调用）；**admission 三面接线**：gateway `beforeHandleMessage/onAuthenticate`（barrier ACTIVE 时该 team doc 帧拒/排队 4413 族）+`appendBatch` 事务首句查 barrier 行+维护/worker 写路径同查；Test `deletion-barrier.int.spec.ts`
 
-- [ ] **Step 1：红测（本批 P0 锚）**：media 进 DELETING→**客户端 doc 帧写引用且已 apply 未 flush**→GC 删除决策→**保留/中止**（无 barrier 时 binding/oracle 均不可见该帧——测试即证明 barrier 必要）。
-- [ ] **Step 2：实现**：`decideTeamReferenceSnapshot` 第 0 步=对 team 内全部 CanvasDoc 项目**按 projectId 序**取 `lockProject`+`flushThrough` drain 至 `appliedSeq==pgSeq`（team 级低频 freeze 秒级可受）→再走 decision snapshot 五步序；barrier 失败/超时→整体 bail-out。
+- [ ] **Step 1：红测（P0 锚）**：①media 进 DELETING→客户端 doc 帧写引用已 apply 未 flush→GC 删除决策→**保留/中止**；②**barrier ACTIVE 期间新 WS 帧/appendBatch 被拒**（barrier 后、删除完成前的新 apply 不可达——第六轮红测缺此条）；③双 GC worker CAS 抢 barrier 一者零行；④barrier 超时/失败→整体 bail-out+释放；⑤flush 与锁解耦（barrier 不持 lockProject 等 flush——自锁形态必红）。
+- [ ] **Step 2：实现（顺序）**：①oracle 扫描在 barrier **前**→②CAS 取 barrier（ACQUIRING→ACTIVE+expiresAt）→③flushThrough 至 appliedSeq==pgSeq 且 admission 已封（无新 admitted 帧）→④decision snapshot+recheck→⑤删除（对象先删→行删）在 barrier 持有期内完成→⑥释放（删行）；总预算 10s+逐项目预算+`deletion_barrier_active_seconds` 观测；超时 bail-out 释放。
 - [ ] **Step 3：绿+Commit**。
 
 ### Task C3b-4：DELETING 状态机+删除序（红先行）
