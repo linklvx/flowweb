@@ -1,167 +1,165 @@
-<!-- doc-status: draft | created: 2026-11-11 | 三路线用户裁定（2026-11-11 对话三轮）：C1 时间墙=A 全列 timestamptz（外审报告时间墙章节并入+三点修正）；C2 Outbox=A+processing 守卫（用户修正采纳；「confirm 时建 binding」经评审否决——语义污染，理由见 §3.2.3）；C3 refcount=路线 1+等价性门序（用户修正：loopback/复核窗等价性红测通过后再拆）。C1 genesis 种子勘正=用户裁定（全环境 reset 使 T31「迁移不可改」前提失效，同批删登记条目）。心跳 sidecar 等=登记不进批。 -->
-# 地基修复批（时间墙 timestamptz 全列化 + MediaFactOutbox 死行清扫 + MediaBinding 写路径事务化）设计 spec
+<!-- doc-status: draft | created: 2026-11-11 | v2（同日两份外审评审实证后重裁重写）：评审 A（架构评审 9×P0）+评审 B（独立复核 8×P0+20×P1）关键主张逐条亲证属实——数组域 splice 零 MEDIA_REF 效应（actor observeDeep 只读 changes.keys，YArrayEvent keys 空 Map）/appendBatch 水位 UPDATE 不写 CanvasDoc.updatedAt/additive 门 BREAKING 正则拦 ALTER COLUMN TYPE+仓内已有 squash 先例（BASELINE=y0b2_init）/deploy-guard T31 断言钉死 AT TIME ZONE/media-registration:249 ::timestamp cast/init 迁移 37 处种子 now()/facts 端点无 projectId 过滤（跨项目误删面）/recovery-import 绕过帧管线/reconcileDaily 24h 从启动计时/dead 枚举有代码面/frames 三元式依赖 lifecycleObserver/frame-effects CONTRACT-FREEZE。三路线用户重裁（2026-11-11）：C1=rebaseline/squash（推翻 v1 genesis 勘正+转换迁移）；C2=MediaFact(mediaId,factType) 当前态表根修（推翻 v1 死龄清扫+双守卫）；C3=拆 C3a/C3b+复核窗保留+影子对拍（强化 v1 等价性门序）。v1 裁定史与评审消化全录 §6。 -->
+# 地基修复批 v2（时间语义 rebaseline + MediaFact 当前态 + MediaBinding 投影真值）设计 spec
 
-日期：2026-11-11（立项日；spec v1=三路线裁定落库版）
+日期：2026-11-11（v1=b849381b；v2=同日两份外审实证重裁重写版）
 
-定位：production-readiness 批（2026-11-11 全闭+改档 production）后继开发批。**三项地基修复**：①时间墙混用类级根修（claim 租约时区根修时发现的潜伏 bug 族，全仓审计已完成）②MediaFactOutbox 死行（纯拉取模型下 pending 永不转态的观测面失真+无界增长）③媒体引用索引写路径事务化（erasure/media-gc 免 doc 扫描免复核窗，Y2 typed-ref 底座）。批序 C1→C2→C3，三卡全闭环后批末出口门；**全环境 reset 部署窗=用户显式指令时点**（C1 全列类型变更所致）。
+定位：production-readiness 批后继的**正确性地基批**（评审共识定名：foundation correctness batch——不宣称架构升级，不改变单实例/无 HA/无 S3 边界）。四卡：**C1 时间语义根修（rebaseline）→ C2 MediaFact 当前态表 → C3a MediaBinding 投影真值成立 → C3b 消费面切换（影子期）**。全环境 reset 部署窗=用户显式指令时点。
 
-**本批不做**：可用性/HA/分片/快照分层/IDB 增量/tracing 等架构项——外审报告（2026-11-11 用户转呈《Yjs 核心协作架构升级评审报告》）评审结论=方向正确但多为已登记触发型 backlog，仅时间墙章节并入本批；其余按 §6 登记带触发条件，不改变本批范围。
+## §0 已裁定（不再议——v2 重裁后）
 
-## §0 已裁定（不再议）
+- **C1=rebaseline/squash**（评审 A/B 一致首选+用户重裁）：单一新 init 基线（全列 `@db.Timestamptz(3)`），消解 v1 路线的六个面（T7 编辑/init 37 处种子/75 表 additive 豁免/immutability 棘轮/C2 enum DROP TYPE/C3 binding 加列）；仓内先例=y0b2_init（「Y0b-2 T1 squash 基线=唯一 init」）；配套**对象级 diff 门**（pg_dump --schema-only 前后对拍，缺 raw 对象即红）。
+- **C2=MediaFact 当前态表根修**（用户重裁，推翻 v1 死龄清扫）：纯拉取+客户端 factVersion 去重模型下，per-project fan-out 行是 Z1'' 推送模型遗产；当前态表 `(mediaId,factType)` 唯一行消解死行/lag/守卫/staleness/调度一整族问题。
+- **C3=拆两卡**（用户重裁）：**C3a 真值成立**（效应完整性/单写者/失败隔离/水位——不拆任何消费面）→ **C3b 消费面切换**（影子对拍+水位前置+条件删除；**复核窗保留，拆窗单独立项**）。
+- 命令面 `bindInTx` 改道（不再写 binding——binding=纯 doc 投影）；`BindingReconcileService` 降级只读漂移检测。
+- 流程纪律：superpowers TDD（红先行→绿）、TypeScript strict、subagent-driven+每卡双评审、迁移串行、新 commit 禁 amend。
 
-- **C1 路线 A（全列 timestamptz）**：167 列（以 schema.prisma 全量为准）`@db.Timestamptz(3)`；裸 `now()` 全部自动合法（瞬时语义）；现有 ~20 处 `(now() AT TIME ZONE 'utc')` 补偿谓词整体拆除；会话时区依赖类级消失（CI=UTC vs 生产=+8 分歧同灭）。仓内先例=CollabLease（唯一 timestamptz 列，审计确认无墙问题）。
-- **C1 genesis 种子勘正（用户裁定）**：T7 迁移种子笔裸 `now()` 改 UTC 写法；T31 登记「迁移不可改残留+新装漂移窗+必经 bump 自愈」条目**删除**（其「不可改」前提=迁移已应用于生产服务器，本批全环境 reset 使前提失效）；转换迁移的 `USING ... AT TIME ZONE 'UTC'` 只对 reset 回放/新装有意义，不用于转换 seed 行。
-- **C2 路线 A+processing 守卫（用户修正采纳）**：死龄直删+binding 守卫**+processing 守卫**（生成期 binding 要到 finalize 才写、doc 引用先于 binding 存在的真实窗口）；lag gauge 挪 worker 周期+staleness 伴随指标；四死列+索引+dead 枚举同批拆。
-- **C2「confirm 时建 binding」否决**：MediaBinding=doc 引用真值（erasure/media-gc 消费面），无槽位归属锚行会被 reconcile stale 删（白写）或污染 erasure 保留面（错误方向）——见 §3.2.3。
-- **C3 路线 1+等价性门序（用户修正采纳）**：消费既有 MEDIA_REF_* 帧效应同事务维护 MediaBinding；**loopback 端点与复核窗的退役以「等价性红测」（双读对照）通过为前置**，不先拆。
-- 流程纪律：superpowers TDD（红先行→绿）、TypeScript strict、subagent-driven+每卡双评审、根修禁垫片、迁移串行不并行、新 commit 禁 amend。
+## §1 事实基线（v2 勘正版——两评审实证锚点，2026-11-11）
 
-## §1 事实基线（2026-11-11 三路探索锚点）
+### §1.1 时间语义（v1 审计+两评审补漏）
 
-### §1.1 时间墙审计（全仓 167 列摸排完毕）
+墙别判定与 13 风险点处置表承 v1（b849381b §1.1）不变，**v2 勘正/补充**：
 
-**墙别判定规则**：`@default(now())`=DB 会话墙（DDL 落 `DEFAULT CURRENT_TIMESTAMP(3)`，生产=Asia/Shanghai +8、CI=UTC）；`@updatedAt`/typed Prisma Date=UTC 墙；raw 裸 `now()`=会话墙；`(now() AT TIME ZONE 'utc')`=对齐式 UTC（naive）。
+1. **门禁冲突（v1 漏）**：`check-migration-additive.mjs` BREAKING 正则拦 `ALTER COLUMN ... TYPE`（转换迁移需 ~75 表逐表豁免且永久登记）；`check-migration-immutability` tree 对拍拦已提交迁移编辑；`deploy-guard.test.mjs:402-411`（T31-P1 红①②）把 `AT TIME ZONE 'utc'` 钉成必须断言——C1 后需翻转。⇒ rebaseline 一并消解。
+2. **种子面（v1 漏）**：init 迁移 37 处种子 `now()`（NodeType/AIModel/ModelResolution/ModelDuration/PricingRule，:1330-1390）；+8 会话重放下 `USING 'UTC'` 转换会整体偏 8h。rebaseline 下 timestamptz 列裸 `now()` 天生正确——种子问题消失。
+3. **`::timestamp` cast（v1 归类错）**：`media-registration.service.ts:249` `${toISOString()}::timestamp`——C1 后 naive cast 进 timestamptz 按会话解释 → +8 偏移；须改 `::timestamptz` 或参数绑定。
+4. **CanvasDoc.updatedAt 写入语义 bug（v1 漏——独立于时间墙）**：appendBatch 水位 UPDATE（canvas-doc-update.repository.ts:285-290）只写 walCheckpointSeq/pgSeq；updatedAt 仅 genesis/maintenance/compact 写 → canary 7d 活跃窗（`d.updatedAt > now()-'7 days'`）对「只编辑无 compact」项目恒判不活跃。
+5. **脚本锚（v1 漏）**：reset-collab.mjs:283 / drill-fault.mjs:152 / drill-cutover.mjs:605 bump SQL + deploy-guard 断言两处——grep 清零范围必须含 scripts/。
+6. 全仓 `AT TIME ZONE` 文本命中 41 处（v1 写 ~20 低估，含注释/测试）；补偿谓词拆除以「grep 全仓（apps/packages/scripts）+ 负控」为口径，不逐文件手清单。
 
-**真实混墙风险点（C1 处置对象；行号=2026-11-11 摸排）**：
+### §1.2 MediaFactOutbox → MediaFact（消费语义勘正）
 
-| # | 风险点 | 机理 | C1 处置 |
-|---|---|---|---|
-| 1 | LightingTask 60s 幂等窗（lighting.service.ts:74-81 vs :99 省略 createdAt） | typed UTC 窗 vs DB 墙列→+8 下窗实际≈8h | 类型改后零代码自愈 |
-| 2 | canary 7d 活跃窗/last_check_age（collab-replay-canary.poller.ts:109、collab-canary-verify.worker.ts:322-328） | 裸 now() vs CanvasDoc.updatedAt（异墙两写者列） | 零代码自愈（两写者列同时归一为瞬时语义） |
-| 3 | RuntimeEvent 7d 保留窗（runtime-feed.retention.service.ts:73,111） | UTC 谓词 vs DB 墙列→实际 7d+8h | 拆补偿谓词（§3.1.3 清单） |
-| 4 | MediaFactOutbox.nextAttemptAt 首投 8h 不可认领（projection-outbox.poller.ts:207） | DB 墙默认 vs UTC claim 谓词 | 死代码（claim 路径未实现）；C2 拆列根治 |
-| 5 | ArtifactProjection 30d / ReconcileAction 90d 清理（intent-reconcile.service.ts:542,554） | typed 窗 vs DB 墙列 | 零代码自愈 |
-| 6 | ObjectManifest 24h 孤儿门（object-manifest.service.ts:91,104） | UTC 谓词 vs DB 墙列 | 拆补偿谓词 |
-| 7 | TeamCreditTransaction 15min 冻结释放窗（intent-reconcile.service.ts:592,604） | 当前同墙但前提脆弱（新增显式写者即翻转） | 类型改后类级免疫 |
-| 8 | SystemHistory.epochStartedAt（T7 迁移种子裸 now()） | DB 墙种子+typed UTC 读=+8h 漂移（T31 登记） | **种子勘正**（§3.1.2） |
-| 9 | Session.createdAt 滑动续期（auth/session.service.ts:42） | DB 墙列 JS 读回做年龄 | 零代码自愈（低危，方向安全） |
-| 10 | StyleRecentUsage.lastUsedAt 两写者异墙（styles.service.ts:149） | 排序面跨行可比性偏 8h | 零代码自愈 |
-| 11 | 潜伏异墙两写者列：TeamBalance/MaintenanceOperation/CollabJobCursor/NodeExecution.updatedAt | 裸 now 写+@ua 写并存 | 零代码自愈（瞬时语义归一） |
-| 12 | projection-outbox.poller.ts:482 dead-requeue 窗 | UTC 谓词 vs DB 墙 createdAt | 拆补偿谓词 |
-| 13 | GenerationIntent.createdAt（createMany 省略，无窗读者） | 潜伏 | 零代码自愈 |
+- **facts 端点是 team 级 mediaId 级消费**（media-facts.controller.ts:61-75：teamId 过滤+按请求 mediaIds 拉，**无 projectId 过滤**）——v1 的 per-(mediaId,projectId) binding 守卫在跨项目复制场景误删唯一行（评审 B-P0-7 实证：A 生成 fact 行→复制到 B→A 引用移除→行被删→B 休眠重开拿空）。
+- 写面 5 处 createMany（media-registration:258/:298、media-probe:425、materialize:412/:557——v1 §3.2.5 写 4 处系笔误）按「当时 union(Media.projectId, binding.projectId)」扇出——扇出语义只对推送模型有意义，纯拉取下是遗产。
+- `dead` 枚举非零代码面（v1 错写零面）：intent-reconcile.service.ts:547-551 dead-letter count+`reconcile_manual_required_total` 告警+r3 测试 seed。
+- `reconcileDaily`=24h setInterval 从进程启动计时（:116）——部署频繁期可能长期不跑（随 C2 表退役一并消失）。
+- `media_fact_outbox_lag` 未接告警链（THRESHOLDS 无 media 指标）；soak 脚本引用两处（collab-soak-metrics.mjs:79、collab-soak.mjs:361）。
 
-**已核实一致面（不动）**：ExecutionRequest/ExecutionInput.expiresAt 全链、GenerationIntent heartbeat/deadline 族、Media 全 lease/expiry 族、CollabLease（tsz）、CanaryPin/CollabCanaryCursor（裸 now 自洽族）、ProjectErasureRun lease 族（C4-b 根修在位）、订阅日级到期、media-gc deletedAt 族。
+### §1.3 MediaBinding 投影真值（v1 事实基线勘正——三缺口实证）
 
-### §1.2 MediaFactOutbox 现状
+1. **效应不完整（评审 B-P0-1/A-P0-6 实证）**：actor observeDeep（collab-project-actor.service.ts:202-270）只遍历 `ev.changes.keys`——**YArrayEvent（allImages/images 列表槽 splice）的 keys 为空 Map → 已有节点上追加/删除列表项零 MEDIA_REF 效应**；仅节点新建分支读字段初值。recovery-import（collab-recovery-import.service.ts:283-289 注释自认）`Y.applyUpdate` 直写零效应；replayAll 机械落帧不派生。⇒ v1「帧效应已在位，缺持久化」的判断不成立——**效应派生本身不完备**。
+2. **多写者 LWW（评审 A-P0-3/B-P0-3）**：BindingReconcileService 头注自认「与 finalize bindInTx 并发 last-writer-wins：doc 快照旧于 finalize ⇒ upsert 回写旧 mediaId；finalize 新建行可能被误判 stale 删」且「**GC 以 doc 扫描为终裁，不依赖 binding 完整性**」；reconcileProject T1 读 doc / T2 写 DB 两窗。命令面 bindInTx 写 binding 时 doc 交付异步滞后（binding=doc 超集窗）。⇒ v1「帧效应=权威+命令面保留+reconcile anti-entropy 三写者同键幂等」的口径在交错下不成立。
+3. **拆除安全网的论据不成立（评审 A-P0-4/B-P0-5）**：fenceProject 只围被擦除项目——**同 team 他项目 doc 写者不经 fence**（跨项目 TOCTOU：t1 判独占→t2 间 Q 粘贴引用→删→Q 裂图）；binding 同事务只覆盖 PG 已提交前缀（appliedSeq>pgSeq 在飞帧不可见——与 doc 扫描 oracle 可见面等价，见 §3.4 水位门）；复核窗=「标记与删除不得同窗」的近似门非精确门。⇒ v1「sameSet 恒成立故拆复核窗」论据撤回。
+4. **FK/ACL 毒帧面（评审 A-P0-5/B-P0-6）**：MediaBinding 有 Media FK——doc 写不存在 fileId → binding INSERT P2003 → 整批帧回滚 → 客户端可用字符串打死项目协作写；跨 team mediaId 越权引用面。
+5. **挂点条件化（评审 A-P0-7）**：appendBatch 的 frames 仅 lifecycleObserver 存在时构造（actor:1518-1520）——binding 挂点须无条件化。
+6. MediaBinding 现形（schema:1623-1638）：槽位唯一键 `[projectId,nodeId,role,targetField,targetItemId]`、无水位/版本列；mediaIdListOf 把列表拍平丢 item 身份；效应差分序=ADDED 先 REMOVED 后（actor:248-251）。
+7. **CONTRACT-FREEZE**（frame-effects.ts 头注明示）：FrameEffect 契约冻结——v2 路线**不解冻**（终态投影不扩载荷，见 §3.3）。
+8. Y2 登记（typed-ref/Artifact 一等表/稳定 Media.id）承 v1——MediaFact 当前态表与 binding 投影均与之兼容。
 
-- 模型 schema.prisma:1642-1660；枚举 `MediaFactState=pending|published|dead`（**dead 从未被写入**）；唯一键 `[mediaId,projectId,factType,factVersion]`。
-- **四死列**：`attempts/leaseUntil/nextAttemptAt/lastError`+`@@index([state,nextAttemptAt])`——spec Z1'' 推送式 emitter 设计残骸（全仓零读写；本次审计还被误导出「8h 不可认领」假 bug）。
-- 写面 5 个插入点全 `createMany skipDuplicates`（media-registration:258/298、media-probe.poller:419、materialize-job:406/551）——上传路径唯一写点=probe doneNatural；**生成链 stage 时即写 processing fact，binding 要到 finalize 才经 bindInTx 建立**（artifact-commit:573-610）——processing 期 doc 引用先于 binding 存在。
-- 消费面：纯拉取——唯一端点 `POST /api/media/facts`（media-facts.controller.ts:40-97），pending→published 唯一转换；拉取集=客户端 doc 九键引用集（mediaFactsRuntime.ts）∪ feed 事件定向补拉。
-- 清理：`IntentReconcileService.reconcileDaily`（24h 定时器）只清 `published ∧ publishedAt<now−7d`（OUTBOX_RETENTION_MS=7d，intent-reconcile.service.ts:36）；**pending 行无任何 sweeper 管辖**（整项目擦除除外）。
-- 指标：`media_fact_outbox_lag`=全局最老 pending 行龄（delivery-lag.metrics.ts:31-35），**只在 facts 端点被调用时刷新**（消费即观测）；未接告警链（THRESHOLDS 无 media 指标）——失真面=soak 观测+表无界增长（dev 库 144 行 fixture 死行实证）。
+## §2 卡序
 
-### §1.3 媒体引用图现状
+| 卡 | 内容 | 重量 |
+|---|---|---|
+| C1 | 时间语义根修：rebaseline（全列 timestamptz）+补偿谓词/脚本锚/断言翻转+::timestamp+updatedAt 写入语义+三门禁+对象 diff 门 | 中 |
+| C2 | MediaFact 当前态表替换（5 写点 upsert+端点改道+旧表/enum/lag/清理路径退役） | 中 |
+| C3a | binding 投影真值成立：终态投影器+命令面改道+reconcile 只读化+失败隔离+水位列+效应完整性不再依赖（终态口径） | **重** |
+| C3b | 消费面切换：全库 backfill+影子对拍+水位门+条件删除+退役清单；**复核窗保留** | 中 |
 
-- **erasure 八要素**（resolveMediaDisposition，project-erasure.stages.ts:194-254）：要素 1-7（MediaBinding/NodeArtifact/VideoWork/LightingTask/VideoTrimTask/VideoProject.data 深扫/ObjectManifest claim）=SQL 查询，快且不 racy；**要素 8=doc 面扫描**——worker 经 loopback `POST /api/collab/doc/media-refs`（collab-spool.service.ts:1983-2007：限批 200、项目数上限 500、非 serving=503 fail-closed、读失败上抛 503）→ `docScanFailed=true` 时本轮不删。
-- **复核窗**：`ERASURE_MEDIA_REVIEW_MS=60_000`+pending-media sidecar（`<erasureId>.pending-media.json`，stages:61-141）——「标记与删除不得同窗」防扫描漂移；C4 批落成时 doc 扫描=最终一致性产物故必须双 tick。
-- **帧效应已在位**：actor 临界区已派生 `MEDIA_REF_ADDED/REMOVED`（collab-project-actor.service.ts:229-263，含换绑 ADDED/REMOVED 对与 update 档 rebuild 修正）+ `ProjectDocIndex.mediaRefsByNode` 增量投影——**但只喂内存索引，无同事务持久化**。
-- **MediaBinding**（schema:1623-1638）：槽位粒度 current-state 索引，唯一键 `[projectId,nodeId,role,targetField,targetItemId]`，`mediaId` 为行值；维护=`BindingReconcileService` 惰性收敛（post-apply requestReconcile 5s drain+5min 发现轮，binding-reconcile.service.ts:141-262，desired 集不含的槽位行删）。
-- **media-gc 同族**：引用图=binding∪NodeArtifact∪VideoWork∪VideoProject.data 深扫∪**doc 扫描终裁**（media-gc.service.ts:112-168，读失败=保守保留）。
-- **Y2 登记**（spec 2026-10-18 design :553）：mediaRef typed-ref 取代裸 fileId+Artifact 一等表；schema 已承诺「稳定 Media.id、不引入与 Artifact 表冲突字段」——本批 C3 表形不变，typed-ref 建于同一索引。
-- 命令面直写点：bindInTx（media-registration:186-215）三调用方（finalize artifact-commit:601 / replaceMedia collab-media.controller:140 / BindMedia·CloneBinding collab-binding.controller:149-152）。
-
-## §2 卡序与裁决
-
-| 卡 | 内容 | 重量 | 先行理由 |
-|---|---|---|---|
-| C1 | 时间墙 timestamptz 全列化+三门禁 | 中（迁移机械+谓词拆除） | C2 死龄清扫谓词依赖时间语义先归一 |
-| C2 | Outbox 死行清扫+死列拆除+观测面收口 | 轻 | 独立；fixture 144 行实证可即时验收 |
-| C3 | MediaBinding 写路径事务化+消费面切换+复核窗拆除 | **本批最重**（动 actor→appendBatch 最敏感写路径） | 殿后；等价性门序要求 C2 后专注重锚 |
-
-执行=subagent-driven、每卡 TDD 双评审（spec ✅+quality ✅）、每卡先红→绿→commit；卡间不并行。
+C2 与 C3 无依赖（当前态表不读 binding）；C3a→C3b 严格串行（影子期前置=真值成立）。
 
 ## §3 卡设计
 
-### §3.1 C1 时间墙 timestamptz 全列化
+### §3.1 C1 时间语义根修（rebaseline）
 
-**3.1.1 schema/迁移**：schema.prisma 全部 DateTime 列加 `@db.Timestamptz(3)`（CollabLease 两列已是，保持）；单条转换迁移 `ALTER TABLE ... ALTER COLUMN ... TYPE timestamptz(3) USING <col> AT TIME ZONE 'UTC'`（全列一条迁移；语义=reset 回放/新装——本批全环境 reset，不承担存量转换）。混墙存量行（CanvasDoc.updatedAt 等异墙两写者列）不做逐列还原——reset 即清。
+**3.1.1 rebaseline 主体**：
+1. schema.prisma 全部 DateTime 列改 `@db.Timestamptz(3)`（CollabLease 两列已是）——以 schema 全量为准（~167 字段）。
+2. 生成单一新 init 迁移替代全部历史迁移链；**raw 对象保留清单**（prisma diff 不生成的）：`system_history_single_row_check`、`media_binding_target_field_domain`、`maintenance_operation_one_active_idx`、`team_credit_transaction_guard`/`team_balance_guard`、CanvasDoc `pgSeq≤walCheckpointSeq` CHECK、既有 partial unique 全族——以 squash 前 `pg_dump --schema-only` 对拍为门（缺任一即红；载体=dump-schema-objects/check-fresh-replay 既有基建扩展）。
+3. 种子：init catalog seed+SystemHistory 引导行保留于新 init；列已 timestamptz → 裸 `now()` 即瞬时语义（**v1 的 T7 勘正不再需要**；T31「genesis 裸 now() 残留+新装漂移窗+bump 自愈」登记条目销案——runbook §16 步⑥ 同步）。
+4. 迁移基建同批重建：check-migration-additive `BASELINE` 抬至新 init（fresh 集空、EXEMPTIONS 清评估）、migration-checksums 重建（--write）、migrate-diff baseline --write。
+5. reset 序：dev=`prisma migrate reset`；服务器=reset-collab §16 人工序（部署窗=用户指令）。
 
-**3.1.2 genesis 种子勘正**：T7 迁移（20261024120000）种子笔 `now(), now()` 改 `(now() AT TIME ZONE 'utc')` 同形写法（迁移编辑合法窗口=本批全环境 reset；CI 每次全新回放不受影响）；**同步删除 T31 在 runbook §16 步⑥ 的「T7 genesis 迁移 bootstrap 裸 now() 不可改残留+新装漂移窗+必经 bump 自愈」登记条目**（登记原文所在处以一行「2026-11-11 foundation C1 勘正销案」替代）。
+**3.1.2 代码面**：
+- 拆补偿谓词：全仓 grep（apps/packages/scripts）`AT TIME ZONE 'utc'/'UTC'` 清零（豁免=报表层显式时区转换+注释）；含 v1 清单+脚本三件（reset-collab:283/drill-fault:152/drill-cutover:605）。
+- `media-registration.service.ts:249` `::timestamp` → `::timestamptz`（或 Date 参数绑定）。
+- **deploy-guard 断言翻转**（T31-P1 红①②→新形态）：断言 bump SQL 含裸 `now()` 且**不含** `AT TIME ZONE`，+新增 schema 断言（epochStartedAt 列=timestamptz）——锚测试纪律保留不删。
+- **CanvasDoc.updatedAt 写入语义修复**：appendBatch 水位 UPDATE 两形态同事务补 `"updatedAt" = now()`；红测=只 append 不 compact 的项目在 canary 7d 活跃窗内必被计入。
+- 测试锚同步翻转（generation-intent.service.spec.ts:619-625 等全仓同款）。
 
-**3.1.3 补偿谓词拆除清单**（`(now() AT TIME ZONE 'utc')`/`'UTC'` → 裸 `now()`；grep 全量清零不逐文件手改）：object-manifest.service.ts:91,104 / node-artifact.service.ts:93,105 / media-registration.service.ts:249-250 / materialize-job.service.ts:195-196 / media-probe.poller.ts:185-186 / projection-outbox.poller.ts:207-208,478,482 / execution-request.retention.service.ts:53,89,116,122,144,159 / execution-request.service.ts:562 / team-credit.service.ts:253 / generation-intent.service.ts:313 / intent-reconcile.service.ts:172,197,530,533 / project-erasure.poller.ts:177,180 / runtime-feed.retention.service.ts:73,111 + 测试锚同步翻转（generation-intent.service.spec.ts:619-625 等同款 AT TIME ZONE 锚）+ runbook §16 步⑥ bump SQL 注释更新。报表/展示层显式时区转换（如未来「按上海时区取日」）不在拆除面——显式 `AT TIME ZONE 'Asia/Shanghai'`+注释合法。
+**3.1.3 三门禁+验收**：
+1. schema 门禁：DateTime 缺 `@db.Timestamptz(3)` 即红（负控=加 naive 列必红）。
+2. raw SQL 门禁：新代码/新迁移禁 `timestamp(3)`/`timestamp without time zone`/`now()::timestamp`/**任意 `::timestamp` 参数 cast**/补偿式 `AT TIME ZONE 'utc'`（豁免=报表层显式时区+注释）；负控同。
+3. 双时区集成测试：同一组用例（lease 过期续租/retention cutoff/canary age/erasure claim/`@default(now())` 插入/`@updatedAt` 更新/sourceUrlExpiresAt round-trip）在 `SET LOCAL TIME ZONE 'UTC'` 与 `'Asia/Shanghai'` 两腿同结果（注入方式归 plan；+8 腿本机/UTC 腿 CI 矩阵）。
+4. 验收：grep 全仓清零+对象 diff 零缺失+负控红证+`epochStartedAt` 读回与 `Date.now()` 差 ≤2s+verify FULL。
 
-**3.1.4 三门禁**：
-1. **schema 门禁**：解析 schema.prisma，任何 DateTime 字段缺 `@db.Timestamptz(3)` 即红（负控=故意加一 naive 列必须红）。
-2. **raw SQL 门禁**：新代码/新迁移禁 `timestamp(3)`、`timestamp without time zone`、`now()::timestamp`、补偿式 `AT TIME ZONE 'utc'`；**豁免=历史迁移目录（C1 转换迁移之前）+报表层显式时区转换（带注释）**；负控=加一处补偿谓词必须红。
-3. **双时区集成测试**：真 PG int spec，同一组用例在 `SET TIME ZONE 'UTC'` 与 `'Asia/Shanghai'` 两腿下断言同结果——用例集：lease 过期/续租、retention cutoff、canary age 窗、erasure claim 租约谓词、`@default(now())` 插入、`@updatedAt` 更新。会话时区注入方式（事务内 SET / 连接参数）归 plan。
+### §3.2 C2 MediaFact 当前态表
 
-**3.1.5 reset 序**：dev=`prisma migrate reset`；服务器=`reset-collab --rebuild-db --confirm` §16 七阶段人工序（消费者全停前置）。**部署时点=批末用户显式指令**。
-
-**3.1.6 验收锚**：三门禁全绿+负控红证；双时区测试两腿绿；§1.1 风险点 1/2/5/9/10 既有测试在 +8 本机环境跑绿（时区漂移敏感用例的天然回归面）；verify FULL。
-
-### §3.2 C2 MediaFactOutbox 死行清扫
-
-**3.2.1 清扫谓词（双守卫）**：
-```sql
-DELETE FROM "MediaFactOutbox" o
-WHERE o.state = 'pending'
-  AND o."createdAt" < now() - make_interval(secs => $OUTBOX_RETENTION_MS/1000)
-  AND NOT EXISTS (SELECT 1 FROM "MediaBinding" b
-                  WHERE b."mediaId" = o."mediaId" AND b."projectId" = o."projectId")
-  AND NOT EXISTS (SELECT 1 FROM "Media" m
-                  WHERE m.id = o."mediaId" AND m."projectId" = o."projectId"
-                    AND m.status = 'processing')
+**3.2.1 新表**（C1 落地后走普通 additive 迁移）：
+```prisma
+model MediaFact {
+  mediaId     String
+  factType    String    // 'state' | 'natural'
+  factVersion BigInt
+  payload     Json
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  media       Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  @@id([mediaId, factType])
+}
 ```
-- binding 守卫：per-(mediaId,projectId) 粒度=拉取语义精确对应（跨项目事实行各归各项目的 binding 判定）。
-- processing 守卫（用户修正）：生成期 doc 引用先于 binding 存在（stage 即写 processing fact、finalize 才 bindInTx）——processing 态媒体的事实行不删。
-- 落点=`IntentReconcileService.reconcileDaily` 与既有 published 7d 清理同函数同事务族；计数指标入 intent 域 `.metrics.ts`（result 标签：deleted-orphan/kept-binding/kept-processing——低基数，禁 mediaId/projectId 标签）。
+行数上界=media×factType（有界）；Media 删除/项目擦除随 FK 级联。
 
-**3.2.2 观测面收口**：`observeOutboxLag` 的 SQL 挪 worker 周期（挂既有 poller tick，≤60s 级，facts 端点原刷新点保留）；新增伴随 gauge `media_fact_outbox_lag_refresh_age_seconds`（距上次刷新秒数——staleness 心跳性质，防 worker 半死后 gauge 停僵值）；worker 进程死=既有 check-collab-health 三档分诊承载（不重复建）。
+**3.2.2 写点改道**（5 处 createMany → 单行 upsert）：`INSERT ... ON CONFLICT ("mediaId","factType") DO UPDATE SET ... WHERE EXCLUDED."factVersion" > "MediaFact"."factVersion"`（版本单调防倒退/乱序）；per-project 扇出消失。payload 形状不变（客户端零改动面预期——核对归 plan）。
 
-**3.2.3「confirm 时建 binding」否决登记（用户替代方案评审）**：MediaBinding 是 erasure/media-gc 的 doc 引用真值消费面——confirm 时无 nodeId/槽位的「项目归属锚」行，要么被 reconcile stale 清扫删除（写而无用），要么存活污染 erasure 保留判定（从未上画布的媒体被当作「被引用」永不删——与本卡目标相反）。正确收口=processing 守卫（已并入谓词）+ 残差登记（§3.2.4）+C3 事务化从根收敛。
+**3.2.3 端点改道**：`POST /api/media/facts` 按 mediaIds+team ACL 直查当前态行返回；不再 mark published；客户端 factVersion 去重契约不变；processing watcher 语义由 state fact 当前态承载。
 
-**3.2.4 残差诚实登记**：completed 媒体+已进 doc+binding 缺失>7d 的误删面=reconcile 失灵残差（正常路径 5s-5min 收敛）——C3 落地后 binding 写入移入 doc 写路径事务，残差收敛至近零；reconcile 健康度观测（漂移计数/收敛年龄告警）=后续登记项（§6）。
+**3.2.4 退役清单**：MediaFactOutbox 整表+`MediaFactState` enum+`@@index([state,nextAttemptAt])`+死列族（随表消失）+intent-reconcile `cleanProjectionAndOutbox` outbox 段+dead-letter count/告警+r3 测试 seed+`media_fact_outbox_lag` gauge（delivery-lag.metrics.ts）+soak 脚本两处引用+schema 注释 emitter 设计描述。观测面诚实登记：原 lag 指标随模型消失，替代观测=无（拉取+当前态下「投递滞后」语义不存在）。
 
-**3.2.5 死列拆除**：`attempts/leaseUntil/nextAttemptAt/lastError` 四列+`@@index([state,nextAttemptAt])`+`MediaFactState.dead` 枚举值（PG enum 删值=类型重建，reset 窗口下干净）+schema 注释中 emitter claim 设计描述同步删。4 处 createMany 写点本就省略这些列——零生产代码面。emitter（Z1''）=Y2 域，届时按新设计重建。
+**3.2.5 红测族**：版本单调（旧 factVersion 不倒退）/跨项目复制场景 B 客户端拉得到当前态（评审 B-P0-7 反例转绿）/休眠 >7d 重开拿得到/Media 删除级联/退役 grep 锚清零（含 dev 144 行死行随表消失实证）/端点无 published 标记行为。
 
-**3.2.6 验收锚**：红测四族——①孤儿 pending 7d+（无 binding 非 processing）→删；②binding 在档 pending 7d+→保留（休眠重开补拉路径）；③processing 媒体 pending 7d+→保留；④published 7d 清理既有锚不回归+gauge 无端点流量下周期刷新+staleness gauge 推进。验收含 dev 库 144 行 fixture 死行清零实证。
+### §3.3 C3a binding 投影真值成立（不拆任何消费面）
 
-### §3.3 C3 MediaBinding 写路径事务化
+**3.3.1 终态投影器（评审 A-P0-6 路线——不解冻 FrameEffect 契约）**：新建独立 `MediaBindingProjector`（纯函数+批量 SQL，入 module-size 锚——actor 不再膨胀）：
+- actor flush 收集本批 **touched nodeIds**（全事件形态：update/FIELD_CHANGED/NODE_*/数组 splice——不再依赖 MEDIA_REF_* 效应派生的完备性）；
+- appendBatch inTx 闭包（**无条件化**，不依赖 lifecycleObserver/frames 三元式）内对每个 touched node 读内存 doc 终态 `data` 域，按 `MEDIA_REF_TARGET_FIELDS`+`array-domains` 词表算**槽位终态集**（targetField/targetItemId 天然可得；NODE_DELETED→终态空）；
+- 与该 node 现存 binding 行 diff：upsert 新增/变更、delete 消失（**按槽位+mediaId 条件删**——换绑/重复项/undo/delete+re-add/数组重排天然正确，无效应顺序问题）；
+- replay/reconcile 复用同一投影器做全项目 rebuild（锁内读终态）。
 
-**3.3.1 效应载荷扩展**：`MEDIA_REF_ADDED/REMOVED` 增 `targetField/targetItemId`（actor 派生处已知 key path；shared frame-effects.ts 类型+词表扩展）。**冻结面核点**：frame-effects 属 T5b 契约族——若带 CONTRACT-FREEZE 标记则走偏离登记修订（spec 评审内核点，plan 派发前核）。
+**3.3.2 单写者（评审 B-P0-3 修法）**：binding 权威写=appendBatch inTx 投影+锁内 rebuild 两形态；**命令面 `bindInTx` 三调用方（finalize/replaceMedia/BindMedia·CloneBinding）改道不写 binding**（只写 NodeArtifact/Projection/doc 命令——binding 滞后一步由投影收敛；facts 扇出已随 C2 消失，无即时性消费者）；`BindingReconcileService` 降级**只读漂移检测**（doc 终态 vs binding diff → `media_binding_drift_total` 计数+告警+触发受控 rebuild），**不再周期写**；发现面候选扩 CanvasDoc 全表轮转（修「binding 被误删且无 artifact 的项目永不收敛」面）。
 
-**3.3.2 同事务挂点**：appendBatch inTx 尾参挂点（T26 lifecycle obligation 同款纪律）消费 media-ref 效应→MediaBinding 槽位 upsert/delete：ADDED→upsert（唯一键 `[projectId,nodeId,role,targetField,targetItemId]` 置 mediaId）；REMOVED→按同键删；换绑对（同 walSeq REMOVED+ADDED 同槽）=upsert 单行换 mediaId。**NODE_DELETED 帧效应同事务清该 nodeId 全部 binding 行**（节点删除的引用语义即时化，不再依赖 reconcile stale 清扫）。
+**3.3.3 失败隔离（评审 A-P0-5/B-P0-6）**：投影写入前批量预校验 Media 存在∧teamId 匹配项目∧未软删（INSERT..SELECT JOIN 形态）；无效/跨队引用**跳过+`media_binding_skip_total{reason}` 计数，绝不 throw**；系统性异常随批回滚走 actor 既有重试链（张力登记：投影自身 bug 会挡帧——以投影器纯函数+批测纪律防，§6 登记）。红测：doc 写 `fileId='does-not-exist'`/跨队 mediaId → 帧仍落 PG、binding 零行、项目不 terminal。
 
-**3.3.3 写者口径**：①帧效应事务面=**权威派生**（doc 状态变化即 binding 落库）；②命令面 `bindInTx` 三调用方**保留**（replaceMedia/BindMedia/CloneBinding 不经 doc 帧，命令即真值）；③`BindingReconcileService` 降级 **anti-entropy**（漂移修复；频次不动——降频是优化非本批目标）。三者同键幂等，归属语义：命令面写后帧效应 upsert 同值幂等；漂移（命令面失败/历史窗）由 reconcile 收敛。
+**3.3.4 水位列与覆盖判据**：MediaBinding 增 `lastWalSeq`（行级覆盖水位）+ CanvasDoc 增 `mediaBindingSeq`（项目级，appendBatch 同事务推进至 newPgSeq）——消费者（C3b）判定前置=「mediaBindingSeq ≥ pgSeq」（与 doc 扫描 oracle 可见面等价：appliedSeq>pgSeq 在飞帧对两者均不可见）；recovery-import 后标 `bindingsDirty`（持久标记）→ 消费前强制锁内 rebuild（import 入帧管线=后续优化登记）。
 
-**3.3.4 等价性门（用户裁定序——先证等价后退役）**：
-1. 载荷+挂点落地（红测：效应→binding 同事务断言——崩溃窗「效应落而 binding 未落」不可达；换绑对→槽位行换 mediaId；NODE_DELETED→行清）。
-2. **等价性红测**：resolveMediaDisposition 与 media-gc 终裁的 doc 扫描面 vs binding 面双读对照断言同 disposition（既有 erasure int 38 用例面+新增交错用例：换绑/节点删/跨项目引用/休眠项目）。
-3. 等价绿后退役清单：loopback 端点 `POST /api/collab/doc/media-refs`+`collectProjectMediaRefs`+`httpMediaRefsCollector`+DTO+`ERASURE_MEDIA_REFS_BATCH/SCAN_MAX` env 键（env.spec §10+census ㉒ 同步）+**复核窗**（`ERASURE_MEDIA_REVIEW_MS`+pending-media sidecar 族+两 tick 收敛逻辑）。
-4. **复核窗拆除论据链**（红测锚钉死）：doc 面事务权威（首扫即终局）+REST/结构化写点已被 fence/写锁门禁覆盖（C4-b A 档 census 写点）→ sameSet 恒成立；注入漂移场景证伪旧行为已不可达。
+**3.3.5 红测族**：touched 终态投影对数组 append/remove/replace/reorder/换绑/undo/delete+re-add 全形态 binding==doc 终态（**独立 oracle=真 Y.Doc 重放 collectMediaRefs，禁共用 ProjectDocIndex 防同模假绿**——评审 B §5.3）；kill -9（WAL fsync 后 PG 提交前）重启回灌 binding 追上；reconcile 只读化后并发交错 100 次 binding 恒等于 doc 最新；坏 mediaId/跨队不挡帧；recovery-import 后 dirty→rebuild 收敛；C3a 收口跑 T33 bench-smoke 档（append p95/写放大不回归——load-bench-hard 固定 runner 归部署窗）。
 
-**3.3.5 消费面切换**：erasure 要素 8（docScanFailed fail-closed 路径）整体退役→binding 查询（要素 1 吸收）；media-gc doc 扫描终裁→binding 读（引用图=binding∪NodeArtifact∪VideoWork∪VideoProject.data 深扫）。
+### §3.4 C3b 消费面切换（影子期）
 
-**3.3.6 Y2 对齐注记**：表形不变（槽位唯一键），mediaRef typed-ref 演进建于本索引；「稳定 Media.id+不引入 Artifact 冲突字段」承诺维持。
+1. **全库 backfill 前置**：遍历全部 CanvasDoc 锁内 rebuild（一次性运维动作+证据留档）。
+2. **影子对拍**：media-gc/erasure 判定改为 binding 为主、**doc 扫描保留为 oracle 对拍**（双读）；mismatch → **保留媒体+`media_gc_shadow_mismatch_total` 告警**不删；影子期判据=≥7 天零差异（或用户裁定轮次）后退役 doc 扫描。
+3. **水位门**：判定前检查 `mediaBindingSeq ≥ pgSeq`（含 bindingsDirty 检查），不满足 bail-out 保留。
+4. **条件删除**：最终删除同一事务 `DELETE ... WHERE NOT EXISTS (binding/artifact/work/...)`。
+5. **复核窗保留**：`ERASURE_MEDIA_REVIEW_MS`+sidecar 族不动；拆窗=单独立项（前置=team 级 fence/跨项目水位 drain 方案设计，§6 登记）。
+6. **退役清单**（影子期满后）：loopback 端点+`collectProjectMediaRefs`+`httpMediaRefsCollector`+DTO+`auth.guard` worker 例外（isWorkerMediaRefs）+collab-write.controller 路由+`ERASURE_MEDIA_REFS_BATCH/SCAN_MAX` **常量**（非 env 键——v1 表述勘误）+测试三件（media-refs.c4c1.spec/collab-write-endpoint.int.spec/collab-write.controller.spec）+poller 注入面。
+7. 红测：影子 mismatch 注入→保留+告警；水位落后→bail-out；「GC 扫描后新增 binding」交错→媒体保留（评审 A-P0-4 红测）；erasure 全链 e2e（kill -9 resume 含）绿。
 
-**3.3.7 验收锚**：等价性红测全绿+退役清单清零（grep 锚）+erasure 全链 e2e（含 kill -9 resume）绿+verify FULL；binding-reconcile anti-entropy 漂移注入修复用例绿。
+### §3.5 批级出口门
+
+verify FULL+四卡双评审全 ✅+三门禁/对象 diff 门负控红证+影子期判据达成+backfill 证据+bench-smoke 不回归+呈报包（gate-evidence/foundation-exit.txt——诚实登记：投影系统性异常挡帧张力/复核窗保留面/import 未入帧管线/Node 日历族未触）+部署窗（用户指令：全环境 reset §16）。
 
 ## §4 机器门与登记影响面（批级）
 
-- 指标纪律：新指标入 `.metrics.ts`+`--write-metric-names` 同 commit；涉指标 commit 跑 verify FULL；标签全低基数。
-- env 键退役（C3）：env.spec §10+census ㉒ 同 commit；env 新键零新增。
-- 新门禁（C1 schema/raw-SQL 门）入 verify 链（fast+full 两档）；负控自测随门禁脚本。
-- 模块尺寸锚：collab 域文件如有行数变化按「净增面非膨胀」纪律补登锚值。
-- 迁移：C1 一条（全列转换）+C2 一条（死列/enum）+C3 如有（binding 零 schema 变更预期——载荷进帧效应非 DB 列）串行不并行；baseline `--write` 同 commit。
-- runbook：§16 步⑥ bump SQL 注释（C1）+§13 恢复面（复核窗退役语义，C3）+§14 分诊面（outbox 指标 staleness，C2）随卡。
+- 迁移基建：additive BASELINE 抬新 init+immutability 重建+migrate-diff --write（C1 一次性）；此后 C2 建表/C3a 加列走普通 additive。
+- 新门禁入 verify 链：schema timestamptz 门/raw SQL 门（含 ::timestamp）/双时区测试/对象 diff 门——负控自测随脚本。
+- 指标纪律：`media_binding_write_total`/`media_binding_skip_total{reason}`/`media_binding_drift_total`/`media_gc_shadow_mismatch_total`/`media_binding_watermark_lag`（低基数禁 projectId）+`--write-metric-names` 同 commit+涉指标 commit 跑 verify FULL。
+- module-size：MediaBindingProjector 新文件入锚；actor 行数变化按净增面纪律补登。
+- runbook：§16 步⑥ 注释（C1）/§13 恢复面 backfill+影子语义（C3b）/§14 分诊面 media 段（C3b 后）随卡。
 
 ## §5 确认点（批流程门）
 
-1. **spec 确认门（本文件）**——用户审阅后转 active。
-2. **plan 确认门**——writing-plans 出 plan 后用户确认。
-3. 卡序 C1→C2→C3，每卡双评审（spec ✅+quality ✅）。
-4. **批末出口门**：三卡全闭+verify FULL+三门禁负控红证+dev 库死行清零实证+呈报包（gate-evidence/foundation-exit.txt——限制诚实登记：C2 残差/C3 anti-entropy 保留面）。
-5. **部署窗（用户显式指令）**：服务器 reset-collab §16+全环境重置后冒烟。
+1. spec 确认门（本文件 v2）→ 2. plan 确认门（writing-plans）→ 3. C1→C2→C3a→C3b 每卡双评审 → 4. 批末出口门（§3.5）→ 5. 部署窗（用户显式指令）。
 
-## §6 登记/偏离表
+## §6 登记/偏离表（v2 全量）
 
-| 项 | 内容 | 触发/归属 |
+| 项 | 内容 | 归属 |
 |---|---|---|
-| 销案 | T31「T7 genesis 裸 now() 不可改残留+新装漂移窗+必经 bump 自愈」——C1 勘正后删除 | 本批 C1 |
-| 修订 | Z1'' emitter 死列拆除（attempts/leaseUntil/nextAttemptAt/lastError+dead 枚举）——Y2 typed-ref/emitter 设计时按需重建 | 本批 C2 |
-| 登记 | C2 残差：completed+已进 doc+binding 缺失>7d 误删面=reconcile 失灵——C3 后收敛近零；reconcile 健康度观测（漂移计数/收敛年龄）后续项 | 本批 C2/C3 |
-| 登记 | 心跳 sidecar（E35「独立 timer/子进程」vs 实现同 loop setInterval+unref 偏离——spec 2026-10-06:90 实证；单调钟自检在位；T33 F2 移交同族） | 独立小卡，紧随本批 |
-| 登记（外审报告消化） | S3 快照分层（触发=snapshot p95 尺寸/bloat）/IDB snapshot+delta/追平状态机（=T33 F1 在册）/tracing·RUM/noisy-neighbor 压测场景/per-doc 公平预算/active-passive（Y7 联动） | 触发型，不进本批 |
-| 既有在册维持 | wal-g 异地归档/16G 扩容校准/SMS 实弹演练/DocumentStore 不变量状态机表（runbook 文档化） | 运营窗/后续批 |
-| 偏离核点 | frame-effects 载荷扩展若触 CONTRACT-FREEZE→偏离登记修订 | C3 plan 前 |
+| 销案 | T31「genesis 裸 now() 残留+新装漂移窗+bump 自愈」（rebaseline 下不复存在） | C1 |
+| 销案 | v1 C2-A 路线（死龄清扫+双守卫+staleness gauge）——被 MediaFact 当前态表替代；v1 的 staleness gauge 设计数学错误（评审 A-P0-9：set「距上次刷新秒数」恒 0）随路线消失 | C2 |
+| 偏离登记 | FrameEffect 契约保持冻结（v2 终态投影路线不解冻——评审 A-P0-6/B-P0-1 路线择一记录：终态投影胜出，理由=派生完备性难证（数组/合并/update/undo 一族）而终态+diff 正确性论证简单） | C3a |
+| 登记 | 复核窗拆除单独立项（前置=team 级 fence 或跨项目水位 drain 方案设计+影子零差异期） | C3b 后 |
+| 登记 | recovery-import 入 actor 帧管线（C3a 先做 bindingsDirty+锁内 rebuild 保守形态） | 后续优化 |
+| 登记 | 投影系统性异常挡帧张力（数据性无效已隔离跳过；系统性异常随批回滚走 actor 重试——投影器纯函数+批测纪律防） | C3a |
+| 登记 | Node 进程日历逻辑族（setMonth/setDate/toISOString().slice 随 TZ 变——评审 B-P1-1；独立于 DB 时间墙的应用日历族） | 后续批 |
+| 登记 | 派生索引合同（DerivedIndexContract 七条语义：source/watermark/total-write/read-check/rebuild/verify/repair——评审 A-4.2 建议泛型框架，降级为 spec/runbook 文档化，Y2 typed-ref 时再评估泛化） | 文档化 |
+| 登记 | 心跳 sidecar（E35「独立 timer/子进程」偏离——spec:90 实证；T33 F2 同族） | 独立小卡紧随 |
+| 登记（外审报告余项维持） | S3 快照分层/IDB snapshot+delta/追平状态机/tracing·RUM/noisy-neighbor/per-doc 公平预算/active-passive（Y7）——带触发不进批 | 触发型 |
+| 既有在册维持 | wal-g 异地归档/16G 扩容校准/SMS 实弹演练 | 运营窗 |
+
+**v1→v2 裁定史**：v1 三路线（A/A/路线1）经两份外审实证推翻重裁（rebaseline/MediaFact/C3a+C3b）——v1 文件见 git 历史 b849381b；两评审采纳/降级/反对逐项记录于 2026-11-11 对话（要点：A 的 DerivedIndexContract 泛型框架降级文档化；B 的 import 入帧管线降级登记；Node 日历登记不进批；RPO/RTO 专门条款不立项——出口门两行承载）。
