@@ -15,7 +15,7 @@ import { Counter, register } from 'prom-client';
  *  media_binding_drift_total。 */
 export const mediaBindingReconcileOutcomeTotal = new Counter({
   name: 'media_binding_reconcile_outcome_total',
-  help: 'Y1b T16：MediaBinding current-state reconcile 逐动作计数（outcome=upserted/deleted/cross-team-rejected/missing-media/scan-failed——spec 裁决③ 惰性 reconcile 观测面）',
+  help: 'MediaBinding reconcile 计数（C3a-8 起**仅 scan-failed 现役**——候选扫描异常；upserted/deleted/cross-team-rejected/missing-media 随写面退役保留登记；漂移观测面=media_binding_drift_total）',
   labelNames: ['outcome'],
   registers: [register],
 });

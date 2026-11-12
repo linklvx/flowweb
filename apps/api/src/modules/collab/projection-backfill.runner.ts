@@ -12,10 +12,10 @@
 //     在 CanvasDoc 候选集本身+ProjectionBackfillState 行）。
 //   · 限速（不惊群）：每 tick 至多 BACKFILL_PROJECTS_PER_TICK 个项目 + **单项目串行**（drain 内
 //     顺序 await；enqueue 只入内存 Set 去重）——并发事务恒 1。
-//   · 持久状态行：每项目 upsert ProjectionBackfillState{PENDING→RUNNING→DONE|FAILED, verifiedSeq,
+//   · 持久状态行：每项目 upsert ProjectionBackfillState{RUNNING→DONE|FAILED, verifiedSeq,
 //     backfillEpoch}——backfillEpoch=runner 实例启动生成 UUID（行上可追踪轮次）；FAILED/cas-miss
-//     保持 dirty 可续跑（下轮重试，退避 BACKFILL_RETRY_BACKOFF_MS）；状态行**跨进程可查**
-//     （GC/erasure 经 projectionBackfillState 读面）。
+//     保持 dirty 可续跑（下轮重试，退避 backfillBackoffMs 指数 30s→…base 封顶 10min±20%）；
+//     状态行**跨进程可查**（GC/erasure 经 projectionBackfillState 读面）。
 //   · 不阻塞启动：OnModuleInit 以 setTimeout(0).unref() 起首拍+unref interval 后台循环。
 //
 // 修复唯一路径=BindingRebuildService.rebuildProjectBindings（rebuild 只读 PG 定代前缀；本 runner
@@ -32,15 +32,17 @@ export const BACKFILL_ENUM_PAGE = 32;
 export const BACKFILL_PROJECTS_PER_TICK = 8;
 /** 后台拍周期（enqueue 会额外触发即时排水——本周期=首次启动全表枚举+失败退避重试驱动）。 */
 export const BACKFILL_TICK_INTERVAL_MS = 5_000;
-/** 失败退避基数（指数：30s→60s→…cap 10min，±20% jitter——I-4 防惊群；成功/no-doc 重置）。 */
+/** 失败退避基数（指数：30s→60s→…base 封顶 10min（jitter 后 ≤12min），±20%——I-4 防惊群；
+ *  成功/no-doc 重置）。 */
 export const BACKFILL_BACKOFF_BASE_MS = 30_000;
-/** 失败退避上限（cap 10min）。 */
+/** 失败退避 base 上限（10min——jitter 后实测 ≤12min）。 */
 export const BACKFILL_BACKOFF_MAX_MS = 600_000;
 /** 非 ACTIVE（bailed）固定复查间隔（5min——擦除收口后自然离开候选）。 */
 export const BACKFILL_BAILOUT_RECHECK_MS = 300_000;
 
 /** I-4：失败退避纯函数（确定性可测）——attempts=该项目连续失败次数（0 起）；base×2^attempts
- *  封顶 MAX，±20% jitter（rand 注入=测试确定性；生产 Math.random）。 */
+ *  以 MAX（10min）封顶，再叠加 ±20% jitter（rand 注入=测试确定性；生产 Math.random；jitter 后
+ *  上界 12min）。 */
 export function backfillBackoffMs(attempts: number, rand: () => number = Math.random): number {
   const n = Number.isFinite(attempts) && attempts > 0 ? Math.floor(attempts) : 0;
   const base = Math.min(BACKFILL_BACKOFF_BASE_MS * 2 ** Math.min(n, 16), BACKFILL_BACKOFF_MAX_MS);
@@ -118,11 +120,11 @@ export class ProjectionBackfillRunner implements OnModuleInit, OnApplicationShut
   }
 
   /** 一拍：枚举一页候选入队 + 排水（每 tick 项目上界=限速；返回值=测试/日志面）。
-   *  I-3：backfill_remaining 仅在本拍有枚举或处理时刷新（空转保留上次值——禁每 tick 全表 COUNT）。 */
+   *  I-3r：backfill_remaining 刷新收口在 drain 末尾（processed>0——覆盖「枚举+处理」收尾拍与
+   *  enqueue 直排；空转零 COUNT）。 */
   async tick(): Promise<{ enumerated: number; processed: number }> {
     const enumerated = await this.enumeratePage();
     const processed = await this.drain();
-    if (enumerated === 0 && processed > 0) mediaBindingBackfillRemaining.set(await this.countCandidates());
     return { enumerated, processed };
   }
 
@@ -150,9 +152,12 @@ export class ProjectionBackfillRunner implements OnModuleInit, OnApplicationShut
         } else {
           const a = this.attempts.get(projectId) ?? 0;
           this.attempts.set(projectId, a + 1);
-          this.notBefore.set(projectId, now + backfillBackoffMs(a));   // 30s→60s→…cap 10min ±20%
+          this.notBefore.set(projectId, now + backfillBackoffMs(a));   // 30s→60s→…base 10min ±20%
         }
       }
+      // I-3r：remaining 收口=本拍有处理时 drain 末尾刷新（覆盖枚举+处理/收尾拍/enqueue 直排；
+      // 空转 processed=0 保留上次值——零 COUNT）
+      if (processed > 0) mediaBindingBackfillRemaining.set(await this.countCandidates());
       return processed;
     } finally {
       this.draining = false;
@@ -206,7 +211,6 @@ export class ProjectionBackfillRunner implements OnModuleInit, OnApplicationShut
       this.cursor = rows[rows.length - 1].projectId;
       if (rows.length < BACKFILL_ENUM_PAGE) this.cursor = null;   // 页尽回卷
       for (const r of rows) this.queue.add(r.projectId);
-      mediaBindingBackfillRemaining.set(await this.countCandidates());   // I-3：仅枚举到候选时刷新
     } else {
       this.cursor = null;
     }

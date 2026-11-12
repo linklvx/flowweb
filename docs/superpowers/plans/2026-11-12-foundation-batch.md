@@ -201,6 +201,7 @@ return writeBinding();
 - [ ] **Step 1：旧库 pre-batch 快照**：`pg_dump --schema-only`（**pre-batch 旧链 scratch 重放**——覆盖 C2/C3a/C1 全部 delta，第六轮 P1-2）→`gate-evidence/schema-before-v2.sql`+对象清单 JSON+tag 旧 commit+baseline ADR。
 - [ ] **Step 2：**`prisma validate` 绿（反向字段核对）→新 init 生成→`npx prisma migrate reset --force` 空库只重放新 init 红测绿。
 - [ ] **Step 3：**immutability `--rebaseline --confirm`+additive BASELINE+migrate-diff --write+状态文件清单 runbook 注记+Commit。
+- [ ] 评估登记（C3a-8 质量评审移交）：①部分索引 `WHERE "bindingsDirty" OR "mediaBindingSeq" < "pgSeq"`（backfill 枚举/COUNT 加速，本卡未加——终态 init 评估）；②ImportCoverageTracker 抽取（persistence 的 importPending 标记/申报/结算收敛为独立 tracker，解 persistence 1215/1215 零余量结构警号）——两者随 C1 终态 schema/结构性收口评估。
 
 ### Task C1-2：三向 allowlist 对象门
 

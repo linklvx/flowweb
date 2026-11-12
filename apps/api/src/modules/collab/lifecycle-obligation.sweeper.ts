@@ -7,7 +7,7 @@
 //    投影；lifecycleSeq 自 NodeLifecycle 触发 walSeq 对应行取值；DONE 幂等：事件业务键
 //    (nodeId,walSeq) 已在档=直达 DONE）。
 //  - **NODE_DELETED → 三清扫面**（plan T26②卡主钉住范围）：
-//    ①MediaBinding 帧级 effects 清扫=BindingReconcileService.requestReconcile（惰性对齐入队）；
+//    ①MediaBinding 漂移检测入队=BindingReconcileService.requestReconcile（只读检测；处置=置 dirty+runner rebuild）；
 //    ②ArtifactProjection 投递前拦截=该节点 pending/projecting 行置 orphaned（投递主拦截在
 //      deliverArtifact fence——此处收尾在飞行，退款走 poller/R3 既有链非本 sweeper）；
 //    ③VideoProject 级联=sourceNodeId 引用行删除（收编 web fire-and-forget
@@ -205,7 +205,7 @@ export class LifecycleObligationSweeper implements OnApplicationShutdown {
     // ③VideoProject 级联（sourceNodeId 唯一行——服务端权威收编 web fire-and-forget cascade；
     // I-9：workflowId=pid 过滤——两项目同 nodeId 时不得误删他项目行）
     await this.prisma.videoProject.deleteMany({ where: { workflowId: pid, sourceNodeId: nodeId } });
-    // ①MediaBinding 帧级 effects 清扫=BindingReconcile 惰性入队（fire-and-forget——drain 周期收敛）
+    // ①MediaBinding 漂移检测入队=BindingReconcile 惰性入队（fire-and-forget——处置=置 dirty+runner rebuild）
     this.reconciler?.requestReconcile(pid);
     return true;
   }

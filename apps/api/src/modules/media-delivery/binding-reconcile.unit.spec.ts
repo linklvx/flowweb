@@ -2,6 +2,7 @@
 // C3a-8 质量收口 I-2：reconcile 候选跳过（dirty/lag）、scan-failed 计数、drain 预算按尝试数计。
 // 无 DB（stub 依赖——真实漂移检测行为归 binding-reconcile.int.spec）。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as Y from 'yjs';
 import { BindingReconcileService } from './binding-reconcile.service';
 import { mediaBindingReconcileOutcomeTotal } from './binding-reconcile.metrics';
 
@@ -60,6 +61,28 @@ describe('C3a-8 质量收口 I-2：reconcile 候选跳过/预算/扫描异常', 
     const s = await svc.reconcileProject('p-scan');
     expect(s.ok).toBe(false);
     expect(s.scanned).toBe(0);
+    expect(await scanFailedCount()).toBe(before + 1);
+    expect(runner.markDirty).not.toHaveBeenCalled();
+    expect(runner.enqueue).not.toHaveBeenCalled();
+    svc.onApplicationShutdown();
+  });
+
+  it('Media/MediaBinding 读异常→统一 scan-failed（复审 Minor 4；markDirty/enqueue 同 try）', async () => {
+    const d = new Y.Doc();
+    const node = new Y.Map<unknown>();
+    const data = new Y.Map<unknown>();
+    data.set('fileId', 'm1');
+    node.set('type', 'image');
+    node.set('data', data);
+    (d.getMap('nodes') as Y.Map<unknown>).set('n1', node);
+    const state = Buffer.from(Y.encodeStateAsUpdate(d));
+    d.destroy();
+    const { svc, prisma, runner } = makeSvc({ load: async () => ({ state, stateSeq: 0n, updates: [] }) });
+    prisma.media.findMany.mockRejectedValueOnce(new Error('media read jitter'));
+    const before = await scanFailedCount();
+    const s = await svc.reconcileProject('p-media');
+    expect(s.ok).toBe(false);
+    expect(s.drift).toEqual({ missing: 0, extra: 0, mismatch: 0 });
     expect(await scanFailedCount()).toBe(before + 1);
     expect(runner.markDirty).not.toHaveBeenCalled();
     expect(runner.enqueue).not.toHaveBeenCalled();

@@ -157,56 +157,57 @@ export class BindingReconcileService implements OnModuleInit, OnApplicationShutd
     }
     const project = await this.prisma.canvasProject.findUnique({ where: { id: projectId }, select: { teamId: true } });
     if (!project) return summary;
-    // ② 定代前缀重放 doc@pgSeq（禁活 doc；单源=collectRefsAt 与 rebuild 共用）
+    // ② 定代前缀重放 doc@pgSeq（禁活 doc；单源=collectRefsAt 与 rebuild 共用）→③准入过滤（projector
+    // 同款）→④diff（只读读面）→⑤漂移处置（置 dirty+入队；唯一修复路径=rebuild；本服务零 MediaBinding
+    // 写）。质量复审 Minor：collectRefs + Media/MediaBinding 读 + markDirty/enqueue **同一 try**——
+    // 任一步异常统一计 scan-failed（本轮跳过，下轮重扫）。
     let refs: MediaRef[];
     try {
       refs = await collectRefsAt(this.repo, projectId, { generation: anchor.generation, pgSeq: anchor.pgSeq });
+      summary.scanned = refs.length;
+      const mediaIds = [...new Set(refs.map((r) => r.mediaId))];
+      const mediaRows = mediaIds.length > 0
+        ? await this.prisma.media.findMany({ where: { id: { in: mediaIds } }, select: { id: true, teamId: true, deletionState: true, deletedAt: true } })
+        : [];
+      const mediaById = new Map(mediaRows.map((m) => [m.id, m]));
+      const desired = new Map<string, string>();
+      for (const r of refs) {
+        if (admitMediaRef(mediaById.get(r.mediaId), project.teamId) === 'admitted') {
+          desired.set(mediaBindingSlotKey(r), r.mediaId);
+        }
+      }
+      const existing = await this.prisma.mediaBinding.findMany({
+        where: { projectId },
+        select: { nodeId: true, role: true, targetField: true, targetItemId: true, mediaId: true },
+      });
+      const existingKeys = new Set<string>();
+      for (const row of existing) {
+        const key = mediaBindingSlotKey(row);
+        existingKeys.add(key);
+        const want = desired.get(key);
+        if (want === undefined) summary.drift.extra += 1;
+        else if (want !== row.mediaId) summary.drift.mismatch += 1;
+      }
+      for (const key of desired.keys()) if (!existingKeys.has(key)) summary.drift.missing += 1;
+      const total = summary.drift.missing + summary.drift.extra + summary.drift.mismatch;
+      if (total > 0) {
+        if (summary.drift.missing > 0) mediaBindingDriftTotal.inc({ kind: 'missing' }, summary.drift.missing);
+        if (summary.drift.extra > 0) mediaBindingDriftTotal.inc({ kind: 'extra' }, summary.drift.extra);
+        if (summary.drift.mismatch > 0) mediaBindingDriftTotal.inc({ kind: 'mismatch' }, summary.drift.mismatch);
+        // 单一写面：dirty 置位统一经 runner.markDirty（rebuild 内联/import 前置/reconcile 漂移同语义）
+        await this.backfill.markDirty(projectId);
+        this.backfill.enqueue(projectId);
+        summary.dirtyMarked = true;
+        this.logger.warn(`binding drift for ${projectId}（missing=${summary.drift.missing} extra=${summary.drift.extra} mismatch=${summary.drift.mismatch}——置 dirty+入队 rebuild，本服务零写）`);
+      }
     } catch (e) {
-      // 扫描异常=本轮跳过（counted scan-failed——media_binding_reconcile_outcome_total 复用；
-      // 头注：其余 label 已随写面退役）
+      // 扫描/处置异常=本轮跳过（media_binding_reconcile_outcome_total 复用——仅 scan-failed 现役；
+      // 其余 label 已随写面退役）
       mediaBindingReconcileOutcomeTotal.inc({ outcome: 'scan-failed' });
       this.logger.warn(`reconcile 扫描失败 project=${projectId}（本轮跳过）: ${(e as Error).message}`);
       return summary;
     }
-    summary.scanned = refs.length;
     summary.ok = true;
-    // ③ 准入过滤（projector 同款）→desired 槽集
-    const mediaIds = [...new Set(refs.map((r) => r.mediaId))];
-    const mediaRows = mediaIds.length > 0
-      ? await this.prisma.media.findMany({ where: { id: { in: mediaIds } }, select: { id: true, teamId: true, deletionState: true, deletedAt: true } })
-      : [];
-    const mediaById = new Map(mediaRows.map((m) => [m.id, m]));
-    const desired = new Map<string, string>();
-    for (const r of refs) {
-      if (admitMediaRef(mediaById.get(r.mediaId), project.teamId) === 'admitted') {
-        desired.set(mediaBindingSlotKey(r), r.mediaId);
-      }
-    }
-    // ④ diff（只读读面）
-    const existing = await this.prisma.mediaBinding.findMany({
-      where: { projectId },
-      select: { nodeId: true, role: true, targetField: true, targetItemId: true, mediaId: true },
-    });
-    const existingKeys = new Set<string>();
-    for (const row of existing) {
-      const key = mediaBindingSlotKey(row);
-      existingKeys.add(key);
-      const want = desired.get(key);
-      if (want === undefined) summary.drift.extra += 1;
-      else if (want !== row.mediaId) summary.drift.mismatch += 1;
-    }
-    for (const key of desired.keys()) if (!existingKeys.has(key)) summary.drift.missing += 1;
-    // ⑤ 漂移→置 dirty+入队（唯一修复路径=rebuild；本服务零 MediaBinding 写）
-    const total = summary.drift.missing + summary.drift.extra + summary.drift.mismatch;
-    if (total === 0) return summary;
-    if (summary.drift.missing > 0) mediaBindingDriftTotal.inc({ kind: 'missing' }, summary.drift.missing);
-    if (summary.drift.extra > 0) mediaBindingDriftTotal.inc({ kind: 'extra' }, summary.drift.extra);
-    if (summary.drift.mismatch > 0) mediaBindingDriftTotal.inc({ kind: 'mismatch' }, summary.drift.mismatch);
-    // 单一写面：dirty 置位统一经 runner.markDirty（rebuild 内联/import 前置/reconcile 漂移同语义注释）
-    await this.backfill.markDirty(projectId);
-    this.backfill.enqueue(projectId);
-    summary.dirtyMarked = true;
-    this.logger.warn(`binding drift for ${projectId}（missing=${summary.drift.missing} extra=${summary.drift.extra} mismatch=${summary.drift.mismatch}——置 dirty+入队 rebuild，本服务零写）`);
     return summary;
   }
 }

@@ -281,6 +281,7 @@ type MaintSubmit = (projectId: string, payload: Uint8Array, opts?: { bindingUnco
     };
     const runner2 = new ProjectionBackfillRunner(prisma as never, rebuild as never);
     const svc = new CollabPersistenceService(flakyRepo as never, spool as never);
+    activeSvcs.push(svc);   // 质量复审 Minor：纳入 afterEach 清 timer 台账
     svc.bindHost(hostOf(doc, name));
     svc.setBindingRecoveryFace({ markDirty: async (pid) => runner2.markDirty(pid), enqueue: (pid) => runner2.enqueue(pid) });
     svc.observeDocument(doc, PID_RECOVERY, name);
