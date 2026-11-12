@@ -269,7 +269,7 @@ export class FrameEffectsCollector {
           // 本面承接）；仅 position 域跳过（path[1]='position' 子树 / node 级变更键集 ⊆{position}——
           // position 不在 data 域 binding 零效应不误触）。meta/exec 顶层域不经本 observer。
           const positionOnly = path.length === 1
-            ? [...ev.changes.keys.keys()].every((k) => k === 'position')
+            ? ev.changes.keys.size > 0 && [...ev.changes.keys.keys()].every((k) => k === 'position')   // 空键集空真防误跳（保守向 touched）
             : path[1] === 'position';
           if (nodes.has(nodeId) && !positionOnly) this.touched.add(nodeId);
           // 节点级/子 map 级：变更键 k=字段（path 尾名=子 map 身份〔data/position〕非字段——媒体字段
@@ -477,10 +477,10 @@ const EMPTY_BINDING_DELTA: BindingDelta = new Map();
  *  序列化：nodeId 升序+槽位五元组定形；NODE_DELETED=null）。 */
 function bindingDeltaBytesOf(delta: BindingDelta): number {
   if (delta.size === 0) return 0;
-  const payload = [...delta.keys()].sort().map((nodeId) => {
-    const refs = delta.get(nodeId) ?? null;
-    return [nodeId, refs === null ? null : refs.map((r) => [r.nodeId, r.mediaId, r.role, r.targetField, r.targetItemId])];
-  });
+  const payload = [...delta.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([nodeId, refs]) => [
+    nodeId,
+    refs === null ? null : refs.map((r) => [r.nodeId, r.mediaId, r.role, r.targetField, r.targetItemId]),
+  ]);
   return Buffer.byteLength(JSON.stringify(payload));
 }
 /** C3a-3：applied 队列条目字节（payload+delta——Q-I2 appliedBytes 入队/出队同口径单源）。 */
@@ -786,6 +786,8 @@ export class CollabProjectActorService {
     }
     // Q-I2（T10 收口）：applied 待落库面上界（PG 长期不可用=帧流过 drain 堆积且卸载 fail-closed 使
     // doc 常驻——与既有背压同语义：满即瞬态拒 close 1008；PG 恢复→flush 落定→自愈重连）
+    // C3a-3 注：本 forecast 只计 payload 字节——applied 条目实含 bindingDeltaBytes（入队时精确记账），
+    // 即有界低估（delta 序列化字节量级微小，不构成预算越界面）。
     if (st.appliedQueue.length >= APPLIED_QUEUE_MAX_FRAMES || st.appliedBytes + payload.byteLength > APPLIED_QUEUE_MAX_BYTES) {
       projectBackpressureTotal.inc();
       this.host.hardClose(conn, CollabCloseCode.RATE_LIMITED_CLOSE, 'applied-flush-backpressure');
@@ -1404,6 +1406,8 @@ export class CollabProjectActorService {
         // 帧的 PG 落定归原帧自身生命周期/恢复链（boot replayAll/reconciler 回灌）。与自有 dedupMap
         // 「命中 applied=no-op 确认」同语义——补跨重启（adoption 播种索引）缝。
         if (spoolDedupHit) {
+          // C3a-3 注：本帧 apply 期间积累的 touched 若未被取走，由下帧 collector.begin() 帧界清空——
+          // dedup 命中帧的 PG 落定归原帧自身生命周期（adoption 不建条目），bindingDelta 亦归原帧条目。
           entries[k] = undefined;
           actorFrameOutcomeTotal.inc({ outcome: 'noop-dedup' });
           this.resolveItem(item, { walSeq, noop: true });

@@ -186,10 +186,14 @@ export class CanvasDocUpdateRepository {
    *  reason='t30b-coalesced'，ON CONFLICT DO NOTHING 幂等）。lease fence 同族（契约 16）：fence
    *  拦下的零行不记侧表（内容未收敛、帧留 WAL 未 confirm 由恢复链重发，租约复得后重放才落）；
    *  同 hash 在档行不可得（fence/跨代异帙形态）=不记（本批由下方 PK/hash 回查折 fenced 档）。 */
+  /** C3a-4（plan v3 Task C3a-4——spec §3.2-2/§3.2-3）：inTx 组合闭包返回契约——repository 据此决定
+   *  ②（binding 水位）是否推进。调用方可结构化扩展（actor 侧组合闭包附 lifecycleCounts 计数——
+   *  repository 只消费 bindingCovered）。void 返回=调用方无投影面（replayAll stale/persist、维护
+   *  回退）——视作未覆盖，② 恒不执行（纯水位形态，既有调用方零波及）。 */
   async appendBatch(projectId: string, rows: ReadonlyArray<{
     generation: number; firstWalSeq: bigint; lastWalSeq: bigint; frameCount: number;
     updateHash: string; update: Uint8Array; actorRanges?: unknown;
-  }>, wm?: { expectedPgSeq: bigint | null; newPgSeq: bigint; walCheckpointSeq: bigint }, inTx?: (tx: Prisma.TransactionClient) => Promise<void>): Promise<{ ok: true; rows: number } | { ok: false, reason: 'fenced' | 'wal-seq-reset' }> {
+  }>, wm?: { expectedPgSeq: bigint | null; newPgSeq: bigint; walCheckpointSeq: bigint }, inTx?: (tx: Prisma.TransactionClient) => Promise<void | { bindingCovered: boolean }>): Promise<{ ok: true; rows: number } | { ok: false, reason: 'fenced' | 'wal-seq-reset' }> {
     const owner = this.leaseOwner;
     if (owner == null) throw Object.assign(new Error('append blocked: lease owner not set（契约 16 fail-closed）'), { leaseNotHeld: true });
     if (rows.length === 0) return { ok: true, rows: 0 };
@@ -271,9 +275,14 @@ export class CanvasDocUpdateRepository {
           }
         }
         // Y1c T26：帧前缀同事务钩（帧↔义务原子——inTx 写失败=整事务回滚，帧行/水位/义务三方同生共死；
-        // 调用方=actor flushPrefixToPg 闭包注入 CollabLifecycleObserverService.persistFramesInTx）
-        if (inTx) await inTx(tx);
-        if (!wm) return { inserted: n, watermark: 'skipped' as const };
+        // 调用方=actor flushPrefixToPg 闭包注入 CollabLifecycleObserverService.persistFramesInTx）。
+        // C3a-4（spec §3.2-2/§3.2-3）：inTx 组合闭包可返回 typed {bindingCovered}（lifecycle persist 在
+        // SAVEPOINT 外→SAVEPOINT media_binding_projection→投影→RELEASE；异常→ROLLBACK TO+同事务置
+        // dirty——闭包装配归 actor 侧 C3a-5；本任务 repository 只消费返回值决定 ②）。组合闭包形态下
+        // inTx（含 SAVEPOINT 段）仍在 ① 前，①② 在 inTx 返回后按结果执行。
+        let bindingCovered = false;
+        if (inTx) bindingCovered = (await inTx(tx))?.bindingCovered === true;
+        if (!wm) return { inserted: n, watermark: 'skipped' as const, covered: bindingCovered };
         // —— 水位推进（与行插入同事务——崩溃恢复=从 pgSeq 重放 WAL，不依赖进程内状态）——
         // C1（T10 收口）：两条 UPDATE 的 WHERE 各带 lease fence（与 INSERT fence 同 owner 语义）——
         // 否则「全 fenced」facet（租约丢失窗 CAS expected 恰匹配）INSERT 0 行而 CAS 照常推 pgSeq
@@ -291,7 +300,14 @@ export class CanvasDocUpdateRepository {
               WHERE "projectId" = ${projectId}::text AND "pgSeq" < ${newPg}::bigint
                 AND EXISTS (SELECT 1 FROM "CollabLease" WHERE scope = 'primary' AND owner = ${owner})
               RETURNING "pgSeq"`;
-        return { inserted: n, watermark: updated.length > 0 ? 'advanced' as const : (wm.expectedPgSeq != null ? 'cas-miss' as const : 'noop' as const) };
+        // —— C3a-4 ② binding 水位（第六轮 P0-1 两 UPDATE 解耦/第七轮 P0-4）：帧/binding 水位拆两条
+        //    UPDATE——binding CAS 失败不卡 pgSeq（① 永远推进，与 binding 无关）。仅 ① 落定（rowCount=1）
+        //    ∧ CAS 形态（catch-up 形无 expectedContiguous——replayAll 恒不覆盖）∧ bindingCovered（应用侧
+        //    门：false 直接不发 SQL）时执行；四 WHERE 门与无 lease fence 论证见 advanceBindingWatermark。 ——
+        if (updated.length > 0 && bindingCovered && wm.expectedPgSeq != null) {
+          await this.advanceBindingWatermark(tx, projectId, wm.expectedPgSeq, newPg);
+        }
+        return { inserted: n, watermark: updated.length > 0 ? 'advanced' as const : (wm.expectedPgSeq != null ? 'cas-miss' as const : 'noop' as const), covered: bindingCovered };
       },
       { timeout: 5_000, maxWait: 1_000 },
     );
@@ -320,14 +336,25 @@ export class CanvasDocUpdateRepository {
         // 同「水位越过未插入行」污染）。
         // T12 收口 M4：schemaVersion 绑 CANVAS_DOC_SCHEMA_VERSION 常量参数（原字面量 3 与 @default(3)
         // +常量三源——单源化；@default 保留为 DDL 兜底）。
+        // C3a-4（第七轮 P0-4）：懒建档显式初始化 binding 水位两列——covered→mediaBindingSeq=newPg
+        // （新建行 dirty 由本 INSERT 落定为 false——covered∧非 dirty 形直接指到 newPg=零缺口建档）；
+        // 不 covered→mediaBindingSeq=0 且 bindingsDirty=true（防新项目 0<pgSeq 非 dirty 永久
+        // bail-out——脏态交 C3a-6 rebuild/恢复四路收敛；ON CONFLICT DO NOTHING 下行已在=建档 no-op，
+        // 既有行两列零触碰）。
         await this.prisma.$executeRaw`
-          INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt", "pgSeq", "walCheckpointSeq")
-          SELECT ${projectId}::text, ${rows[0].generation}::int, ${CANVAS_DOC_SCHEMA_VERSION}::int, now(), ${wm!.newPgSeq}::bigint, ${wm!.walCheckpointSeq > wm!.newPgSeq ? wm!.walCheckpointSeq : wm!.newPgSeq}::bigint
+          INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt", "pgSeq", "walCheckpointSeq", "mediaBindingSeq", "bindingsDirty")
+          SELECT ${projectId}::text, ${rows[0].generation}::int, ${CANVAS_DOC_SCHEMA_VERSION}::int, now(), ${wm!.newPgSeq}::bigint, ${wm!.walCheckpointSeq > wm!.newPgSeq ? wm!.walCheckpointSeq : wm!.newPgSeq}::bigint, ${watermarkLanded.covered ? wm!.newPgSeq : 0n}::bigint, ${!watermarkLanded.covered}
           WHERE EXISTS (SELECT 1 FROM "CollabLease" WHERE scope = 'primary' AND owner = ${owner})
           ON CONFLICT DO NOTHING`;
         return { ok: true, rows: watermarkLanded.inserted };
       }
-      if (row[0].pgSeq >= wm!.newPgSeq) return { ok: true, rows: watermarkLanded.inserted };   // 并发收敛（幂等——行全在已由上方回查担保）
+      if (row[0].pgSeq >= wm!.newPgSeq) {
+        // 并发收敛（幂等——行全在已由上方回查担保）。C3a-4 ②：cas-miss 分支确认 pgSeq>=newPg 的
+        // 成功出口——expectedContiguous 取锁外实读 pgSeq 真值（adopt 真值重 CAS 同形；单调防回退门
+        // 使旧批幂等重发形态零下退——advanceBindingWatermark 头注）。
+        if (watermarkLanded.covered) await this.advanceBindingWatermark(this.prisma, projectId, row[0].pgSeq, wm!.newPgSeq);
+        return { ok: true, rows: watermarkLanded.inserted };
+      }
       {
         // 单写者内存水位滞后（T10 G2 ④：CAS 已提交但 confirm 未跑——崩溃窗/confirm 静默）：
         // 行已入（cas-miss 事务行照常提交+updateHash 幂等）——以 PG 行真值重试 CAS 一次（adopt）。
@@ -338,7 +365,12 @@ export class CanvasDocUpdateRepository {
           WHERE "projectId" = ${projectId}::text AND generation = ${rows[0].generation}::int AND "pgSeq" = ${row[0].pgSeq}::bigint
             AND EXISTS (SELECT 1 FROM "CollabLease" WHERE scope = 'primary' AND owner = ${owner})
           RETURNING "pgSeq"`;
-        if (adopt.length > 0) return { ok: true, rows: watermarkLanded.inserted };
+        if (adopt.length > 0) {
+          // C3a-4 ②：adopt 落定=① 的真值重试落定（崩溃窗 expected 陈旧形态）——② 以 row[0].pgSeq
+          // （锁外实读连续前缀点，非调用方陈旧 expected）重 CAS 接力，免人工 lag 交 C3a-6 rebuild。
+          if (watermarkLanded.covered) await this.advanceBindingWatermark(this.prisma, projectId, row[0].pgSeq, wm!.newPgSeq);
+          return { ok: true, rows: watermarkLanded.inserted };
+        }
       }
       return this.fencedClassify(projectId);
     }
@@ -360,6 +392,33 @@ export class CanvasDocUpdateRepository {
       if (exists.length === 0) return this.fencedClassify(projectId);
     }
     return { ok: true, rows: 0 };   // 幂等重发：全部 updateHash 已在（DO NOTHING 吞行=正确 no-op）
+  }
+
+  /** C3a-4（plan v3 Task C3a-4——spec §0 水位不变量/§3.2-3 连续 CAS 形态）：② binding 水位推进——
+   *  与 ① 帧水位两条 UPDATE 解耦（第六轮 P0-1：binding CAS 失败不卡 pgSeq）。执行条件=① 落定
+   *  （事务内 rowCount=1 ∨ cas-miss 解析 adopt/convergence 出口确认 pgSeq>=newPg——两出口
+   *  expectedContiguous 取**锁外实读 pgSeq 真值**〔adopt 真值重 CAS 同形〕，非调用方陈旧 expected）
+   *  ∧ 调用方闭包 bindingCovered（应用侧门——false 直接不执行）。WHERE 四门：
+   *  ①mediaBindingSeq=expectedContiguous——连续 CAS：仅从已知连续前缀点推进（恒 invariant
+   *  「dirty=false ⇒ mediaBindingSeq==pgSeq」下=pgSeq；落后/lag 时 CAS miss=保守 lag+可观测，
+   *  修复归 C3a-6/8 rebuild——绝不越过未证前缀）；②bindingsDirty=false（§3.2-3 dirty 期间任何增量
+   *  成功不得推进）；③pgSeq>=newPg（第七轮 P0-4——binding 水位不得超前帧水位）；④mediaBindingSeq
+   *  <newPg（单调防回退——convergence 形旧批幂等重发 pgSeq 已超前，mediaBindingSeq 已≥newPg 时
+   *  不得下退）。无 lease fence：本语句推进所指条件皆为已提交事实（帧行+投影写同事务提交、行全在
+   *  已由出口前回查担保——fence 的「水位越过未插入行」facet 不存在；miss 恒保守 lag 无污染）。 */
+  private async advanceBindingWatermark(
+    db: Pick<Prisma.TransactionClient, '$executeRaw'>,
+    projectId: string,
+    expectedContiguous: bigint,
+    newPg: bigint,
+  ): Promise<void> {
+    await db.$executeRaw`
+      UPDATE "CanvasDoc" SET "mediaBindingSeq" = ${newPg}::bigint
+      WHERE "projectId" = ${projectId}::text
+        AND "mediaBindingSeq" = ${expectedContiguous}::bigint
+        AND "mediaBindingSeq" < ${newPg}::bigint
+        AND "bindingsDirty" = false
+        AND "pgSeq" >= ${newPg}::bigint`;
   }
 
   /** Y1c T12（契约 1——CanvasDoc 读单源在 repository）：世代真值读面（auth 准入消费——E23 双校验①；
