@@ -299,9 +299,10 @@ jobs:
 
   # C1-4（plan v3 Task C1-4；spec 2026-11-11-foundation-batch §3.3-5「CI +8 矩阵」）：时区维度最小化
   # job——只跑双时区 claim 面 spec（time-semantics.dual-tz.int.spec），不重复 test job 的 full verify
-  # （~11min）。双轴同验：①进程 TZ=Asia/Shanghai（Node 侧 Date 墙）；②spec 内连接级注入两
-  # PrismaClient（options=-c timezone=UTC / Asia/Shanghai，`SHOW timezone` 自证）。全量 int 池仍由
-  # collab-core job 承载（本 job 不替代、不重复）。
+  # （~11min）。轴归属（C1-4 评审 Minor-4 措辞更正）：①进程 `TZ=Asia/Shanghai` 仅声明 Node 侧
+  # 钟/日志墙环境，**本 job 的断言面不含 Node 墙**（spec 用例只验连接级 SQL 会话语义）；
+  # ②断言面=spec 内连接级注入两 PrismaClient（options=-c timezone=UTC / Asia/Shanghai，
+  # `SHOW timezone` 自证）。全量 int 池仍由 collab-core job 承载（本 job 不替代、不重复）。
   timezone-matrix:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest

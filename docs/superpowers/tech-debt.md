@@ -144,3 +144,15 @@
   - M10：`dist-drill` 构建产物目录（gitignored）仍含 C1 前补偿式时间文本；drill 默认重建，仅 `T31_SKIP_BUILD=1` 时有旧码风险。
 - **修复方向**：M7 常量单源或删常量；M8 spec 加环境守卫或统一 int 运行 env；M9 维持现状（可选注释说明）；M10 一律 `T31_SKIP_BUILD=1` 前先重建或删旧产物。
 - **登记**：2026-11-13（C1-3 质量评审）
+
+## 地基修复批登记（2026-11-13，C1-4 质量评审）
+
+### TD-30 raw SQL 时间门静态盲区（变量间接/动态拼接）
+
+- **来源**：C1-4（地基修复批，commit 66a30052）raw SQL 门自身登记的边界注记（`scripts/check-raw-sql-time.mjs:18:scanRawSqlTime`）。
+- **现状**：
+  - 变量间接传 SQL（`const sql = '…'; $executeRaw(sql)`）不扫——`scripts/check-raw-sql-time.mjs:61:rawCallArgText` 只取调用点字面实参，变量实参在静态扫描时不可解析；
+  - 动态拼接/函数名拼装（`Prisma.sql` 插值内非字面 SQL、运行时拼表名）不扫——`scripts/check-raw-sql-time.mjs:27:RAW_CALL` 按调用头定位后仅对实参文本做正则分类（`scripts/check-raw-sql-time.mjs:92:scanRawSqlTime`），无 AST/数据流分析；
+  - 测试文件整体豁免（布景/负控素材合法）——`scripts/check-raw-sql-time.mjs:29:isTestFile`，故负控字面量不触发门。
+- **修复方向**：维持静态绊线定位（评审兜底：新增 raw SQL 时间形态须 grep/评审）；若未来出现第二 SQL 构建层，再评估 AST 化或把 SQL 收敛到单组装点后按结构扫描（本卡不扩）。
+- **登记**：2026-11-13（C1-4 质量评审 Minor-6）

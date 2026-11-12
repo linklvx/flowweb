@@ -59,6 +59,23 @@ test('负控④：@db.Timestamptz(6) 精度漂移 → 红（终态钉死 (3)）'
   assert.equal(scanSchema(src).problems.length, 1);
 });
 
+test('负控⑤：DateTime[] 数组形态——缺 Timestamptz → 红；带 @db.Timestamptz(3) → 绿', () => {
+  const missing = scanSchema([
+    'model Sample {',
+    '  id     String     @id',
+    '  stamps DateTime[]',
+    '}',
+  ].join('\n')).problems;
+  assert.equal(missing.length, 1);
+  assert.match(missing[0], /Sample\.stamps/);
+  assert.deepEqual(scanSchema([
+    'model Sample {',
+    '  id     String     @id',
+    '  stamps DateTime[] @db.Timestamptz(3)',
+    '}',
+  ].join('\n')).problems, []);
+});
+
 test('绿：DateTime? @db.Timestamptz(3) + 注释/属性行里的 DateTime 字样不误伤', () => {
   const src = [
     '// DateTime 全列 timestamptz(3)——注释不当字段',

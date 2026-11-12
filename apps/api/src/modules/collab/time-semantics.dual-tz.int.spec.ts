@@ -11,7 +11,8 @@
 // 右值 AT TIME ZONE 转 +8 墙」的补偿式（UTC 墙 vs +8 墙混比），1h 后到期行在 UTC 会话不命中、
 // +8 会话命中——本 spec 的 not-due 夹具（+1h 窗）恰跨该分叉面（沙箱实测 correct=false/true 分叉）。
 // epochStartedAt 断言只用 **DB 钟**（SQL 内 now()/EXTRACT(EPOCH)）——不混 Node 进程钟。
-// 无 DATABASE_URL（CI 未起库）自动 skip；vitest 不自动加载 apps/api/.env——靠 shell export 注入。
+// 取库方式（C1-4 评审 Minor-2 实测更正）：本目录 .env 经 import 链加载（本 spec 实测无 shell
+// export 亦已注入）——`DATABASE_URL=""`（空白/空串）才整文件 skip，CI 未起库/未注入即 skip。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -312,21 +313,30 @@ afterAll(async () => {
     }
   }, 60_000);
 
-  it('@default/@updatedAt/round-trip（CanvasProject）：两时区读回 instant 相等 ∧ @updatedAt 前进', async () => {
+  it('@default/@updatedAt/round-trip（CanvasProject）：两时区读回 instant 相等 ∧ 列型 tsz ∧ @updatedAt 前进', async () => {
     const pid = byTz.UTC.projectId;
     const created = await prisma.canvasProject.create({ data: { name: `tz-rt-${Date.now()}`, teamId: TID, userId: UID } });
-    const read = (c: PrismaClient) => c.$queryRaw<Array<{ createdAt: Date; updatedAt: Date; dbNow: Date }>>`
-      SELECT "createdAt", "updatedAt", now() AS "dbNow" FROM "CanvasProject" WHERE "id" = ${created.id}::text`;
+    const read = (c: PrismaClient) => c.$queryRaw<Array<{
+      createdAt: Date; updatedAt: Date; dbNow: Date; createdAtType: string; updatedAtType: string;
+    }>>`
+      SELECT "createdAt", "updatedAt", now() AS "dbNow",
+             pg_typeof("createdAt")::text AS "createdAtType", pg_typeof("updatedAt")::text AS "updatedAtType"
+      FROM "CanvasProject" WHERE "id" = ${created.id}::text`;
     const utcBefore = (await read(byTz.UTC.client))[0];
     const shBefore = (await read(byTz['Asia/Shanghai'].client))[0];
+    // 判别面（评审核 C1-4 Minor-3）：列型非 tsz（naive）即红——DB 钟 age 正负不独证无偏斜
+    expect(utcBefore.createdAtType, 'createdAt 列型须为 timestamptz').toBe('timestamp with time zone');
+    expect(utcBefore.updatedAtType, 'updatedAt 列型须为 timestamptz').toBe('timestamp with time zone');
     expect(shBefore.createdAt.getTime()).toBe(utcBefore.createdAt.getTime());
     expect(shBefore.updatedAt.getTime()).toBe(utcBefore.updatedAt.getTime());
-    expect(utcBefore.dbNow.getTime() - utcBefore.createdAt.getTime()).toBeLessThan(60_000);   // @default(now()) DB 钟
+    expect(utcBefore.dbNow.getTime() - utcBefore.createdAt.getTime()).toBeGreaterThanOrEqual(0);   // @default(now()) DB 钟
+    expect(utcBefore.dbNow.getTime() - utcBefore.createdAt.getTime()).toBeLessThan(60_000);
     await prisma.canvasProject.update({ where: { id: created.id }, data: { name: `${created.name}-2` } });
     const utcAfter = (await read(byTz.UTC.client))[0];
     const shAfter = (await read(byTz['Asia/Shanghai'].client))[0];
     expect(shAfter.updatedAt.getTime()).toBe(utcAfter.updatedAt.getTime());
     expect(utcAfter.updatedAt.getTime()).toBeGreaterThan(utcBefore.updatedAt.getTime());       // @updatedAt/触发器均前进
+    expect(utcAfter.dbNow.getTime() - utcAfter.updatedAt.getTime()).toBeGreaterThanOrEqual(0);
     expect(utcAfter.dbNow.getTime() - utcAfter.updatedAt.getTime()).toBeLessThan(60_000);
     // 观测不变量：projectId 属 UTC 项目域——用后即清（scope by pid 下方 afterAll 同口径）
     expect(pid).toBeTruthy();
