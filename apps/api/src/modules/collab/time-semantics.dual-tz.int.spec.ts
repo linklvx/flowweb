@@ -362,9 +362,9 @@ afterAll(async () => {
     const utc = (await query(byTz.UTC.client))[0];
     const sh = (await query(byTz['Asia/Shanghai'].client))[0];
     expect(utc, 'SystemHistory id=1 权威行缺失').toBeTruthy();
-    // 判别面（M8）：`EXTRACT(EPOCH FROM timestamp)` 本身会话无关——本用例的判别来自
-    // ① `now() - "epochStartedAt"` 混合减法（naive 列按会话时区重解释 → age 8h 分叉）；
-    // ② 两会话 epochMs 相等（naive 列经 pg 客户端读回按进程时区解析，与 DB 内 EXTRACT 值不一致）。
+    // 判别面（M8/R-2）：真正判别=① `now() - "epochStartedAt"` 混合减法（naive 列按会话时区重解释 →
+    // age 8h 分叉）。② 两会话 epochMs 相等仅为 sanity check（EXTRACT(EPOCH FROM timestamp) 本身会话
+    // 无关，不构成判别面）。
     expect(sh.epochMs).toBe(utc.epochMs);
     expect(Math.abs(sh.ageSeconds - utc.ageSeconds)).toBeLessThan(1);   // 会话无关的 DB 钟差
     expect(utc.ageSeconds).toBeGreaterThanOrEqual(0);                   // 纪元不晚于 DB 现在（DB 钟判据，不混 Node 钟）

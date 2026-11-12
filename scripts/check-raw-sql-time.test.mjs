@@ -147,6 +147,40 @@ test('M4：白名单 reason 缺失/空白 → fail-closed throw（评审显式�
   assert.throws(() => scan(src, { atTimeZoneAllowlist: [{ file: '', reason: 'x' }] }), /fail-closed/);
 });
 
+test('R-1：相邻带泛型调用中间夹含 ( 的注释——两处注入 ::timestamp 各报 1（泛型不得跨调用吞扫）', () => {
+  const src = [
+    'await tx.$queryRaw<{ a: number }[]>`SELECT ${v}::timestamp AS a`;',
+    '// 中间注释（含括号与换行）',
+    'await tx.$queryRaw<{ b: number }[]>`SELECT ${v}::timestamp AS b`;',
+  ].join('\n');
+  const problems = scan(src);
+  assert.equal(problems.length, 2, JSON.stringify(problems));
+  assert.ok(problems.every((p) => p.includes('无时区 timestamp')));
+});
+
+test('R-1 真实回归点：曾被子串吞掉的 4 处泛型调用均被扫描（内存注入 ::timestamp → 各报红）', () => {
+  // 掩蔽后贪心泛型组跨调用吞掉这些真实调用（R-1 实测清单）——注入违规验证扫描面恢复
+  const sites = [
+    ['apps/api/src/modules/collab/canvas-doc-update.repository.ts', /await tx\.\$queryRaw<\{ x: number \}\[\]>`/],
+    ['apps/api/src/modules/collab/project-erasure.poller.ts', /tx\.\$queryRaw<ErasureManifestInputs\['workRows'\]>`/],
+    ['apps/api/src/modules/collab/project-erasure.stages.ts', /prisma\.\$queryRaw<LiveWorkRow\[\]>`/],
+    ['apps/api/src/modules/collab/runtime-feed.service.ts', /await tx\.\$queryRaw<\{ lastSeq: bigint \}\[\]>`/],
+  ];
+  for (const [rel, marker] of sites) {
+    const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    assert.match(src, marker, `${rel}: R-1 回归点标记漂移`);
+    const injected = src.replace(marker, (m) => `${m} SELECT \${v}::timestamp`);
+    const problems = scanRawSqlTime([{ rel, src: injected }]);
+    assert.ok(problems.some((p) => p.includes('无时区 timestamp')), `${rel}: 真实调用未被扫描（R-1 回归）`);
+  }
+});
+
+test('R-3：EXTRACT(\'epoch\' FROM …) 引号域合法 → 绿；EXTRACT(\'day\' FROM …) 仍红', () => {
+  assert.deepEqual(scan('await prisma.$queryRaw`SELECT EXTRACT(\'epoch\' FROM (now() - "createdAt")) AS age FROM "T"`;'), []);
+  assert.ok(scan('await prisma.$queryRaw`SELECT EXTRACT(\'day\' FROM now()) AS d`;')
+    .some((p) => p.includes('日历函数')));
+});
+
 test('真实仓源零违规且非空转（apps/api/src + scripts + apps/api/scripts 生产面 raw 调用点 >0）', () => {
   const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = path.join(dir, e.name);

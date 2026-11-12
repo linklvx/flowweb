@@ -14,7 +14,8 @@
 //      `date_trunc(unit, ts, tz)`（tz 为显式第三参——直接放行）。
 // 扫描域：apps/api/src/**/*.ts + scripts/**/*.mjs + apps/api/scripts/**/*.mjs（生产面）；测试文件
 // （*.spec.* / *.test.mjs / test-utils）豁免（布景/断言素材合法——先例 check-media-binding-writers）。
-// 只扫 `$queryRaw/$executeRaw/$queryRawUnsafe/$executeRawUnsafe` 调用实参（标签模板/括号实参两形态）；
+// 只扫 `$queryRaw/$executeRaw/$queryRawUnsafe/$executeRawUnsafe` 调用实参（标签模板/括号实参两形态；
+// 泛型段 `<...>` 平衡扫描——禁跨调用吞扫，R-1）；
 // **定位调用头前先掩蔽 JS 注释与普通字符串（单/双引号，含引号本身）**——注释/字符串里的伪调用不误报；
 // 模板实参保留。SQL 文本判定前剥 SQL 注释（引号感知）并掩蔽双引号标识符/普通单引号字符串
 // （`date_part/date_trunc` 首参与类型字面量前缀保留）——`'timestamp'`/`"timestamp"`/`'AT TIME ZONE'`
@@ -29,7 +30,38 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 /** 放行白名单（空=当前仓内零合法 `AT TIME ZONE` 消费；新增须 file+reason——评审显式引入）。 */
 export const AT_TIME_ZONE_ALLOWLIST = [];
 
-const RAW_CALL = /\$(?:queryRaw|executeRaw|queryRawUnsafe|executeRawUnsafe)\b(?:<[^()]*>)?\s*(?=[(`])/g;
+/** 调用头（仅方法名）——泛型段由 findRawCallArgStart 平衡扫描（R-1：旧正则 `<[^()]*>` 在
+ *  JS 注释掩蔽后会跨调用吞吃下一个真实调用）。 */
+const RAW_HEAD = /\$(?:queryRaw|executeRaw|queryRawUnsafe|executeRawUnsafe)\b/g;
+
+/** 调用头之后定位实参起点（`(` 或反引号）；非调用（无实参/非泛型形态）= -1。
+ *  泛型段=平衡角括号扫描（允许跨行/嵌套泛型；`=>`/`->`/`>=` 的 `>` 不计；遇反引号即放弃）。 */
+export function findRawCallArgStart(src, from) {
+  let i = from;
+  while (i < src.length && /\s/.test(src[i])) i += 1;
+  if (src[i] === '(' || src[i] === '`') return i;
+  if (src[i] !== '<') return -1;
+  let depth = 0;
+  for (; i < src.length; i += 1) {
+    const ch = src[i];
+    if (ch === '`') return -1;
+    if (ch === '<') {
+      const prev = src.slice(Math.max(0, i - 2), i).trimEnd();
+      if (!prev.endsWith('=') && !prev.endsWith('-')) depth += 1;
+      continue;
+    }
+    if (ch === '>') {
+      if (src[i - 1] === '=' || src[i - 1] === '-' || src[i + 1] === '=') continue;
+      depth -= 1;
+      if (depth === 0) {
+        let j = i + 1;
+        while (j < src.length && /\s/.test(src[j])) j += 1;
+        return src[j] === '(' || src[j] === '`' ? j : -1;
+      }
+    }
+  }
+  return -1;
+}
 
 const isTestFile = (rel) => rel.includes('.spec.') || rel.includes('.test.mjs') || rel.includes('/test-utils/') || rel.endsWith('-spec.ts');
 
@@ -121,7 +153,8 @@ export function maskSqlQuotedLiterals(sql) {
       const end = skipQuoted(sql, i, "'");
       const literal = sql.slice(i, Math.min(end + 1, sql.length));
       const keep = /(?:\btimestamp|\btimestamptz|\bdate|\btime|\binterval)\s+$/i.test(out)
-        || /\bdate_part\s*\(\s*$/i.test(out) || /\bdate_trunc\s*\(\s*$/i.test(out);
+        || /\bdate_part\s*\(\s*$/i.test(out) || /\bdate_trunc\s*\(\s*$/i.test(out)
+        || /\bextract\s*\(\s*$/i.test(out);   // R-3：EXTRACT('epoch' FROM …) 合法形态
       out += keep ? literal : "''";
       i = end;
       continue;
@@ -201,7 +234,7 @@ const COMPENSATION = /\bAT\s+TIME\s+ZONE\b|\btimezone\s*\(/i;
 const CALENDAR = [
   { rx: /\bdate_trunc\s*\(/i, label: 'date_trunc(' },
   { rx: /\bdate_part\s*\(\s*'(?!epoch\b)/i, label: "date_part(非 'epoch'" },
-  { rx: /\bextract\s*\(\s*(?!epoch\b)[A-Za-z_'"]/i, label: 'extract(非 epoch 域' },
+  { rx: /\bextract\s*\(\s*(?!'epoch'|epoch\b)[A-Za-z_'"]/i, label: 'extract(非 epoch 域' },
 ];
 
 /**
@@ -222,12 +255,12 @@ export function scanRawSqlTime(files, opts = {}) {
   for (const { rel, src } of files) {
     if (isTestFile(rel)) continue;
     const atTzAllowed = allowReasons.has(rel);
-    // M1：JS 注释/普通字符串掩蔽后**定位调用头**（伪调用不误报）；实参文本仍取原始源（Unsafe 字符串实参
-    // 是真实 SQL 面——不能掩蔽）。
+    // M1：JS 注释/普通字符串掩蔽后**定位调用头**（伪调用不误报）；R-1：泛型段平衡扫描（禁跨调用）
     const maskedSrc = maskJsNonCode(src);
-    RAW_CALL.lastIndex = 0;
-    for (const m of maskedSrc.matchAll(RAW_CALL)) {
-      const argIdx = m.index + m[0].length;
+    RAW_HEAD.lastIndex = 0;
+    for (const m of maskedSrc.matchAll(RAW_HEAD)) {
+      const argIdx = findRawCallArgStart(maskedSrc, m.index + m[0].length);
+      if (argIdx < 0) continue;
       const rawArg = src[argIdx] === '`'
         ? src.slice(argIdx + 1, skipTemplate(src, argIdx))
         : unwrapJsStringArg(rawCallArgText(src, argIdx));
@@ -262,7 +295,10 @@ export function countRawCalls(files) {
   let n = 0;
   for (const { rel, src } of files) {
     if (isTestFile(rel)) continue;
-    n += [...maskJsNonCode(src).matchAll(RAW_CALL)].length;
+    const masked = maskJsNonCode(src);
+    for (const m of masked.matchAll(RAW_HEAD)) {
+      if (findRawCallArgStart(masked, m.index + m[0].length) >= 0) n += 1;
+    }
   }
   return n;
 }
