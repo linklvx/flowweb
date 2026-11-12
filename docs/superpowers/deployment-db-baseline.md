@@ -31,6 +31,8 @@ DATABASE_URL=postgresql://user:password@host:5432/flowweb?options=-c%20timezone%
 - 校验（连接串直连同一库）：`psql "$DATABASE_URL" -c 'SHOW timezone;'`——应为 `UTC`
   （非 UTC=该连接串未带 options，回滚到会话默认时区）。
 - 备份命令已剥 query 参数（deploy.sh cutover ② `sed "s/?.*$//"`），`options` 不影响 pg_dump。
+- 回滚=删 `DATABASE_URL` 的 `options` query 参数后**重启 api/worker**（连接池重建才生效）；URL 空格须
+  `%20`（禁 `+` 形态——libpq/Prisma 不保证 `+` 解码为空格）。
 - 语义依据：C1 终态全 DateTime=timestamptz(3)，claim/retention 谓词均为瞬时比较（会话时区无关）——
   显式 UTC 是运维可预期性钉死，不是正确性前提（正确性由双时区集成测试 + raw SQL 静态门保证）。
 

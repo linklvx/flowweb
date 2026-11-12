@@ -11,9 +11,22 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const SCHEMA_REL = 'apps/api/prisma/schema.prisma';
 
-/** 字段行：`name DateTime?[] ...`（行首缩进后第一个词=字段名；`DateTime(3)` 非法形态同样入判）。 */
+/** 字段行：`name DateTime?[] ...`（行首缩进后第一个词=字段名；`DateTime` 后接 `?`/`[]`/空白）。
+ *  M3：字段判定前剥行尾注释（引号感知——Prisma 字符串内 `//` 不误剥，如 `@default("http://…")`）。 */
 const FIELD = /^\s*([A-Za-z_]\w*)\s+DateTime(\?|\[\])?(\s|$)/;
 const TSZ3 = '@db.Timestamptz(3)';
+
+/** 剥 Prisma 行尾注释（`//`/`///`；双引号串内不剥；反斜杠转义跳过）。 */
+export function stripLineComment(line) {
+  let inString = false;
+  for (let i = 0; i < line.length - 1; i += 1) {
+    const ch = line[i];
+    if (ch === '\\') { i += 1; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (!inString && ch === '/' && line[i + 1] === '/') return line.slice(0, i);
+  }
+  return line;
+}
 
 /**
  * 扫描 schema 源文本。返回 { problems, dateTimeFields, models }——dateTimeFields 供自测防扫零。
@@ -34,16 +47,17 @@ export function scanSchema(src) {
     }
     if (/^\s*\}/.test(line)) { model = '(top-level)'; continue; }
     if (/^\s*@@/.test(line)) continue;                   // model 属性行（@@index/@@unique…）
-    const m = line.match(FIELD);
+    const code = stripLineComment(line);                 // M3：行尾注释不参与字段判定（不可作豁免）
+    const m = code.match(FIELD);
     if (!m) continue;
     dateTimeFields += 1;
     const field = `${model}.${m[1]}`;
-    if (/@db\.Timestamp(?![A-Za-z])/.test(line)) {
+    if (/@db\.Timestamp(?![A-Za-z])/.test(code)) {
       problems.push(`${field}（schema.prisma:${i + 1}）声明 @db.Timestamp（无时区）——终态要求 @db.Timestamptz(3)`);
       continue;
     }
-    if (!line.includes(TSZ3)) {
-      const what = /@db\.Timestamptz\(\d+\)/.test(line) ? '精度漂移（须恰为 (3)）' : '缺 @db.Timestamptz(3)';
+    if (!code.includes(TSZ3)) {
+      const what = /@db\.Timestamptz\(\d+\)/.test(code) ? '精度漂移（须恰为 (3)）' : '缺 @db.Timestamptz(3)';
       problems.push(`${field}（schema.prisma:${i + 1}）DateTime 字段${what}`);
     }
   }

@@ -105,13 +105,56 @@ test('Prisma.sql 包裹/Unsafe 字符串实参：负控三档同拦', () => {
   for (const src of cases) assert.ok(scan(src).length > 0, src);
 });
 
-test('真实仓源零违规且非空转（apps/api/src 非测试 raw SQL 调用点 >0）', () => {
+test('M1：JS 注释/普通字符串里的伪调用不误报（模板实参保留）', () => {
+  const src = [
+    '// 伪调用：await prisma.$queryRaw`SELECT ${v}::timestamp`',
+    '/* 块注释：await prisma.$executeRaw`UPDATE "T" SET "a" = now()::timestamp` */',
+    "const hint = 'await prisma.$queryRaw`SELECT 1::timestamp`';",
+    'const hint2 = "await prisma.$queryRaw`SELECT date_trunc(\'day\', now())`";',
+    'await prisma.$queryRaw`SELECT "a" FROM "T" WHERE "b" = ${hint}`;',
+  ].join('\n');
+  assert.deepEqual(scan(src), []);
+});
+
+test('M1：SQL 引号段误红修复——\'timestamp\' 串 / "timestamp" 标识符 / \'AT TIME ZONE\' 串=绿', () => {
+  const src = [
+    'await prisma.$queryRaw`SELECT \'timestamp\' AS label, "timestamp" FROM "T"`;',
+    'await prisma.$queryRaw`SELECT 1 AS x WHERE note = \'AT TIME ZONE\'`;',
+    'await prisma.$queryRaw`SELECT date_part(\'epoch\', now() - "createdAt") AS age FROM "T"`;',
+  ].join('\n');
+  assert.deepEqual(scan(src), []);
+  // 非 epoch 域仍红（掩蔽不吞 date_part 首参）
+  assert.ok(scan('await prisma.$queryRaw`SELECT date_part(\'day\', now())`;')
+    .some((p) => p.includes('日历函数')));
+});
+
+test('M2：timezone(zone, ts) 函数形态=补偿式（与 AT TIME ZONE 同义）→ 红；白名单化 → 绿', () => {
+  const src = 'await prisma.$queryRaw`SELECT timezone(\'UTC\', now()) AS n, timezone(\'Asia/Shanghai\', "createdAt") AS c FROM "T"`;';
+  assert.ok(scan(src).some((p) => p.includes('补偿式时区转换')));
+  assert.deepEqual(scan(src, { atTimeZoneAllowlist: [{ file: REL, reason: '显式时区分桶（评审白名单）' }] }), []);
+});
+
+test('M4：三参 date_trunc(unit, ts, tz) 显式时区放行；两参仍红', () => {
+  assert.deepEqual(scan('await prisma.$queryRaw`SELECT date_trunc(\'day\', now(), \'Asia/Shanghai\') AS d`;'), []);
+  assert.ok(scan('await prisma.$queryRaw`SELECT date_trunc(\'day\', now()) AS d`;')
+    .some((p) => p.includes('日历函数')));
+});
+
+test('M4：白名单 reason 缺失/空白 → fail-closed throw（评审显式引入）', () => {
+  const src = 'await prisma.$queryRaw`SELECT "a" AT TIME ZONE \'UTC\' FROM "T"`;';
+  assert.throws(() => scan(src, { atTimeZoneAllowlist: [{ file: REL }] }), /fail-closed/);
+  assert.throws(() => scan(src, { atTimeZoneAllowlist: [{ file: REL, reason: '   ' }] }), /fail-closed/);
+  assert.throws(() => scan(src, { atTimeZoneAllowlist: [{ file: '', reason: 'x' }] }), /fail-closed/);
+});
+
+test('真实仓源零违规且非空转（apps/api/src + scripts + apps/api/scripts 生产面 raw 调用点 >0）', () => {
   const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) return e.name === 'node_modules' || e.name === 'dist' ? [] : walk(p);
-    return p.endsWith('.ts') ? [p] : [];
+    return p.endsWith('.ts') || p.endsWith('.mjs') ? [p] : [];
   });
-  const files = walk(path.join(ROOT, 'apps/api/src')).map((f) => ({
+  const dirs = ['apps/api/src', 'scripts', 'apps/api/scripts'];
+  const files = dirs.flatMap((d) => walk(path.join(ROOT, d))).map((f) => ({
     rel: path.relative(ROOT, f).split(path.sep).join('/'),
     src: fs.readFileSync(f, 'utf8'),
   }));

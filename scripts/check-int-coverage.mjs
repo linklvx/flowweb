@@ -26,7 +26,9 @@ import { basename } from 'node:path';
 // 40MP downscale/视频 ffprobe/mismatch permanent/jitter 退避耗尽/outbox union〕）→196（实测口径）。
 // C2-4 旧面退役（2026-11-12）：media-fact-outbox.int.spec 整文件删（2 例——表断流后唯一键约束=僵尸
 // 断言，表暂留 C1 物删；S0.1 约束实证史注见上）→194。
-const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 194);
+// C1-4 增补（2026-11-13）：time-semantics.dual-tz.int.spec（12 例——全 claim 面双时区）→206
+//（X16 纪律「新增 int 文件 ⇒ 同步上调」；实测全量 712 例远高于下限，MIN 仅防大规模静默缩水）。
+const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 206);
 
 // Y0b-1 资金门 6 文件逐文件下限（T7 标定——记录现状非拔高，初值为 plan 预估、实测全部 ≥ 初值故按实测落库：
 // ledger-invariants 14/pricing-resolver 10/funds-four-way 3/credit-ledger 10/team-lifecycle-funds 4/di-smoke 2）。

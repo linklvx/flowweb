@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { SCHEMA_REL, scanSchema } from './check-schema-timestamptz.mjs';
+import { SCHEMA_REL, scanSchema, stripLineComment } from './check-schema-timestamptz.mjs';
 
 const realSchema = fs.readFileSync(new URL(`../${SCHEMA_REL}`, import.meta.url), 'utf8');
 
@@ -102,4 +102,27 @@ test('多 model：违规定位带 model 名（跨 model 不串上下文）', () 
   const { problems } = scanSchema(src);
   assert.equal(problems.length, 1);
   assert.match(problems[0], /B\.t/);
+});
+
+test('M3：行尾注释不得充当豁免——`DateTime // @db.Timestamptz(3)` → 红', () => {
+  const src = [
+    'model Sample {',
+    '  id        String   @id',
+    '  createdAt DateTime // @db.Timestamptz(3)',
+    '}',
+  ].join('\n');
+  const { problems } = scanSchema(src);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /Sample\.createdAt/);
+});
+
+test('M3：剥行尾注释引号感知——字符串内 // 不误剥；尾注剥除后字段判定正确', () => {
+  assert.equal(stripLineComment('  url String @default("http://x") // tail'), '  url String @default("http://x") ');
+  const src = [
+    'model Sample {',
+    '  id        String   @id',
+    '  createdAt DateTime @default(now()) @db.Timestamptz(3) // 禁改（行尾注释放行）',
+    '}',
+  ].join('\n');
+  assert.deepEqual(scanSchema(src).problems, []);
 });

@@ -149,10 +149,24 @@
 
 ### TD-30 raw SQL 时间门静态盲区（变量间接/动态拼接）
 
-- **来源**：C1-4（地基修复批，commit 66a30052）raw SQL 门自身登记的边界注记（`scripts/check-raw-sql-time.mjs:18:scanRawSqlTime`）。
+- **来源**：C1-4（地基修复批，commit 66a30052）raw SQL 门自身登记的边界注记（`scripts/check-raw-sql-time.mjs:22:已知边界注释`）。
 - **现状**：
-  - 变量间接传 SQL（`const sql = '…'; $executeRaw(sql)`）不扫——`scripts/check-raw-sql-time.mjs:61:rawCallArgText` 只取调用点字面实参，变量实参在静态扫描时不可解析；
-  - 动态拼接/函数名拼装（`Prisma.sql` 插值内非字面 SQL、运行时拼表名）不扫——`scripts/check-raw-sql-time.mjs:27:RAW_CALL` 按调用头定位后仅对实参文本做正则分类（`scripts/check-raw-sql-time.mjs:92:scanRawSqlTime`），无 AST/数据流分析；
-  - 测试文件整体豁免（布景/负控素材合法）——`scripts/check-raw-sql-time.mjs:29:isTestFile`，故负控字面量不触发门。
-- **修复方向**：维持静态绊线定位（评审兜底：新增 raw SQL 时间形态须 grep/评审）；若未来出现第二 SQL 构建层，再评估 AST 化或把 SQL 收敛到单组装点后按结构扫描（本卡不扩）。
-- **登记**：2026-11-13（C1-4 质量评审 Minor-6）
+  - 变量间接传 SQL（`const sql = '…'; $executeRaw(sql)`）不扫——`scripts/check-raw-sql-time.mjs:66:rawCallArgText` 只取调用点字面实参，变量实参在静态扫描时不可解析；
+  - 动态拼接/函数名拼装（`Prisma.sql` 插值内非字面 SQL、运行时拼表名）不扫——`scripts/check-raw-sql-time.mjs:32:RAW_CALL` 按调用头定位后仅对实参文本做正则分类（`scripts/check-raw-sql-time.mjs:217:scanRawSqlTime`），无 AST/数据流分析；
+  - 测试文件整体豁免（布景/负控素材合法）——`scripts/check-raw-sql-time.mjs:34:isTestFile`，故负控字面量不触发门；
+  - 属性访问/类型化面不覆盖：`$queryRawTyped`、括号访问 `prisma['$queryRaw']`（`scripts/check-raw-sql-time.mjs:32:RAW_CALL` 只认点号方法名形态）；
+  - 更多会话时区依赖日历函数未入规则（补登记）：`to_char(...)`、`now()::date`/`col::date`、`CURRENT_DATE`/`CURRENT_TIME`/`LOCALTIMESTAMP`（`scripts/check-raw-sql-time.mjs:217:scanRawSqlTime` 规则集外）；
+  - 门只扫 TS/`.mjs` 的 Prisma raw 调用面：`prisma/migrations/*.sql`、独立 `.sql` 脚本，以及不经 Prisma raw 的 pg Client 直发 SQL（seed/运维脚本）不在扫描域（`scripts/check-raw-sql-time.mjs:217:scanRawSqlTime` 的调用头口径）。
+- **修复方向**：维持静态绊线定位（评审兜底：新增 raw SQL 时间形态须 grep/评审）；若未来出现第二 SQL 构建层或 pg Client 直发面，再评估 AST 化/扩展扫描域/把 SQL 收敛到单组装点后按结构扫描（本卡不扩）。
+- **登记**：2026-11-13（C1-4 质量评审 Minor-6；M2/M11 补登记：timezone() 规则已加、其余盲区入账）
+
+## 地基修复批登记（2026-11-13，C1-4 质量评审 第二轮）
+
+### TD-31 双时区 spec 共享库副作用 + 生产连接串 options 回滚/编码
+
+- **来源**：C1-4 第二轮质量评审 M10/M12。
+- **现状**：
+  - M10：`apps/api/src/modules/collab/time-semantics.dual-tz.int.spec.ts` 走真实服务方法——probe/materialize/projection-outbox claim 会认领共享 dev 库中其它遗留 due 行、object-manifest sweep 会清扫其它遗留 orphan 行（stub 删除零 IO；execution-retention 用 claim 记录桩不消费状态）。int 池 fileParallelism=false 串行+各文件自清为纪律兜底，CI 空库无该面。
+  - M12：生产 `DATABASE_URL` 的 `options` 查询参数回滚=删 query 后**重启 api/worker**（连接池重建才生效）；URL 中空格须 `%20`（libpq/Prisma URL 解析不保证 `+` 解码为空格——本仓落 `%20`，禁 `+` 形态）。
+- **修复方向**：M10 维持（夹具卫生纪律；int 池并行化时再评估 scope 化 claim/sweep）；M12 回滚步骤已注 deployment-db-baseline.md「连接时区纪律」节。
+- **登记**：2026-11-13（C1-4 质量评审 M10/M12）

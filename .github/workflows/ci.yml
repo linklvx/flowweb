@@ -327,7 +327,12 @@ jobs:
       - run: pnpm --filter @flowweb/shared build
       - run: pnpm --filter @flowweb/api exec prisma migrate deploy
       - name: 双时区 claim 面（UTC / Asia/Shanghai 连接级注入——lease/probe/materialize/projection-outbox/object-manifest/erasure/runtime-retention/execution-retention/heartbeat+@default/@updatedAt/round-trip/epochStartedAt）
-        run: pnpm --filter @flowweb/api exec vitest run -c vitest.int.config.ts src/modules/collab/time-semantics.dual-tz.int.spec.ts
+        run: pnpm --filter @flowweb/api exec vitest run -c vitest.int.config.ts src/modules/collab/time-semantics.dual-tz.int.spec.ts --reporter=default --reporter=json --outputFile=/tmp/c14-tz.json
+      # M5：零跳过守卫——DATABASE_URL 缺失/连接失败时 vitest 会全 skip 仍 exit 0（假绿）；显式断言 12 例
+      # 实数通过且零 skip，否则 job 红。
+      - name: 零跳过守卫（12/12 实数通过——全 skip=job 红）
+        run: |
+          node -e "const r=require('/tmp/c14-tz.json');const total=r.numTotalTests??0,passed=r.numPassedTests??0,skipped=r.numPendingTests??0;if(total<12||passed!==total||skipped>0){console.error('timezone-matrix 零跳过守卫失败',JSON.stringify({total,passed,skipped}));process.exit(1)}console.log('timezone-matrix OK',JSON.stringify({total,passed,skipped}))"
 
   # Y1c T33：负载基准硬门档（spec §9.4「硬门固定 runner——PR 只跑 smoke，nightly/release 跑硬门」）。
   # PR/push 不跑（smoke 档已在 test job verify 链 bench-load-smoke 步）；本 job=workflow_dispatch
