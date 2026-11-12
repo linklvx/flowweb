@@ -1,0 +1,286 @@
+{
+  "meta": {
+    "profile": "smoke",
+    "machine": "win32/x64 20C/32G node v24.14.1",
+    "startedAt": "2026-11-12T13:55:10.945Z",
+    "axesComplete": true,
+    "finishedAt": "2026-11-12T13:58:28.463Z"
+  },
+  "errors": {
+    "http5xx": 0,
+    "httpOps": 267,
+    "unhandledExceptions": 0,
+    "unexpectedClose1011": 0,
+    "dataAssertionFailures": 0,
+    "timeouts": 0,
+    "timedOps": 752,
+    "expectedCloseCodes": {
+      "4404": 1,
+      "4406": 0,
+      "4411": 0,
+      "4412": 30,
+      "4413": 0
+    },
+    "logScan": {
+      "lastCount": 0
+    }
+  },
+  "invariants": {
+    "seededKeys": {
+      "pass": true,
+      "detail": "种子键 500/500"
+    },
+    "mixedConvergence": {
+      "pass": true,
+      "detail": "apply 确认 4/4+wire 回声 4/4"
+    },
+    "crossProjectIsolation": {
+      "pass": true,
+      "detail": "跨项目广播泄漏 0 帧"
+    },
+    "convergence": {
+      "pass": true,
+      "detail": "3 项目 PG 重放 ≥ max(客户端)"
+    },
+    "outboundBudget": {
+      "pass": true,
+      "detail": "出站 1575417B/96MiB 预算+close 事件 delta=0"
+    },
+    "backlogDrained": {
+      "pass": true,
+      "detail": "撤触发器后积压排空=true（drainMs=416）"
+    },
+    "slowProjectIsolation": {
+      "pass": true,
+      "detail": "慢项目滞留窗正常项目帧 p95=19ms（对照 fsync 硬门 20ms 的 4×容差）"
+    },
+    "noSilentDrop": {
+      "pass": true,
+      "detail": "PG 重放键 40 / 客户端终态 40 / 主窗帧 39（容量触发=false，容量段拒帧=0——fail-closed 拒收非静默丢）"
+    },
+    "replaySuperset": {
+      "pass": true,
+      "detail": "重启重放 35 ≥ kill 前接受 35"
+    }
+  },
+  "axes": {
+    "coldLoad": {
+      "p50": 68,
+      "p95": 77,
+      "p99": 77,
+      "max": 77,
+      "count": 3,
+      "unit": "ms",
+      "connectP": {
+        "p50": 64,
+        "p95": 66,
+        "p99": 66,
+        "max": 66,
+        "count": 3
+      },
+      "readModelP": {
+        "p50": 4,
+        "p95": 11,
+        "p99": 11,
+        "max": 11,
+        "count": 3
+      },
+      "serverLoadP95Ms": 33,
+      "docNodeCount": 500,
+      "visibleNodeCount": 500
+    },
+    "applyReplay": {
+      "p50": 8,
+      "p95": 10,
+      "p99": 10,
+      "max": 10,
+      "count": 4,
+      "unit": "ms",
+      "why": "装置口径=writer 发送→observer doc apply 确认 RTT（新内容必 emit update；主体=gate pre-apply+fsync+广播——库内幂等重放成本 spec §9.3 apply_replay_ms 的装置代理观测）",
+      "wireEchoP": {
+        "p50": 6,
+        "p95": 6,
+        "p99": 6,
+        "max": 6,
+        "count": 4
+      }
+    },
+    "echo": {
+      "bytes": 535025,
+      "inboundBytes": 524288,
+      "fanoutCeiling": 2
+    },
+    "mixedFsync": {
+      "p50": 2,
+      "p95": 5,
+      "p99": 5,
+      "count": 4,
+      "sumDelta": 8,
+      "unit": "ms(p50/p95/p99),count,sum"
+    },
+    "saveBarrier": {
+      "p50": 0,
+      "p95": 54,
+      "p99": 54,
+      "max": 54,
+      "count": 5,
+      "unit": "ms"
+    },
+    "projectionRead": {
+      "p50": 4,
+      "p95": 6,
+      "p99": 6,
+      "max": 6,
+      "count": 5,
+      "unit": "ms"
+    },
+    "mixedThroughput": {
+      "bytes": 524288,
+      "windowMs": 34,
+      "bytesPerSec": 15420235
+    },
+    "concurrency": {
+      "p50": 14,
+      "p95": 26,
+      "p99": 330,
+      "max": 341,
+      "count": 324,
+      "unit": "ms",
+      "conns": 9,
+      "windowMs": 16092
+    },
+    "walFsync": {
+      "p50": 5,
+      "p95": 20,
+      "p99": 50,
+      "count": 237,
+      "sumDelta": 1910,
+      "unit": "ms(p50/p95/p99),count,sum",
+      "fsyncPerSec": 14.7,
+      "storeBytesDelta": 54953
+    },
+    "feedLag": {
+      "p50": 11,
+      "p95": 43,
+      "p99": 43,
+      "max": 43,
+      "count": 2,
+      "unit": "ms"
+    },
+    "resources": {
+      "rssMaxBytes": 234987520,
+      "cpuMaxPercent": 1,
+      "eventLoopLagMaxMs": 0,
+      "pgLockWaitMaxMs": 0,
+      "docPgLagSeqMax": 0
+    },
+    "ss2Fanout": {
+      "conns": 3,
+      "outboundBytes": 1575417,
+      "fanoutMs": 47,
+      "perConnSyncedMs": 47,
+      "outboundBudgetBytes": 100663296,
+      "budgetUtilization": 0.016,
+      "eventLoopLagMaxMs": 0,
+      "budgetCloseDelta": 0,
+      "slowConsumerDisconnectDelta": 0
+    },
+    "backlog": {
+      "windowMs": 10000,
+      "sampleCount": 10,
+      "lagSeqMax": 30,
+      "pendingBytesMax": 5552,
+      "backlogDurationMs": 10416,
+      "drainMs": 416,
+      "series": [
+        {
+          "at": 10,
+          "lag": 1,
+          "pending": 218
+        },
+        {
+          "at": 1025,
+          "lag": 5,
+          "pending": 942
+        },
+        {
+          "at": 2042,
+          "lag": 8,
+          "pending": 1485
+        },
+        {
+          "at": 3060,
+          "lag": 11,
+          "pending": 2030
+        },
+        {
+          "at": 4080,
+          "lag": 14,
+          "pending": 2579
+        },
+        {
+          "at": 5094,
+          "lag": 18,
+          "pending": 3311
+        },
+        {
+          "at": 6116,
+          "lag": 21,
+          "pending": 3860
+        },
+        {
+          "at": 7134,
+          "lag": 24,
+          "pending": 4418
+        },
+        {
+          "at": 8157,
+          "lag": 27,
+          "pending": 4985
+        },
+        {
+          "at": 9175,
+          "lag": 30,
+          "pending": 5552
+        }
+      ]
+    },
+    "slowProjectIsolation": {
+      "normalP95Ms": 19,
+      "slowP95Ms": 21,
+      "normalSampleCount": 32,
+      "slowSampleCount": 32
+    },
+    "sustained": {
+      "windowMs": 20000,
+      "framesAccepted": 253,
+      "framesRejected": 0,
+      "rssMaxBytes": 317530112,
+      "rssStableBytes": 113168384,
+      "spoolBytesMax": 7872,
+      "eventLoopLagMaxMs": 0,
+      "spoolCapacityBytes": 2097152,
+      "capacityTriggered": false
+    },
+    "recoveryRto": {
+      "ms": 9636,
+      "acceptedBeforeKill": 35,
+      "replayKeysAfter": 35
+    }
+  },
+  "_rtoKilled": true,
+  "verdict": {
+    "verdict": "pass",
+    "hardBlocks": [],
+    "softWarns": [
+      {
+        "axis": "walFsyncP99",
+        "level": "band",
+        "actual": 50,
+        "budget": 40,
+        "why": "WAL fsync p99=50ms >2×硬门阈值（尾部劣化信号）"
+      }
+    ],
+    "unobservable": []
+  }
+}

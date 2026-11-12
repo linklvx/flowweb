@@ -1,0 +1,59 @@
+
+> flowweb@4.1.0 bench:load:smoke D:\flowweb
+> node scripts/bench-load.mjs --profile smoke --confirm "--out" "gate-evidence/foundation-c3a-bench.jsonl"
+
+[bench] WARNING MinIO(9000) 未监听——MINIO_INIT=skip 形态继续（零对象存储产物消费）
+[bench] 跳过构建（dist 假定新鲜）
+[bench] spawn api pid=32952 log=D:\flowweb\backups\t33-logs\smoke-api.log
+
+[bench] ══ 场景 cold-load 开始 ══
+[bench] cold-load：建种 500 节点（批 50/帧）
+[bench] ══ 场景 cold-load 完成（28.9s）══
+
+[bench] ══ 场景 mixed-payload 开始 ══
+[bench] ══ 场景 mixed-payload 完成（0.1s）══
+
+[bench] ══ 场景 concurrency 开始 ══
+[bench] concurrency：3 项目×3 连接 × 15000ms 窗
+[bench] ══ 场景 concurrency 完成（20.8s）══
+
+[bench] ══ 场景 ss2-fanout 开始 ══
+[bench] ══ 场景 ss2-fanout 完成（9.1s）══
+
+[bench] ══ 场景 backlog-isolation 开始 ══
+[bench] ══ 场景 backlog-isolation 完成（10.8s）══
+
+[bench] ══ 场景 sustained-disk 开始 ══
+[bench] spawn api pid=31588 log=D:\flowweb\backups\t33-logs\smoke-api.log
+[bench] spawn api pid=25216 log=D:\flowweb\backups\t33-logs\smoke-api.log
+[bench] ══ 场景 sustained-disk 完成（106.4s）══
+
+[bench] ══ 场景 recovery-rto 开始 ══
+[bench] spawn api pid=27556 log=D:\flowweb\backups\t33-logs\smoke-api.log
+[bench] ══ 场景 recovery-rto 完成（17.1s）══
+
+════════ T33 负载基准判定 ════════
+profile=smoke 机器=win32/x64 20C/32G node v24.14.1
+硬门：全过
+软 warn 1 项（超限=触发 fork/patch 评审非只测不补）：
+  [WARN:band] walFsyncP99: 50 vs 预算 40——WAL fsync p99=50ms >2×硬门阈值（尾部劣化信号）
+完整 JSON：gate-evidence/foundation-c3a-bench.bench.json（JSONL 分段=gate-evidence/foundation-c3a-bench.jsonl）
+EXIT=0
+
+──── C3a-9 bench-smoke 基线对比摘要（2026-11-12；profile=smoke；机器=win32/x64 20C/32G node v24.14.1）────
+基线=gate-evidence/c4b-post-smoke.bench.json（2026-11-06）；实测=同目录 foundation-c3a-bench.json（工具原始输出=foundation-c3a-bench.bench.json）。
+构建=先手动 `pnpm --filter @flowweb/shared build` + `pnpm --filter @flowweb/api build` 成功，随后 T33_SKIP_BUILD=1 运行（Windows `spawnSync('pnpm')` 形态；verify 链 bench 步骤同用 --skip-build）。
+关键轴（p95，单位 ms）：
+  applyReplay     基线 10   实测 10   （append/重放代理轴——不回归）
+  mixedFsync      基线 20   实测 5    （写放大代理轴——改善）
+  concurrency     基线 23   实测 26   （+3ms；p99 330ms 尾部离群，硬门未触发）
+  walFsync        基线 20   实测 20   （p99 50 vs 基线 20——bench 软 warn band；硬门 walFsyncP95>20 未触发）
+  coldLoad        基线 44   实测 77   （卡文未点名轴；硬门 3000ms 远未触及）
+  saveBarrier     基线 33   实测 54   （硬门 2000ms 远未触及）
+  projectionRead  基线 14   实测 6
+  feedLag         基线 33   实测 43   （硬门 30s 远未触及）
+resources：rssMax 226,414,592B → 234,987,520B（+3.8%）；cpuMax 1%；eventLoopLagMax 0；pgLockWaitMax 0；docPgLagSeqMax 0。
+invariants：9/9 pass（seededKeys/mixedConvergence/crossProjectIsolation/convergence/outboundBudget/backlogDrained/slowProjectIsolation/noSilentDrop/replaySuperset）。
+errors：http5xx=0 / unhandledExceptions=0 / unexpectedClose1011=0 / dataAssertionFailures=0 / timeouts=0。
+delta 预算：bench 无 binding_delta_bytes 轴（该直方图在 store.metrics 生产面）；以 applyReplay/concurrency 为代理——均不回归/在预算带内。
+verdict：pass（hardBlocks=[]；softWarns=[walFsyncP99 50 vs 40 band]——不调阈值，留观）。

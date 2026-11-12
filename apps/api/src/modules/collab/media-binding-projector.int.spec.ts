@@ -245,4 +245,35 @@ maybe('C3a-5：MediaBindingProjector 四族（真 PG）', () => {
       await dir.cleanup();
     }
   });
+
+  // ── 族⑥（C3a-9 补缺——spec §3.2-8「FK 竞态→savepoint 兜底」直测）──
+  it('⑥：FK 竞态（预检读后 Media 行灭失→INSERT 触发 FK）→BindingProjectionFailedError typed 抛出+事务回滚零半态', async () => {
+    const FK_MEDIA = 'c3a5-media-fk-race';
+    await prisma.media.deleteMany({ where: { id: FK_MEDIA } });
+    await prisma.media.create({
+      data: { id: FK_MEDIA, userId: FIXTURE_USER, teamId: FIXTURE_TEAM, key: `c3a5/${FK_MEDIA}`, originalName: 'fk.png', mimeType: 'image/png', size: 1n, type: 'uploaded' },
+    });
+    try {
+      await expect(prisma.$transaction(async (tx) => {
+        // 预检读 Media 行**之后**注入并发删（同事务 DELETE：INSERT 的 FK 检查见父行灭失——竞态窗
+        // 的确定性替身；生产形态=并发删除事务提交于两语句之间）。闭包侧 SAVEPOINT 兜底=C3a-4 族①。
+        const racing = {
+          $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown> => {
+            const rows = await (tx.$queryRaw as unknown as (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>)(strings, ...values);
+            if (strings.join('').includes('FROM "Media"')) {
+              await tx.$executeRaw`DELETE FROM "Media" WHERE id = ${FK_MEDIA}::text`;
+            }
+            return rows;
+          },
+          $executeRaw: (strings: TemplateStringsArray, ...values: unknown[]): Promise<number> =>
+            (tx.$executeRaw as unknown as (s: TemplateStringsArray, ...v: unknown[]) => Promise<number>)(strings, ...values),
+        };
+        return projectBindings(racing as never, PID, FIXTURE_TEAM, delta({ fk: [ref('fk', FK_MEDIA)] }));
+      })).rejects.toBeInstanceOf(BindingProjectionFailedError);
+      expect(await prisma.mediaBinding.count({ where: { projectId: PID, nodeId: 'fk' } })).toBe(0);   // 投影零半态（INSERT 整体失败）
+      expect(await prisma.media.count({ where: { id: FK_MEDIA } })).toBe(1);   // 外层回滚=竞态 DELETE 同灭（布景不自留）
+    } finally {
+      await prisma.media.deleteMany({ where: { id: FK_MEDIA } });
+    }
+  });
 });
