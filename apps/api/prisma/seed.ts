@@ -81,7 +81,7 @@ async function main() {
   const hyRes2048 = await prisma.modelResolution.upsert({ where: { id: 'seed-res-hy-2048' }, update: {}, create: { id: 'seed-res-hy-2048', modelId: hyImage.id, label: '2048×2048', width: 2048, height: 2048 } });
   const hyRes512  = await prisma.modelResolution.upsert({ where: { id: 'seed-res-hy-512'  }, update: {}, create: { id: 'seed-res-hy-512',  modelId: hyImage.id, label: '512×512',   width: 512,   height: 512 } });
 
-  // ===== 定价真源=迁移（Y0b-2 squash 后=20261009140100_y0b2_init）——以下定价段与 init INSERT 逐字一致
+  // ===== 定价真源=迁移（C1-1 rebaseline 后=20261112120000_c1_rebaseline_init）——以下定价段与 init INSERT 逐字一致
   // （固定 id upsert 幂等：迁移已建行则空更新，空库直跑 seed 也不产双行/漂移值）。 =====
   // Image pricing rules
   const imageRules = [

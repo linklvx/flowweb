@@ -71,7 +71,7 @@ function stubMinio(junk: 'junkStream' | 'throwing') {
     await prisma.$disconnect();
   }, 20_000);
 
-  it('①版本单调：已有 natural v5 行→upsert v3 被 WHERE EXCLUDED>当前 吞（仍 v5）→upsert v7 前进（payload+updatedAt 同步）', async () => {
+  it('①版本单调：已有 natural v5 行→upsert v3 被 WHERE EXCLUDED>当前 吞（仍 v5）→upsert v7 前进（payload 同步）', async () => {
     const id = await makeMedia({ factVersion: 5n });
     await prisma.mediaFact.create({
       data: { mediaId: id, factType: 'natural', factVersion: 5n, payload: { naturalWidth: 55 }, updatedAt: new Date() },
@@ -83,14 +83,21 @@ function stubMinio(junk: 'junkStream' | 'throwing') {
     expect(row!.factVersion).toBe(5n);                                    // 旧版本被吞（单调门）
     expect((row!.payload as { naturalWidth: number }).naturalWidth).toBe(55);
 
-    const sentAt = new Date();
     await prisma.$transaction((tx) => upsertMediaFactInTx(tx, {
-      mediaId: id, factType: 'natural', factVersion: 7n, payload: { naturalWidth: 77 }, now: sentAt,
+      mediaId: id, factType: 'natural', factVersion: 7n, payload: { naturalWidth: 77 }, now: new Date(),
     }));
     row = await prisma.mediaFact.findUnique({ where: { mediaId_factType: { mediaId: id, factType: 'natural' } } });
     expect(row!.factVersion).toBe(7n);                                    // 新版本前进
     expect((row!.payload as { naturalWidth: number }).naturalWidth).toBe(77);
-    expect(Math.abs(row!.updatedAt.getTime() - sentAt.getTime())).toBeLessThanOrEqual(1_000);   // Date 参数绑定 instant round-trip（tsz）
+    // ①b Date 参数绑定 instant round-trip（**INSERT 路径**）：C1-1 set_updated_at 的 INSERT 分支仅 NULL 设
+    // ——EXCLUDED."updatedAt"（app Date）原样落库；UPDATE 分支强制 now()（上段 updatedAt 已无 Date 判别力，
+    // 恢复 restore/backfill 通道语义验证见 runbook §16 app.skip_updated_at）。用 1s 前历史值=判别确定。
+    const sentAtInsert = new Date(Date.now() - 1_000);
+    await prisma.$transaction((tx) => upsertMediaFactInTx(tx, {
+      mediaId: id, factType: 'state', factVersion: 1n, payload: { status: 'completed' }, now: sentAtInsert,
+    }));
+    const inserted = await prisma.mediaFact.findUnique({ where: { mediaId_factType: { mediaId: id, factType: 'state' } } });
+    expect(Math.abs(inserted!.updatedAt.getTime() - sentAtInsert.getTime())).toBeLessThanOrEqual(1);   // Date 参数绑定 instant round-trip（tsz；INSERT 显式值保留）
   }, 20_000);
 
   it('②并发两写者（v6/v7 交错）：双事务 bump state/natural → 两行双落（各自最新版本）+Media.factVersion=7', async () => {

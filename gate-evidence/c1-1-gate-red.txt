@@ -65,8 +65,8 @@ EXIT=1
 ## 绿（门禁改造/rebaseline/reset 后）
 
 - check-migration-immutability：`immutability --rebaseline --confirm: 基线重建 24 → 1 目录` → `check-migration-immutability OK: 1 迁移 ⊆ 基线（内容无漂移）`
-- 负控：裸 `--rebaseline`（无 --confirm）→ `immutability FAIL: --rebaseline 须与 --confirm 同传` exit 1，基线文件 sha256 不变
+- 负控：裸 `--rebaseline`（无 --confirm）→ `immutability FAIL: --rebaseline 须与 --confirm 同传` exit 1，基线文件 sha256 不变；未知旗标（如 `--bogus`）→ exit 2 fail-closed
 - check-migration-additive：`OK（受检 0 个迁移，WARNING 0，豁免 0，基线=20261112120000_c1_rebaseline_init）`
 - check-migrate-diff：`--update` 落盘 2 行金标（内容不变）→ `OK: diff 2 行 ⊆ 金标 2 行`
 - check-fresh-replay：`OK: 五组对象清单（columns/constraints/indexes/sequences/enums）主库 ≡ scratch 重放（1 迁移）——双向一致`
-- pnpm verify full：`verify-chain: PASS（32 步，tier=full）`（exit 0；日志=gate-evidence/c1-1-verify-full.log）
+- pnpm verify full：`verify-chain: PASS（32 步，tier=full）`（Minor 收口后 r4 exit 0；日志=gate-evidence/c1-1-review-verify-full-r4.log，gitignored——过程 flake：上一轮首跑 Y7 coalesce、本轮 r3 auth-reason 各一次超时，单跑绿后全链复跑绿，均登记 registered-flakes.md）

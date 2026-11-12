@@ -112,7 +112,7 @@ export class FolderService {
   async touch(ids: Array<string | null | undefined>) {
     const valid = ids.filter((v): v is string => !!v);
     if (valid.length === 0) return;
-    // updateMany 不触发 @updatedAt，必须显式赋值
+    // updateMany 不触发 Prisma @updatedAt；C1-1 起由 set_updated_at 触发器兜底（显式赋值仍保留——双保险）
     await this.prisma.folder.updateMany({
       where: { id: { in: valid } },
       data: { updatedAt: new Date() },

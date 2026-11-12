@@ -1,6 +1,6 @@
 // apps/api/src/modules/artifact-core/media-fact-roundtrip.int.spec.ts —— C2-1（地基修复批·C2 卡）
 // MediaFact 当前态表 timestamptz round-trip 行为钉（spec 2026-11-11-foundation-batch-design.md §3.1）。
-// 背景：本仓既有 ~167 个 DateTime 列为 naive timestamp(3)（@default(now())=DB 会话墙 vs Prisma Date=UTC 墙
+// 背景：本仓既有全部 naive DateTime 列（C1-1 rebaseline 前 161 个存活列）为 timestamp(3)（@default(now())=DB 会话墙 vs Prisma Date=UTC 墙
 // 的时间墙混用——C1 卡终态 rebaseline）；MediaFact 作为新表自第一天即 @db.Timestamptz(3)，本测试钉死
 // instant 语义（Date 参数绑定写入——批序纪律「C2/C3a 开发期时间写法=Date 参数绑定」）。
 // 防回归锚：独立 pg Client（独占连接非 Prisma 池——SET TIME ZONE 在连接池不可靠）切 Asia/Shanghai 会话读回。

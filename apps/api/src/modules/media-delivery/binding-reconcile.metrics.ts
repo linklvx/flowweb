@@ -21,7 +21,8 @@ export const mediaBindingReconcileOutcomeTotal = new Counter({
 });
 
 /** media GC 逐动作计数（T16 指标面：GC 护栏命中/删除/对象删除失败）。
- *  outcome=deleted（软删+过 grace+引用图无引用→对象+行硬删——行删除级联 MediaBinding）/
+ *  outcome=deleted（软删+过 grace+引用图无引用→对象+行硬删——**无 mediaId FK**；孤儿 binding 行由
+ *  只读漂移检测→置 dirty→runner rebuild 清理）/
  *  guarded（引用图命中——binding/NodeArtifact/VideoWork/VideoProject/doc 扫描任一引用真实命中）/
  *  valve-bailout（安全阀 bail-out——doc 扫描超阀/VideoProject 超阀/扫描读失败 503 族的保守
  *  保留；T19 登记收口分桶：与 guarded 区分「引用增长」vs「扫描面异常」两个 SLO 信号）/

@@ -1647,7 +1647,7 @@ model MediaBinding {
 
 // C2-1（spec 2026-11-11-foundation-batch-design.md §3.1）：MediaFact 当前态表——每 media 每 factType
 // 一行的当前事实（替代推送式 outbox 模型；旧表已随 C1-1 rebaseline 物删）。updatedAt 自第一天即
-// timestamptz(3)（既有 ~167 列 naive 时间墙混用由 C1 终态 rebaseline——新表不欠账；写法=Date 参数绑定，
+// timestamptz(3)（既有全部 naive 时间列〔161 列〕混用由 C1 终态 rebaseline 归一——新表不欠账；写法=Date 参数绑定，
 // round-trip 红测=media-fact-roundtrip.int.spec.ts）。factType 域约束 CHECK IN ('state','natural') 为
 // raw 迁移附（Prisma 不可表达）。mediaId 前缀查询被复合主键左前缀覆盖——不加额外索引（YAGNI）。
 model MediaFact {

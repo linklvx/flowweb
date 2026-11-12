@@ -39,5 +39,5 @@ export async function ensureProjectGovernance(
     ON CONFLICT DO NOTHING`;
   await tx.$executeRaw`
     UPDATE "CanvasProject" SET "origin" = ${args.origin}
-    WHERE "id" = ${args.projectId} AND "origin" IS DISTINCT FROM ${args.origin}`;   // 同值 0 行匹配=零 no-op 行重写（死元组/WAL 不虚增——raw UPDATE 本不经 Prisma @updatedAt，无 trigger）
+    WHERE "id" = ${args.projectId} AND "origin" IS DISTINCT FROM ${args.origin}`;   // 同值 0 行匹配=零 no-op 行重写（死元组/WAL 不虚增）；C1-1 起 set_updated_at 触发器对 raw UPDATE 亦强制 updatedAt=now()（restore 走 app.skip_updated_at）
 }

@@ -6,6 +6,8 @@
 // C1-1 rebaseline（2026-11-12）：squash 删除旧目录后单向棘轮永不收敛（missingDirs 恒红）——显式
 // `--rebaseline --confirm` 双旗标重建基线（整文件替换，git diff 可审阅；纯函数 rebaselineTree 打印
 // removed/added 供审阅）。裸 --rebaseline 或缺 --confirm=fail-closed；空迁移树拒绝重建（防清空基线）。
+// 参数面 fail-closed（2026-11-13 评审 Minor-5）：--write/--rebaseline/--confirm 之外任意旗标=用法错误
+// exit 2（拼写错误不得静默降级为裸跑）；rebaselineTree 目录内文件键排序（确定性落盘 diff）。
 // 基线缺失且无 --write→红（fail-closed——防"无基线恒绿"静默失效，对齐 additive 的基线存在性断言）。
 // ★双载体：pnpm verify（静态步）+ deploy preflight（deploy.sh:67 段）+ 服务器侧 cutover ③（单载体=服务器侧可绕过）。
 // 第三消费=deploy-guard --post-restart（scripts/migration-checksums.json 键作集合断言的仓内侧——T12-0a）。
@@ -17,9 +19,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = resolve(fileURLToPath(import.meta.url), '../..');
 const MIG_DIR = join(ROOT, 'apps/api/prisma/migrations');
 const BASELINE_FILE = join(ROOT, 'scripts/migration-checksums.json');
-const WRITE = process.argv.includes('--write');
-const REBASELINE = process.argv.includes('--rebaseline');
-const CONFIRM = process.argv.includes('--confirm');
+const ALLOWED_ARGS = ['--write', '--rebaseline', '--confirm'];
+
+/** CLI 参数判定（纯函数）：未知旗标 fail-closed（main 捕获→exit 2 用法错误；拼写错误不得静默裸跑）。 */
+export function parseArgs(argv) {
+  const unknown = argv.filter((a) => !ALLOWED_ARGS.includes(a));
+  if (unknown.length) throw new Error(`未知参数: ${unknown.join(' ')}（仅支持 ${ALLOWED_ARGS.join(' / ')}）`);
+  return { write: argv.includes('--write'), rebaseline: argv.includes('--rebaseline'), confirm: argv.includes('--confirm') };
+}
 
 /** 扫描迁移树：{ <dir>: { <relpath（'/' 分隔）>: sha256 } }——仅 /^\d+_/ 目录，目录内文件全量（含子目录）。
  * 哈希域=LF 归一化内容（\r\n→\n）：core.autocrlf=true 材料化（clone/checkout 重写）会翻行尾——
@@ -65,14 +72,21 @@ export function mergeBaseline(baseline, tree) {
 
 /** rebaseline 纯函数（C1-1）：基线**整体替换**为当前 tree（squash/删除旧目录的显式有意识动作——
  *  旧模式 mergeBaseline 只增不删，missingDirs 永红）。removed=旧基线有而 tree 无（审阅面），
- *  added=tree 有而旧基线无。键排序落盘。 */
+ *  added=tree 有而旧基线无。目录键+目录内文件键均排序落盘（readdir 顺序不保证——确定性 diff）。 */
 export function rebaselineTree(tree, baseline) {
   const removed = Object.keys(baseline ?? {}).filter((d) => tree[d] === undefined).sort();
   const added = Object.keys(tree).filter((d) => baseline?.[d] === undefined).sort();
-  return { next: Object.fromEntries(Object.keys(tree).sort().map((k) => [k, tree[k]])), removed, added };
+  const sorted = Object.fromEntries(Object.keys(tree).sort().map((k) => [
+    k,
+    Object.fromEntries(Object.keys(tree[k]).sort().map((f) => [f, tree[k][f]])),
+  ]));
+  return { next: sorted, removed, added };
 }
 
 function main() {
+  let flags;
+  try { flags = parseArgs(process.argv.slice(2)); } catch (e) { console.error(`immutability FAIL: ${e.message}`); process.exit(2); }
+  const { write: WRITE, rebaseline: REBASELINE, confirm: CONFIRM } = flags;
   if (!existsSync(MIG_DIR)) { console.error('immutability FAIL: migrations 目录缺失'); process.exit(1); }
   const tree = scanTree(MIG_DIR);
   let baseline = null;

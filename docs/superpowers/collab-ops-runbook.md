@@ -166,7 +166,7 @@ spool 账本目录在**部署树外** `/home/ubuntu/flowweb-data/collab-spool`�
 
 ### 3.3 迁移 additive 纪律与 preflight 收据
 
-- **additive 双检**：本地（preflight 内）+ 服务器（cutover ③）各跑一次 `check-migration-additive.mjs`；BASELINE='20261009140100_y0b2_init'（Y0b-2 T1 squash，2026-10-10 第三次重置）之后的迁移必须 additive（expand/contract）；收缩步骤（DROP 等）的豁免 = 同 commit 内抬高 BASELINE 常量并留注释。
+- **additive 双检**：本地（preflight 内）+ 服务器（cutover ③）各跑一次 `check-migration-additive.mjs`；BASELINE='20261112120000_c1_rebaseline_init'（C1-1 终态 rebaseline，2026-11-12 第四次重置；前史=Y0b-2 T1 squash 2026-10-10 第三次重置）之后的迁移必须 additive（expand/contract）；收缩步骤（DROP 等）的豁免 = 同 commit 内抬高 BASELINE 常量并留注释。
 - **migrate diff 棘轮（Y0b-2 T1）**：verify 链含 `check-migrate-diff.mjs`——prisma migrate diff（from-migrations vs schema datamodel）漂移行只许收窄禁新增，金标=`apps/api/prisma/migrate-diff-allowlist.txt`（逐字归一化行；唯一永久豁免=pricing_rule_natural_key——NULLS NOT DISTINCT 语义 Prisma 不可表达）。
 - **服务器 rebuild（Y0b-2 squash）**：deploy.sh api --rebuild-db + 人工 tsx prisma/seed.ts + gate-seed + MinIO 孤儿清理 scripts/cleanup-orphaned-media.ts；数据=确认丢弃；服务器 .env 需人工补三枚 PROVIDER_MOONSHOT_API_KEY/PROVIDER_TENCENT_API_KEY/DASHSCOPE_API_KEY 密钥（deploy.sh 不传 .env——缺失=启动断言拒启）。**Y1c T30 起 DROP+migrate+seed+gate-seed 人工序已收编为 `scripts/reset-collab.mjs` 单命令全链（§16——含 spool quarantine+historyId bump 收尾）；`deploy.sh --rebuild-db` 旗标已退役=指引退出（§3.1）；MinIO 孤儿清理仍为独立人工步骤（§16 步 ④/⑥）**。
 - **preflight 收据**：`.preflight-<SHA>.ok` 同 SHA 幂等复用（verify/int/migrate/additive 不重跑）；**gate-collab 不进收据**（有状态，每次部署都跑）。**收据的 CI 等价证据形态**（Y0a-4 run#1 实测登记）：本地全量 preflight 对偶 flaky（同 SHA 三轮各挂不同测试——persist-status/managed-redis/auth-reason，单跑全绿+CI 同 SHA 绿）时，收据可以"**CI 同 SHA 全绿**"为等价证据落（本例 CI run #25）——诚实登记，不复跑凑绿。

@@ -9,7 +9,8 @@
 //     的引用可能尚未进 binding 索引〔离线 paste 后 reconcile 未触〕，binding∪NodeArtifact 只是
 //     快速预判，doc 扫描是 GC 前的最终裁决——「副本还在媒体被删」的根防）
 //   ∪ grace period（软删期：素材库 deleteFile 仅软删，deletedAt 过 MEDIA_GC_GRACE 才进 GC 候选）。
-// 判定无引用 ⇒ MinIO 对象删除（404 容忍——幂等）+行删除（级联 MediaBinding）；
+// 判定无引用 ⇒ MinIO 对象删除（404 容忍——幂等）+行删除（**无 mediaId FK**——孤儿 binding 行由
+// `binding-reconcile` 只读漂移检测→置 dirty→runner rebuild 清理，C3a-8）；
 // 有引用/扫描源读失败/扫描源超安全阀 ⇒ guarded 计数保留（下轮重判——副本删除后自然放行；
 // **读失败=保守保留**：doc 读 503（lease 失守/vacuum）或 VideoProject 扫描超阀时本轮全量
 // 保留候选——少删=护栏安全方向）。
@@ -195,7 +196,7 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
             continue;
           }
         }
-        await this.prisma.media.delete({ where: { id: c.id } });   // 级联 MediaBinding（残行随删）
+        await this.prisma.media.delete({ where: { id: c.id } });   // 无 mediaId FK（spec v5.2）——孤儿 binding 行由 drift→dirty→runner rebuild 清理
         summary.deleted += 1;
         mediaGcOutcomeTotal.inc({ outcome: 'deleted' });
       }

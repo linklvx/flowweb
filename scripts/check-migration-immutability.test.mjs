@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { scanTree, diffAgainstBaseline, mergeBaseline, rebaselineTree } from './check-migration-immutability.mjs';
+import { scanTree, diffAgainstBaseline, mergeBaseline, rebaselineTree, parseArgs } from './check-migration-immutability.mjs';
 
 function fixture(t, files) {
   // files: { '<dir>/<relpath>': '<content>' } —— 每用例独立 tmp 根，t.after 用毕即清
@@ -90,4 +90,19 @@ test('C1-1 --rebaseline 纯函数：基线整体替换为当前 tree（旧目录
   // 旧棘轮对同一 tree 恒红（missingDirs=legacy 永不吸收）——rebaseline 后归零
   assert.equal(diffAgainstBaseline(scanTree(root), oldBaseline).ok, false);
   assert.equal(diffAgainstBaseline(scanTree(root), next).ok, true);
+});
+
+test('C1-1 rebaselineTree：目录内文件键排序（readdir 顺序不保证——确定性落盘 diff）', () => {
+  const tree = { b: { 'z.sql': 'z', 'a.sql': 'a' }, a: { 'm.sql': 'm' } };
+  const { next } = rebaselineTree(tree, {});
+  assert.deepEqual(Object.keys(next), ['a', 'b']);
+  assert.deepEqual(Object.keys(next.b), ['a.sql', 'z.sql']);   // 输入非序→输出按字典序
+});
+
+test('CLI 参数 fail-closed：未知旗标抛错（拼写错误不得静默裸跑）；三合法旗标解析', () => {
+  assert.throws(() => parseArgs(['--rebaselin']), /未知参数: --rebaselin/);
+  assert.throws(() => parseArgs(['--write', '--bogus']), /未知参数: --bogus/);
+  assert.deepEqual(parseArgs([]), { write: false, rebaseline: false, confirm: false });
+  assert.deepEqual(parseArgs(['--write']), { write: true, rebaseline: false, confirm: false });
+  assert.deepEqual(parseArgs(['--rebaseline', '--confirm']), { write: false, rebaseline: true, confirm: true });
 });

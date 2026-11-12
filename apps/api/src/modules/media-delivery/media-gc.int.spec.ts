@@ -2,7 +2,7 @@
 // GC 引用图=binding+NodeArtifact+VideoProject/VideoWork/素材库+grace——防副本还在媒体被删）：
 //   ①副本引用媒体不被删（red：doc 引用扫描护栏——副本/copy 引用未进 binding 索引的窗，doc 扫描
 //     是 GC 前的最终裁决）；
-//   ②无引用+过 grace 可删（对象+行硬删——行删级联 MediaBinding）；
+//   ②无引用+过 grace 可删（对象+行硬删——**无 mediaId FK**：孤儿 binding 行由 drift→dirty→runner rebuild 清理）；
 //   ③grace 期内不删（软删期=素材库删除后悔窗——deletedAt 未过 MEDIA_GC_GRACE 不进候选）；
 //   ④引用图四源（MediaBinding/NodeArtifact/VideoWork.videoMediaId/VideoProject.data JSON 深扫）；
 //   ⑤对象删除 404 容忍（对象已灭失仍删行——幂等）。

@@ -106,7 +106,7 @@ diff /tmp/census-old.json /tmp/census-new.json
 
 ## 七、raw SQL 对象纪律与双等价索引防御（Y0c T6——Z17 v4+Z58）
 
-raw 对象总账（20261009140100_y0b2_init 起实测 28 项）：§五 12 类（序列 1+partial 唯一 9+constraint 形态唯一 1+种子行 1）+ 本节 9 项（Y0b-1 DB 级不变量段，init :1305-1324）+ Y0b-2 追加 7 项（ledger_guard 函数+两行级触发器+4 条 partial 非唯一索引，init :1394-1436）。
+raw 对象总账（C1-1 前口径：2026-10-09 基线起实测 28 项；C1-1 rebaseline 后=20261112120000_c1_rebaseline_init，新增 set_updated_at 函数+每 updatedAt 表触发器+backfill partial 索引——见 gate-evidence/schema-baseline-adr.md）：§五 12 类（序列 1+partial 唯一 9+constraint 形态唯一 1+种子行 1）+ 本节 9 项（Y0b-1 DB 级不变量段，init :1994-2041）+ Y0b-2 追加 7 项（ledger_guard 函数+两行级触发器+4 条 partial 非唯一索引，init :2003-2082）。
 
 ### 9 raw 资金不变量对象清单（此前未登记——本节补齐）
 

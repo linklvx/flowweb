@@ -25,6 +25,10 @@
 
 对象清单规模：columns 820 / constraints 151 / indexes 254 / sequences 2（`exec_seq`、`TeamCreditTransaction_seq_seq`）/ enums 25 / collabLeaseRows 1。
 
+复现性注记（pg_dump `\restrict` token）：pg_dump 16.13 输出首尾含 `\restrict <随机 token>`/`\unrestrict <同 token>`（安全补丁，本文件 :5/:4188）——**同库重跑 sha256 不可复现**；上表 sql 哈希仅锚定本次落档字节。复算口径=用固定键 `pg_dump --restrict-key=<固定串>` 重跑，或剥除 `\restrict`/`\unrestrict` 两行后哈希（本版本无 `--no-restrict` 旗标）。
+
+全量验证日志注记：C1-1 质量评审 Minor 收口后最终全量验证=`gate-evidence/c1-1-review-verify-full-r4.log`（`*.log` gitignored，尾部 `verify-chain: PASS（32 步，tier=full）` / `VERIFY_EXIT=0`）；上一轮收口=r2（同 PASS）。过程 flake=已登记环境面——上一轮首跑（`c1-1-review-verify-full.log`）命中 `collab.gateway.spec Y7 coalesce` 超时、本轮 r3 命中 `collab.gateway.auth-reason session-expired` 超时；两次均单独复跑绿后全链复跑绿。
+
 ## 覆盖范围
 
 - 旧链全部 24 迁移（含 C2-1 `MediaFact`、C3a-2 binding 投影两列 + `ProjectionBackfillState`、C1-0/C2/C4 笔）。

@@ -208,13 +208,13 @@ return writeBinding();
 
 ### Task C1-2：三向 allowlist 对象门
 
-**Files:** Create `scripts/check-rebaseline-delta.mjs`：对比重放库 vs `schema-before-v2.sql`（baseline=pre-batch）——old-only 命中 removed（MediaFactOutbox 表+索引列/MediaFactState enum/**MediaBinding_mediaId_fkey**〔v5.2 最终裁定去 FK〕）/new-only 命中 added（**MediaFact/CanvasDoc 两列/Media.deletionState/set_updated_at 函数+触发器/MediaBinding_projectId_fkey+索引/ProjectionBackfillState/DeletionBarrier/oracle 双表——只列 DB 对象，Prisma 反向关系不入 pg_dump allowlist**，第七轮 P1-5）/列类型 delta 由列级 census 派生（不 hardcode）；**changed 域**（FK onDelete/约束 body 变化）；函数/触发器 body 逐字；allowlist JSON 生成一次+人工审阅+入库，gate 只读。
+**Files:** Create `scripts/check-rebaseline-delta.mjs`：对比重放库 vs `schema-before-v2.sql`（baseline=pre-batch 旧链 24 迁移，**已含 C2/C3a additive——MediaFact/CanvasDoc 列与 Media.deletionState 在基线内，非 delta**）——old-only 命中 removed（MediaFactOutbox 表+4 索引列/MediaFactState enum/**MediaBinding_mediaId_fkey**〔v5.2 最终裁定去 FK〕）/new-only 命中 added（**set_updated_at 函数+48 触发器/MediaBinding_projectId_fkey/`canvas_doc_binding_backfill_partial`**——C1-6 前 DeletionBarrier/oracle 双表属 C3b，不入本卡 allowlist；只列 DB 对象，Prisma 反向关系不入 pg_dump allowlist，第七轮 P1-5）/列类型 delta 由列级 census 派生（不 hardcode；实测 161 列 naive→tz）；**changed 域**（FK onDelete/约束 body 变化；实测 0）；函数/触发器 body 逐字；allowlist JSON 生成一次+人工审阅+入库，gate 只读。**allowlist 以 C1-1 实测 delta 为准**（ADR `gate-evidence/schema-baseline-adr.md`），不以卡文列举为预期。
 
 - [ ] **Step 1：门自测负控**（缺 ledger_guard→红/多一列 naive→红/少 removed 条目→红/**多一个非预期对象→红**）→verify 链注册→Commit。
 
 ### Task C1-3：时间代码全量
 
-同 v1（补偿谓词/::timestamp/脚本三件/deploy-guard 翻转+改名/测试锚全量）；验收=`grep AT TIME ZONE 'utc'` 零命中+`grep ::timestamp` 零命中+`pnpm verify` full+Commit。
+同 v1（补偿谓词/::timestamp/脚本三件/deploy-guard 翻转+改名/测试锚全量）；验收=`grep AT TIME ZONE 'utc'` 零命中+`grep ::timestamp` 零命中+**完整 `pnpm --filter @flowweb/api test:int` 套件绿**（C1-1 质量评审 Important：tsz 切面后时间语义确定性红面 ≥16 例——`projection-outbox.poller.int.spec` 14 例〔`projection-outbox.poller.ts:207-209`〕+`materialize.int`/`t23-resource-recovery.int` 等；同模式面 `media-probe.poller.ts`/`project-erasure.poller.ts`/`object-manifest.service.ts`/`intent-reconcile.service.ts` 须穷举清零；**`verify full` 不含 int 池，不得以其绿替代**）+`pnpm verify` full+Commit。
 
 ### Task C1-4：三门禁+双时区
 
@@ -280,4 +280,4 @@ return writeBinding();
 
 ## Self-Review 记录
 
-①Spec v5.1 覆盖：§3.1→C2-1..6；§3.2→C3a-1..9（含两 UPDATE/SAVEPOINT 序/预检序/CAST pgSeq=CAS）；§3.3→C1-1..6（含 --rebaseline/反向字段/pre-batch baseline/skip GUC）；§3.4→C3b-1..6（含 4a Barrier/候选无关/对象先删/generation）。②占位符：无。③签名一致：bumpFactVersionAndUpsert/projectBindings/bindingCovered/loadForHydrationAt/isMediaReferenced/decideTeamReferenceSnapshot 跨任务一致。④v1 张力消除：CloneBinding 由条件分支改确定删除（grep 证据在案）。
+①Spec v5.3（含 v5.2 变更行）覆盖：§3.1→C2-1..6；§3.2→C3a-1..9（含两 UPDATE/SAVEPOINT 序/预检序/CAST pgSeq=CAS）；§3.3→C1-1..6（含 --rebaseline/反向字段/pre-batch baseline/skip GUC）；§3.4→C3b-1..6（含 4a Barrier/候选无关/对象先删/generation）。②占位符：无。③签名一致：bumpFactVersionAndUpsert/projectBindings/bindingCovered/loadForHydrationAt/isMediaReferenced/decideTeamReferenceSnapshot 跨任务一致。④v1 张力消除：CloneBinding 由条件分支改确定删除（grep 证据在案）。
