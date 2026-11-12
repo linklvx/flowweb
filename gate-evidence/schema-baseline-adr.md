@@ -27,6 +27,8 @@
 
 复现性注记（pg_dump `\restrict` token）：pg_dump 16.13 输出首尾含 `\restrict <随机 token>`/`\unrestrict <同 token>`（安全补丁，本文件 :5/:4188）——**同库重跑 sha256 不可复现**；上表 sql 哈希仅锚定本次落档字节。复算口径=用固定键 `pg_dump --restrict-key=<固定串>` 重跑，或剥除 `\restrict`/`\unrestrict` 两行后哈希（本版本无 `--no-restrict` 旗标）。
 
+C1-2 gate 锚定两口径映射：`scripts/rebaseline-delta-allowlist.json` 的 `baselineAnchors` 用 **LF 归一化**（入库内容/git blob 域）——sql=`78a98b75e7e9e4849d230d53b89d0653224b14140d3fcd1b4eda4b78c6383ae9`、objects=`3bebf8fc8209c7916c23896d01ec1f6e8576e566825b02adc1b32b4f617da258`；上表为落档时**裸字节**口径（本机 CRLF 材料化 sql=`9a5e1090…`；Linux LF 检出 sql=`78a98b75…`）。gate 取 LF 口径=Windows autocrlf 材料化 vs Linux CI 不产生跨平台假红（`check-migration-immutability` 同款先例）；`\restrict` token 不剥除。
+
 全量验证日志注记：C1-1 质量评审 Minor 收口后最终全量验证=`gate-evidence/c1-1-review-verify-full-r4.log`（`*.log` gitignored，尾部 `verify-chain: PASS（32 步，tier=full）` / `VERIFY_EXIT=0`）；上一轮收口=r2（同 PASS）。过程 flake=已登记环境面——上一轮首跑（`c1-1-review-verify-full.log`）命中 `collab.gateway.spec Y7 coalesce` 超时、本轮 r3 命中 `collab.gateway.auth-reason session-expired` 超时；两次均单独复跑绿后全链复跑绿。
 
 ## 覆盖范围

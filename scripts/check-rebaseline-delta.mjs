@@ -6,7 +6,7 @@
 //   before = `gate-evidence/schema-before-v2.sql`（pre-batch 旧链 24 迁移全量重放——C1-1 证据；
 //            重放结果先与 `schema-before-v2.objects.json` 五组逐行核对，基线证据漂移=结构性 exit 2）
 //   after  = `apps/api/prisma/migrations/20261112120000_c1_rebaseline_init/migration.sql`（新终态 init）
-// 七类对象（八组）：tables（pg_class relkind='r'——表存在性；空壳表残留可检出）/columns（键
+// 八类对象（八组）：tables（pg_class relkind='r'——表存在性；空壳表残留可检出）/columns（键
 // table.column）/constraints/indexes/sequences/enums（schema-dump 六组复用）+ functions（键
 // name(args)，pg_get_functiondef 原文）与 triggers（键 table.tgname，pg_get_triggerdef 原文）——
 // schema-dump 六组不含表集合/函数/触发器，本脚本扩展查询（body 逐字比对）。
@@ -46,6 +46,9 @@ export const ALLOWLIST_FILE = path.join(ROOT, 'scripts/rebaseline-delta-allowlis
 const BASELINE_GROUPS = ['columns', 'constraints', 'indexes', 'sequences', 'enums'];
 // 三向分类的八组（columns 走列分类器，其余七组走通用分类器；tables=表存在性）
 export const DELTA_GROUPS = ['columns', 'constraints', 'indexes', 'sequences', 'enums', 'functions', 'triggers', 'tables'];
+const OBJECT_GROUPS = DELTA_GROUPS.filter((g) => g !== 'columns');
+// allowlist 顶层已知键（元数据 + 三向组 + census）——未知 kind 静默忽略=自证漏洞，evaluateGate 判红
+const ALLOWLIST_KEYS = ['_comment', 'baseline', 'baselineObjects', 'init', 'adr', 'baselineAnchors', 'removed', 'added', 'changed', 'columnTypeCensus'];
 const SCRATCH_DB = 'flowweb_rebaseline_delta';
 
 /** CLI 参数判定（纯函数）：仅 --update；未知旗标 fail-closed（main 捕获→exit 2）。 */
@@ -84,11 +87,28 @@ function canonical(def) {
 
 const byKey = (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 
+/** 错误文本：pg 连接失败可能是 AggregateError（message 空，细节在 errors[]）——拼接 code/message/errors。 */
+function errorText(e) {
+  const parts = [e?.code, e?.message, ...(e?.errors ?? []).map((x) => x.message)].filter(Boolean);
+  return parts.length ? parts.join('；') : String(e);
+}
+
 /** 内容 sha256：按**入库内容**（LF 归一化——git blob 域）计算。core.autocrlf=true 的 Windows 检出
  *  会材料化 CRLF，裸字节哈希对同一 git 内容在 Linux CI（LF 检出）产生假红——沿用
  *  check-migration-immutability 的 LF 归一化先例。不剥除 pg_dump `\restrict` token（入库字节固定）。 */
 export function contentSha256(filePath) {
   return createHash('sha256').update(fs.readFileSync(filePath).toString('utf8').replace(/\r\n/g, '\n')).digest('hex');
+}
+
+/** allowlist 元数据断言（纯函数）：baseline/baselineObjects/init/adr 必须与脚本常量一致——
+ *  防止 allowlist 指向另一份基线/init 自证通过。返回违反清单（缺失/不一致=main exit 2）。 */
+export function checkAllowlistMeta(meta, expected) {
+  const violations = [];
+  for (const [key, want] of Object.entries(expected)) {
+    if (!meta?.[key]) violations.push(`allowlist 元数据 ${key} 缺失（期望 "${want}"；--update 重生成）`);
+    else if (meta[key] !== want) violations.push(`allowlist 元数据 ${key} 不一致（allowlist="${meta[key]}" 实际="${want}"）`);
+  }
+  return violations;
 }
 
 /** 基线证据锚定（纯函数）：gate 重放前校验 allowlist baselineAnchors——基线 SQL 与 objects 快照
@@ -140,11 +160,11 @@ export function classifyColumns(before, after, conversionKeys) {
 }
 
 /** 通用分类（纯函数）：constraints/indexes/sequences/enums/functions/triggers/tables 七组。 */
-export function classifyObjects(before, after, groups = DELTA_GROUPS.filter((g) => g !== 'columns')) {
+export function classifyObjects(before, after) {
   const removed = {};
   const added = {};
   const changed = {};
-  for (const g of groups) {
+  for (const g of OBJECT_GROUPS) {
     removed[g] = [];
     added[g] = [];
     changed[g] = [];
@@ -209,7 +229,13 @@ function closeStringSets(actual, listed, label, violations) {
  */
 export function evaluateGate(delta, allowlist) {
   const violations = [];
+  for (const key of Object.keys(allowlist)) {
+    if (!ALLOWLIST_KEYS.includes(key)) violations.push(`allowlist 未知 kind: ${key}（已知: ${ALLOWLIST_KEYS.join('/')}——未知键不得静默忽略）`);
+  }
   for (const kind of ['removed', 'added', 'changed']) {
+    for (const g of Object.keys(allowlist[kind] ?? {})) {
+      if (!DELTA_GROUPS.includes(g)) violations.push(`allowlist 未知组 ${kind}.${g}（已知组: ${DELTA_GROUPS.join('/')}——未知组不得静默忽略）`);
+    }
     for (const g of DELTA_GROUPS) {
       const actual = delta[kind][g] ?? [];
       const listed = allowlist[kind]?.[g] ?? [];
@@ -247,46 +273,76 @@ function resolveDatabaseUrl() {
 }
 
 const toDb = (url, name) => new URL(url).toString().replace(/\/[^/]*$/, `/${name}`);
+const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
+// allowlist 元数据期望值（单一来源——--update 写入 + gate 断言同一常量；防指向另一份基线/init 自证）
+const ALLOWLIST_META = {
+  baseline: rel(BASELINE_SQL),
+  baselineObjects: rel(BASELINE_OBJECTS),
+  init: rel(INIT_SQL),
+  adr: 'gate-evidence/schema-baseline-adr.md',
+};
 
-/** 在临时库重放 SQL 后取全量 census（七组 + 时间列）。finally 必删临时库（绿红皆清）。 */
-async function replayCensus(databaseUrl, sqlPath) {
+/**
+ * 在临时库重放 SQL 后取全量 census（八组 + 时间列）。
+ * 失败路径纪律（I-1）：admin 连接/建库/DROP/CREATE 全在 try 内，finally 必删临时库并 end admin
+ * （活 socket 不撑事件循环——任何失败都干净 exit 2 不挂起）；`pg_try_advisory_lock` 序列化并发
+ * 实例——拿不到锁立即 exit 2 并提示（临时库单名，并发 DROP/CREATE 互踩=评审实测挂起面）。
+ */
+async function replayCensus(databaseUrl, sqlPath, label) {
   const admin = new Client({ connectionString: toDb(databaseUrl, 'postgres') });
-  await admin.connect();
-  await admin.query(`DROP DATABASE IF EXISTS ${SCRATCH_DB}`);
-  await admin.query(`CREATE DATABASE ${SCRATCH_DB}`);
-  const c = new Client({ connectionString: toDb(databaseUrl, SCRATCH_DB) });
+  let created = false;
   try {
-    await c.connect();
-    // psql 元命令（pg_dump \restrict/\unrestrict 安全 token）driver 不可执行——按行剥除；其余逐字重放
-    const sql = fs.readFileSync(sqlPath, 'utf8').split(/\r?\n/).filter((l) => !l.startsWith('\\')).join('\n');
-    await c.query(sql);
-    // pg_dump 输出 SET search_path=''（会话级）——schema-dump 的 collabLeaseRows 查询需 public 可解析
-    await c.query('SET search_path TO public');
-    const six = await dump(c);
-    const functions = (await c.query(`SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' AS key,
-        pg_get_functiondef(p.oid) AS def
-      FROM pg_proc p WHERE p.pronamespace='public'::regnamespace AND p.prokind='f' ORDER BY 1`)).rows;
-    const triggers = (await c.query(`SELECT c.relname || '.' || t.tgname AS key, pg_get_triggerdef(t.oid) AS def
-      FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-      WHERE NOT t.tgisinternal AND n.nspname='public' AND c.relname NOT LIKE '\\_prisma%' ORDER BY 1`)).rows;
-    const tables = (await c.query(`SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-      WHERE c.relkind='r' AND n.nspname='public' AND c.relname NOT LIKE '\\_prisma%' ORDER BY 1`)).rows.map((r) => r.relname);
-    const tsColumns = (await c.query(`SELECT table_name || '.' || column_name AS key, data_type,
-        datetime_precision::int AS precision
-      FROM information_schema.columns
-      WHERE table_schema='public' AND table_name NOT LIKE '\\_prisma%' AND data_type LIKE 'timestamp%'`)).rows;
-    return normalizeCensus({ ...six, functions, triggers, tables, tsColumns });
-  } finally {
-    await c.end().catch(() => {});
-    // 活连接已关；删库失败=结构性（残留会污染下次 verify——fail-closed 抛出）
+    await admin.connect();
+    const locked = (await admin.query('SELECT pg_try_advisory_lock(hashtext($1)::bigint) AS ok', [SCRATCH_DB])).rows[0].ok;
+    if (!locked) throw new Error(`另一个 rebaseline-delta 实例正在使用临时库 ${SCRATCH_DB}（advisory lock 占用）——并发 verify 请排队/串行重跑`);
     await admin.query(`DROP DATABASE IF EXISTS ${SCRATCH_DB}`);
-    await admin.end();
+    await admin.query(`CREATE DATABASE ${SCRATCH_DB}`);
+    created = true;
+    const c = new Client({ connectionString: toDb(databaseUrl, SCRATCH_DB) });
+    try {
+      try {
+        await c.connect();
+        // psql 元命令（pg_dump \restrict/\unrestrict 安全 token）driver 不可执行——按行剥除；其余逐字重放
+        const sql = fs.readFileSync(sqlPath, 'utf8').split(/\r?\n/).filter((l) => !l.startsWith('\\')).join('\n');
+        await c.query(sql);
+        // pg_dump 输出 SET search_path=''（会话级）——schema-dump 的 collabLeaseRows 查询需 public 可解析
+        await c.query('SET search_path TO public');
+        const six = await dump(c);
+        const functions = (await c.query(`SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' AS key,
+            pg_get_functiondef(p.oid) AS def
+          FROM pg_proc p WHERE p.pronamespace='public'::regnamespace AND p.prokind='f' ORDER BY 1`)).rows;
+        const triggers = (await c.query(`SELECT c.relname || '.' || t.tgname AS key, pg_get_triggerdef(t.oid) AS def
+          FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+          WHERE NOT t.tgisinternal AND n.nspname='public' AND c.relname NOT LIKE '\\_prisma%' ORDER BY 1`)).rows;
+        const tables = (await c.query(`SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+          WHERE c.relkind='r' AND n.nspname='public' AND c.relname NOT LIKE '\\_prisma%' ORDER BY 1`)).rows.map((r) => r.relname);
+        const tsColumns = (await c.query(`SELECT table_name || '.' || column_name AS key, data_type,
+            datetime_precision::int AS precision
+          FROM information_schema.columns
+          WHERE table_schema='public' AND table_name NOT LIKE '\\_prisma%' AND data_type LIKE 'timestamp%'`)).rows;
+        return normalizeCensus({ ...six, functions, triggers, tables, tsColumns });
+      } catch (e) {
+        // M-4：重放/取数错误附阶段+文件路径（锁占用/建库错误保持原语义，不误标"重放失败"）
+        throw new Error(`${label} 重放失败（${rel(sqlPath)}）：${errorText(e)}`);
+      }
+    } finally {
+      await c.end().catch(() => {});
+    }
+  } finally {
+    if (created) {
+      // 活连接已关；删库失败只告警（不遮蔽原始错误）——残留 DROP IF EXISTS 下次自清
+      await admin.query(`DROP DATABASE IF EXISTS ${SCRATCH_DB}`).catch((e) => console.error(`rebaseline-delta WARNING: 临时库清理失败（${errorText(e)}）——残留 ${SCRATCH_DB} 下次自清`));
+    }
+    await admin.end().catch(() => {});   // 释放 advisory lock + 关闭 socket（失败路径不得挂起）
   }
 }
 
 /** 基线证据一致性：baseline SQL 重放的五组必须逐行等于 schema-before-v2.objects.json（基线漂移=exit 2）。 */
 function assertBaselineSnapshot(replayed, objectsPath) {
-  const raw = JSON.parse(fs.readFileSync(objectsPath, 'utf8'));
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(objectsPath, 'utf8')); } catch (e) {
+    throw new Error(`基线快照解析失败（${rel(objectsPath)}）：${e.message}`);
+  }
   const expected = normalizeCensus(raw);
   const drift = [];
   for (const g of BASELINE_GROUPS) {
@@ -318,12 +374,19 @@ async function main() {
   let allowlist = null;
   if (!flags.update) {
     if (!fs.existsSync(ALLOWLIST_FILE)) {
-      console.error(`rebaseline-delta FAIL: allowlist 缺失: ${path.relative(ROOT, ALLOWLIST_FILE)}——先跑 --update 生成并人工审阅（fail-closed）`);
+      console.error(`rebaseline-delta FAIL: allowlist 缺失: ${rel(ALLOWLIST_FILE)}——先跑 --update 生成并人工审阅（fail-closed）`);
       process.exitCode = 2;
       return;
     }
     try { allowlist = JSON.parse(fs.readFileSync(ALLOWLIST_FILE, 'utf8')); } catch (e) {
-      console.error(`rebaseline-delta FAIL: allowlist 解析失败: ${e.message}`);
+      console.error(`rebaseline-delta FAIL: allowlist 解析失败（${rel(ALLOWLIST_FILE)}）：${e.message}`);
+      process.exitCode = 2;
+      return;
+    }
+    const metaViolations = checkAllowlistMeta(allowlist, ALLOWLIST_META);
+    if (metaViolations.length) {
+      console.error('rebaseline-delta FAIL: allowlist 元数据与实际路径不一致（结构性——拒绝重放）：');
+      for (const v of metaViolations) console.error(`  - ${v}`);
       process.exitCode = 2;
       return;
     }
@@ -337,9 +400,9 @@ async function main() {
     }
   }
 
-  const before = await replayCensus(databaseUrl, BASELINE_SQL);
+  const before = await replayCensus(databaseUrl, BASELINE_SQL, 'baseline');
   assertBaselineSnapshot(before, BASELINE_OBJECTS);
-  const after = await replayCensus(databaseUrl, INIT_SQL);
+  const after = await replayCensus(databaseUrl, INIT_SQL, 'init');
   const delta = computeDelta(before, after);
   console.log(`rebaseline-delta: baseline(${path.basename(BASELINE_SQL)} 重放) → init(${path.basename(path.dirname(INIT_SQL))} 重放) 三向分类`);
   console.log(`  removed ${counts(delta.removed)}`);
@@ -356,10 +419,7 @@ async function main() {
     }
     const next = {
       _comment: 'C1-2 三向 allowlist（spec §3.3-3）：由 scripts/check-rebaseline-delta.mjs --update 生成一次、人工审阅后入库；gate 只读（防自证）。',
-      baseline: 'gate-evidence/schema-before-v2.sql',
-      baselineObjects: 'gate-evidence/schema-before-v2.objects.json',
-      init: 'apps/api/prisma/migrations/20261112120000_c1_rebaseline_init/migration.sql',
-      adr: 'gate-evidence/schema-baseline-adr.md',
+      ...ALLOWLIST_META,
       baselineAnchors,
       ...buildAllowlist(delta),
     };
@@ -384,5 +444,5 @@ async function main() {
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 if (isMain) {
-  main().catch((e) => { console.error(`rebaseline-delta 结构性失败: ${e.message}`); process.exitCode = 2; });
+  main().catch((e) => { console.error(`rebaseline-delta 结构性失败: ${errorText(e)}`); process.exitCode = 2; });
 }

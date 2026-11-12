@@ -7,10 +7,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { Client } from './lib/schema-dump.mjs';
 import {
   parseArgs, normalizeCensus, computeDelta, evaluateGate, buildAllowlist, DELTA_GROUPS,
-  checkBaselineAnchors, contentSha256,
+  checkBaselineAnchors, checkAllowlistMeta, contentSha256,
 } from './check-rebaseline-delta.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const def = (x) => JSON.parse(JSON.stringify(x));
 
@@ -231,6 +236,8 @@ test('normalizeCensus：columns 键=table.column（def 三字段）；函数/触
   assert.equal(n.sequences && typeof n.sequences, 'object');
 });
 
+// fixture 表名用 LegacyOutbox 代名：真实旧表名会命中 media-fact-outbox.retirement.spec 的
+// PascalCase 零命中 grep 锚（扫描域含 root scripts/*.mjs）——勿改回真名。
 test('负控⑤ tables 组：少 removed 表条目→红 / 多一个未登记表→红（行残留/空壳表可检出）', () => {
   const before = census({ tables: ['LegacyOutbox'] });
   const after = census({ tables: [] });
@@ -276,4 +283,85 @@ test('contentSha256：按入库内容 LF 口径（工作树 CRLF 材料化不产
   assert.equal(contentSha256(crlf), contentSha256(lf));
   fs.writeFileSync(lf, 'a\nc\n');
   assert.notEqual(contentSha256(crlf), contentSha256(lf));
+});
+
+test('M-5 allowlist 元数据与实际路径一致（不一致=结构性错误 exit 2 语义）', () => {
+  const expected = {
+    baseline: 'gate-evidence/schema-before-v2.sql',
+    baselineObjects: 'gate-evidence/schema-before-v2.objects.json',
+    init: 'apps/api/prisma/migrations/20261112120000_c1_rebaseline_init/migration.sql',
+    adr: 'gate-evidence/schema-baseline-adr.md',
+  };
+  assert.deepEqual(checkAllowlistMeta(expected, expected), []);
+  const bad = checkAllowlistMeta({ ...expected, init: 'apps/api/prisma/migrations/old_init/migration.sql' }, expected);
+  assert.ok(bad.some((v) => v.includes('init') && v.includes('old_init')), bad.join('\n'));
+  const missing = checkAllowlistMeta({}, expected);
+  assert.ok(missing.some((v) => v.includes('缺失')), missing.join('\n'));
+});
+
+test('M-6 allowlist 未知组/未知 kind→红（不得静默忽略）', () => {
+  const d = computeDelta(baselineFixture(), afterFixture());
+  const allowlist = matchingAllowlist(d);
+  allowlist.added.bogusGroup = [{ key: 'X', def: null }];
+  allowlist.mystery = { x: 1 };
+  const r = evaluateGate(d, allowlist);
+  assert.equal(r.ok, false);
+  assert.ok(r.violations.some((v) => v.includes('未知组 added.bogusGroup')), r.violations.join('\n'));
+  assert.ok(r.violations.some((v) => v.includes('未知 kind: mystery')), r.violations.join('\n'));
+});
+
+// —— I-1 并发自测（DB 依赖；DB 不可达时跳过，不进静态档）——
+function databaseUrl() {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  const envPath = path.join(ROOT, 'apps/api/.env');
+  if (!fs.existsSync(envPath)) return null;
+  const m = fs.readFileSync(envPath, 'utf8').match(/^DATABASE_URL\s*=\s*"?([^"\r\n]+)"?/m);
+  return m ? m[1] : null;
+}
+
+async function dbReachable(url) {
+  const c = new Client({ connectionString: url });
+  try {
+    await c.connect();
+    await c.query('SELECT 1');
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await c.end().catch(() => {});
+  }
+}
+
+/** spawn 一个 gate 实例：watchdog 60s 未退出=挂起（I-1 回归）→ reject。 */
+function runGateProcess() {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [path.join(ROOT, 'scripts/check-rebaseline-delta.mjs')], {
+      cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    child.stdout.on('data', (d) => { output += d; });
+    child.stderr.on('data', (d) => { output += d; });
+    const watchdog = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`gate 进程挂起 >60s（I-1 失败路径未退出）：\n${output.slice(-2000)}`));
+    }, 60_000);
+    child.on('error', (e) => { clearTimeout(watchdog); reject(e); });
+    child.on('exit', (code) => { clearTimeout(watchdog); resolve({ code, output }); });
+  });
+}
+
+test('I-1 并发自测：两实例并行→有限时间退出且 exit∈{0,2}，无残留临时库', async (t) => {
+  const url = databaseUrl();
+  if (!url || !(await dbReachable(url))) { t.skip('DATABASE_URL 不可用——并发 DB 自测跳过'); return; }
+  const [a, b] = await Promise.all([runGateProcess(), runGateProcess()]);
+  for (const r of [a, b]) assert.ok([0, 2].includes(r.code), `gate exit=${r.code}（只允许 0/2）\n${r.output.slice(-2000)}`);
+  assert.ok([a, b].some((r) => r.code === 0), `两实例均非 0（advisory lock 外结构性失败）\nA:${a.output.slice(-800)}\nB:${b.output.slice(-800)}`);
+  const admin = new Client({ connectionString: new URL(url).toString().replace(/\/[^/]*$/, '/postgres') });
+  await admin.connect();
+  try {
+    const r = await admin.query("SELECT 1 FROM pg_database WHERE datname='flowweb_rebaseline_delta'");
+    assert.equal(r.rowCount, 0, '临时库 flowweb_rebaseline_delta 残留');
+  } finally {
+    await admin.end().catch(() => {});
+  }
 });
