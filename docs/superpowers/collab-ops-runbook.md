@@ -737,7 +737,7 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 |---|---|
 | projectId | 主键（独立状态行，非 FK；项目删除清行=erasure registry 批删承载） |
 | backfillEpoch | runner 启动轮次（UUID——同轮可追踪/断点续跑观测） |
-| state | RUNNING→DONE（cleared）/FAILED（失败/cas-miss/no-doc〔行缺或并发清理〕；候选保持可续跑）；PENDING 无消费者 |
+| state | RUNNING→DONE（cleared）/FAILED（失败/cas-miss/no-doc〔行缺或并发清理〕；失败/cas-miss 候选保持可续跑，no-doc 行缺不再枚举）；PENDING 无消费者 |
 | verifiedSeq | DONE 时=rebuild CAS 落定的 pgSeq；其余保留旧值/0 |
 | updatedAt | 最后写点（timestamptz） |
 

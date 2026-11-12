@@ -14,7 +14,8 @@
 //   · watermark_lag（gauge）：pgSeq−mediaBindingSeq——appendBatch 落定（① RETURNING 实读+② 覆盖
 //     判定）/rebuild 清 dirty/backfill 候选观测点更新；全局 gauge=最后观测项目（单实例前提——
 //     逐项目分诊=结构化日志+ProjectionBackfillState 行）。
-//   · backfill_remaining（gauge）：候选枚举剩余数（`bindingsDirty ∨ mediaBindingSeq<pgSeq`）。
+//   · backfill_remaining（gauge）：候选剩余数（`bindingsDirty ∨ mediaBindingSeq<pgSeq`——drain 末尾
+//     processed>0 时刷新；空转保留上次值）。
 //   · drift_total{kind}：只读 reconcile 漂移检测（kind=missing|extra|mismatch——reconcile 只置
 //     dirty+入队，修复唯一路径=rebuild）。
 //   · binding_delta_bytes 直方图已存在（store.metrics.ts——C3a-3），本文件不重复定义。

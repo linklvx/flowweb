@@ -334,7 +334,7 @@ maybe('C3a-9：binding@mediaBindingSeq == oracle(doc@pgSeq) 独立对拍契约�
   }
 
   /** actor flushThrough 单次等待上界=FLUSH_THROUGH_MAX_WAIT_MS（2s，actor 内部 clamp——禁声称
-   *  更大值）；外层至多 6 次重试（2s×6 预算）。 */
+   *  更大值）；首次+至多 5 次重试=最多 6 次调用（2s×6 预算上界）。 */
   const FLUSH_THROUGH_WAIT_MS = 2_000;
 
   /** 真 actor.submit+flushThrough（PG 前缀落定判据——walSeq 已提交）。 */
@@ -355,7 +355,8 @@ maybe('C3a-9：binding@mediaBindingSeq == oracle(doc@pgSeq) 独立对拍契约�
   }
 
   /** 直供帧+生产 flush 闭包形态复刻（SAVEPOINT→projectBindings→RELEASE；actor 私有
-   *  flushPrefixToPg 不可直调，仅此一处复刻）——覆盖 actor 准入门结构性拒绝的事件形态
+   *  flushPrefixToPg 不可直调，本文件内仅此一处复刻〔仓库既有先例：canvas-doc-update.binding-tx.int.spec.ts /
+   *  collab-binding.int.spec.ts〕）——覆盖 actor 准入门结构性拒绝的事件形态
    *  （`set('data',newMap)`=L2 container-replacement 4411：容器替换 DENY 面是生产规则；
    *  delta 由 FrameEffectsCollector 真实产出〔非手写〕，本处补投影+水位+契约端到端）。
    *  真 actor 闭包 catch 路径由契约④b 实弹覆盖（DB 注入异常，非本 helper）。 */
@@ -410,8 +411,8 @@ maybe('C3a-9：binding@mediaBindingSeq == oracle(doc@pgSeq) 独立对拍契约�
 
   async function assertContract(pid: string, label: string): Promise<void> {
     const d = await contractDiffOf(pid);
-    // 常规场景=增量投影必须自足（rebuilt=true 即退化信号：脏/lag 被 rebuild 掩盖），仅 ⑥ 在
-    // 显式 rebuildProjectBindings 收敛后进入本断言（其内部 rebuilt 仍须 false）。
+    // 常规场景=增量投影必须自足（rebuilt=true 即退化信号：脏/lag 被 rebuild 掩盖）；仅 ⑥/④b
+    // 在显式 rebuildProjectBindings 收敛后进入本断言（此时 helper 内部 rebuilt 仍须 false）。
     expect(d.rebuilt, `${label}：契约比较前应已 clean（禁以内部 rebuild 掩盖增量投影退化）`).toBe(false);
     expect(d.actual, `${label}：binding@${d.watermark.mediaBindingSeq} == oracle(doc@${d.watermark.pgSeq})`).toEqual(d.expected);
   }
@@ -475,10 +476,6 @@ maybe('C3a-9：binding@mediaBindingSeq == oracle(doc@pgSeq) 独立对拍契约�
       putNode(baseDoc, 'data-n', 'imageGen', { referenceImage: MEDIA.m1 });
       baseFrame = Y.encodeStateAsUpdate(baseDoc);
     } finally { baseDoc.destroy(); }
-    const baseDelta: BindingDelta = new Map([['data-n', [
-      { nodeId: 'data-n', mediaId: MEDIA.m1, role: 'primary' as const, targetField: 'referenceImage' as const, targetItemId: '' },
-    ]]]);
-    await appendWithProjection(PID_DIRECT, baseFrame, 1n, 0n, baseDelta);   // 基帧投影→水位 1（连续前缀）
 
     const replDoc = new Y.Doc();
     let replFrame: Uint8Array;
@@ -495,13 +492,22 @@ maybe('C3a-9：binding@mediaBindingSeq == oracle(doc@pgSeq) 独立对拍契约�
       });
       replFrame = Y.mergeUpdates(ups);
     } finally { replDoc.destroy(); }
-    // delta=**生产 FrameEffectsCollector 真实产出**（帧边界终态快照——非手写字面量）；期望集仅作
+
+    // delta=**生产 FrameEffectsCollector 真实产出**（基帧/替换帧同源——非手写字面量）；期望集仅作
     // collector 漂移断言的对照（顺序=collectMediaRefsForNode 标量槽先/列表槽后）。
     const live = new Y.Doc();
     try {
       const collector = new FrameEffectsCollector();
       collector.install(live);
-      Y.applyUpdate(live, baseFrame);   // 基帧不采集（begin 前）
+      collector.begin(1n);
+      Y.applyUpdate(live, baseFrame);
+      collector.take();
+      const baseCollected: BindingDelta = collector.takeBindingDelta(live);
+      expect(baseCollected.get('data-n')?.map(slotLine).sort(), '基帧 collector 漂移对照').toEqual([
+        { nodeId: 'data-n', mediaId: MEDIA.m1, role: 'primary', targetField: 'referenceImage', targetItemId: '' },
+      ].map(slotLine).sort());
+      await appendWithProjection(PID_DIRECT, baseFrame, 1n, 0n, baseCollected);   // 基帧投影→水位 1（连续前缀）
+
       collector.begin(2n);
       Y.applyUpdate(live, replFrame);
       collector.take();
@@ -576,7 +582,7 @@ maybe('C3a-9：binding@mediaBindingSeq == oracle(doc@pgSeq) 独立对拍契约�
         RAISE EXCEPTION 'c3a9 injected binding projection failure';
       END;
     $$ LANGUAGE plpgsql`);
-    await prisma.$executeRawUnsafe(`CREATE TRIGGER c3a9_fail_binding_insert BEFORE INSERT ON "MediaBinding" FOR EACH ROW EXECUTE FUNCTION c3a9_fail_binding_insert()`);
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER c3a9_fail_binding_insert BEFORE INSERT ON "MediaBinding" FOR EACH ROW WHEN (NEW."projectId" = '${PID_ACTOR_FAIL}') EXECUTE FUNCTION c3a9_fail_binding_insert()`);
     try {
       const frame = frameOfDoc(failDoc, (src) => putNode(src, 'fail-n', 'imageGen', { referenceImage: MEDIA.m1 }));
       await submitFrameFor(PID_ACTOR_FAIL, frame, 'actor-projection-fail');
@@ -704,6 +710,14 @@ maybe('C3a-9：binding@mediaBindingSeq == oracle(doc@pgSeq) 独立对拍契约�
     }
     const final = await contractDiffOf(PID);
     expect(final.actual, 'mismatch 复原→契约回绿').toEqual(final.expected);
+  }, 60_000);
+
+  // ── 契约⑦b：rebuilt 旗标自证（dirty 置位→contractDiffOf 内部 rebuild 且 rebuilt=true→绿）──
+  it('契约⑦b：rebuilt 旗标自证——dirty 置位→内部 rebuild 且 rebuilt=true；收敛后契约绿', async () => {
+    await prisma.canvasDoc.updateMany({ where: { projectId: PID }, data: { bindingsDirty: true } });
+    const d = await contractDiffOf(PID);
+    expect(d.rebuilt, 'dirty 命中→内部 rebuild 发生且旗标可观察（非静默）').toBe(true);
+    expect(d.actual, 'rebuild 收敛后契约绿').toEqual(d.expected);
   }, 60_000);
 
   // ── 契约⑧：固定种子 property-ish（50 节点引用形态批量提交）──
