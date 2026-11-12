@@ -143,9 +143,14 @@ const status = async (id: string) => (await prisma.generationIntent.findUnique({
 
   it('④判据切换：heartbeatAt 新+updatedAt 旧的 RUNNING 行不被 stale 批收（改前红——旧判据读 updatedAt）', async () => {
     const { intent } = await claimIntent({ kind: 'text' });
-    await prisma.generationIntent.update({
-      where: { id: intent.id },
-      data: { updatedAt: new Date(Date.now() - 20 * 60_000), heartbeatAt: new Date() },
+    // C1-1 set_updated_at 触发器：UPDATE 始终 now()——显式历史 updatedAt 走 app.skip_updated_at 通道
+    // （否则「updatedAt 旧」形态构造不出，本用例判别力静默丢失）
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.skip_updated_at', 'on', true)`;
+      await tx.generationIntent.update({
+        where: { id: intent.id },
+        data: { updatedAt: new Date(Date.now() - 20 * 60_000), heartbeatAt: new Date() },
+      });
     });
     await reconcile.verifyActive();
     expect(await status(intent.id)).toBe('RUNNING'); // 心跳活着——外呼在飞非孤儿

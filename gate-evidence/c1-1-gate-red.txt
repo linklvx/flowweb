@@ -1,0 +1,72 @@
+# C1-1 门禁红→绿证据（2026-11-12）
+
+## 红（rebaseline 前——旧基线 vs 新迁移树）
+
+### check-migration-immutability（旧棘轮 missingDirs 永红）
+```
+immutability FAIL: 基线目录消失（删除/重命名——已提交迁移不可变）:
+  - 20261009140100_y0b2_init
+  - 20261011180000_y0b4_vacuum_generation
+  - 20261013055904_y0b5_trace_id
+  - 20261020200300_nodeartifact_projection_v3
+  - 20261020211610_media_v3_natural_sniff_size
+  - 20261020224827_outbox_facttype_unique
+  - 20261021021059_videowork_videomedia_idx
+  - 20261021060000_execseq_drop_default
+  - 20261021150000_reconcile_action_audit
+  - 20261022070000_mediabinding_refvideo_refaudio
+  - 20261022080000_intent_claim_artifact_rev
+  - 20261024120000_y1c_t7_carrier_genesis
+  - 20261024130000_y1c_t9_canvas_doc_update_v17
+  - 20261024140000_y1c_t10_drop_canvas_doc_update_seq
+  - 20261024150000_y1c_t11_snapshot_authority
+  - 20261024160000_y1c_t12_prevacuum_retirement
+  - 20261025120000_y1c_t21_execution_business
+  - 20261026120000_y1c_t23_resource_recovery
+  - 20261105120000_c1_pen_one_retention_erasure
+  - 20261105130000_c2_pen_two_ops_gate_canary
+  - 20261105140000_c2_pen_three_canary_semantic_digest
+  - 20261105150000_c4_pen_four_erasure_dryrun_uq
+  - 20261111183002_mediafact_current_state
+  - 20261111233207_c3a_binding_projection_additive
+immutability: 红已提交迁移不可变——修正工作树（git checkout）或人工审阅后改基线文件（可 diff 审阅的有意识动作）
+EXIT=1
+```
+
+### check-migration-additive（BASELINE 常量不在迁移树）
+```
+additive FAIL: BASELINE 常量 "20261009140100_y0b2_init" 不在迁移目录集合中（拼写错=永久豁免——P0-3 根修）
+EXIT=1
+```
+
+### check-fresh-replay（主库旧链 vs scratch 新 init）
+```
+fresh-replay: scratch(flowweb_fresh_replay) 重放 1 迁移:     └─ migration.sql | All migrations have been successfully applied.
+fresh-replay FAIL [columns]: 主库独有 174 行 / scratch 独有 161 行
+  主库+ {"table_name":"AIModel","column_name":"createdAt","is_nullable":"NO","data_type":"timestamp without time zone","column_default":"CURRENT_TIMESTAMP"}
+  主库+ {"table_name":"AIModel","column_name":"updatedAt","is_nullable":"NO","data_type":"timestamp without time zone","column_default":null}
+  主库+ {"table_name":"Account","column_name":"accessTokenExpiresAt","is_nullable":"YES","data_type":"timestamp without time zone","column_default":null}
+  scratch+ {"table_name":"AIModel","column_name":"createdAt","is_nullable":"NO","data_type":"timestamp with time zone","column_default":"CURRENT_TIMESTAMP"}
+  scratch+ {"table_name":"AIModel","column_name":"updatedAt","is_nullable":"NO","data_type":"timestamp with time zone","column_default":null}
+  scratch+ {"table_name":"Account","column_name":"accessTokenExpiresAt","is_nullable":"YES","data_type":"timestamp with time zone","column_default":null}
+fresh-replay FAIL [constraints]: 主库独有 1 行 / scratch 独有 1 行
+  主库+ {"conname":"MediaFactOutbox_pkey","contype":"p","def":"PRIMARY KEY (id)"}
+  scratch+ {"conname":"MediaBinding_projectId_fkey","contype":"f","def":"FOREIGN KEY (\"projectId\") REFERENCES \"CanvasProject\"(id) ON UPDATE CASCADE ON DELETE CASCADE"}
+fresh-replay FAIL [indexes]: 主库独有 4 行 / scratch 独有 0 行
+  主库+ {"indexname":"MediaFactOutbox_mediaId_idx","indexdef":"CREATE INDEX \"MediaFactOutbox_mediaId_idx\" ON public.\"MediaFactOutbox\" USING btree (\"mediaId\")"}
+  主库+ {"indexname":"MediaFactOutbox_mediaId_projectId_factType_factVersion_key","indexdef":"CREATE UNIQUE INDEX \"MediaFactOutbox_mediaId_projectId_factType_factVersion_key\" ON public.\"MediaFactOutbox\" USING btree (\"mediaId\", \"projectId\", \"factType\", \"factVersion\")"}
+  主库+ {"indexname":"MediaFactOutbox_pkey","indexdef":"CREATE UNIQUE INDEX \"MediaFactOutbox_pkey\" ON public.\"MediaFactOutbox\" USING btree (id)"}
+fresh-replay FAIL [enums]: 主库独有 1 行 / scratch 独有 0 行
+  主库+ {"typname":"MediaFactState","values":"{pending,published,dead}"}
+fresh-replay FAIL: 4/5 组漂移——主库与迁移集不一致（squash 验收红：改主库 or 改迁移后 baseline 对齐）
+EXIT=1
+```
+
+## 绿（门禁改造/rebaseline/reset 后）
+
+- check-migration-immutability：`immutability --rebaseline --confirm: 基线重建 24 → 1 目录` → `check-migration-immutability OK: 1 迁移 ⊆ 基线（内容无漂移）`
+- 负控：裸 `--rebaseline`（无 --confirm）→ `immutability FAIL: --rebaseline 须与 --confirm 同传` exit 1，基线文件 sha256 不变
+- check-migration-additive：`OK（受检 0 个迁移，WARNING 0，豁免 0，基线=20261112120000_c1_rebaseline_init）`
+- check-migrate-diff：`--update` 落盘 2 行金标（内容不变）→ `OK: diff 2 行 ⊆ 金标 2 行`
+- check-fresh-replay：`OK: 五组对象清单（columns/constraints/indexes/sequences/enums）主库 ≡ scratch 重放（1 迁移）——双向一致`
+- pnpm verify full：`verify-chain: PASS（32 步，tier=full）`（exit 0；日志=gate-evidence/c1-1-verify-full.log）

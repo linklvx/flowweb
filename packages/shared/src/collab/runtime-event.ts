@@ -12,8 +12,7 @@
 
 /** 事件种类 registry（closed——**exact taxonomy** 五值；服务端维护常量+upcaster，客户端未知 kind
  *  忽略+`unknown_event_total` 不崩；新增种类=spec 修订非随手加 string。
- *  修正批 #3：media.fact 废止——natural 尺寸/downscaledFrom 走既有 media-facts 通道（MediaFactOutbox
- *  POST batch），feed 只携 mediaId 引用（exec.artifact{mediaId}）；node.restored 新增——undo 重建
+ *  修正批 #3：media.fact 废止——natural 尺寸/downscaledFrom 走既有 media-facts 通道（POST batch），feed 只携 mediaId 引用（exec.artifact{mediaId}）；node.restored 新增——undo 重建
  *  复活（客户端投影墓碑让位）与 node.deleted 对偶。） */
 export const EVENT_KINDS = ['exec.status', 'exec.artifact', 'node.deleted', 'node.restored', 'doc.vacuumed'] as const;
 export type RuntimeEventKind = typeof EVENT_KINDS[number];

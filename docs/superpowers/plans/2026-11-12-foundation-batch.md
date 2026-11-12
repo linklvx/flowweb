@@ -202,6 +202,9 @@ return writeBinding();
 - [ ] **Step 2：**`prisma validate` 绿（反向字段核对）→新 init 生成→`npx prisma migrate reset --force` 空库只重放新 init 红测绿。
 - [ ] **Step 3：**immutability `--rebaseline --confirm`+additive BASELINE+migrate-diff --write+状态文件清单 runbook 注记+Commit。
 - [ ] 评估登记（C3a-8 质量评审移交）：①部分索引 `WHERE "bindingsDirty" OR "mediaBindingSeq" < "pgSeq"`（backfill 枚举/COUNT 加速，本卡未加——终态 init 评估）；②ImportCoverageTracker 抽取（persistence 的 importPending 标记/申报/结算收敛为独立 tracker，解 persistence 1215/1215 零余量结构警号）——两者随 C1 终态 schema/结构性收口评估。
+- [x] **评估结论（C1-1 落地，2026-11-12）**：
+  - ①**采纳**：新 init 已含 `canvas_doc_binding_backfill_partial`（`ON "CanvasDoc"("projectId") WHERE "bindingsDirty" = true OR "mediaBindingSeq" < "pgSeq"`）——谓词逐字对齐已提交的 `projection-backfill.runner.ts` `enumeratePage`/`countCandidates` 两查询（index-only keyset 分页+COUNT）；稳态行（两条件皆假）不入索引，日常 append 的 HOT 不受影响。
+  - ②**不实现、建议独立立项**：persistence 1215/1215 零余量是真实结构风险，但 `importPending` 生命周期（标记/维护帧申报/settle/discard/onProjectGone 五点）收敛为 tracker 属结构性重构，与终态 schema 无关；本卡为 rebaseline（无行为变更面），重构应带独立 TDD 切片走既有 `collab-persistence.service.spec.ts` C1 恢复链红测，不应夹带。**建议在 C1-6 注记中挂「persistence 结构性收口」为下一批候选。**
 
 ### Task C1-2：三向 allowlist 对象门
 

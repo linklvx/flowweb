@@ -1,9 +1,8 @@
 // apps/api/src/modules/collab/c3a-schema.int.spec.ts —— C3a-2（地基修复批·C3a 卡）schema additive
 // 行为钉（spec 2026-11-11-foundation-batch-design.md §0 水位不变量/§3.2-6）：
-//   ① CanvasDoc.{mediaBindingSeq,bindingsDirty} 新列默认——新建行走 schema 默认（0n/false），迁移内
-//      `UPDATE "CanvasDoc" SET "bindingsDirty"=true` 只改既有行（既有项目全置 dirty——修 0==0 假覆盖，
-//      第七轮 P0-5）：文件级钉「ADD COLUMN 形态的迁移必同文件带回填」+匹配数兜底（0 匹配即红——
-//      C1 终态 init 整表 CREATE TABLE 形态后本钉由 C1-1 显式改写，防静默空真）；
+//   ① CanvasDoc.{mediaBindingSeq,bindingsDirty} 新列默认——新建行走 schema 默认（0n/false）；C1-1
+//      rebaseline 后单一 init 整表 CREATE TABLE 形态：钉「init 的 CanvasDoc 块含两列终态表形
+//      （类型+NOT NULL+默认值）」（原 ADD COLUMN+同文件回填钉随旧链目录删除显式改写——回填已在旧链接收）；
 //   ② Media.deletionState 默认 'ACTIVE'+CHECK 拒域外值（'BOGUS'）——列本卡落位，C3b-4 才消费；
 //   ③ ProjectionBackfillState 四态 CHECK+verifiedSeq BigInt（超 Number.MAX_SAFE_INTEGER——BigInt
 //      读写路径）+updatedAt（@db.Timestamptz(3)——C2-1 tsz 纪律，无 @updatedAt：C1 触发器前显式写）；
@@ -44,26 +43,27 @@ const MIG_DIR = join(__dirname, '../../../prisma/migrations');
     await prisma.$disconnect();
   }, 20_000);
 
-  it('① CanvasDoc 新列：新建行 schema 默认（mediaBindingSeq=0n ∧ bindingsDirty=false）+迁移回填语句同文件钉', async () => {
+  it('① CanvasDoc 新列：新建行 schema 默认（mediaBindingSeq=0n ∧ bindingsDirty=false）+新 init 终态形态钉', async () => {
     await prisma.canvasDoc.create({ data: { projectId: PID, generation: 0, schemaVersion: 3 } });
     const doc = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID } });
     expect(doc.mediaBindingSeq).toBe(0n);
-    expect(doc.bindingsDirty).toBe(false); // schema 默认如实——迁移 UPDATE 只改既有行（回填≠新行默认）
+    expect(doc.bindingsDirty).toBe(false); // schema 默认如实——C1 rebaseline 后无 ADD COLUMN 回填面（回填已在旧链接收）
 
-    // 迁移回填钉：给既有表 ADD COLUMN "bindingsDirty" 的迁移文件必含全量置 dirty（既有项目≠假覆盖绿）。
-    // 空白容忍正则+匹配数兜底（死断言根修）：prisma 生成物 ADD COLUMN 与列名间为多空格（实测 5 格），
-    // 单空格 includes 恒 0 匹配→for 零迭代=恒绿假覆盖；兜底钉 ADD COLUMN 时代真匹配≥1——0 即红
-    // （正则/迁移失守），C1 终态 init 整表 CREATE TABLE 形态后本钉由 C1-1 显式改写（届时回填已在
-    // 生产应用完成——防静默空真）。
+    // 迁移形态钉（C1-1 显式改写）：原钉依赖 additive 迁移的 `ADD COLUMN "bindingsDirty"` 正则+同文件
+    // `UPDATE ... SET "bindingsDirty"=true` 回填；单一 init 整表 CREATE TABLE 形态下该断言空转/红。
+    // 终态断言=新 init 的 CanvasDoc 整表块含两列（类型+NOT NULL+默认值），语义等价于「新建行默认
+    // 0n/false」。数据回填（既有项目全置 dirty）属旧链历史（tag pre-c1-rebaseline），新库出生即终态。
     const sqlOf = (d: string) => readFileSync(join(MIG_DIR, d, 'migration.sql'), 'utf8');
-    const adders = readdirSync(MIG_DIR).filter((d) => /^\d+_/.test(d))
-      .filter((d) => /ADD COLUMN\s+"bindingsDirty"/.test(sqlOf(d)));
-    expect(adders.length, 'ADD COLUMN 形态迁移须在场（C1 init 整表形态前；0=正则/迁移失守）').toBeGreaterThan(0);
-    for (const d of adders) {
-      expect(
-        sqlOf(d).replace(/--[^\n]*/g, '').includes('UPDATE "CanvasDoc" SET "bindingsDirty" = true'),
-        `${d} 加列必带回填`,
-      ).toBe(true);
+    const initDirs = readdirSync(MIG_DIR).filter((d) => /^\d+_/.test(d));
+    const creators = initDirs
+      .map((d) => ({ d, sql: sqlOf(d).replace(/--[^\n]*/g, '') }))
+      .filter(({ sql }) => /CREATE TABLE "CanvasDoc" \(/.test(sql));
+    expect(creators.length, '迁移集必含 CanvasDoc 整表 CREATE（C1-1 rebaseline init）').toBeGreaterThan(0);
+    for (const { d, sql } of creators) {
+      const block = sql.match(/CREATE TABLE "CanvasDoc" \(([\s\S]*?)\n\);/)?.[1] ?? '';
+      expect(block, `${d} CREATE TABLE "CanvasDoc" 块可解析`).not.toBe('');
+      expect(block, `${d} CanvasDoc.mediaBindingSeq 终态表形`).toMatch(/"mediaBindingSeq" BIGINT NOT NULL DEFAULT 0/);
+      expect(block, `${d} CanvasDoc.bindingsDirty 终态表形`).toMatch(/"bindingsDirty" BOOLEAN NOT NULL DEFAULT false/);
     }
   });
 
@@ -83,13 +83,17 @@ const MIG_DIR = join(__dirname, '../../../prisma/migrations');
     await prisma.projectionBackfillState.create({
       data: { projectId: PID, backfillEpoch: 'e0', state: 'PENDING', verifiedSeq: 0n, updatedAt: sentAt },
     });
+    const inserted = await prisma.projectionBackfillState.findUniqueOrThrow({ where: { projectId: PID } });
+    // INSERT 显式值保留（C1 set_updated_at：INSERT 仅 NULL 设——restore/backfill 历史值不被改写）
+    expect(Math.abs(inserted.updatedAt.getTime() - sentAt.getTime())).toBeLessThanOrEqual(1); // tz 判别钉在 C2-1 roundtrip spec（本断言无 naive/tsz 判别力）
     for (const s of ['RUNNING', 'DONE', 'FAILED'] as const) {
       await prisma.projectionBackfillState.update({ where: { projectId: PID }, data: { state: s, verifiedSeq: beyondSafe } });
     }
     const row = await prisma.projectionBackfillState.findUniqueOrThrow({ where: { projectId: PID } });
     expect(row.state).toBe('FAILED');
     expect(row.verifiedSeq).toBe(beyondSafe);
-    expect(Math.abs(row.updatedAt.getTime() - sentAt.getTime())).toBeLessThanOrEqual(1); // 显式写读回 sanity——tz 判别钉在 C2-1 roundtrip spec（本断言无 naive/tsz 判别力）
+    // UPDATE 始终 now()（C1 set_updated_at：非 skip_updated_at 通道——update 自动 bump 取代显式写）
+    expect(row.updatedAt.getTime()).toBeGreaterThanOrEqual(sentAt.getTime());
     await expect(
       prisma.projectionBackfillState.update({ where: { projectId: PID }, data: { state: 'BOGUS' } }),
     ).rejects.toThrowError(/ProjectionBackfillState_state_check/);

@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { scanTree, diffAgainstBaseline, mergeBaseline } from './check-migration-immutability.mjs';
+import { scanTree, diffAgainstBaseline, mergeBaseline, rebaselineTree } from './check-migration-immutability.mjs';
 
 function fixture(t, files) {
   // files: { '<dir>/<relpath>': '<content>' } —— 每用例独立 tmp 根，t.after 用毕即清
@@ -78,4 +78,16 @@ test('棘轮单向性：--write（mergeBaseline）不吸收内容漂移——改
   const merged = mergeBaseline(baseline, scanTree(root));
   assert.equal(merged['20261010000000_a']['migration.sql'], baseline['20261010000000_a']['migration.sql']);   // 原值不动
   assert.equal(diffAgainstBaseline(scanTree(root), merged).ok, false);
+});
+
+test('C1-1 --rebaseline 纯函数：基线整体替换为当前 tree（旧目录消失不再永红；removed/added 供审阅）', (t) => {
+  const root = fixture(t, { '20260101000000_old/migration.sql': '-- old\n', '20260201000000_new/migration.sql': '-- new\n' });
+  const oldBaseline = { '20250101000000_legacy': { 'migration.sql': 'deadbeef' } };
+  const { next, removed, added } = rebaselineTree(scanTree(root), oldBaseline);
+  assert.deepEqual(Object.keys(next), ['20260101000000_old', '20260201000000_new']);
+  assert.deepEqual(removed, ['20250101000000_legacy']);   // 旧基线有而 tree 无（squash 删除面——审阅输出）
+  assert.deepEqual(added, ['20260101000000_old', '20260201000000_new']);   // tree 有而旧基线无（首次基线化同面）
+  // 旧棘轮对同一 tree 恒红（missingDirs=legacy 永不吸收）——rebaseline 后归零
+  assert.equal(diffAgainstBaseline(scanTree(root), oldBaseline).ok, false);
+  assert.equal(diffAgainstBaseline(scanTree(root), next).ok, true);
 });

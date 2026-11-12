@@ -36,25 +36,37 @@ test('硬拦名单与 migrate-diff-allowlist 唯一永久豁免同源（人工�
   assert.deepEqual([...CRITICAL_INDEXES], ['pricing_rule_natural_key']);
 });
 
-test('裁定1 豁免命中：登记迁移+登记表的 DROP COLUMN→exempted（不计违规）', () => {
-  const sql = 'ALTER TABLE "Media" ADD COLUMN "a" TEXT,\nDROP COLUMN "status",\nADD COLUMN "status" "MediaStatus" NOT NULL DEFAULT \'pending\';';
-  const { exempted, violations } = resolveExemptions('20261020200300_nodeartifact_projection_v3', sql);
-  assert.equal(exempted.length, 1);
-  assert.equal(exempted[0].table, 'Media');
-  assert.ok(exempted[0].reason.length > 0);
-  assert.equal(violations.length, 0);
+test('裁定1 豁免机制命中：登记迁移+登记表的 DROP COLUMN→exempted（C1-1 后零登记——临时登记测机制）', () => {
+  const dir = '99999999999999_fixture_exemption';
+  EXEMPTIONS[dir] = { Media: { reason: 'fixture：豁免机制覆盖', owner: 'test', since: '2026-11-12' } };
+  try {
+    const sql = 'ALTER TABLE "Media" ADD COLUMN "a" TEXT,\nDROP COLUMN "status",\nADD COLUMN "status" "MediaStatus" NOT NULL DEFAULT \'pending\';';
+    const { exempted, violations } = resolveExemptions(dir, sql);
+    assert.equal(exempted.length, 1);
+    assert.equal(exempted[0].table, 'Media');
+    assert.ok(exempted[0].reason.length > 0);
+    assert.equal(violations.length, 0);
+  } finally {
+    delete EXEMPTIONS[dir];
+  }
 });
 
 test('裁定1 豁免未命中=维持硬拦：未登记表/未登记迁移/表名不可提取均红（拦截力不变）', () => {
-  // 同迁移内未登记表照红——豁免精确到〈迁移,表〉，文件级一刀切禁止
-  const two = 'ALTER TABLE "Media" DROP COLUMN "status"; ALTER TABLE "GenerationIntent" DROP COLUMN "paramsHash";';
-  const r = resolveExemptions('20261020200300_nodeartifact_projection_v3', two);
-  assert.equal(r.exempted.length, 1);
-  assert.equal(r.violations.length, 1);
-  // 未登记迁移全红
-  assert.equal(resolveExemptions('99999999999999_other', two).violations.length, 2);
-  // 表名不可提取（裸 DROP CONSTRAINT）→红兜底
-  assert.equal(resolveExemptions('20261020200300_nodeartifact_projection_v3', 'DROP CONSTRAINT "x";').violations.length, 1);
+  const dir = '99999999999999_fixture_exemption';
+  EXEMPTIONS[dir] = { Media: { reason: 'fixture：豁免机制覆盖', owner: 'test', since: '2026-11-12' } };
+  try {
+    // 同迁移内未登记表照红——豁免精确到〈迁移,表〉，文件级一刀切禁止
+    const two = 'ALTER TABLE "Media" DROP COLUMN "status"; ALTER TABLE "GenerationIntent" DROP COLUMN "paramsHash";';
+    const r = resolveExemptions(dir, two);
+    assert.equal(r.exempted.length, 1);
+    assert.equal(r.violations.length, 1);
+    // 未登记迁移全红
+    assert.equal(resolveExemptions('99999999999998_other', two).violations.length, 2);
+    // 表名不可提取（裸 DROP CONSTRAINT）→红兜底
+    assert.equal(resolveExemptions(dir, 'DROP CONSTRAINT "x";').violations.length, 1);
+  } finally {
+    delete EXEMPTIONS[dir];
+  }
 });
 
 test('裁定1 breakingTable 形态：ALTER/DROP/TRUNCATE TABLE 与 DROP TYPE 取表名，无表引用=null', () => {
@@ -66,28 +78,11 @@ test('裁定1 breakingTable 形态：ALTER/DROP/TRUNCATE TABLE 与 DROP TYPE 取
   assert.equal(breakingTable('DROP CONSTRAINT "x"'), null);
 });
 
-test('裁定1 EXEMPTIONS 登记面 pin（豁免清单变更须同 commit 人工审阅——六登记=Media.status enum 硬切+T2 质评收口 size Int→BigInt+T16 P1#1 MediaBinding CHECK 域放宽+Y1c T9 表改形+Y1c T11 快照权威切换+Y1c T12 preVacuumSv 退役）', () => {
-  assert.deepEqual(Object.keys(EXEMPTIONS), [
-    '20261022070000_mediabinding_refvideo_refaudio',
-    '20261020200300_nodeartifact_projection_v3',
-    '20261020211610_media_v3_natural_sniff_size',
-    '20261024130000_y1c_t9_canvas_doc_update_v17',
-    '20261024150000_y1c_t11_snapshot_authority',
-    '20261024160000_y1c_t12_prevacuum_retirement',
-  ]);
-  assert.deepEqual(Object.keys(EXEMPTIONS['20261022070000_mediabinding_refvideo_refaudio']), ['MediaBinding']);
-  assert.deepEqual(Object.keys(EXEMPTIONS['20261020200300_nodeartifact_projection_v3']), ['Media']);
-  assert.deepEqual(Object.keys(EXEMPTIONS['20261020211610_media_v3_natural_sniff_size']), ['Media']);
-  assert.deepEqual(Object.keys(EXEMPTIONS['20261024130000_y1c_t9_canvas_doc_update_v17']), ['CanvasDocUpdate']);
-  assert.deepEqual(Object.keys(EXEMPTIONS['20261024150000_y1c_t11_snapshot_authority']), ['CanvasDoc']);
-  assert.deepEqual(Object.keys(EXEMPTIONS['20261024160000_y1c_t12_prevacuum_retirement']), ['CanvasDoc']);
-  // T16 P1#1 owner pin：spec 评审裁定专属（域放宽非收紧——旧值全合法）
-  assert.equal(EXEMPTIONS['20261022070000_mediabinding_refvideo_refaudio'].MediaBinding.owner, 'Y1a+Y1b T16 spec 评审 P1#1 裁定');
-  assert.equal(EXEMPTIONS['20261024150000_y1c_t11_snapshot_authority'].CanvasDoc.owner, 'Y1c T11 controller');
-  assert.equal(EXEMPTIONS['20261024160000_y1c_t12_prevacuum_retirement'].CanvasDoc.owner, 'Y1c T12 controller');
+test('C1-1 rebaseline：EXEMPTIONS 旧六登记随旧链目录删除清零（新 init=唯一收编面；S0.1 永久登记纪律零负债）', () => {
+  assert.deepEqual(Object.keys(EXEMPTIONS), []);
 });
 
-test('S0.1 EXEMPTIONS 元数据完备（每条豁免必带 reason/owner/since 非空字符串——永久登记可追溯，禁裸字符串条目）', () => {
+test('S0.1 EXEMPTIONS 元数据完备（每条豁免必带 reason/owner/since 非空字符串——永久登记可追溯，禁裸字符串条目；C1-1 后空集为未来登记留结构门）', () => {
   for (const [dir, tables] of Object.entries(EXEMPTIONS)) {
     for (const [table, meta] of Object.entries(tables)) {
       assert.equal(typeof meta, 'object', `${dir}/${table} 条目须为元数据对象（S0.1 结构）`);
@@ -96,27 +91,36 @@ test('S0.1 EXEMPTIONS 元数据完备（每条豁免必带 reason/owner/since �
       assert.ok(typeof meta.since === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(meta.since), `${dir}/${table} since=YYYY-MM-DD`);
     }
   }
-  // owner pin：本批两登记=controller 裁定专属
-  assert.equal(EXEMPTIONS['20261020200300_nodeartifact_projection_v3'].Media.owner, 'Y1a+Y1b 批 controller');
-  assert.equal(EXEMPTIONS['20261020211610_media_v3_natural_sniff_size'].Media.since, '2026-10-20');
 });
 
 test('质评 Minor-1 双盲红测：已豁免迁移+critical DROP INDEX→必须红（judgeMigration.bad>0 ⇔ main exit 1——process.exit(bad?1:0)）', () => {
-  // 场景：豁免迁移内 BREAKING（命中豁免放行）+ 硬拦名单 DROP INDEX——旧代码走 breaking 分支=双盲放行
-  const sql = 'ALTER TABLE "Media" DROP COLUMN "status"; DROP INDEX "pricing_rule_natural_key";';
-  const j = judgeMigration('20261020211610_media_v3_natural_sniff_size', sql);
-  assert.equal(j.criticalIndex, 'pricing_rule_natural_key');
-  assert.equal(j.exempted.length, 1);   // 豁免照常放行（不因 critical 收紧豁免面）
-  assert.equal(j.violations.length, 0);
-  assert.ok(j.bad >= 1, '豁免放行不得吞掉 critical 拦截——必须红 exit 1');
+  const dir = '99999999999999_fixture_exemption';
+  EXEMPTIONS[dir] = { Media: { reason: 'fixture：豁免机制覆盖', owner: 'test', since: '2026-11-12' } };
+  try {
+    // 场景：豁免迁移内 BREAKING（命中豁免放行）+ 硬拦名单 DROP INDEX——旧代码走 breaking 分支=双盲放行
+    const sql = 'ALTER TABLE "Media" DROP COLUMN "status"; DROP INDEX "pricing_rule_natural_key";';
+    const j = judgeMigration(dir, sql);
+    assert.equal(j.criticalIndex, 'pricing_rule_natural_key');
+    assert.equal(j.exempted.length, 1);   // 豁免照常放行（不因 critical 收紧豁免面）
+    assert.equal(j.violations.length, 0);
+    assert.ok(j.bad >= 1, '豁免放行不得吞掉 critical 拦截——必须红 exit 1');
+  } finally {
+    delete EXEMPTIONS[dir];
+  }
 });
 
 test('质评 Minor-1 连带警告：已豁免迁移+普通 DROP INDEX→豁免放行+dropIndex 警告不丢', () => {
-  const j = judgeMigration('20261020211610_media_v3_natural_sniff_size', 'ALTER TABLE "Media" DROP COLUMN "status"; DROP INDEX "Media_legacy_idx";');
-  assert.equal(j.criticalIndex, null);
-  assert.equal(j.exempted.length, 1);
-  assert.equal(j.bad, 0);                // 无 critical=不红
-  assert.equal(j.warned, 1);             // 但 WARNING 必须保留
+  const dir = '99999999999999_fixture_exemption';
+  EXEMPTIONS[dir] = { Media: { reason: 'fixture：豁免机制覆盖', owner: 'test', since: '2026-11-12' } };
+  try {
+    const j = judgeMigration(dir, 'ALTER TABLE "Media" DROP COLUMN "status"; DROP INDEX "Media_legacy_idx";');
+    assert.equal(j.criticalIndex, null);
+    assert.equal(j.exempted.length, 1);
+    assert.equal(j.bad, 0);                // 无 critical=不红
+    assert.equal(j.warned, 1);             // 但 WARNING 必须保留
+  } finally {
+    delete EXEMPTIONS[dir];
+  }
 });
 
 test('judgeMigration 基线：纯 additive 迁移全绿（bad=0/warned=0/零豁免零违规）', () => {

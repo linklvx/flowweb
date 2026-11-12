@@ -24,8 +24,8 @@ model User {
   phoneNumberVerified     Boolean            @default(false)
   wechatOpenid            String?            @unique @db.VarChar(64)
   wechatUnionid           String?            @db.VarChar(64)
-  createdAt               DateTime           @default(now())
-  updatedAt               DateTime           @updatedAt
+  createdAt               DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime           @updatedAt @db.Timestamptz(3)
   accounts                Account[]
   sessions                Session[]
   templates               Template[]
@@ -53,11 +53,11 @@ model Account {
   accessToken           String?
   refreshToken          String?
   idToken               String?
-  accessTokenExpiresAt  DateTime?
-  refreshTokenExpiresAt DateTime?
+  accessTokenExpiresAt  DateTime? @db.Timestamptz(3)
+  refreshTokenExpiresAt DateTime? @db.Timestamptz(3)
   scope                 String?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
 
   @@unique([providerId, accountId])
   @@index([userId])
@@ -68,11 +68,11 @@ model Session {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   token     String   @unique
-  expiresAt DateTime
+  expiresAt DateTime @db.Timestamptz(3)
   ipAddress String?
   userAgent String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([userId])
 }
@@ -81,9 +81,9 @@ model Verification {
   id         String   @id @default(cuid())
   identifier String
   value      String
-  expiresAt  DateTime
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  expiresAt  DateTime @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([identifier])
 }
@@ -96,8 +96,8 @@ model Announcement {
   bgColor   String   @default("#0f2761") @db.VarChar(16)
   textColor String   @default("#ffffff") @db.VarChar(16)
   active    Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 }
 
 model ContentCard {
@@ -108,8 +108,8 @@ model ContentCard {
   desc      String
   sortOrder Int      @default(0)
   active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([active, sortOrder])
 }
@@ -122,8 +122,8 @@ model HomeBanner {
   imageKey  String   @db.VarChar(255)
   sortOrder Int      @default(0)
   active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([active, sortOrder])
 }
@@ -137,8 +137,8 @@ model Template {
   project   CanvasProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   userId    String
   teamId    String?
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  createdAt DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime       @updatedAt @db.Timestamptz(3)
 
   user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
   team Team? @relation(fields: [teamId], references: [id], onDelete: Cascade)
@@ -149,7 +149,7 @@ model Template {
 }
 
 model CanvasProject {
-  id             String            @id @default(cuid())
+  id             String              @id @default(cuid())
   name           String
   userId         String?
   teamId         String
@@ -157,23 +157,25 @@ model CanvasProject {
   // 写路径拒绝〔fenceProject FOR SHARE 行锁读〕；状态机接线/HTTP 映射归 C4）+origin=谱系列
   // （值域单源 shared CANVAS_PROJECT_ORIGINS=['user','clone']——governance 单源写点〔C2-0 两创建
   // 路径均 'user'〕；'clone' 谱系 video-work clone 接线+cleanDrafts 谓词消费，C4 接线）。
-  lifecycleState String            @default("ACTIVE")
+  lifecycleState String              @default("ACTIVE")
   origin         String?
   templates      Template[]
   canvasDoc      CanvasDoc?
-  docSnapshots   CanvasDocSnapshot[]   // Y1c T7：载体族快照反向关系（双侧全补）
+  docSnapshots   CanvasDocSnapshot[] // Y1c T7：载体族快照反向关系（双侧全补）
   projectMembers ProjectMember[]
   docUpdates     CanvasDocUpdate[]
   videoProjects  VideoProject[]
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  // C1-1（v5.1 裁定）：MediaBinding.projectId FK Cascade 反向关系——项目删除零残留
+  mediaBindings  MediaBinding[]
+  createdAt      DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime            @updatedAt @db.Timestamptz(3)
 
   user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
-  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  team Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([teamId])
-  @@index([lifecycleState])   // C1-0：擦除扫（非 ACTIVE 活跃擦除行集）
+  @@index([lifecycleState]) // C1-0：擦除扫（非 ACTIVE 活跃擦除行集）
 }
 
 model Folder {
@@ -182,8 +184,8 @@ model Folder {
   parentId  String?
   userId    String
   teamId    String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   parent    Folder?    @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
   children  Folder[]   @relation("FolderHierarchy")
@@ -202,8 +204,8 @@ model NodeType {
   active       Boolean       @default(true)
   models       AIModel[]
   pricingRules PricingRule[]
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime      @updatedAt @db.Timestamptz(3)
 }
 
 model AIModel {
@@ -222,8 +224,8 @@ model AIModel {
   resolutions   ModelResolution[]
   durations     ModelDuration[]
   pricingRules  PricingRule[]
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  createdAt     DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime          @updatedAt @db.Timestamptz(3)
 
   @@index([nodeTypeId, active])
   @@index([nodeTypeId, sortOrder])
@@ -237,7 +239,7 @@ model ModelResolution {
   width        Int
   height       Int
   pricingRules PricingRule[]
-  createdAt    DateTime      @default(now())
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
 
   @@index([modelId])
 }
@@ -249,7 +251,7 @@ model ModelDuration {
   label        String
   seconds      Int
   pricingRules PricingRule[]
-  createdAt    DateTime      @default(now())
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
 
   @@index([modelId])
 }
@@ -266,8 +268,8 @@ model PricingRule {
   duration     ModelDuration?   @relation(fields: [durationId], references: [id])
   creditCost   Int
   active       Boolean          @default(true)
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  createdAt    DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime         @updatedAt @db.Timestamptz(3)
 
   intentSnapshots GenerationIntent[] // Y0b-1：claim 定价快照反向关系（快照 FK SET NULL——规则行删除时快照仍存活）
 
@@ -301,11 +303,11 @@ model Media {
 
   // Y1b T2（Z1''/Z7''）：sourceUrl 专用列（provider 源禁入 metadata——整行 spread 泄漏；加密是应用层）
   sourceUrl             String?
-  sourceUrlExpiresAt    DateTime? // 源过期判定（过期→materialize 重试判据）
+  sourceUrlExpiresAt    DateTime?  @db.Timestamptz(3) // 源过期判定（过期→materialize 重试判据）
   // materialize 族（video 异步物化——自有 lease/attempts 与 intent attempts/rearm 解耦）
-  processingLeaseUntil  DateTime?
+  processingLeaseUntil  DateTime?  @db.Timestamptz(3)
   processingAttempts    Int        @default(0)
-  nextMaterializeAt     DateTime?
+  nextMaterializeAt     DateTime?  @db.Timestamptz(3)
   // probe 族（上传路径 worker 重计算）——裁定3 完整化：v10.1 plan Task 3 Media 块八列全量
   // （docs/superpowers/plans/2026-10-18-y1a-y1b-doc-model-order-size.md@5c24441c :86-93；未落地六列本批补齐，
   //  optional/带默认——消费卡 T4/T7 零迁移可用）
@@ -313,10 +315,10 @@ model Media {
   probeAttempts         Int        @default(0) // v10.1 :87
   probeError            String?    @db.VarChar(512) // v10.1 :88
   probeFailureKind      String? // v10.1 :89
-  probeLeaseUntil       DateTime? // v10.1 :90
+  probeLeaseUntil       DateTime?  @db.Timestamptz(3) // v10.1 :90
   probeRunId            String? // v10.1 :91
-  nextProbeAt           DateTime? // jitter 退避（v10.1 :92）
-  probedAt              DateTime? // 仅审计（v10.1 :93）
+  nextProbeAt           DateTime?  @db.Timestamptz(3) // jitter 退避（v10.1 :92）
+  probedAt              DateTime?  @db.Timestamptz(3) // 仅审计（v10.1 :93）
   factVersion           BigInt     @default(0) // 单调事实版本（每次 natural/sniff/status 变更+1）；wire/doc 用 string（v8 裁决②）——JSON 序列化=T6 收紧：DTO/响应构造处显式 String()（禁全局 BigInt.prototype.toJSON）
   // natural/sniffed 族（v10.1 plan Task 3 Media 块 :94-97——质评 Important-1 补齐）：server fact 消费
   // （probe done/server natural 同事务 factVersion+1+outbox）；sniffedMimeType=probe claim 路由
@@ -327,7 +329,7 @@ model Media {
   naturalSource         String?
   sniffedMimeType       String?
   // v11 pending 上传 TTL+presign 幂等键
-  pendingExpiresAt      DateTime?
+  pendingExpiresAt      DateTime?  @db.Timestamptz(3)
   clientUploadId        String?
   sourceRegistrationKey String? // 非资金幂等锚（nullable——非资金路径 registrationKey）
   // origin/审计锚（plan v11.2 T2：资金唯一键 [sourceIntentRowId,sourceExecSeq,artifactIndex] 移
@@ -340,19 +342,19 @@ model Media {
   objectSha256          String?
 
   // 时间戳
-  createdAt DateTime  @default(now())
-  expiresAt DateTime? // 临时文件过期时间
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt DateTime? @db.Timestamptz(3) // 临时文件过期时间
 
   // 素材库关联
-  folderId     String? // 关联素材库文件夹
-  isFavorite   Boolean   @default(false) // 收藏标记
-  thumbnailKey String? // 缩略图对象键（URL动态生成，避免过期）
-  updatedAt    DateTime  @updatedAt
-  deletedAt    DateTime? // 软删除
+  folderId      String? // 关联素材库文件夹
+  isFavorite    Boolean   @default(false) // 收藏标记
+  thumbnailKey  String? // 缩略图对象键（URL动态生成，避免过期）
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt     DateTime? @db.Timestamptz(3) // 软删除
   // C3a-2（spec §0 C3b/§3.2-6）：删除事务态 ACTIVE|DELETING——DELETING=删除事务进行中（doc 帧照写
   // binding=recheck 证人，「引用即中止删除」；列本卡落位解 C1 前引用冲突，**消费归 C3b-4**）。
   // DB CHECK IN ('ACTIVE','DELETING') 为 raw 迁移附（Prisma 不可表达——MediaFact.factType 同款先例）。
-  deletionState String @default("ACTIVE")
+  deletionState String    @default("ACTIVE")
 
   folder MaterialFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
@@ -391,9 +393,9 @@ model MaterialFolder {
   teamId    String
   sortOrder Int       @default(0)
   isDefault Boolean   @default(false)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt DateTime? @db.Timestamptz(3)
 
   parent   MaterialFolder?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
   children MaterialFolder[] @relation("FolderHierarchy")
@@ -420,8 +422,8 @@ model LightingTask {
   costCredits      Int                @default(0)
   errorMessage     String?            @db.Text
   teamId           String
-  createdAt        DateTime           @default(now())
-  completedAt      DateTime?
+  createdAt        DateTime           @default(now()) @db.Timestamptz(3)
+  completedAt      DateTime?          @db.Timestamptz(3)
 
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
@@ -449,8 +451,8 @@ model VideoTrimTask {
   outputFileId String?
   errorMsg     String?
   teamId       String
-  createdAt    DateTime  @default(now())
-  finishedAt   DateTime?
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  finishedAt   DateTime? @db.Timestamptz(3)
 
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
@@ -472,8 +474,8 @@ model VideoSeparateTask {
   errorMsg     String?
   errorType    String?
   teamId       String
-  createdAt    DateTime  @default(now())
-  finishedAt   DateTime?
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  finishedAt   DateTime? @db.Timestamptz(3)
 
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
@@ -491,8 +493,8 @@ model VideoProject {
   sourceNodeId String   @unique // 视频剪辑节点自身 nodeId——一剪辑节点一工程
   title        String
   data         Json
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
 
   team     Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -568,8 +570,8 @@ model SubscriptionPlan {
   originalPriceAnnually  Int                @default(0)
   sort                   Int                @default(0)
   isActive               Boolean            @default(true)
-  createdAt              DateTime           @default(now())
-  updatedAt              DateTime           @updatedAt
+  createdAt              DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime           @updatedAt @db.Timestamptz(3)
   subscriptions          UserSubscription[]
 
   @@index([isActive, sort])
@@ -586,12 +588,12 @@ model SubscriptionBanner {
   /// MinIO 对象存储 Key，优先级高于外部URL
   backgroundImageKey String?   @db.VarChar(255)
   /// 倒计时截止时间，UTC存储；为空则不展示倒计时
-  countdownEndAt     DateTime?
+  countdownEndAt     DateTime? @db.Timestamptz(3)
   /// 倒计时归零后自动顺延3天，仅countdownEndAt非空时生效
   autoExtend         Boolean   @default(false)
   isActive           Boolean   @default(true)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
 
   @@map("subscription_banner")
 }
@@ -608,14 +610,14 @@ model UserSubscription {
   totalCredits       Int
   totalDays          Int
   consumedCredits    Int                @default(0)
-  subscribedAt       DateTime
-  currentPeriodStart DateTime
-  currentPeriodEnd   DateTime
-  nextGrantDate      DateTime
+  subscribedAt       DateTime           @db.Timestamptz(3)
+  currentPeriodStart DateTime           @db.Timestamptz(3)
+  currentPeriodEnd   DateTime           @db.Timestamptz(3)
+  nextGrantDate      DateTime           @db.Timestamptz(3)
   grantCount         Int                @default(1)
   previousSubId      String?
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
+  createdAt          DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime           @updatedAt @db.Timestamptz(3)
 
   @@index([userId])
   @@index([planId])
@@ -641,13 +643,13 @@ model SubscriptionOrder {
   prepayId           String?                 @db.VarChar(64)
   transactionId      String?                 @db.VarChar(64)
   payerOpenid        String?                 @db.VarChar(64)
-  paidAt             DateTime?
-  expiredAt          DateTime?
-  closedAt           DateTime?
+  paidAt             DateTime?               @db.Timestamptz(3)
+  expiredAt          DateTime?               @db.Timestamptz(3)
+  closedAt           DateTime?               @db.Timestamptz(3)
   delayCloseJobId    String?
   notifySummary      Json?
-  createdAt          DateTime                @default(now())
-  updatedAt          DateTime                @updatedAt
+  createdAt          DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime                @updatedAt @db.Timestamptz(3)
 }
 
 model AuditLog {
@@ -661,7 +663,7 @@ model AuditLog {
   beforeValue  Json?
   afterValue   Json?
   remark       String?
-  createdAt    DateTime        @default(now())
+  createdAt    DateTime        @default(now()) @db.Timestamptz(3)
 
   @@index([operatorId])
   @@index([targetType, targetId])
@@ -673,8 +675,8 @@ model SystemSetting {
   id        String   @id @default(cuid())
   key       String   @unique
   value     String   @db.Text
-  updatedAt DateTime @updatedAt
-  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
 }
 
 // ========== 团队协作 ==========
@@ -734,8 +736,8 @@ model Team {
   owner        User       @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   status       TeamStatus @default(ACTIVE)
   joinApproval Boolean    @default(true)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @db.Timestamptz(3)
 
   isDefault Boolean @default(false)
 
@@ -765,7 +767,7 @@ model TeamMember {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   role         TeamRole @default(MEMBER)
   monthlyQuota Int      @default(0) // 0=不限额
-  joinedAt     DateTime @default(now())
+  joinedAt     DateTime @default(now()) @db.Timestamptz(3)
 
   @@unique([teamId, userId])
   @@index([userId])
@@ -778,8 +780,8 @@ model TeamBalance {
   credits             Int      @default(0)
   subscriptionCredits Int      @default(0)
   version             Int      @default(0)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime @updatedAt @db.Timestamptz(3)
 }
 
 model TeamCreditTransaction {
@@ -796,7 +798,7 @@ model TeamCreditTransaction {
   balanceAfter   Int // 本池分量（行级快照）
   reversesId     String?                   @unique // Z6 三配对 1:1：settle/release→reserve 行 / refund→settle 行
   idempotencyKey String?                   @unique // Y0b-2 Z100：mutate 前置查幂等锚（money_in 重放）——普通唯一（PG NULL 不冲突=去 partial 语义等价）
-  createdAt      DateTime                  @default(now())
+  createdAt      DateTime                  @default(now()) @db.Timestamptz(3)
 
   @@index([teamId, createdAt])
   @@index([referenceId])
@@ -811,8 +813,8 @@ model TeamPlan {
   priceMonthly      Int // 分
   isActive          Boolean  @default(true)
   sort              Int      @default(0)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
 
   subscriptions TeamSubscription[]
 
@@ -827,10 +829,10 @@ model TeamSubscription {
   plan               TeamPlan               @relation(fields: [planId], references: [id])
   status             TeamSubscriptionStatus @default(active)
   paidAmount         Int
-  currentPeriodStart DateTime
-  currentPeriodEnd   DateTime
-  createdAt          DateTime               @default(now())
-  updatedAt          DateTime               @updatedAt
+  currentPeriodStart DateTime               @db.Timestamptz(3)
+  currentPeriodEnd   DateTime               @db.Timestamptz(3)
+  createdAt          DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime               @updatedAt @db.Timestamptz(3)
 
   @@index([status, currentPeriodEnd])
 }
@@ -848,10 +850,10 @@ model TeamRechargeOrder {
   prepayId      String?         @db.VarChar(64)
   transactionId String?         @db.VarChar(64)
   payerOpenid   String?         @db.VarChar(64)
-  paidAt        DateTime?
-  expiresAt     DateTime
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  paidAt        DateTime?       @db.Timestamptz(3)
+  expiresAt     DateTime        @db.Timestamptz(3)
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime        @updatedAt @db.Timestamptz(3)
 
   @@index([teamId, createdAt])
   @@index([status, expiresAt])
@@ -865,18 +867,18 @@ model TeamJoinRequest {
   user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   status        JoinRequestStatus @default(PENDING)
   message       String?
-  decidedAt     DateTime?
+  decidedAt     DateTime?         @db.Timestamptz(3)
   decidedBy     String?
   decidedByUser User?             @relation("TeamJoinRequestDecidedBy", fields: [decidedBy], references: [id], onDelete: SetNull)
-  createdAt     DateTime          @default(now())
+  createdAt     DateTime          @default(now()) @db.Timestamptz(3)
 
   @@index([teamId, status])
   @@index([userId])
 }
 
 model CanvasDoc {
-  projectId     String        @id
-  project       CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId          String        @id
+  project            CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
   // ── 旧平面（Y0a-3/Y0b-4 形态）——Y1c T7 勘误（方案 B）：state/stateSeq 已随 T11（compact 重写+
   // 快照权威切换=CanvasDocSnapshot+currentSnapshotRev 指针）退役删除；preVacuumSv 已随 T12（SV 代际
   // 门退役——世代执法改道 docName 段 auth/load 双校验，迁移 20261024160000）退役删除；
@@ -884,20 +886,20 @@ model CanvasDoc {
   // Y0b-4 T9a（Q-U v6）/Y1c T12：vacuum 文档代际替换——generation=真空代数（真值链：装载/boot 恒
   // 播种当代真值→docGeneration/doc-status 顶层 generation/canonical wire 名 #g 段三消费面；
   // vacuum ⑥ 单事务 n+1——新 docName(#g) 换代通道）。
-  generation    Int           @default(0)
+  generation         Int           @default(0)
   // Y1b T2（Z9''-v14）：doc schema 版本移 PG 列承载（meta.schemaVersion 删除——客户端无从篡改）；
   // 裁定2：@default(3)=Y1c 本批固定值（存量建行走默认——docShape v3 即当前代）
-  schemaVersion Int           @default(3)
-  updatedAt     DateTime      @updatedAt
+  schemaVersion      Int           @default(3)
+  updatedAt          DateTime      @updatedAt @db.Timestamptz(3)
   // ── Y1c T7（方案 B 增量）：v1.7 载体头行新列（spec §4.4/§5.1 水位拆义+§6.6 行级关闸）──
   // vacuumEpoch：压缩操作代次（遥测——无行为分支）；currentSnapshotRev：当前快照指针（compact 发布推进）
-  vacuumEpoch        Int    @default(0)
-  currentSnapshotRev BigInt @default(0)
+  vacuumEpoch        Int           @default(0)
+  currentSnapshotRev BigInt        @default(0)
   // walCheckpointSeq（v1.7 拆义）：批提交时刻 spoolHeadSeq 采样（T10 写入方）——永不与 appliedSeq
   // 比较；同行 raw CHECK pgSeq≤walCheckpointSeq（Y1c T7 迁移一）
-  walCheckpointSeq   BigInt @default(0)
+  walCheckpointSeq   BigInt        @default(0)
   // pgSeq：最后 PG 提交的 walSeq——对外唯一「已保存」水位（T10 起由批提交 CAS 推进）
-  pgSeq              BigInt @default(0)
+  pgSeq              BigInt        @default(0)
   // purgeBelowSeq：WAL 清理水位（T11 compact 指针短事务持久——null=从未清理）
   purgeBelowSeq      BigInt?
   // maintenanceId：行级关闸（§6.6 REQUESTED 同事务写入+执行受理读 IS NULL 放行）——stage 单源在
@@ -908,8 +910,8 @@ model CanvasDoc {
   // 水位——恒 mediaBindingSeq<=pgSeq；推进/回填消费归 C3a-4/6/8）；bindingsDirty=脏标记（SAVEPOINT
   // 回滚/恢复四路置位；**迁移内 UPDATE 既有项目全置 true——修 0==0 假覆盖，第七轮 P0-5**，新建行走
   // schema 默认 false、genesis 同事务置 dirty 归 C3a-6）。BigInt 默认 @default(0)（非 0n——§纪律）。
-  mediaBindingSeq    BigInt  @default(0)
-  bindingsDirty      Boolean @default(false)
+  mediaBindingSeq    BigInt        @default(0)
+  bindingsDirty      Boolean       @default(false)
 }
 
 enum ProjectRole {
@@ -930,8 +932,8 @@ enum ProjectRole {
 model SystemHistory {
   id             Int      @id @default(1)
   historyId      String
-  epochStartedAt DateTime
-  updatedAt      DateTime @updatedAt
+  epochStartedAt DateTime @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
 }
 
 /// RuntimeFeedCursor 专用计数行（spec §7 D5 per-project feedSeq——表名无 @@map：与 T5b 冻结
@@ -954,10 +956,10 @@ model CanvasDocSnapshot {
   stateSeq      BigInt
   state         Bytes
   /// SHA-256 hex（64 字符）——genesis=建头种子字节哈希；compact 发布=前缀重放态哈希（T11）
-  stateHash     String        @db.Char(64)
+  stateHash     String   @db.Char(64)
   vacuumEpoch   Int
   schemaVersion Int
-  createdAt     DateTime      @default(now())
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
 
   project CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
@@ -968,14 +970,14 @@ model CanvasDocSnapshot {
 /// kind 词表单源=shared DOC_AUDIT_KINDS（delete/execute/permission/maintenance/refund）；
 /// payload 不含正文（PII 扫描纪律同 RuntimeEvent）。写入方=T21/T27（本卡只落表）。
 model DocAuditEvent {
-  id        String   @id
+  id        String  @id
   projectId String
   kind      String
   userId    String
   requestId String?
   payload   Json?
 
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([projectId, createdAt])
 }
@@ -986,21 +988,21 @@ model DocAuditEvent {
 /// 即如此——卡文 enum 记号无值集出处，值域待 T27 消费方定，届时如需 enum 随其迁移收紧）。
 /// raw SQL：活跃维护 partial unique（一项目一活跃——stage NOT IN 三终态）。
 model MaintenanceOperation {
-  maintenanceId    String            @id
+  maintenanceId    String           @id
   projectId        String
   stage            MaintenanceStage
   status           String
-  attempt          Int               @default(0)
+  attempt          Int              @default(0)
   sourceGeneration Int
   targetGeneration Int
   schemaVersion    Int
   cutoffPgSeq      BigInt
-  drainedAt        DateTime?
+  drainedAt        DateTime?        @db.Timestamptz(3)
   error            String?
-  idempotencyKey   String            @unique
+  idempotencyKey   String           @unique
   leaseOwner       String?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  createdAt        DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @db.Timestamptz(3)
 
   @@index([projectId, status])
 }
@@ -1021,7 +1023,6 @@ enum MaintenanceStage {
   FAILED
   ABORTED
 }
-
 
 // ══════ Y1c T21（迁移二——20261025120000）：P3 业务族 DDL（spec §6.1/§6.2/§6.5/§7 v5.4）══════
 // 冻结契约单源=packages/shared/src/collab/{execution-request,execution-chain,runtime-event,lifecycle}.ts
@@ -1051,13 +1052,13 @@ model ExecutionRequest {
   totalCredit    Int      @default(0)
   planHash       String   @db.Char(64)
   inputHash      String   @db.Char(64)
-  expiresAt      DateTime
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  expiresAt      DateTime @db.Timestamptz(3)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([projectId, requestId])
   @@index([projectId, state, expiresAt])
-  @@index([teamId, state])   // C1-0：retention stuck 扫（ADMITTED/EXECUTING∧expiresAt）+team 资金域扫（C4 扩查接线）
+  @@index([teamId, state]) // C1-0：retention stuck 扫（ADMITTED/EXECUTING∧expiresAt）+team 资金域扫（C4 扩查接线）
 }
 
 /// ExecutionNodePlan 子行（每节点一行——claim/retry/退款/artifact 关系性载体）。
@@ -1073,10 +1074,10 @@ model ExecutionNodePlan {
   resolution         String?
   styleId            String?
   pricingRuleId      String?
-  creditCost         Int      @default(0)
-  reservedCredit     Int      @default(0)
-  paramsHash         String   @db.Char(64)
-  status             String   @default("PENDING")
+  creditCost         Int     @default(0)
+  reservedCredit     Int     @default(0)
+  paramsHash         String  @db.Char(64)
+  status             String  @default("PENDING")
   generationIntentId String?
   execSeq            BigInt?
 
@@ -1095,10 +1096,10 @@ model ExecutionInput {
   rawBytes      Int
   storedBytes   Int
   schemaVersion Int
-  expiresAt     DateTime
-  createdAt     DateTime @default(now())
+  expiresAt     DateTime @db.Timestamptz(3)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
 
-  @@index([expiresAt])   // C1-0：retention 过期扫（终态 30d 清理 worker——ExecutionRequestRetentionService 消费）
+  @@index([expiresAt]) // C1-0：retention 过期扫（终态 30d 清理 worker——ExecutionRequestRetentionService 消费）
 }
 
 /// RuntimeEvent（spec §7——per-project feedSeq 连续跨代不重置；@@unique([projectId,feedSeq])）。
@@ -1112,11 +1113,11 @@ model RuntimeEvent {
   kind       String
   payload    Json
   docSeq     BigInt?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
 
   @@unique([projectId, feedSeq])
   @@index([projectId, generation, feedSeq])
-  @@index([projectId, createdAt])   // C1-0：retention 7d 过期扫（先到为准 100k 同判——C1 worker 消费）
+  @@index([projectId, createdAt]) // C1-0：retention 7d 过期扫（先到为准 100k 同判——C1 worker 消费）
 }
 
 /// NodeExecution 当前行表（spec §6.2——PK(projectId,nodeId)；历史留 GenerationIntent）。
@@ -1133,7 +1134,7 @@ model NodeExecution {
   attempts    Int      @default(1)
   errorCode   String?
   artifactRev Int?
-  updatedAt   DateTime @updatedAt
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 
   @@id([projectId, nodeId])
 }
@@ -1151,8 +1152,8 @@ model ExecutionOutbox {
   claimOwner   String?
   claimUntilMs BigInt?
   attempts     Int      @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([projectId, generation, businessKey])
   @@index([projectId, state, claimUntilMs])
@@ -1170,7 +1171,7 @@ model MaterializeRun {
   nodeId          String
   expectedExecSeq BigInt
   state           String
-  createdAt       DateTime @default(now())
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([projectId, state])
 }
@@ -1185,8 +1186,8 @@ model RefundObligation {
   reversesId   String
   creditAmount Int
   state        String   @default("PENDING")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([intentRowId, execSeq])
 }
@@ -1204,8 +1205,8 @@ model StorageReservation {
   mediaId         String   @unique
   upperBoundBytes BigInt
   state           String   @default("ACTIVE")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([teamId, state])
 }
@@ -1221,8 +1222,8 @@ model ObjectManifest {
   claimOwner String?
   claimUntil BigInt?
   state      String   @default("LIVE")
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([state, claimUntil])
 }
@@ -1237,7 +1238,7 @@ model NodeLifecycle {
   isCurrent    Boolean  @default(true)
   state        String
   walSeq       BigInt
-  createdAt    DateTime @default(now())
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
 
   @@id([projectId, nodeId, lifecycleSeq])
   @@index([projectId, nodeId, isCurrent])
@@ -1250,7 +1251,7 @@ model DeliveryFence {
   nodeId    String
   fenceSeq  BigInt
   state     String
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@id([projectId, nodeId])
 }
@@ -1268,8 +1269,8 @@ model LifecycleObligation {
   attempts     Int      @default(0)
   claimOwner   String?
   claimUntilMs BigInt?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([projectId, nodeId, kind, walSeq])
   @@index([projectId, state, claimUntilMs])
@@ -1280,7 +1281,7 @@ model ProjectMember {
   projectId String
   userId    String
   role      ProjectRole
-  createdAt DateTime      @default(now())
+  createdAt DateTime      @default(now()) @db.Timestamptz(3)
   project   CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1303,7 +1304,7 @@ model CanvasDocUpdate {
   updateHash  String        @db.Char(64)
   actorRanges Json?
   update      Bytes
-  createdAt   DateTime      @default(now())
+  createdAt   DateTime      @default(now()) @db.Timestamptz(3)
   project     CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@id([projectId, generation, seq])
@@ -1315,13 +1316,13 @@ model CanvasDocUpdate {
 /// 纯列业务平面无 FK relation（DocAuditEvent 先例）；接线归 C3（同事务 INSERT ON CONFLICT DO NOTHING 幂等）；
 /// 生命周期随 CanvasDocUpdate：purgeBelow 顺带删侧表行+擦除随 scope 批删（C3 兼容核验单测钉死）。
 model CanvasDocCoalesced {
-  projectId   String
-  generation  Int
-  seq         BigInt
-  updateHash  String        @db.Char(64)
-  sourceSeq   BigInt
-  reason      String
-  createdAt   DateTime      @default(now())
+  projectId  String
+  generation Int
+  seq        BigInt
+  updateHash String   @db.Char(64)
+  sourceSeq  BigInt
+  reason     String
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
 
   @@id([projectId, generation, seq])
   @@index([projectId, generation, updateHash])
@@ -1367,9 +1368,9 @@ model VideoWork {
   status           VideoWorkStatus @default(DRAFT)
   allowViewProcess Boolean         @default(false)
   allowClone       Boolean         @default(false)
-  publishedAt      DateTime?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  publishedAt      DateTime?       @db.Timestamptz(3)
+  createdAt        DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime        @updatedAt @db.Timestamptz(3)
 
   @@index([status, sortOrder, publishedAt(sort: Desc)])
   @@index([categoryId, status])
@@ -1382,8 +1383,8 @@ model VideoCategory {
   sortOrder Int         @default(0)
   active    Boolean     @default(true)
   works     VideoWork[]
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  createdAt DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime    @updatedAt @db.Timestamptz(3)
 
   @@index([active, sortOrder])
 }
@@ -1393,8 +1394,8 @@ model VideoTag {
   name      String   @unique @db.VarChar(32)
   sortOrder Int      @default(0)
   active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([active, sortOrder])
 }
@@ -1403,7 +1404,7 @@ model VideoWorkSetting {
   id              String   @id @default("singleton")
   carouselEnabled Boolean  @default(true)
   carouselScope   String   @default("all")
-  updatedAt       DateTime @updatedAt
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
 }
 
 model StyleCategory {
@@ -1411,7 +1412,7 @@ model StyleCategory {
   name      String   @unique
   sortOrder Int      @default(0)
   active    Boolean  @default(true)
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
   styles    Style[]
 
   @@index([active, sortOrder])
@@ -1429,8 +1430,8 @@ model Style {
   sortOrder    Int                @default(0)
   active       Boolean            @default(true)
   usageCount   Int                @default(0)
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  createdAt    DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime           @updatedAt @db.Timestamptz(3)
   favorites    StyleFavorite[]
   recents      StyleRecentUsage[]
 
@@ -1442,7 +1443,7 @@ model StyleFavorite {
   id        String   @id @default(cuid())
   userId    String
   styleId   String
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   style     Style    @relation(fields: [styleId], references: [id], onDelete: Cascade)
 
@@ -1454,7 +1455,7 @@ model StyleRecentUsage {
   id         String   @id @default(cuid())
   userId     String
   styleId    String
-  lastUsedAt DateTime @default(now())
+  lastUsedAt DateTime @default(now()) @db.Timestamptz(3)
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   style      Style    @relation(fields: [styleId], references: [id], onDelete: Cascade)
 
@@ -1486,9 +1487,9 @@ model GenerationIntent {
   resultRef            String? // Media id / 产物 URL
   error                String?
   // Y0b-2 T1（Z68/Z83/Z82）：心跳/deadline/外呼起点——无 DB 默认（服务端写入单源）
-  heartbeatAt          DateTime // claim/reaper 心跳锚（RUNNING 生命线）
-  deadlineAt           DateTime // 外呼硬截止（分 kind 常量表 env 注入）
-  startedAt            DateTime? // 外呼真正开始（phase 判据——Z83）
+  heartbeatAt          DateTime     @db.Timestamptz(3) // claim/reaper 心跳锚（RUNNING 生命线）
+  deadlineAt           DateTime     @db.Timestamptz(3) // 外呼硬截止（分 kind 常量表 env 注入）
+  startedAt            DateTime?    @db.Timestamptz(3) // 外呼真正开始（phase 判据——Z83）
   idemKey              String       @unique // Z82：内容+手势幂等键（deriveIdemKey 单源 sha256）——claim 唯一判据
   gestureKey           String? // Z79：手势 token 审计列（客户端原始入参截断落库——nullable）
   traceId              String? // Y0b-5 T13：W3C trace-id（x-request-id 同源，服务端生成）——组执行资金审计锚（一次请求=N 行同 traceId）
@@ -1510,9 +1511,9 @@ model GenerationIntent {
   // Y1c T21（迁移二）：claim 创建关联 requestId——paramsHash/pricing 只读 ExecutionNodePlan 不重算
   // （spec §6.1「GenerationIntent=claim 创建关联 requestId」；worker 零 doc 读）
   executionRequestId   String?
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
-  completedAt          DateTime?
+  createdAt            DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime     @updatedAt @db.Timestamptz(3)
+  completedAt          DateTime?    @db.Timestamptz(3)
 
   @@unique([projectId, intentId]) // Z88 保留：exec 投影对齐的零成本保险（行身份列——claim 判据已改 idemKey）
   @@index([projectId, nodeId, status])
@@ -1573,13 +1574,6 @@ enum ProjectionState {
   dead
 }
 
-// v11：MediaFactOutbox 投递状态（pending→published/dead；published retention 7d）
-enum MediaFactState {
-  pending
-  published
-  dead
-}
-
 /// v11 新建——生成产物唯一权威（PG；doc fileId/result 的唯一写入源经投影）。
 /// 权威=(sourceIntentRowId, execSeq, rev)；槽位唯一（role/targetField/targetItemId）；rev=finalize/replace/clear CAS 锚。
 model NodeArtifact {
@@ -1598,8 +1592,8 @@ model NodeArtifact {
   artifactIndex     Int           @default(0)
   state             ArtifactState @default(none)
   rev               Int           @default(0) // PG 权威版本——finalize/replace/clear CAS 锚
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @db.Timestamptz(3)
 
   @@unique([projectId, nodeId, role, targetField, targetItemId]) // 槽位唯一
   @@unique([sourceIntentRowId, sourceExecSeq, artifactIndex]) // 资金 finalize 幂等
@@ -1620,12 +1614,12 @@ model ArtifactProjection {
   resultText    String?
   state         ProjectionState @default(pending)
   attempts      Int             @default(0)
-  leaseUntil    DateTime?
+  leaseUntil    DateTime?       @db.Timestamptz(3)
   runId         String?
-  nextAttemptAt DateTime        @default(now())
+  nextAttemptAt DateTime        @default(now()) @db.Timestamptz(3)
   lastError     String?         @db.VarChar(512)
-  createdAt     DateTime        @default(now())
-  projectedAt   DateTime?
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+  projectedAt   DateTime?       @db.Timestamptz(3)
 
   @@unique([artifactId, artifactRev])
   @@index([state, nextAttemptAt])
@@ -1634,16 +1628,18 @@ model ArtifactProjection {
 
 /// v11——doc 引用索引（current-state upsert：同槽位换 media 即改行；惰性 reconcile 维护）
 model MediaBinding {
-  id           String   @id @default(cuid())
+  id           String        @id @default(cuid())
   mediaId      String
   projectId    String
   nodeId       String
   teamId       String
-  role         String   @default("primary")
-  targetField  String   @default("fileId") // 词表单源=shared MEDIA_REF_TARGET_FIELDS（fileId|referenceImage|referenceVideo|referenceAudio|images|allImages|trimmedFileId|videoFileId|audioFileId——T16 spec 评审 P1#1 补 referenceVideo/referenceAudio；DB CHECK=raw SQL media_binding_target_field_domain（20261022070000 放宽至九键），加键须同批迁移同步）
-  targetItemId String   @default("") // 非空 sentinel（PG NULL 不去重根修）
-  createdAt    DateTime @default(now())
-  media        Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  role         String        @default("primary")
+  targetField  String        @default("fileId") // 词表单源=shared MEDIA_REF_TARGET_FIELDS（fileId|referenceImage|referenceVideo|referenceAudio|images|allImages|trimmedFileId|videoFileId|audioFileId——T16 spec 评审 P1#1 补 referenceVideo/referenceAudio；DB CHECK=raw SQL media_binding_target_field_domain（20261022070000 放宽至九键），加键须同批迁移同步）
+  targetItemId String        @default("") // 非空 sentinel（PG NULL 不去重根修）
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
+  media        Media         @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  // C1-1（v5.1 裁定）：mediaId FK 保留 + projectId FK Cascade（项目删除零残留）
+  project      CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, nodeId, role, targetField, targetItemId]) // 槽位唯一（current-state upsert）
   @@index([mediaId])
@@ -1681,30 +1677,6 @@ model ProjectionBackfillState {
   updatedAt     DateTime @db.Timestamptz(3)
 }
 
-/// v11——媒体事实 outbox（Z1''-v13b 遗产：at-least-once+客户端 factVersion 幂等去重）。
-/// **C2-4 断流暂留（2026-11-12）**：写点已全数改道 MediaFact 当前态表（C2-2），本模型零写者；
-/// **C1-1 rebaseline 物删**——届时同步除名 scope-column.registry/lifecycle 台账/c4c1 fixture/
-/// retirement.spec 白名单（六点清单=media-fact-outbox.retirement.spec.ts 头注）。
-model MediaFactOutbox {
-  id            String         @id @default(cuid())
-  mediaId       String
-  projectId     String
-  factVersion   BigInt // 对应 Media.factVersion 快照（单调）；wire/doc 用 string——JSON 序列化=T6 收紧：DTO/响应构造处显式 String()（禁全局 BigInt.prototype.toJSON，同 Media.factVersion）
-  factType      String // 事实类型（如 state——payload 含 state 的状态事实）
-  payload       Json // 事实快照
-  state         MediaFactState @default(pending)
-  attempts      Int            @default(0)
-  leaseUntil    DateTime? // emitter claim 崩溃恢复（FOR UPDATE SKIP LOCKED 行锁外的兜底）
-  nextAttemptAt DateTime       @default(now()) // 失败退避（jitter）
-  lastError     String?        @db.VarChar(512)
-  createdAt     DateTime       @default(now())
-  publishedAt   DateTime? // published retention 7d 清理判据
-
-  @@unique([mediaId, projectId, factType, factVersion]) // factType 入键（S0.1 2026-10-20）——同 factVersion 下 natural/state 两类事实并存互不撞（T7/T16 前置）
-  @@index([state, nextAttemptAt]) // claim 扫描（state='pending'∧nextAttemptAt<=now）；claim 排序契约=ORDER BY nextAttemptAt, createdAt, id（id 为 cuid opaque 非插入序——仅末位 tie-break，禁作代际/时序依据；T7/T16 emitter 按此实现）
-  @@index([mediaId]) // REST POST（≤200 mediaIds）全量拉
-}
-
 /// T13 R3（spec Z18''⑥）：自动收敛审计行——每动作一行（护栏：每行 CAS+pg_advisory_xact_lock
 /// (hashtext(intentRowId))+本表审计；auto_converged/manual_required 分计数在 intent-reconcile.metrics）。
 /// action 词表：settle-backfill/rollback-stranded/orphaned-refund/void-terminal/
@@ -1717,7 +1689,7 @@ model ReconcileAction {
   before      Json? // 收敛前行快照（status/reservedCredits/creditsConsumed）
   after       Json? // 收敛后行快照
   traceId     String? // 意图行 traceId 透传（资金审计锚——Y0b-5 T13）
-  createdAt   DateTime @default(now())
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([intentRowId])
   @@index([createdAt])
@@ -1731,10 +1703,10 @@ model ReconcileAction {
 /// worker tick 轮转游标+边沿状态（每 job 一行）：lastKey=轮转键（C3 audit 按 projectId 轮转——尾部
 /// 项目饿死根除）；lastGap=边沿状态载荷（(project,generation) gapActive——false→true 才 inc 计数）。
 model CollabJobCursor {
-  job       String    @id
+  job       String   @id
   lastKey   String?
   lastGap   Json?
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 }
 
 /// 擦除状态机 run（R17 scope 化——scopeType 'project'|'team'：team 解散=team-scope run；parentRunId
@@ -1745,25 +1717,25 @@ model CollabJobCursor {
 /// （restore 再擦/dry-run 后真实擦）。dryRun=标志列（不占真实唯一+跳过 lifecycle 置位）。
 /// manifest 主载体=data-dir 外部文件（R16）——本表 manifestPath/sha256 只作索引行。
 model ProjectErasureRun {
-  erasureId     String    @id @default(cuid())
-  scopeType     String
-  scopeId       String
-  parentRunId   String?
-  teamId        String?
-  state         String    @default("PENDING")
-  stage         String?
-  dryRun        Boolean   @default(false)
-  requestedBy   String
-  requestedAt   DateTime  @default(now())
-  claimOwner    String?
-  leaseUntil    DateTime?
-  heartbeatAt   DateTime?
-  completedAt   DateTime?
-  manifestPath  String?
-  manifestSha256 String? @db.Char(64)
-  error         String?
-  attempts      Int       @default(0)
-  updatedAt     DateTime  @updatedAt
+  erasureId      String    @id @default(cuid())
+  scopeType      String
+  scopeId        String
+  parentRunId    String?
+  teamId         String?
+  state          String    @default("PENDING")
+  stage          String?
+  dryRun         Boolean   @default(false)
+  requestedBy    String
+  requestedAt    DateTime  @default(now()) @db.Timestamptz(3)
+  claimOwner     String?
+  leaseUntil     DateTime? @db.Timestamptz(3)
+  heartbeatAt    DateTime? @db.Timestamptz(3)
+  completedAt    DateTime? @db.Timestamptz(3)
+  manifestPath   String?
+  manifestSha256 String?   @db.Char(64)
+  error          String?
+  attempts       Int       @default(0)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([state, updatedAt])
   @@index([scopeType, scopeId])
@@ -1781,14 +1753,14 @@ model ProjectErasureRun {
 /// freeze=UPDATE 置 FROZEN+version+1。建路径行=governance（'compact',pid,'OPEN'），
 /// 存量回填+全局哨兵行=迁移笔二（行数校验 fail-closed 同笔）。
 model CollabOpsGate {
-  gate        String
-  projectId   String    @default("")
-  state       String    @default("OPEN")
-  version     BigInt    @default(0)
-  frozenAt    DateTime?
-  frozenBy    String?
-  unfrozenAt  DateTime?
-  reason      String?
+  gate       String
+  projectId  String    @default("")
+  state      String    @default("OPEN")
+  version    BigInt    @default(0)
+  frozenAt   DateTime? @db.Timestamptz(3)
+  frozenBy   String?
+  unfrozenAt DateTime? @db.Timestamptz(3)
+  reason     String?
 
   @@id([gate, projectId])
 }
@@ -1799,19 +1771,19 @@ model CollabOpsGate {
 /// semanticDigest=语义兜底判据载体（迁移笔三——nodes+edges canonical JSON SHA-256：Yjs delete 不进
 /// SV，纯删除帧丢失时 SV 互支成立而节点复活——摘要深比为语义等价判据，SV 互支降同代辅助）。
 model CanaryPin {
-  projectId       String   @id
-  status          String   @default("CAPTURING")
-  generation      Int
-  snapshotRev     BigInt
-  stateSeq        BigInt
-  pgSeqAt         BigInt
-  contentHash     String?  @db.Char(64)
-  semanticDigest  String?  @db.Char(64)
-  hashSkipped     Boolean  @default(false)
-  hashVersion     Int
-  stateVector     Bytes?
-  leaseUntil      DateTime
-  expiresAt       DateTime
+  projectId      String   @id
+  status         String   @default("CAPTURING")
+  generation     Int
+  snapshotRev    BigInt
+  stateSeq       BigInt
+  pgSeqAt        BigInt
+  contentHash    String?  @db.Char(64)
+  semanticDigest String?  @db.Char(64)
+  hashSkipped    Boolean  @default(false)
+  hashVersion    Int
+  stateVector    Bytes?
+  leaseUntil     DateTime @db.Timestamptz(3)
+  expiresAt      DateTime @db.Timestamptz(3)
 }
 
 /// canary 检查游标（C2-2 消费）：generation=换代游标重置（旧代游标永 skip 根除）；
@@ -1819,7 +1791,7 @@ model CanaryPin {
 model CollabCanaryCursor {
   projectId     String   @id
   generation    Int
-  lastCheckedAt DateTime
+  lastCheckedAt DateTime @db.Timestamptz(3)
   lastResult    String
-  nextDueAt     DateTime
+  nextDueAt     DateTime @db.Timestamptz(3)
 }

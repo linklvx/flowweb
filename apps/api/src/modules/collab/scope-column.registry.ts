@@ -21,7 +21,7 @@
 //    （execution-request.service.ts :437-441，DELETING 拒——C4-b 接线）；②资金行=allowlist 计费行保留
 //    （PURGING_DB：GenerationIntent 只 scrub 内容列〔resultText/gestureKey/resultRef→null〕计费列原样、
 //    ExecutionRequest 整行保留——project-erasure.stages.ts allowlist 单源）；③ledger 单写者纪律不变
-//    ——ledger_guard 触发器仅辖 TeamBalance/TeamCreditTransaction（迁移 20261009140100 :1433-1436），
+//    ——ledger_guard 触发器仅辖 TeamBalance/TeamCreditTransaction（迁移 20261112120000_c1_rebaseline_init :2066-2079），
 //    project 维擦除零触碰该两表；team 维删 Team 行走 ledgerTx 通行证（poller 会合分支既有）；
 //    ④请求侧资金门（TeamFundsGateService.assertSettled 扩查三面——C4-a）保证擦除开始时资金已清算。
 //  C 档·scope 扫除面（不 fence——行集由 erasure worker 按 scope 批删/C4-c 列级断言核销）：执行完成面
@@ -56,7 +56,6 @@ export const PROJECT_COLUMN_MODELS = [
   'NodeArtifact',   // C 档（产物权威——C4-c 引用图消费）
   'ArtifactProjection',   // C 档
   'MediaBinding',   // C 档（C4-c 引用图消费）
-  'MediaFactOutbox',   // C 档（C2-4 断流暂留——表/模型本体暂留至 C1 物删：㊲ 门=schema 双向 diff，除名须与模型删除同批〔提前除名=census 持续红〕；erasure 批删/断言由本 registry 驱动，条目在=擦除项目仍清该表残留行）
   'CanaryPin',   // C 档（canary 面）
   'CollabCanaryCursor',   // C 档
   'CollabOpsGate',   // C 档（compact 哨兵行——A 档发布事务带 gate FOR SHARE；擦除归 C4-c）

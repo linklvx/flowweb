@@ -10,8 +10,10 @@
 // 基线落文件内常量（禁 env 旋钮）；基线存在性断言（常量打错⇒fresh 恒空⇒永久豁免且输出仍 OK——静默失效唯一路径封死）。
 // Y0b-2 squash（2026-10-10）：第三次基线重置。护栏：BASELINE 只允许在"无生产环境"期间抬高；
 // 失效条件=spec §9.6——此后一切 schema 变更回到 expand/contract 两步走。
-// squash 后 fresh 集合空为预期（本批 DDL 的 additive 审计发生在起草阶段〔20261009140000_y0b2_draft〕，
-// 终态由 census 对象级+行级三验保证）。
+// C1-1 rebaseline（2026-11-12）：第四次基线重置——终态 schema 单一 init（旧链 25 目录删除，git 历史
+// 保留）；旧 EXEMPTIONS 六登记随目录删除清零（S0.1「豁免=迁移历史永久登记」——历史已不在目录树，
+// 登记失去对象；旧破坏性变更的审计面=旧 commit/tag pre-c1-rebaseline）。
+// squash 后 fresh 集合空为预期（本批 DDL 的 additive 审计发生在起草阶段，终态由 census 对象级+行级三验保证）。
 // 双跑：preflight 本地 + cutover ③ 服务器 migrate 前 + 根 verify 链（verify-indexes 之后）。
 // ★Y1a+Y1b T2（裁定1）：显式豁免清单 EXEMPTIONS——migration 目录名→{表名: {reason,owner,since}}。
 // BREAKING 语句命中〈迁移,表〉二元组→放行并打印 EXEMPTED 行；未命中（含表名不可提取）仍硬拦——豁免力
@@ -25,7 +27,7 @@ import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = resolve(fileURLToPath(import.meta.url), '../..');
-const BASELINE = '20261009140100_y0b2_init';   // 此后新增迁移才受检（Y0b-2 T1 squash 基线=唯一 init）
+const BASELINE = '20261112120000_c1_rebaseline_init';   // 此后新增迁移才受检（C1-1 rebaseline 基线=唯一终态 init）
 const MIG_DIR = join(ROOT, 'apps/api/prisma/migrations');
 // 与 apps/api/prisma/migrate-diff-allowlist.txt 唯一永久豁免同源（人工同步——两处均只此一条）
 export const CRITICAL_INDEXES = ['pricing_rule_natural_key'];
@@ -34,50 +36,8 @@ const DROP_INDEX = /\bDROP\s+INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+EXISTS\s+)?(?:"
 
 // 豁免登记（controller 裁定专属——reset runbook 全表部署语义，无存量数据不受 expand/contract 保护）。
 // 元数据（S0.1 2026-10-20 补全）：reason=放行依据 / owner=豁免裁定责任人 / since=登记日期。
-export const EXEMPTIONS = {
-  '20261022070000_mediabinding_refvideo_refaudio': {
-    MediaBinding: {
-      reason: 'T16 spec 评审 P1#1——targetField CHECK 域放宽（+referenceVideo/referenceAudio）：DROP+ADD CONSTRAINT 形态必经；域扩展非收紧（旧值全合法，旧代码零破坏）',
-      owner: 'Y1a+Y1b T16 spec 评审 P1#1 裁定',
-      since: '2026-10-22',
-    },
-  },
-  '20261020200300_nodeartifact_projection_v3': {
-    Media: {
-      reason: 'Y1a+Y1b v11 硬切批——spec v14 reset runbook 全表部署，无存量数据',
-      owner: 'Y1a+Y1b 批 controller',
-      since: '2026-10-20',
-    },
-  },
-  '20261020211610_media_v3_natural_sniff_size': {
-    Media: {
-      reason: 'Y1a+Y1b v11 硬切批——size Int→BigInt 破坏性变更，spec v14 reset runbook 全表部署',
-      owner: 'Y1a+Y1b 批 controller',
-      since: '2026-10-20',
-    },
-  },
-  '20261024130000_y1c_t9_canvas_doc_update_v17': {
-    CanvasDocUpdate: {
-      reason: 'Y1c T9 写入方换代——dev 无存量数据（表已 TRUNCATE）：id/@@unique(projectId,seq) 旧形态拆除+actor 批行新形态（T7 勘误既定切片，Controller 裁定 1）',
-      owner: 'Y1c T9 controller',
-      since: '2026-10-24',
-    },
-  },
-  '20261024150000_y1c_t11_snapshot_authority': {
-    CanvasDoc: {
-      reason: 'Y1c T11 快照权威切换——dev 无存量数据：CanvasDoc.state/stateSeq 列退役（doc 态权威=CanvasDocSnapshot+currentSnapshotRev 指针，T7 勘误切片三既定）',
-      owner: 'Y1c T11 controller',
-      since: '2026-10-24',
-    },
-  },
-  '20261024160000_y1c_t12_prevacuum_retirement': {
-    CanvasDoc: {
-      reason: 'Y1c T12 SV 代际门退役（偏离 27）——preVacuumSv 列 DROP：世代执法改道 docName 世代段 auth/load 双校验（T11 迁移既定「列退役归 T12」；dev 无存量数据/reset runbook 全表部署）',
-      owner: 'Y1c T12 controller',
-      since: '2026-10-24',
-    },
-  },
-};
+// C1-1 rebaseline：旧六登记随旧链目录删除清零（空集=新 init 上零负债；未来登记须用户裁定+同 commit）。
+export const EXEMPTIONS = {};
 
 /** BREAKING 语句所属表名提取（ALTER/DROP/TRUNCATE TABLE "X" 或 DROP TYPE "X" 首个引用）；
  *  提取不到=null=不可豁免（保守兜底——表名不明即维持硬拦）。

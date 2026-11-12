@@ -101,7 +101,6 @@ maybe('C4-c1 ★红⑫⑬⑯ PURGING_DB 执行体（真 PG）', () => {
     await prisma.nodeArtifact.create({ data: { projectId: pid, nodeId: 'n1', teamId, targetField: 'result' } });
     await prisma.artifactProjection.create({ data: { artifactId: `${pid}-na`, artifactRev: 0, projectId: pid, nodeId: 'n1', targetField: 'result' } });
     await prisma.mediaBinding.create({ data: { mediaId: `${pid}-m-exc`, projectId: pid, nodeId: 'n1', teamId } });
-    await prisma.mediaFactOutbox.create({ data: { mediaId: `${pid}-m-exc`, projectId: pid, factVersion: 1n, factType: 'state', payload: {} } });
     await prisma.canaryPin.create({ data: { projectId: pid, generation: 1, snapshotRev: 1n, stateSeq: 1n, pgSeqAt: 1n, hashVersion: 1, leaseUntil: new Date(), expiresAt: new Date() } });
     await prisma.collabCanaryCursor.create({ data: { projectId: pid, generation: 1, lastCheckedAt: new Date(), lastResult: 'ok', nextDueAt: new Date() } });
     await prisma.collabOpsGate.create({ data: { gate: 'compact', projectId: pid, state: 'OPEN' } });
@@ -164,11 +163,11 @@ maybe('C4-c1 ★红⑫⑬⑯ PURGING_DB 执行体（真 PG）', () => {
     await prisma.nodeArtifact.deleteMany({ where: { projectId: { in: pids } } }).catch(() => undefined);
     await prisma.objectManifest.deleteMany({ where: { objectKey: { startsWith: `c4c1-p-${stamp}` } } }).catch(() => undefined);
     await prisma.projectMember.deleteMany({ where: { projectId: { in: pids } } }).catch(() => undefined);
-    // C4-c1 质量评审 I-1：dryRun 用例零删除=17 张无 FK registry 表 fixture 留库（实证历次运行逐套
+    // C4-c1 质量评审 I-1：dryRun 用例零删除=16 张无 FK registry 表 fixture 留库（实证历次运行逐套
     // 累积——仅 RuntimeEvent 有 7d retention 兜底）；收敛用例行已随 stage 批删不泄漏，此处统一回收
     for (const m of ['RuntimeFeedCursor', 'DocAuditEvent', 'MaintenanceOperation', 'RuntimeEvent', 'NodeExecution',
       'ExecutionOutbox', 'MaterializeRun', 'NodeLifecycle', 'DeliveryFence', 'LifecycleObligation', 'CanvasDocCoalesced',
-      'ArtifactProjection', 'MediaFactOutbox', 'CanaryPin', 'CollabCanaryCursor', 'CollabOpsGate'] as const) {
+      'ArtifactProjection', 'CanaryPin', 'CollabCanaryCursor', 'CollabOpsGate'] as const) {
       await (prisma as unknown as Record<string, { deleteMany(a: unknown): Promise<unknown> }>)[m[0]!.toLowerCase() + m.slice(1)]!
         .deleteMany({ where: { projectId: { in: pids } } }).catch(() => undefined);
     }

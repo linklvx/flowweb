@@ -6,17 +6,11 @@
 // apps/web/src+apps/web/e2e+packages/shared/src（生产+测试 TS/TSX）+根 scripts（*.mjs+*.ts/*.mts）+
 // apps/api/scripts（*.mjs）。
 //
-// 白名单（=C2-4 census 放行项，逐处理由；C1-1 删表时随模型除名清零——六点清单的 registry/
-// c4c1/lifecycle×2 同步面另在 scope-column.registry 条目注记与 lifecycle.ts 条目注记在档）：
-//  - scope-column.registry.ts：PROJECT_COLUMN_MODELS schema 闭包条目——表暂留 C1（㊲ 门=双向 diff，
-//    除名须与模型删除同批；erasure 批删/断言由 registry 驱动，提前除名=擦除项目在仍存在的表里留孤儿行）；
-//  - project-erasure.purge.c4c1.int.spec.ts：erasure 全表清点 fixture（registry 闭包断言面同源）；
-//  - packages/shared/src/collab/lifecycle.ts + lifecycle.spec.ts：OBLIGATION_EXCLUDED_CANDIDATES
-//    排除台账（键域无 nodeId 的既档理由——表在册一日台账真一日）；
-//  - packages/shared/src/collab/runtime-event.ts：T22 修正批 #3 历史裁定注记（决策史档非触碰）；
-//  - media-facts.controller.ts：C2-3 头注的历史改道说明（「旧读道已断流」缘由在档）。
-// PascalCase 模型名仅上列六文件合法；schema.prisma+prisma/migrations+apps/api/soak-t19.json
-// （历史证据）不在本锚扫描域（表本体与迁移史=表暂留 C1 的明确豁免面）。
+// 白名单（C1-1 rebaseline 后=空：表/模型/enum 已物删，六点同步面清零——新增任何命中即红）：
+//  C2-4 结算时六文件（scope-column.registry / project-erasure.purge.c4c1 fixture / lifecycle.ts +
+//  lifecycle.spec / runtime-event.ts / media-facts.controller.ts）已随模型删除/头注改写除名。
+// PascalCase 模型名零命中；schema.prisma+prisma/migrations（init 无旧表）+apps/api/soak-t19.json
+// （历史证据）不在本锚扫描域。
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -64,25 +58,16 @@ function assertWithin(token: string, allow: readonly string[]): void {
   expect(stray.map((h) => `${h.file}:${h.line} ${h.text}`), `token '${token}' 白名单=${allow.join('|')} 外命中`).toEqual([]);
 }
 
-describe('C2-4 MediaFactOutbox 旧面退役 grep 锚（表暂留 C1 物删——白名单外零触碰）', () => {
-  it('camelCase delegate `mediaFactOutbox`：生产/测试/脚本全域仅 erasure c4c1 fixture 合法（registry 闭包断言面）', () => {
-    assertWithin('mediaFactOutbox', [
-      'apps/api/src/modules/collab/project-erasure.purge.c4c1.int.spec.ts',
-    ]);
+describe('C2-4 MediaFactOutbox 旧面退役 grep 锚（C1-1 物删——白名单空，全域零触碰）', () => {
+  it('camelCase delegate `mediaFactOutbox`：生产/测试/脚本全域零命中（模型物删——delegate 不存在）', () => {
+    assertWithin('mediaFactOutbox', []);
   });
 
   it('gauge 名 `media_fact_outbox_lag`：全链零命中（delivery-lag.metrics+soak 两处已退役）', () => {
     expect(hits('media_fact_outbox_lag')).toEqual([]);
   });
 
-  it('PascalCase 模型名 `MediaFactOutbox`：仅 census 放行清单（registry 闭包/c4c1 fixture/lifecycle 台账×2/runtime-event 史注/media-facts 头注）', () => {
-    assertWithin('MediaFactOutbox', [
-      'apps/api/src/modules/collab/scope-column.registry.ts',
-      'apps/api/src/modules/collab/project-erasure.purge.c4c1.int.spec.ts',
-      'packages/shared/src/collab/lifecycle.ts',
-      'packages/shared/src/collab/lifecycle.spec.ts',
-      'packages/shared/src/collab/runtime-event.ts',
-      'apps/api/src/modules/media/media-facts.controller.ts',
-    ]);
+  it('PascalCase 模型名 `MediaFactOutbox`：全链零命中（C1-1 六点除名清零——新增引用即红）', () => {
+    assertWithin('MediaFactOutbox', []);
   });
 });

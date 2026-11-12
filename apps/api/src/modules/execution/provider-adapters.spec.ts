@@ -12,7 +12,7 @@ import { adapterFor, executable, ready, fakeAiEnabled, seedEnvValue } from './pr
  * providerLabel/apiUrl/apiKey/sortOrder/recommended/active——正则分组 g1=id g2=provider
  * g3=apiModelName g4=providerLabel g5=recommended g6=active） */
 function migrationModelRows() {
-  const sql = readFileSync(join(__dirname, '../../../prisma/migrations/20261009140100_y0b2_init/migration.sql'), 'utf8');
+  const sql = readFileSync(join(__dirname, '../../../prisma/migrations/20261112120000_c1_rebaseline_init/migration.sql'), 'utf8');
   const m = sql.match(/INSERT INTO "AIModel"[\s\S]*?VALUES\n([\s\S]*?)ON CONFLICT/);
   if (!m) throw new Error('init migration.sql 缺 AIModel INSERT 块（squash 基线漂移？）');
   return m[1].trim().split('\n').map((line) => {

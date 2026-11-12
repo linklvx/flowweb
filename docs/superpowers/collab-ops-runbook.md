@@ -865,6 +865,12 @@ node scripts/reset-collab.mjs --status                             # 只读：�
 
 **失败续跑**：任一阶段失败=状态文件在档（已完成阶段保真）；修复后**重跑同一命令**即自断点续跑（例：migrate 失败→修复迁移树→重跑自 migrate 起）。**续跑前提=消费者仍处停态（步 ③）——串行锁只互斥 reset-collab 跨实例，不拦消费者重启**；中途续跑前重验三查（连接/PID/租约——步 ③ 同款）。`.reset-collab-state.json` 损坏=fail-closed 拒续跑（人工核查或确认放弃后删除再全新重跑）。旧 `.quarantine-<ts>/` 目录=保留证据不删；`restore.lock` marker 若在位随整目录隔离，清除=bump 后人工删除（T13 口径）。
 
+**状态文件清单（C1-1 rebaseline 注记，2026-11-12）**：迁移树 squash/重建后需同批核对的本地状态文件——
+① `scripts/migration-checksums.json`（immutability 棘轮基线）：旧模式 `--write` 单向只增不删，squash 后 missingDirs 永红；唯一收敛通道=`node scripts/check-migration-immutability.mjs --rebaseline --confirm`（双旗标显式；整文件替换，git diff 审阅）。**仅限无生产环境窗**（同 additive BASELINE 抬高纪律），带生产数据的环境禁跑；
+② `apps/api/prisma/migrate-diff-allowlist.txt`（`--update` 重生成）与 DB 侧 `_prisma_migrations`（dev=`prisma migrate reset --force`；服务器=本 §16 全链 drop/recreate）；
+③ scratch 库 `flowweb_fresh_replay`/`flowweb_shadow_tmp`/`flowweb_census_new`（门禁/工具自建自清；残留时先 DROP 再跑门）。
+C1-1 起新 init 含 `set_updated_at()` 触发器（每 updatedAt 表）——显式历史 `updatedAt` 写入（restore/backfill/测试）须 `SET LOCAL app.skip_updated_at = 'on'`（事务内），否则 UPDATE 恒被改写为 `now()`；`INSERT` 显式非空值默认保留（仅 NULL 设）。
+
 ---
 
 ## §17 Y1c T33 负载基准门禁两档（2026-11-05 落档——spec v5.4 §9.4 分档语义）

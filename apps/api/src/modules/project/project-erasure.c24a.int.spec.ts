@@ -35,7 +35,12 @@ maybe('C4-a 红①②⑦ project tombstone-only（真 PG）', () => {
       data: { id, name: `c24a-${seq}`, teamId: FIXTURE_TEAM, userId: opts.userId ?? null, origin: opts.origin ?? null },
     });
     if (opts.updatedAt) {
-      await prisma.$executeRaw`UPDATE "CanvasProject" SET "updatedAt" = ${opts.updatedAt} WHERE id = ${id}`;
+      // C1-1 set_updated_at 触发器：UPDATE 始终 now()——测试显式历史值走 spec §3.3 运维通道
+      // app.skip_updated_at（restore 同款；set_config(...,true)=事务内生效）
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.skip_updated_at', 'on', true)`;
+        await tx.$executeRaw`UPDATE "CanvasProject" SET "updatedAt" = ${opts.updatedAt} WHERE id = ${id}`;
+      });
     }
     createdIds.push(id);
     return id;
