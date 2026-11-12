@@ -4,7 +4,7 @@
 
 **Goal:** 落地 spec v5.2 四卡——C2 MediaFact 当前态表 → C3a MediaBinding 帧级投影 → C1 时间语义终态 rebaseline → C3b PG oracle 证人+DeletionBarrier（持久 fence），批末一次全环境 reset 部署（用户指令时点）。
 
-**Architecture:** 派生索引单写者（appendBatch inTx 帧级快照+SAVEPOINT 隔离）+连续投影前缀水位（**帧/binding 水位两 UPDATE 解耦**）+PG 重建 oracle 永久删除证人（**候选无关全 UUID 叶**+DeletionBarrier fence/drain）+引用并集保护（**保留 mediaId FK=锁耦合**）；时间语义经单一终态 init 全列 timestamptz 归一。每卡 additive 独立 verify 绿，C1 为终态 schema cut。
+**Architecture:** 派生索引单写者（appendBatch inTx 帧级快照+SAVEPOINT 隔离）+连续投影前缀水位（**帧/binding 水位两 UPDATE 解耦**）+PG 重建 oracle 永久删除证人（**候选无关全 UUID 叶**+DeletionBarrier fence/drain）+引用并集保护（**去 mediaId FK——v5.2 最终裁定：Cascade 下锁耦合不成立，fence 承担时序**）；时间语义经单一终态 init 全列 timestamptz 归一。每卡 additive 独立 verify 绿，C1 为终态 schema cut。
 
 **Tech Stack:** TypeScript strict / NestJS / Prisma（迁移 additive 纪律）/ Yjs 13.6.32 / vitest+node:test / prom-client / `pnpm verify:fast`（12 步）与 `pnpm verify`（full 32 步）。
 
@@ -196,7 +196,7 @@ return writeBinding();
 
 ### Task C1-1：终态 schema+新 init
 
-**Files:** schema 全 DateTime 加 `@db.Timestamptz(3)`；MediaBinding 加 `project CanvasProject @relation(fields:[projectId],references:[id],onDelete:Cascade)`+**CanvasProject 加 `mediaBindings MediaBinding[]` 反向字段**（mediaId FK **保留**——v5.1 裁定）；删 MediaFactOutbox 模型+MediaFactState enum；**删除 `prisma/migrations/` 全部旧目录（git 历史保留），只留新单一 init**（含 set_updated_at 函数：**首行 `IF current_setting('app.skip_updated_at',true)='on' THEN RETURN NEW; END IF;`+TG_OP 分支**〔INSERT 仅 NULL 设/UPDATE 始终〕+全部 updatedAt 表触发器+全部 raw 对象逐字）；**check-migration-immutability 加 `--rebaseline --confirm` 显式模式**（mergeBaseline 单向只增不删——旧模式 squash 永红，第六轮 P0-5；替换文件 diff 可审阅）；additive `BASELINE` 抬新 init+**EXEMPTIONS 旧条目清+migrate-diff-allowlist+check-fresh-replay 同批清**（第六轮 P1）。
+**Files:** schema 全 DateTime 加 `@db.Timestamptz(3)`；MediaBinding 加 `project CanvasProject @relation(fields:[projectId],references:[id],onDelete:Cascade)`+**CanvasProject 加 `mediaBindings MediaBinding[]` 反向字段**（**去 mediaId FK**——v5.2 最终裁定：Cascade 下锁耦合不成立、fence 承担时序后 FK 锁价值消失；删 `MediaBinding.media` 关系与 `Media.bindings` 反向字段）；删 MediaFactOutbox 模型+MediaFactState enum；**删除 `prisma/migrations/` 全部旧目录（git 历史保留），只留新单一 init**（含 set_updated_at 函数：**首行 `IF current_setting('app.skip_updated_at',true)='on' THEN RETURN NEW; END IF;`+TG_OP 分支**〔INSERT 仅 NULL 设/UPDATE 始终〕+全部 updatedAt 表触发器+全部 raw 对象逐字）；**check-migration-immutability 加 `--rebaseline --confirm` 显式模式**（mergeBaseline 单向只增不删——旧模式 squash 永红，第六轮 P0-5；替换文件 diff 可审阅）；additive `BASELINE` 抬新 init+**EXEMPTIONS 旧条目清+migrate-diff-allowlist+check-fresh-replay 同批清**（第六轮 P1）。
 
 - [ ] **Step 1：旧库 pre-batch 快照**：`pg_dump --schema-only`（**pre-batch 旧链 scratch 重放**——覆盖 C2/C3a/C1 全部 delta，第六轮 P1-2）→`gate-evidence/schema-before-v2.sql`+对象清单 JSON+tag 旧 commit+baseline ADR。
 - [ ] **Step 2：**`prisma validate` 绿（反向字段核对）→新 init 生成→`npx prisma migrate reset --force` 空库只重放新 init 红测绿。
@@ -208,7 +208,7 @@ return writeBinding();
 
 ### Task C1-2：三向 allowlist 对象门
 
-**Files:** Create `scripts/check-rebaseline-delta.mjs`：对比重放库 vs `schema-before-v2.sql`（baseline=pre-batch）——old-only 命中 removed（MediaFactOutbox 表+索引列/MediaFactState enum；**MediaBinding_mediaId_fkey 不在 removed——v5.1 裁定保留 mediaId FK，C1-1 已落**）/new-only 命中 added（**MediaFact/CanvasDoc 两列/Media.deletionState/set_updated_at 函数+触发器/MediaBinding_projectId_fkey+索引/ProjectionBackfillState/DeletionBarrier/oracle 双表——只列 DB 对象，Prisma 反向关系不入 pg_dump allowlist**，第七轮 P1-5）/列类型 delta 由列级 census 派生（不 hardcode）；**changed 域**（FK onDelete/约束 body 变化）；函数/触发器 body 逐字；allowlist JSON 生成一次+人工审阅+入库，gate 只读。
+**Files:** Create `scripts/check-rebaseline-delta.mjs`：对比重放库 vs `schema-before-v2.sql`（baseline=pre-batch）——old-only 命中 removed（MediaFactOutbox 表+索引列/MediaFactState enum/**MediaBinding_mediaId_fkey**〔v5.2 最终裁定去 FK〕）/new-only 命中 added（**MediaFact/CanvasDoc 两列/Media.deletionState/set_updated_at 函数+触发器/MediaBinding_projectId_fkey+索引/ProjectionBackfillState/DeletionBarrier/oracle 双表——只列 DB 对象，Prisma 反向关系不入 pg_dump allowlist**，第七轮 P1-5）/列类型 delta 由列级 census 派生（不 hardcode）；**changed 域**（FK onDelete/约束 body 变化）；函数/触发器 body 逐字；allowlist JSON 生成一次+人工审阅+入库，gate 只读。
 
 - [ ] **Step 1：门自测负控**（缺 ledger_guard→红/多一列 naive→红/少 removed 条目→红/**多一个非预期对象→红**）→verify 链注册→Commit。
 
