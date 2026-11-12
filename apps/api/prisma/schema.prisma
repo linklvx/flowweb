@@ -165,7 +165,7 @@ model CanvasProject {
   projectMembers ProjectMember[]
   docUpdates     CanvasDocUpdate[]
   videoProjects  VideoProject[]
-  // C1-1（v5.1 裁定）：MediaBinding.projectId FK Cascade 反向关系——项目删除零残留
+  // C1-1（v5.2 终态）：MediaBinding.projectId FK Cascade 反向关系——项目删除零残留
   mediaBindings  MediaBinding[]
   createdAt      DateTime            @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime            @updatedAt @db.Timestamptz(3)
@@ -363,9 +363,7 @@ model Media {
   teamId String
   team   Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
-  bindings MediaBinding[]
-
-  facts MediaFact[] // C2：当前态事实行（替代 MediaFactOutbox 推送模型——写点改道归 C2-2）
+  facts MediaFact[] // C2：当前态事实行（替代推送式 outbox——写点改道归 C2-2）
 
   @@unique([bucket, key]) // 对象级幂等（v11）
   @@unique([teamId, clientUploadId]) // presign 幂等键（nullable 复合——PG NULL 不冲突）
@@ -1637,8 +1635,9 @@ model MediaBinding {
   targetField  String        @default("fileId") // 词表单源=shared MEDIA_REF_TARGET_FIELDS（fileId|referenceImage|referenceVideo|referenceAudio|images|allImages|trimmedFileId|videoFileId|audioFileId——T16 spec 评审 P1#1 补 referenceVideo/referenceAudio；DB CHECK=raw SQL media_binding_target_field_domain（20261022070000 放宽至九键），加键须同批迁移同步）
   targetItemId String        @default("") // 非空 sentinel（PG NULL 不去重根修）
   createdAt    DateTime      @default(now()) @db.Timestamptz(3)
-  media        Media         @relation(fields: [mediaId], references: [id], onDelete: Cascade)
-  // C1-1（v5.1 裁定）：mediaId FK 保留 + projectId FK Cascade（项目删除零残留）
+  // C1-1（spec v5.2/v5.3 终态）：去 mediaId FK（锁耦合由 project fence 承担，fence 承担时序后 FK
+  // 锁价值消失）——mediaId 标量保留 + @@index([mediaId]) 保留（GC/删除保护按 mediaId 直查）；
+  // projectId FK Cascade=项目删除零残留。
   project      CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, nodeId, role, targetField, targetItemId]) // 槽位唯一（current-state upsert）
@@ -1647,7 +1646,7 @@ model MediaBinding {
 }
 
 // C2-1（spec 2026-11-11-foundation-batch-design.md §3.1）：MediaFact 当前态表——每 media 每 factType
-// 一行的当前事实（替代 MediaFactOutbox 推送模型；旧表退役归 C2-4，本任务（C2-1）不动）。updatedAt 自第一天即
+// 一行的当前事实（替代推送式 outbox 模型；旧表已随 C1-1 rebaseline 物删）。updatedAt 自第一天即
 // timestamptz(3)（既有 ~167 列 naive 时间墙混用由 C1 终态 rebaseline——新表不欠账；写法=Date 参数绑定，
 // round-trip 红测=media-fact-roundtrip.int.spec.ts）。factType 域约束 CHECK IN ('state','natural') 为
 // raw 迁移附（Prisma 不可表达）。mediaId 前缀查询被复合主键左前缀覆盖——不加额外索引（YAGNI）。

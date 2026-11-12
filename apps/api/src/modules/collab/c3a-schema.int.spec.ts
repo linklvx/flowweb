@@ -78,7 +78,7 @@ const MIG_DIR = join(__dirname, '../../../prisma/migrations');
   });
 
   it('③ ProjectionBackfillState：四态全过+域外拒+verifiedSeq BigInt（>2^53）+updatedAt 显式写读回', async () => {
-    const sentAt = new Date();
+    const sentAt = new Date(Date.now() - 1_000); // 显式历史值（1s 前——UPDATE now() 严格大于它，缺触发器必红）
     const beyondSafe = 9_007_199_254_740_993n; // 2^53+1——超 Number.MAX_SAFE_INTEGER，钉 BigInt 路径
     await prisma.projectionBackfillState.create({
       data: { projectId: PID, backfillEpoch: 'e0', state: 'PENDING', verifiedSeq: 0n, updatedAt: sentAt },
@@ -92,8 +92,9 @@ const MIG_DIR = join(__dirname, '../../../prisma/migrations');
     const row = await prisma.projectionBackfillState.findUniqueOrThrow({ where: { projectId: PID } });
     expect(row.state).toBe('FAILED');
     expect(row.verifiedSeq).toBe(beyondSafe);
-    // UPDATE 始终 now()（C1 set_updated_at：非 skip_updated_at 通道——update 自动 bump 取代显式写）
-    expect(row.updatedAt.getTime()).toBeGreaterThanOrEqual(sentAt.getTime());
+    // UPDATE 始终 now()（C1 set_updated_at 判别钉）：严格 > INSERT 时保留的历史值——缺触发器时行值
+    // 保持 sentAt（无 @updatedAt 的 raw 语义），断言即红（>= 无判别力，评审 Minor-1）。
+    expect(row.updatedAt.getTime()).toBeGreaterThan(inserted.updatedAt.getTime());
     await expect(
       prisma.projectionBackfillState.update({ where: { projectId: PID }, data: { state: 'BOGUS' } }),
     ).rejects.toThrowError(/ProjectionBackfillState_state_check/);

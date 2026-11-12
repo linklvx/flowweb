@@ -10,7 +10,7 @@
 // 基线落文件内常量（禁 env 旋钮）；基线存在性断言（常量打错⇒fresh 恒空⇒永久豁免且输出仍 OK——静默失效唯一路径封死）。
 // Y0b-2 squash（2026-10-10）：第三次基线重置。护栏：BASELINE 只允许在"无生产环境"期间抬高；
 // 失效条件=spec §9.6——此后一切 schema 变更回到 expand/contract 两步走。
-// C1-1 rebaseline（2026-11-12）：第四次基线重置——终态 schema 单一 init（旧链 25 目录删除，git 历史
+// C1-1 rebaseline（2026-11-12）：第四次基线重置——终态 schema 单一 init（旧链 24 目录删除，git 历史
 // 保留）；旧 EXEMPTIONS 六登记随目录删除清零（S0.1「豁免=迁移历史永久登记」——历史已不在目录树，
 // 登记失去对象；旧破坏性变更的审计面=旧 commit/tag pre-c1-rebaseline）。
 // squash 后 fresh 集合空为预期（本批 DDL 的 additive 审计发生在起草阶段，终态由 census 对象级+行级三验保证）。

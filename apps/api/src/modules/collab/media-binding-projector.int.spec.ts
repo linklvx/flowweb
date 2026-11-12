@@ -246,8 +246,10 @@ maybe('C3a-5：MediaBindingProjector 四族（真 PG）', () => {
     }
   });
 
-  // ── 族⑥（C3a-9 补缺——spec §3.2-8「FK 竞态→savepoint 兜底」直测）──
-  it('⑥：FK 竞态（预检读后 Media 行灭失→INSERT 触发 FK）→BindingProjectionFailedError typed 抛出+事务回滚零半态', async () => {
+  // ── 族⑥（C3a-9 补缺——spec §3.2-8「FK 竞态→savepoint 兜底」直测；C1-1 终态适配：mediaId FK 已去
+  //   〔spec v5.2/v5.3〕——竞态载体改为存活的 MediaBinding.projectId FK（父项目行灭失→INSERT 触发 FK）；
+  //   Media 行灭失在无 FK 终态=投影照写候选行不报错，候选面语义归 C3b）
+  it('⑥：FK 竞态（预检读后 CanvasProject 行灭失→INSERT 触发 projectId FK）→BindingProjectionFailedError typed 抛出+事务回滚零半态', async () => {
     const FK_MEDIA = 'c3a5-media-fk-race';
     await prisma.media.deleteMany({ where: { id: FK_MEDIA } });
     await prisma.media.create({
@@ -255,13 +257,13 @@ maybe('C3a-5：MediaBindingProjector 四族（真 PG）', () => {
     });
     try {
       await expect(prisma.$transaction(async (tx) => {
-        // 预检读 Media 行**之后**注入并发删（同事务 DELETE：INSERT 的 FK 检查见父行灭失——竞态窗
-        // 的确定性替身；生产形态=并发删除事务提交于两语句之间）。闭包侧 SAVEPOINT 兜底=C3a-4 族①。
+        // 预检读 Media 行**之后**注入并发删（同事务 DELETE：INSERT 的 projectId FK 检查见父行灭失——
+        // 竞态窗的确定性替身；生产形态=并发删除事务提交于两语句之间）。闭包侧 SAVEPOINT 兜底=C3a-4 族①。
         const racing = {
           $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown> => {
             const rows = await (tx.$queryRaw as unknown as (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>)(strings, ...values);
             if (strings.join('').includes('FROM "Media"')) {
-              await tx.$executeRaw`DELETE FROM "Media" WHERE id = ${FK_MEDIA}::text`;
+              await tx.$executeRaw`DELETE FROM "CanvasProject" WHERE id = ${PID}::text`;
             }
             return rows;
           },
@@ -271,7 +273,7 @@ maybe('C3a-5：MediaBindingProjector 四族（真 PG）', () => {
         return projectBindings(racing as never, PID, FIXTURE_TEAM, delta({ fk: [ref('fk', FK_MEDIA)] }));
       })).rejects.toBeInstanceOf(BindingProjectionFailedError);
       expect(await prisma.mediaBinding.count({ where: { projectId: PID, nodeId: 'fk' } })).toBe(0);   // 投影零半态（INSERT 整体失败）
-      expect(await prisma.media.count({ where: { id: FK_MEDIA } })).toBe(1);   // 外层回滚=竞态 DELETE 同灭（布景不自留）
+      expect(await prisma.canvasProject.count({ where: { id: PID } })).toBe(1);   // 外层回滚=竞态 DELETE 同灭（布景不自留）
     } finally {
       await prisma.media.deleteMany({ where: { id: FK_MEDIA } });
     }

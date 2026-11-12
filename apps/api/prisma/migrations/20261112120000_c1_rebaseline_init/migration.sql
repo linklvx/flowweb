@@ -1958,14 +1958,10 @@ ALTER TABLE "StyleRecentUsage" ADD CONSTRAINT "StyleRecentUsage_styleId_fkey" FO
 ALTER TABLE "GenerationIntent" ADD CONSTRAINT "GenerationIntent_pricingRuleId_fkey" FOREIGN KEY ("pricingRuleId") REFERENCES "PricingRule"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "MediaBinding" ADD CONSTRAINT "MediaBinding_mediaId_fkey" FOREIGN KEY ("mediaId") REFERENCES "Media"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "MediaBinding" ADD CONSTRAINT "MediaBinding_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "CanvasProject"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "MediaFact" ADD CONSTRAINT "MediaFact_mediaId_fkey" FOREIGN KEY ("mediaId") REFERENCES "Media"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
 
 -- ══════════════════════════════════════════════════════════════════════════════════════════════
 -- 以下为 Prisma diff 不可见的 raw 对象（C1-1 rebaseline——旧链 census 逐字搬运；本 init 为唯一真源）

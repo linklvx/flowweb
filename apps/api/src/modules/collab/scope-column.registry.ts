@@ -21,7 +21,8 @@
 //    （execution-request.service.ts :437-441，DELETING 拒——C4-b 接线）；②资金行=allowlist 计费行保留
 //    （PURGING_DB：GenerationIntent 只 scrub 内容列〔resultText/gestureKey/resultRef→null〕计费列原样、
 //    ExecutionRequest 整行保留——project-erasure.stages.ts allowlist 单源）；③ledger 单写者纪律不变
-//    ——ledger_guard 触发器仅辖 TeamBalance/TeamCreditTransaction（迁移 20261112120000_c1_rebaseline_init :2066-2079），
+//    ——ledger_guard 触发器仅辖 TeamBalance/TeamCreditTransaction（迁移 20261112120000_c1_rebaseline_init
+//    :2069 函数 + :2078/:2081 两触发器），
 //    project 维擦除零触碰该两表；team 维删 Team 行走 ledgerTx 通行证（poller 会合分支既有）；
 //    ④请求侧资金门（TeamFundsGateService.assertSettled 扩查三面——C4-a）保证擦除开始时资金已清算。
 //  C 档·scope 扫除面（不 fence——行集由 erasure worker 按 scope 批删/C4-c 列级断言核销）：执行完成面

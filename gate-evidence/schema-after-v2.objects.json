@@ -5877,11 +5877,6 @@
    "def": "PRIMARY KEY (id)"
   },
   {
-   "conname": "MediaBinding_mediaId_fkey",
-   "contype": "f",
-   "def": "FOREIGN KEY (\"mediaId\") REFERENCES \"Media\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
-  },
-  {
    "conname": "MediaBinding_pkey",
    "contype": "p",
    "def": "PRIMARY KEY (id)"

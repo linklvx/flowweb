@@ -25,7 +25,7 @@ describe('Y1c T5b 契约冻结：义务 closed enum（census⑪ 定员——新�
     expect(OBLIGATION_KIND_CONSUMERS.EXEC_FINALIZE).toContain('GenerationIntent');
   });
   it('排除候选留档（census⑪ 对照）：搜索/公开快照/doc bytes 配额——键域或生命周期不含 nodeId/请求时派生/异步收敛', () => {
-    expect(Object.keys(OBLIGATION_EXCLUDED_CANDIDATES).length).toBeGreaterThanOrEqual(3);
+    expect(Object.keys(OBLIGATION_EXCLUDED_CANDIDATES).length).toBe(3);   // 登记面 exact-3（C1-1 清 outbox 后钉死）
     expect(Object.keys(OBLIGATION_EXCLUDED_CANDIDATES)).not.toContain('FEED_TOMBSTONE');
   });
 });
