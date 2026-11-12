@@ -14,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** 执法锚七文件（T42 B3 四文件+CI 双故障根修批 T10 三新文件——变更锚值=有意识动作：自测 SIZE_LIMITS 断言同批改）。 */
+/** 执法锚八文件（T42 B3 四文件+CI 双故障根修批 T10 三新文件+C3a-5 projector——变更锚值=有意识动作：自测 SIZE_LIMITS 断言同批改）。 */
 export const SIZE_LIMITS = {
   'apps/api/src/modules/collab/collab.gateway.ts': 1161,   // T42 B3 934→Y1c T9 985→T10 1015（+30：onStateless barrier 接线+beforeUnloadDocument drain 纪律〔拒卸载 throw 面〕+isMaintenanceBlocked 缝）→T10 收口 1020（+5：Q-I3 UnloadDrainRefusedError typed 分类）→T11 收口 1025（+5：C1① onWalSeqFloorSeeded 装载缝+boot 播种接线）→复核 round-2 1032（+7：C1' boot 三元组播种块前移 replayAll 前+generation 接线——净增面，非膨胀）→T12 1048（+16：#g canonical 寻址〔isDocResident/persistence docNameOf 缝〕+schemaVersion⇒generation 拒启断言接线+switchWalGeneration 换代委托+doc-name 再导出——净增面，非膨胀）→T12 收口 1054（+6：vacuumEraGeneration 纪元读面委托〔I1.2〕——净增面，非膨胀）→T13 1080（+26：G6a boot 恢复路径生产接线〔recoverScan 消费+restore.lock 门控+violation/suspect fail-closed+docRecoveryTotal〕+wal observer unregister——净增面，非膨胀）→T13 收口 1082（+2：M4 启动自检条件收窄 fatal 维〔良性 dup 不噪声〕注释锚——净增面，非膨胀）→T22 收口批补账 1098（+16：T26 双评审~三轮 observer 接线 +3+2+1 净增+T22 主体 broadcastStatelessToProject stateless 扇出〔feed-hint 通知通道〕+11——批漏登锚的补账，净增面非膨胀）→Y1c T24 1101（+3：装载缝 noteDocIndexRebuild 转发一行——docIndex 装载即 rebuild 根修接线，净增非膨胀）→T24 收口 1103（+2：I-1 挂点移 onDocLoadedAndReplayed 重放后缝——净增非膨胀）→Y1c T27 1144（+41：维护状态机 host 接线〔docConnections/hardClose/thaw 段/常驻释放/WAL 切代 1 行转发族〕+actor 准入链 maintenanceFreezeOf/isMaintenanceBlocked∨freeze 扩+boot resumeActiveOnBoot 续跑接线〔重启从 PG stage 继续〕——净增面非膨胀）→T27 收口 1150（+6：boot replayAll 重派生双回调接线〔I-3 恢复链终态〕——净增面非膨胀）→T27 收尾 1161（+11：reconciler face 扩传 derive+persist 两面〔I-3' 裁定 (a) 接线〕+boot derive memo 转发——净增面非膨胀）
   'apps/api/src/modules/collab/collab-session-guard.service.ts': 1405,   // T41 W3b B2 1238→Y1c T9 实测 1273（+35：closeAllConnectionsWs 泛化〔1011 WAL fail-stop 档〕+版本门 historyId 硬门〔修正 #8 resolveVersionGate 接线〕+auth 回执 historyId 下发半链——三净增面，非膨胀）→T12 1298（+25：auth 面 docName 世代准入〔E23 双校验①·GENERATION_STALE 终态档〕+真空窗 4410 载荷先行+persistUnhealthy 归一键+closeTeamDocuments canonical——净增面，非膨胀）→T22 收口批补账 1304（+6：T22 主体 setHeartbeatEnricher 委托〔feed latestFeedSeq 心跳增补面〕——批漏登锚的补账，净增面非膨胀）→Y1c T24 1348（+44：版本门 deny=4406 terminal close 投递〔closeUpgradeTerminal RFC6455 close 帧+upgradeSockets WeakMap 登记〕——旧 bundle DENY 无限循环阻断面，净增非膨胀）→T24 收口 1358（+10：sv 上行承载 M-1〔VERSION_GATE_CLIENT_PARAMS 消费+三元真承载〕——净增面非膨胀）→T25 收口 1371（+13：auth 面方向分档〔resolveAuthHistoryVerdict 消费+g_client>g_server 4410 server-restored 码投递——C-1(spec) 服务端腿〕——净增面非膨胀）
@@ -23,6 +23,7 @@ export const SIZE_LIMITS = {
   'apps/api/src/modules/collab/collab-limits.ts': 55,   // CI 修复批 R4b' 新文件入锚（T10 实测 42+1.3 余量——spec 预登记 2 兑现）
   'apps/api/src/modules/collab/collab-outbound-budget.ts': 155,   // CI 修复批 R4b' 新文件入锚（T10 实测 119+1.3 余量——四档帧型+记账台账）
   'apps/api/src/modules/collab/collab-heartbeat.ts': 42,   // CI 修复批 R6' 新文件入锚（T10 实测 31+1.3 余量——v3 补：三新文件统一入锚）→T22 收口批补账 42（+2：T22 主体 enricher 钩〔latestFeedSeq 增补档缺省纯 heartbeat〕——批漏登锚的补账，净增面非膨胀）
+  'apps/api/src/modules/collab/media-binding-projector.ts': 147,   // C3a-5 新文件入锚（实测 113+1.3 余量——spec §4 module-size「MediaBindingProjector 新文件入锚」兑现）
 };
 
 /** Z96 计法（plan 钉死）：对齐 wc -l（尾换行文件两口径一致；无尾换行差 1——自测钉）。 */

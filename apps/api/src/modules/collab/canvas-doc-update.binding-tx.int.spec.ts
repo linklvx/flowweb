@@ -64,17 +64,13 @@ const projectorThrowAfterWrite = (slotNodeId: string) => async (tx: Prisma.Trans
   throw new Error('BindingProjectionInjectedFailure');
 };
 
-/** per-test 布景重置：binding/lifecycle/帙行全清+建 CanvasDoc 行（初始水位三元+代）。 */
+/** per-test 布景重置：binding/lifecycle/帙行全清+建 CanvasDoc 行（初始水位三元+代）。
+ *  清行四 deleteMany 复用 dropDocAndRows（C3a-4 评审手递③——两处重复收敛）。 */
 async function resetDoc(
   prisma: PrismaClient,
   init: { pgSeq: bigint; mediaBindingSeq: bigint; dirty: boolean; generation?: number },
 ): Promise<void> {
-  await prisma.$transaction([
-    prisma.mediaBinding.deleteMany({ where: { projectId: PID } }),
-    prisma.nodeLifecycle.deleteMany({ where: { projectId: PID } }),
-    prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } }),
-    prisma.canvasDoc.deleteMany({ where: { projectId: PID } }),
-  ]);
+  await dropDocAndRows(prisma);
   await prisma.canvasDoc.create({
     data: {
       projectId: PID, generation: init.generation ?? 1, schemaVersion: 3,
@@ -186,7 +182,7 @@ maybe('C3a-4：appendBatch 组合闭包+两 UPDATE+SAVEPOINT（真 PG）', () =>
     expectInvariant(s);
   });
 
-  // ── 档2-cas-miss（adoopt 出口：崩溃窗 expected 陈旧→主 CAS miss→adopt 真值重 CAS 落定）──
+  // ── 档2-cas-miss（adopt 出口：崩溃窗 expected 陈旧→主 CAS miss→adopt 真值重 CAS 落定）──
   it('档2：cas-miss adopt 出口——expected 陈旧（内存水位滞后）→adopt 落定后 ② 以锁外实读 pgSeq 推进', async () => {
     await resetDoc(prisma, { pgSeq: 5n, mediaBindingSeq: 5n, dirty: false });
     // 前批正常落定 pgSeq=10/mediaBindingSeq=10（模拟「CAS 已提交而 confirm 未跑」崩溃窗起点）

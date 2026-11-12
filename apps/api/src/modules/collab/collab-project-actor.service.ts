@@ -81,6 +81,7 @@ import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabLifecycleObserverService, type LifecycleFrame } from './collab-lifecycle-observer.service';
 import { projectDocName, parseDocName, canvasDocName } from './doc-name.util';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
+import { projectBindings, BindingProjectionFailedError } from './media-binding-projector';   // C3a-5：inTx 闭包投影面
 import { ProjectErasingError } from './project-lock';   // C4-b：fence 拒帧终态处置（FK 族同判）
 import { captureCollabException } from '../../utils/sentry-scrub';
 import { actorDrainBatchTotal, actorDrainBatchFrames, actorDedupHitTotal, actorFrameOutcomeTotal, actorPoisonFrameTotal, bindingDeltaBytes, collabQuotaFrameRejectedTotal, frameEffectsTotal, graphAnomalyTotal, inboundQueueOverLimitTotal, lifecycleObligationsCreatedTotal, lifecycleRowsCreatedTotal, projectBackpressureTotal, ss2SemaphoreTotal, yjsStorePayloadBytes, yjsStoreTotal } from './store.metrics';
@@ -1584,13 +1585,35 @@ export class CollabProjectActorService {
         : undefined;
       const seedPresence = st.lifecycleSeedPresence;
       let lifecycleCounts: Awaited<ReturnType<CollabLifecycleObserverService['persistFramesInTx']>> | undefined;
+      // C3a-5（spec §3.2-1/§3.2-2）：批 bindingDelta 按 walSeq 后帧覆盖合并（prefix 序=walSeq 序——
+      // appliedQueue 连续前缀）；空合并=帧无 touched→闭包零开销直返 covered（投影跳过）。
+      const batchDelta = new Map<string, readonly MediaRef[] | null>();
+      for (const e of prefix) for (const [nodeId, refs] of e.bindingDelta) batchDelta.set(nodeId, refs);
       const r = await this.repo.appendBatch(pid, rows, {
         expectedPgSeq: w?.pgSeq ?? 0n,
         newPgSeq: lastWalSeq,
         walCheckpointSeq: w?.spoolHeadSeq ?? lastWalSeq,
-      }, frames ? async (tx) => {
-        lifecycleCounts = await this.lifecycleObserver!.persistFramesInTx(tx, pid, frames, seedPresence ? { seedPresence } : undefined);
-      } : undefined);
+      }, async (tx) => {
+        // C3a-4/C3a-5 组合闭包（spec §3.2-2 SAVEPOINT 失败隔离）：lifecycle persist 在 SAVEPOINT 外
+        //（binding 回滚不连坐 lifecycle 行）→SAVEPOINT media_binding_projection→投影→RELEASE；异常→
+        // ROLLBACK TO+置 dirty（**updateMany**——行缺懒建档布景下 update 0 行抛 P2025 连坐整事务回滚，
+        // 违「帧照常提交」；该形态 dirty 由懒建档 INSERT 显式置位兜底）→bindingCovered=false（② 不进
+        // ——水位不推，脏态交 C3a-6 rebuild 收敛；帧照常提交）。
+        if (frames) lifecycleCounts = await this.lifecycleObserver!.persistFramesInTx(tx, pid, frames, seedPresence ? { seedPresence } : undefined);
+        if (batchDelta.size === 0) return { bindingCovered: true };   // 空 delta=零 binding 面（covered=true——② 水位可进）
+        await tx.$executeRaw`SAVEPOINT media_binding_projection`;
+        try {
+          const teamId = (await tx.canvasProject.findUnique({ where: { id: pid }, select: { teamId: true } }))?.teamId;
+          if (teamId == null) throw new BindingProjectionFailedError(`CanvasProject 行缺失（${pid}）——投影面不可判队`);
+          await projectBindings(tx, pid, teamId, batchDelta);
+          await tx.$executeRaw`RELEASE SAVEPOINT media_binding_projection`;
+          return { bindingCovered: true };
+        } catch {
+          await tx.$executeRaw`ROLLBACK TO SAVEPOINT media_binding_projection`;
+          await tx.canvasDoc.updateMany({ where: { projectId: pid }, data: { bindingsDirty: true } });
+          return { bindingCovered: false };
+        }
+      });
       if (r.ok && st.lifecycleSeedPresence !== undefined) {
         st.lifecycleSeedPresence = undefined;   // 落定才消费（失败重试复用——seed 幂等）
         this.lifecycleObserver?.clearStaleFenceMark(pid);   // R-1②：stale 标记随重对齐落定清除

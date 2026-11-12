@@ -50,9 +50,9 @@ test('checkSizes：文件缺失=结构性错误（structural 点名——exit 2 
 
 // ── 锚表结构（T42 B3 执法面钉死四文件+CI 双故障根修批 T10 扩三新文件=七文件；residency 不入锚=片 A 文件非片 B 产物，设计 §7.2 口径） ──
 
-test('SIZE_LIMITS：恰七文件（gateway B3 实测终标+SG/DR/persistence 偏离 65/74 锚+CI 修复批三新文件），residency 不入锚', () => {
+test('SIZE_LIMITS：恰八文件（gateway B3 实测终标+SG/DR/persistence 偏离 65/74 锚+CI 修复批三新文件+C3a-5 projector 新文件），residency 不入锚', () => {
   const keys = Object.keys(SIZE_LIMITS);
-  assert.equal(keys.length, 7);
+  assert.equal(keys.length, 8);
   assert.ok(keys.every((k) => k.startsWith('apps/api/src/modules/collab/')));
   assert.ok(!keys.some((k) => k.includes('residency')), 'residency=片 A 文件非片 B 产物——不入锚');
   assert.ok(keys.some((k) => k.endsWith('collab.gateway.ts')));
@@ -62,6 +62,7 @@ test('SIZE_LIMITS：恰七文件（gateway B3 实测终标+SG/DR/persistence 偏
   assert.ok(keys.some((k) => k.endsWith('collab-limits.ts')));
   assert.ok(keys.some((k) => k.endsWith('collab-outbound-budget.ts')));
   assert.ok(keys.some((k) => k.endsWith('collab-heartbeat.ts')));
+  assert.ok(keys.some((k) => k.endsWith('media-binding-projector.ts')));
 });
 
 test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑现——plan ≤600 字面为防倒退锚非可达值〕；SG 1238/DR 1082=任务卡钉死值；persistence T14 实测重标 950→1037）+CI 修复批三新文件（T10 实测+1.3 余量：limits 42→55/budget 119→155/heartbeat 31→40）', () => {
@@ -72,9 +73,10 @@ test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑�
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-limits.ts'], 55);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-outbound-budget.ts'], 155);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-heartbeat.ts'], 42);   // …40→T22 收口批补账 42（enricher 钩 +2——净增面非膨胀，锚=实测同批）
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/media-binding-projector.ts'], 147);   // C3a-5 新文件入锚（实测 113+1.3 余量）
 });
 
-test('现状实测：七文件全部限内（端到端触盘——真锚真文件，门禁 PASS 前提自证）', () => {
+test('现状实测：八文件全部限内（端到端触盘——真锚真文件，门禁 PASS 前提自证）', () => {
   const { structural, results } = checkSizes(SIZE_LIMITS, (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8'));
   assert.equal(structural, null);
   for (const r of results) assert.ok(r.pass, `${r.file} 实测 ${r.lines} > 锚 ${r.limit}`);

@@ -189,7 +189,10 @@ export class CanvasDocUpdateRepository {
   /** C3a-4（plan v3 Task C3a-4——spec §3.2-2/§3.2-3）：inTx 组合闭包返回契约——repository 据此决定
    *  ②（binding 水位）是否推进。调用方可结构化扩展（actor 侧组合闭包附 lifecycleCounts 计数——
    *  repository 只消费 bindingCovered）。void 返回=调用方无投影面（replayAll stale/persist、维护
-   *  回退）——视作未覆盖，② 恒不执行（纯水位形态，既有调用方零波及）。 */
+   *  回退）——视作未覆盖，② 恒不执行（纯水位形态，既有调用方零波及）。
+   *  **陷阱（C3a-4 实现期发现——闭包装配者必读）**：闭包 catch 分支置 dirty 必须
+   *  `tx.canvasDoc.updateMany`——`tx.canvasDoc.update` 在行缺（懒建档布景）下 0 行抛 P2025 连坐
+   *  整事务回滚，违 spec §3.2-2「binding 失败不连坐帧」（该形态 dirty 由懒建档 INSERT 显式置位兜底）。 */
   async appendBatch(projectId: string, rows: ReadonlyArray<{
     generation: number; firstWalSeq: bigint; lastWalSeq: bigint; frameCount: number;
     updateHash: string; update: Uint8Array; actorRanges?: unknown;
@@ -349,10 +352,10 @@ export class CanvasDocUpdateRepository {
         return { ok: true, rows: watermarkLanded.inserted };
       }
       if (row[0].pgSeq >= wm!.newPgSeq) {
-        // 并发收敛（幂等——行全在已由上方回查担保）。C3a-4 ②：cas-miss 分支确认 pgSeq>=newPg 的
-        // 成功出口——expectedContiguous 取锁外实读 pgSeq 真值（adopt 真值重 CAS 同形；单调防回退门
-        // 使旧批幂等重发形态零下退——advanceBindingWatermark 头注）。
-        if (watermarkLanded.covered) await this.advanceBindingWatermark(this.prisma, projectId, row[0].pgSeq, wm!.newPgSeq);
+        // 并发收敛（幂等——行全在已由上方回查担保）。C3a-4 ②：本出口**无 ② 调用——结构性 no-op**
+        // （C3a-4 评审手递修正）：expectedContiguous=锁外实读 pgSeq≥newPg（本分支条件）与 ② 的
+        // 防回退门 mediaBindingSeq<newPg 互斥恒 0 行；convergence 形=前批已推进（不变量形
+        // mediaBindingSeq==pgSeq），重发旧批不产生新覆盖面。曾在此按「真值接力」多调一次 ②——已删。
         return { ok: true, rows: watermarkLanded.inserted };
       }
       {
@@ -396,8 +399,9 @@ export class CanvasDocUpdateRepository {
 
   /** C3a-4（plan v3 Task C3a-4——spec §0 水位不变量/§3.2-3 连续 CAS 形态）：② binding 水位推进——
    *  与 ① 帧水位两条 UPDATE 解耦（第六轮 P0-1：binding CAS 失败不卡 pgSeq）。执行条件=① 落定
-   *  （事务内 rowCount=1 ∨ cas-miss 解析 adopt/convergence 出口确认 pgSeq>=newPg——两出口
-   *  expectedContiguous 取**锁外实读 pgSeq 真值**〔adopt 真值重 CAS 同形〕，非调用方陈旧 expected）
+   *  （事务内 rowCount=1 ∨ cas-miss 解析 adopt 出口〔崩溃窗 expected 陈旧——expectedContiguous
+   *  取**锁外实读 pgSeq 真值**重 CAS 同形，非调用方陈旧 expected〕；convergence 出口 pgSeq≥newPg
+   *  形按设计无 ②〔见调用点注——结构性 no-op 已删〕）
    *  ∧ 调用方闭包 bindingCovered（应用侧门——false 直接不执行）。WHERE 四门：
    *  ①mediaBindingSeq=expectedContiguous——连续 CAS：仅从已知连续前缀点推进（恒 invariant
    *  「dirty=false ⇒ mediaBindingSeq==pgSeq」下=pgSeq；落后/lag 时 CAS miss=保守 lag+可观测，
