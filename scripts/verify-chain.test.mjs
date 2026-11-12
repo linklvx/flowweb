@@ -28,17 +28,20 @@ const ids = VERIFY_STEPS.map((s) => s.id);
 //   〔census 静态门进 verify fast——plan T5c 配套节六组新检查；步骤总数 30 不变、fast 15→16——
 //   原「check-collab-test-facade 紧随 check-collab-census」邻位随移位解除，façade 门独立执法不变〕；
 //   C3a-7 授权插一步：check-media-binding-writers 紧随 check-plan-census〔MediaBinding 静态单写者
-//   门禁——spec 2026-11-11-foundation-batch §3.2-4/§4，fast 外惯例同款邻位〕=32 步）
+//   门禁——spec 2026-11-11-foundation-batch §3.2-4/§4，fast 外惯例同款邻位〕=32 步；
+//   C1-2 授权插一步：check-rebaseline-delta 紧随 check-media-binding-writers〔三向 allowlist 对象门
+//   ——spec 2026-11-11-foundation-batch §3.3-3/§4，db:true 真重放依赖，fast 外惯例同款邻位〕=33 步）
 const BASELINE_IDS = [
   'doc-gate', 'verify-indexes', 'check-migration-additive', 'check-migration-immutability', 'check-migrate-diff',
   'check-fresh-replay', 'check-pricing-coverage', 'check-ledger-single-writer', 'check-nginx-budget', 'shared-build',
   'shared-typecheck', 'shared-test', 'web-tsc', 'api-tsc', 'api-tsc-scripts', 'check-collab-census',
   'api-nest-build', 'check-no-testutils-in-dist', 'web-test', 'api-test', 'api-test-heavy', 'bench-load-smoke',
   'web-lint', 'check-ecosystem', 'check-spec-consistency', 'check-collab-test-facade',
-  'check-collab-module-size', 'check-exact-pins', 'check-plan-census', 'check-media-binding-writers', 'scripts-node-test', 'api-eslint',
+  'check-collab-module-size', 'check-exact-pins', 'check-plan-census', 'check-media-binding-writers',
+  'check-rebaseline-delta', 'scripts-node-test', 'api-eslint',
 ];
 
-test('③ full 的 id 序列逐字等于引入时的 32 步基线常量（R4a\' +api-test-heavy；Y1a T0 +check-exact-pins；Y1a T3 +check-plan-census；Y1c T5c census 移位 fast；C3a-7 +check-media-binding-writers）', () => {
+test('③ full 的 id 序列逐字等于引入时的 33 步基线常量（R4a\' +api-test-heavy；Y1a T0 +check-exact-pins；Y1a T3 +check-plan-census；Y1c T5c census 移位 fast；C3a-7 +check-media-binding-writers；C1-2 +check-rebaseline-delta）', () => {
   assert.deepEqual(ids, BASELINE_IDS);
 });
 
@@ -80,9 +83,9 @@ test('② nest build 与 check-no-testutils-in-dist 同档（fail-open 修复后
     'api-nest-build 与 check-no-testutils-in-dist 必须同在 fast 内或同在 fast 外');
 });
 
-test('db:true 恰为五步 DB 硬依赖（无 DATABASE_URL 即非零退出——口径"非零"：verify-indexes 是 throw exit 1；Y1c T33 +bench-load-smoke 真装置自拉 api 依赖 PG）', () => {
+test('db:true 恰为六步 DB 硬依赖（无 DATABASE_URL 即非零退出——口径"非零"：verify-indexes 是 throw exit 1；Y1c T33 +bench-load-smoke 真装置自拉 api 依赖 PG；C1-2 +check-rebaseline-delta 临时库重放）', () => {
   assert.deepEqual(ids.filter((_, i) => VERIFY_STEPS[i].db),
-    ['verify-indexes', 'check-migrate-diff', 'check-fresh-replay', 'check-pricing-coverage', 'bench-load-smoke']);
+    ['verify-indexes', 'check-migrate-diff', 'check-fresh-replay', 'check-pricing-coverage', 'bench-load-smoke', 'check-rebaseline-delta']);
 });
 
 test('skip-db(full)===full.filter(s=>!s.db)——db 轴独立于前缀轴', () => {

@@ -1,0 +1,570 @@
+{
+  "_comment": "C1-2 三向 allowlist（spec §3.3-3）：由 scripts/check-rebaseline-delta.mjs --update 生成一次、人工审阅后入库；gate 只读（防自证）。",
+  "baseline": "gate-evidence/schema-before-v2.sql",
+  "baselineObjects": "gate-evidence/schema-before-v2.objects.json",
+  "init": "apps/api/prisma/migrations/20261112120000_c1_rebaseline_init/migration.sql",
+  "adr": "gate-evidence/schema-baseline-adr.md",
+  "removed": {
+    "columns": [
+      {
+        "key": "MediaFactOutbox.attempts",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "integer",
+          "column_default": "0"
+        }
+      },
+      {
+        "key": "MediaFactOutbox.createdAt",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "timestamp without time zone",
+          "column_default": "CURRENT_TIMESTAMP"
+        }
+      },
+      {
+        "key": "MediaFactOutbox.factType",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "MediaFactOutbox.factVersion",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "bigint",
+          "column_default": null
+        }
+      },
+      {
+        "key": "MediaFactOutbox.id",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "MediaFactOutbox.lastError",
+        "def": {
+          "is_nullable": "YES",
+          "data_type": "character varying",
+          "column_default": null
+        }
+      },
+      {
+        "key": "MediaFactOutbox.leaseUntil",
+        "def": {
+          "is_nullable": "YES",
+          "data_type": "timestamp without time zone",
+          "column_default": null
+        }
+      },
+      {
+        "key": "MediaFactOutbox.mediaId",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "MediaFactOutbox.nextAttemptAt",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "timestamp without time zone",
+          "column_default": "CURRENT_TIMESTAMP"
+        }
+      },
+      {
+        "key": "MediaFactOutbox.payload",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "jsonb",
+          "column_default": null
+        }
+      },
+      {
+        "key": "MediaFactOutbox.projectId",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "MediaFactOutbox.publishedAt",
+        "def": {
+          "is_nullable": "YES",
+          "data_type": "timestamp without time zone",
+          "column_default": null
+        }
+      },
+      {
+        "key": "MediaFactOutbox.state",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "USER-DEFINED",
+          "column_default": "'pending'::\"MediaFactState\""
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "key": "MediaBinding_mediaId_fkey",
+        "def": {
+          "contype": "f",
+          "def": "FOREIGN KEY (\"mediaId\") REFERENCES \"Media\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+        }
+      },
+      {
+        "key": "MediaFactOutbox_pkey",
+        "def": {
+          "contype": "p",
+          "def": "PRIMARY KEY (id)"
+        }
+      }
+    ],
+    "indexes": [
+      {
+        "key": "MediaFactOutbox_mediaId_idx",
+        "def": {
+          "indexdef": "CREATE INDEX \"MediaFactOutbox_mediaId_idx\" ON public.\"MediaFactOutbox\" USING btree (\"mediaId\")"
+        }
+      },
+      {
+        "key": "MediaFactOutbox_mediaId_projectId_factType_factVersion_key",
+        "def": {
+          "indexdef": "CREATE UNIQUE INDEX \"MediaFactOutbox_mediaId_projectId_factType_factVersion_key\" ON public.\"MediaFactOutbox\" USING btree (\"mediaId\", \"projectId\", \"factType\", \"factVersion\")"
+        }
+      },
+      {
+        "key": "MediaFactOutbox_pkey",
+        "def": {
+          "indexdef": "CREATE UNIQUE INDEX \"MediaFactOutbox_pkey\" ON public.\"MediaFactOutbox\" USING btree (id)"
+        }
+      },
+      {
+        "key": "MediaFactOutbox_state_nextAttemptAt_idx",
+        "def": {
+          "indexdef": "CREATE INDEX \"MediaFactOutbox_state_nextAttemptAt_idx\" ON public.\"MediaFactOutbox\" USING btree (state, \"nextAttemptAt\")"
+        }
+      }
+    ],
+    "sequences": [],
+    "enums": [
+      {
+        "key": "MediaFactState",
+        "def": {
+          "values": "{pending,published,dead}"
+        }
+      }
+    ],
+    "functions": [],
+    "triggers": []
+  },
+  "added": {
+    "columns": [],
+    "constraints": [
+      {
+        "key": "MediaBinding_projectId_fkey",
+        "def": {
+          "contype": "f",
+          "def": "FOREIGN KEY (\"projectId\") REFERENCES \"CanvasProject\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+        }
+      }
+    ],
+    "indexes": [
+      {
+        "key": "canvas_doc_binding_backfill_partial",
+        "def": {
+          "indexdef": "CREATE INDEX canvas_doc_binding_backfill_partial ON public.\"CanvasDoc\" USING btree (\"projectId\") WHERE ((\"bindingsDirty\" = true) OR (\"mediaBindingSeq\" < \"pgSeq\"))"
+        }
+      }
+    ],
+    "sequences": [],
+    "enums": [],
+    "functions": [
+      {
+        "key": "set_updated_at()",
+        "def": "CREATE OR REPLACE FUNCTION public.set_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nBEGIN\n  IF current_setting('app.skip_updated_at', true) = 'on' THEN\n    RETURN NEW;\n  END IF;\n  IF TG_OP = 'INSERT' THEN\n    IF NEW.\"updatedAt\" IS NULL THEN\n      NEW.\"updatedAt\" = now();\n    END IF;\n  ELSE\n    NEW.\"updatedAt\" = now();\n  END IF;\n  RETURN NEW;\nEND;\n$function$\n"
+      }
+    ],
+    "triggers": [
+      {
+        "key": "AIModel.set_updated_at_AIModel",
+        "def": "CREATE TRIGGER \"set_updated_at_AIModel\" BEFORE INSERT OR UPDATE ON public.\"AIModel\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "Account.set_updated_at_Account",
+        "def": "CREATE TRIGGER \"set_updated_at_Account\" BEFORE INSERT OR UPDATE ON public.\"Account\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "Announcement.set_updated_at_Announcement",
+        "def": "CREATE TRIGGER \"set_updated_at_Announcement\" BEFORE INSERT OR UPDATE ON public.\"Announcement\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "CanvasDoc.set_updated_at_CanvasDoc",
+        "def": "CREATE TRIGGER \"set_updated_at_CanvasDoc\" BEFORE INSERT OR UPDATE ON public.\"CanvasDoc\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "CanvasProject.set_updated_at_CanvasProject",
+        "def": "CREATE TRIGGER \"set_updated_at_CanvasProject\" BEFORE INSERT OR UPDATE ON public.\"CanvasProject\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "CollabJobCursor.set_updated_at_CollabJobCursor",
+        "def": "CREATE TRIGGER \"set_updated_at_CollabJobCursor\" BEFORE INSERT OR UPDATE ON public.\"CollabJobCursor\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "ContentCard.set_updated_at_ContentCard",
+        "def": "CREATE TRIGGER \"set_updated_at_ContentCard\" BEFORE INSERT OR UPDATE ON public.\"ContentCard\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "DeliveryFence.set_updated_at_DeliveryFence",
+        "def": "CREATE TRIGGER \"set_updated_at_DeliveryFence\" BEFORE INSERT OR UPDATE ON public.\"DeliveryFence\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "ExecutionOutbox.set_updated_at_ExecutionOutbox",
+        "def": "CREATE TRIGGER \"set_updated_at_ExecutionOutbox\" BEFORE INSERT OR UPDATE ON public.\"ExecutionOutbox\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "ExecutionRequest.set_updated_at_ExecutionRequest",
+        "def": "CREATE TRIGGER \"set_updated_at_ExecutionRequest\" BEFORE INSERT OR UPDATE ON public.\"ExecutionRequest\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "Folder.set_updated_at_Folder",
+        "def": "CREATE TRIGGER \"set_updated_at_Folder\" BEFORE INSERT OR UPDATE ON public.\"Folder\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "GenerationIntent.set_updated_at_GenerationIntent",
+        "def": "CREATE TRIGGER \"set_updated_at_GenerationIntent\" BEFORE INSERT OR UPDATE ON public.\"GenerationIntent\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "HomeBanner.set_updated_at_HomeBanner",
+        "def": "CREATE TRIGGER \"set_updated_at_HomeBanner\" BEFORE INSERT OR UPDATE ON public.\"HomeBanner\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "LifecycleObligation.set_updated_at_LifecycleObligation",
+        "def": "CREATE TRIGGER \"set_updated_at_LifecycleObligation\" BEFORE INSERT OR UPDATE ON public.\"LifecycleObligation\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "MaintenanceOperation.set_updated_at_MaintenanceOperation",
+        "def": "CREATE TRIGGER \"set_updated_at_MaintenanceOperation\" BEFORE INSERT OR UPDATE ON public.\"MaintenanceOperation\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "MaterialFolder.set_updated_at_MaterialFolder",
+        "def": "CREATE TRIGGER \"set_updated_at_MaterialFolder\" BEFORE INSERT OR UPDATE ON public.\"MaterialFolder\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "Media.set_updated_at_Media",
+        "def": "CREATE TRIGGER \"set_updated_at_Media\" BEFORE INSERT OR UPDATE ON public.\"Media\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "MediaFact.set_updated_at_MediaFact",
+        "def": "CREATE TRIGGER \"set_updated_at_MediaFact\" BEFORE INSERT OR UPDATE ON public.\"MediaFact\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "NodeArtifact.set_updated_at_NodeArtifact",
+        "def": "CREATE TRIGGER \"set_updated_at_NodeArtifact\" BEFORE INSERT OR UPDATE ON public.\"NodeArtifact\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "NodeExecution.set_updated_at_NodeExecution",
+        "def": "CREATE TRIGGER \"set_updated_at_NodeExecution\" BEFORE INSERT OR UPDATE ON public.\"NodeExecution\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "NodeType.set_updated_at_NodeType",
+        "def": "CREATE TRIGGER \"set_updated_at_NodeType\" BEFORE INSERT OR UPDATE ON public.\"NodeType\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "ObjectManifest.set_updated_at_ObjectManifest",
+        "def": "CREATE TRIGGER \"set_updated_at_ObjectManifest\" BEFORE INSERT OR UPDATE ON public.\"ObjectManifest\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "PricingRule.set_updated_at_PricingRule",
+        "def": "CREATE TRIGGER \"set_updated_at_PricingRule\" BEFORE INSERT OR UPDATE ON public.\"PricingRule\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "ProjectErasureRun.set_updated_at_ProjectErasureRun",
+        "def": "CREATE TRIGGER \"set_updated_at_ProjectErasureRun\" BEFORE INSERT OR UPDATE ON public.\"ProjectErasureRun\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "ProjectionBackfillState.set_updated_at_ProjectionBackfillState",
+        "def": "CREATE TRIGGER \"set_updated_at_ProjectionBackfillState\" BEFORE INSERT OR UPDATE ON public.\"ProjectionBackfillState\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "RefundObligation.set_updated_at_RefundObligation",
+        "def": "CREATE TRIGGER \"set_updated_at_RefundObligation\" BEFORE INSERT OR UPDATE ON public.\"RefundObligation\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "Session.set_updated_at_Session",
+        "def": "CREATE TRIGGER \"set_updated_at_Session\" BEFORE INSERT OR UPDATE ON public.\"Session\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "StorageReservation.set_updated_at_StorageReservation",
+        "def": "CREATE TRIGGER \"set_updated_at_StorageReservation\" BEFORE INSERT OR UPDATE ON public.\"StorageReservation\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "Style.set_updated_at_Style",
+        "def": "CREATE TRIGGER \"set_updated_at_Style\" BEFORE INSERT OR UPDATE ON public.\"Style\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "SubscriptionOrder.set_updated_at_SubscriptionOrder",
+        "def": "CREATE TRIGGER \"set_updated_at_SubscriptionOrder\" BEFORE INSERT OR UPDATE ON public.\"SubscriptionOrder\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "SubscriptionPlan.set_updated_at_SubscriptionPlan",
+        "def": "CREATE TRIGGER \"set_updated_at_SubscriptionPlan\" BEFORE INSERT OR UPDATE ON public.\"SubscriptionPlan\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "SystemHistory.set_updated_at_SystemHistory",
+        "def": "CREATE TRIGGER \"set_updated_at_SystemHistory\" BEFORE INSERT OR UPDATE ON public.\"SystemHistory\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "SystemSetting.set_updated_at_SystemSetting",
+        "def": "CREATE TRIGGER \"set_updated_at_SystemSetting\" BEFORE INSERT OR UPDATE ON public.\"SystemSetting\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "Team.set_updated_at_Team",
+        "def": "CREATE TRIGGER \"set_updated_at_Team\" BEFORE INSERT OR UPDATE ON public.\"Team\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "TeamBalance.set_updated_at_TeamBalance",
+        "def": "CREATE TRIGGER \"set_updated_at_TeamBalance\" BEFORE INSERT OR UPDATE ON public.\"TeamBalance\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "TeamPlan.set_updated_at_TeamPlan",
+        "def": "CREATE TRIGGER \"set_updated_at_TeamPlan\" BEFORE INSERT OR UPDATE ON public.\"TeamPlan\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "TeamRechargeOrder.set_updated_at_TeamRechargeOrder",
+        "def": "CREATE TRIGGER \"set_updated_at_TeamRechargeOrder\" BEFORE INSERT OR UPDATE ON public.\"TeamRechargeOrder\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "TeamSubscription.set_updated_at_TeamSubscription",
+        "def": "CREATE TRIGGER \"set_updated_at_TeamSubscription\" BEFORE INSERT OR UPDATE ON public.\"TeamSubscription\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "Template.set_updated_at_Template",
+        "def": "CREATE TRIGGER \"set_updated_at_Template\" BEFORE INSERT OR UPDATE ON public.\"Template\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "User.set_updated_at_User",
+        "def": "CREATE TRIGGER \"set_updated_at_User\" BEFORE INSERT OR UPDATE ON public.\"User\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "UserSubscription.set_updated_at_UserSubscription",
+        "def": "CREATE TRIGGER \"set_updated_at_UserSubscription\" BEFORE INSERT OR UPDATE ON public.\"UserSubscription\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "Verification.set_updated_at_Verification",
+        "def": "CREATE TRIGGER \"set_updated_at_Verification\" BEFORE INSERT OR UPDATE ON public.\"Verification\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "VideoCategory.set_updated_at_VideoCategory",
+        "def": "CREATE TRIGGER \"set_updated_at_VideoCategory\" BEFORE INSERT OR UPDATE ON public.\"VideoCategory\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "VideoProject.set_updated_at_VideoProject",
+        "def": "CREATE TRIGGER \"set_updated_at_VideoProject\" BEFORE INSERT OR UPDATE ON public.\"VideoProject\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "VideoTag.set_updated_at_VideoTag",
+        "def": "CREATE TRIGGER \"set_updated_at_VideoTag\" BEFORE INSERT OR UPDATE ON public.\"VideoTag\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "VideoWork.set_updated_at_VideoWork",
+        "def": "CREATE TRIGGER \"set_updated_at_VideoWork\" BEFORE INSERT OR UPDATE ON public.\"VideoWork\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "VideoWorkSetting.set_updated_at_VideoWorkSetting",
+        "def": "CREATE TRIGGER \"set_updated_at_VideoWorkSetting\" BEFORE INSERT OR UPDATE ON public.\"VideoWorkSetting\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
+        "key": "subscription_banner.set_updated_at_subscription_banner",
+        "def": "CREATE TRIGGER set_updated_at_subscription_banner BEFORE INSERT OR UPDATE ON public.subscription_banner FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      }
+    ]
+  },
+  "changed": {
+    "columns": [],
+    "constraints": [],
+    "indexes": [],
+    "sequences": [],
+    "enums": [],
+    "functions": [],
+    "triggers": []
+  },
+  "columnTypeCensus": {
+    "expectedConversions": [
+      "AIModel.createdAt",
+      "AIModel.updatedAt",
+      "Account.accessTokenExpiresAt",
+      "Account.createdAt",
+      "Account.refreshTokenExpiresAt",
+      "Account.updatedAt",
+      "Announcement.createdAt",
+      "Announcement.updatedAt",
+      "ArtifactProjection.createdAt",
+      "ArtifactProjection.leaseUntil",
+      "ArtifactProjection.nextAttemptAt",
+      "ArtifactProjection.projectedAt",
+      "AuditLog.createdAt",
+      "CanaryPin.expiresAt",
+      "CanaryPin.leaseUntil",
+      "CanvasDoc.updatedAt",
+      "CanvasDocCoalesced.createdAt",
+      "CanvasDocSnapshot.createdAt",
+      "CanvasDocUpdate.createdAt",
+      "CanvasProject.createdAt",
+      "CanvasProject.updatedAt",
+      "CollabCanaryCursor.lastCheckedAt",
+      "CollabCanaryCursor.nextDueAt",
+      "CollabJobCursor.updatedAt",
+      "CollabOpsGate.frozenAt",
+      "CollabOpsGate.unfrozenAt",
+      "ContentCard.createdAt",
+      "ContentCard.updatedAt",
+      "DeliveryFence.updatedAt",
+      "DocAuditEvent.createdAt",
+      "ExecutionInput.createdAt",
+      "ExecutionInput.expiresAt",
+      "ExecutionOutbox.createdAt",
+      "ExecutionOutbox.updatedAt",
+      "ExecutionRequest.createdAt",
+      "ExecutionRequest.expiresAt",
+      "ExecutionRequest.updatedAt",
+      "Folder.createdAt",
+      "Folder.updatedAt",
+      "GenerationIntent.completedAt",
+      "GenerationIntent.createdAt",
+      "GenerationIntent.deadlineAt",
+      "GenerationIntent.heartbeatAt",
+      "GenerationIntent.startedAt",
+      "GenerationIntent.updatedAt",
+      "HomeBanner.createdAt",
+      "HomeBanner.updatedAt",
+      "LifecycleObligation.createdAt",
+      "LifecycleObligation.updatedAt",
+      "LightingTask.completedAt",
+      "LightingTask.createdAt",
+      "MaintenanceOperation.createdAt",
+      "MaintenanceOperation.drainedAt",
+      "MaintenanceOperation.updatedAt",
+      "MaterialFolder.createdAt",
+      "MaterialFolder.deletedAt",
+      "MaterialFolder.updatedAt",
+      "MaterializeRun.createdAt",
+      "Media.createdAt",
+      "Media.deletedAt",
+      "Media.expiresAt",
+      "Media.nextMaterializeAt",
+      "Media.nextProbeAt",
+      "Media.pendingExpiresAt",
+      "Media.probeLeaseUntil",
+      "Media.probedAt",
+      "Media.processingLeaseUntil",
+      "Media.sourceUrlExpiresAt",
+      "Media.updatedAt",
+      "MediaBinding.createdAt",
+      "ModelDuration.createdAt",
+      "ModelResolution.createdAt",
+      "NodeArtifact.createdAt",
+      "NodeArtifact.updatedAt",
+      "NodeExecution.updatedAt",
+      "NodeLifecycle.createdAt",
+      "NodeType.createdAt",
+      "NodeType.updatedAt",
+      "ObjectManifest.createdAt",
+      "ObjectManifest.updatedAt",
+      "PricingRule.createdAt",
+      "PricingRule.updatedAt",
+      "ProjectErasureRun.completedAt",
+      "ProjectErasureRun.heartbeatAt",
+      "ProjectErasureRun.leaseUntil",
+      "ProjectErasureRun.requestedAt",
+      "ProjectErasureRun.updatedAt",
+      "ProjectMember.createdAt",
+      "ReconcileAction.createdAt",
+      "RefundObligation.createdAt",
+      "RefundObligation.updatedAt",
+      "RuntimeEvent.createdAt",
+      "Session.createdAt",
+      "Session.expiresAt",
+      "Session.updatedAt",
+      "StorageReservation.createdAt",
+      "StorageReservation.updatedAt",
+      "Style.createdAt",
+      "Style.updatedAt",
+      "StyleCategory.createdAt",
+      "StyleFavorite.createdAt",
+      "StyleRecentUsage.lastUsedAt",
+      "SubscriptionOrder.closedAt",
+      "SubscriptionOrder.createdAt",
+      "SubscriptionOrder.expiredAt",
+      "SubscriptionOrder.paidAt",
+      "SubscriptionOrder.updatedAt",
+      "SubscriptionPlan.createdAt",
+      "SubscriptionPlan.updatedAt",
+      "SystemHistory.epochStartedAt",
+      "SystemHistory.updatedAt",
+      "SystemSetting.createdAt",
+      "SystemSetting.updatedAt",
+      "Team.createdAt",
+      "Team.updatedAt",
+      "TeamBalance.createdAt",
+      "TeamBalance.updatedAt",
+      "TeamCreditTransaction.createdAt",
+      "TeamJoinRequest.createdAt",
+      "TeamJoinRequest.decidedAt",
+      "TeamMember.joinedAt",
+      "TeamPlan.createdAt",
+      "TeamPlan.updatedAt",
+      "TeamRechargeOrder.createdAt",
+      "TeamRechargeOrder.expiresAt",
+      "TeamRechargeOrder.paidAt",
+      "TeamRechargeOrder.updatedAt",
+      "TeamSubscription.createdAt",
+      "TeamSubscription.currentPeriodEnd",
+      "TeamSubscription.currentPeriodStart",
+      "TeamSubscription.updatedAt",
+      "Template.createdAt",
+      "Template.updatedAt",
+      "User.createdAt",
+      "User.updatedAt",
+      "UserSubscription.createdAt",
+      "UserSubscription.currentPeriodEnd",
+      "UserSubscription.currentPeriodStart",
+      "UserSubscription.nextGrantDate",
+      "UserSubscription.subscribedAt",
+      "UserSubscription.updatedAt",
+      "Verification.createdAt",
+      "Verification.expiresAt",
+      "Verification.updatedAt",
+      "VideoCategory.createdAt",
+      "VideoCategory.updatedAt",
+      "VideoProject.createdAt",
+      "VideoProject.updatedAt",
+      "VideoSeparateTask.createdAt",
+      "VideoSeparateTask.finishedAt",
+      "VideoTag.createdAt",
+      "VideoTag.updatedAt",
+      "VideoTrimTask.createdAt",
+      "VideoTrimTask.finishedAt",
+      "VideoWork.createdAt",
+      "VideoWork.publishedAt",
+      "VideoWork.updatedAt",
+      "VideoWorkSetting.updatedAt",
+      "subscription_banner.countdownEndAt",
+      "subscription_banner.createdAt",
+      "subscription_banner.updatedAt"
+    ],
+    "removedNaiveColumns": [
+      "MediaFactOutbox.createdAt",
+      "MediaFactOutbox.leaseUntil",
+      "MediaFactOutbox.nextAttemptAt",
+      "MediaFactOutbox.publishedAt"
+    ]
+  }
+}
