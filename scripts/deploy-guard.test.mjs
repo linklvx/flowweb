@@ -407,6 +407,7 @@ function assertBumpBareNow(label, bumpSql) {
   assert.match(bumpSql, /"updatedAt"\s*=\s*now\(\)/, `${label}：updatedAt 写入=裸 now()`);
   assert.doesNotMatch(bumpSql, /AT TIME ZONE/i, `${label}：补偿式时区转换=naive 列时代残留（C1 后禁）`);
   assert.match(SYSTEM_HISTORY_MODEL, /epochStartedAt\s+DateTime\s+@db\.Timestamptz\(3\)/, 'SystemHistory.epochStartedAt=timestamptz(3)（裸 now() 语义成立的前提）');
+  assert.match(SYSTEM_HISTORY_MODEL, /updatedAt\s+DateTime\s+@updatedAt\s+@db\.Timestamptz\(3\)/, 'SystemHistory.updatedAt=timestamptz(3)（bump 双侧写入前提）');
 }
 test('T31-P1 红①（C1 后语义）：reset-collab bump SQL 必须裸 now()+timestamptz 列语义（会话时区无关；补偿式时区转换已随 rebaseline 拆除）', () => {
   const src = readFileSync(pathResolve(pathFileURLToPath(import.meta.url), '../reset-collab.mjs'), 'utf8');
@@ -418,4 +419,9 @@ test('T31-P1 红②（C1 后语义）：T31 演练装置 bumpHistoryId 同律—
   const src = readFileSync(pathResolve(pathFileURLToPath(import.meta.url), '../drill-fault.mjs'), 'utf8');
   const bumpSql = /UPDATE "SystemHistory"[^;]+/.exec(src)?.[0] ?? '';
   assertBumpBareNow('drill-fault', bumpSql);
+});
+test('T31-P1 红③（C1 后语义）：drill-cutover rollback bump 同律——裸 now()（三脚本形态闭合）', () => {
+  const src = readFileSync(pathResolve(pathFileURLToPath(import.meta.url), '../drill-cutover.mjs'), 'utf8');
+  const bumpSql = /UPDATE "SystemHistory"[^;]+/.exec(src)?.[0] ?? '';
+  assertBumpBareNow('drill-cutover', bumpSql);
 });

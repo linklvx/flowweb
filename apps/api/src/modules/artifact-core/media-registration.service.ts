@@ -229,12 +229,12 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
       ) VALUES (
         ${randomUUID()}, ${params.userId}, ${params.teamId}, ${params.projectId ?? null}, ${params.nodeId ?? null}, ${params.taskId ?? null},
         'flowai', ${params.key}, ${params.originalName}, ${params.mimeType}, 0, 'generated', 'processing'::"MediaStatus",
-        ${params.sourceUrl}, ${params.sourceUrlExpiresAt.toISOString()}::timestamptz, ${params.sourceIntentRowId ?? null}, ${params.sourceExecSeq ?? null}, ${params.artifactIndex ?? 0}, ${params.key},
+        ${params.sourceUrl}, ${params.sourceUrlExpiresAt}, ${params.sourceIntentRowId ?? null}, ${params.sourceExecSeq ?? null}, ${params.artifactIndex ?? 0}, ${params.key},
         now()
       )
       ON CONFLICT ("bucket", "key") DO NOTHING`;
-    // 时间写法（C1 rebaseline 终态）：DateTime 列=timestamptz(3)——toISOString() 携 Z 后缀经
-    // ::timestamptz 显式 cast=瞬时精确（会话时区无关；naive 列时代的 timestamp 参数 cast 已随 C1 拆除）。
+    // 时间写法（C1 rebaseline 终态）：DateTime 列=timestamptz(3)——Date 参数绑定经 Prisma 按
+    // timestamptz 语义传入=瞬时精确（会话时区无关；naive 列时代的文本参数 cast 已随 C1 拆除）。
     // 消费面=upstream resolveCallUrl 新鲜判定+T12 materialize 源过期重试判据——漂移即判错方向。
     const media = await tx.media.findUniqueOrThrow({ where: { bucket_key: { bucket: 'flowai', key: params.key } } });
     // C2-2 改道：新行=无 increment 路径——bump 单源（factVersion 0→1+state processing fact 同事务；

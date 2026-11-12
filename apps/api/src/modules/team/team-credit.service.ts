@@ -15,7 +15,8 @@ const PLAN_STATE: Record<'PENDING' | 'EXECUTING' | 'SETTLED' | 'VOIDED' | 'SKIPP
 };
 
 /** 月界单源（Y0b-2 T0/Z96）：业务时区=Asia/Shanghai 固定 +8 无 DST——纯 UTC 会使配额在每月 1 日 08:00
- *  重置，产品语义错；Date.UTC 计算后平移 -8h，消灭 Node 本地时区 vs Prisma naive UTC 的错位。 */
+ *  重置，产品语义错；Date.UTC 计算后平移 -8h 得业务时区瞬时。C1 rebaseline 后 DateTime 列=timestamptz(3)
+ *  （瞬时语义），无 naive 墙钟错位面——原「Node 本地时区 vs Prisma naive UTC」负债随列类型终态销案。 */
 export function currentPeriodBounds(now = new Date()): [Date, Date] {
   const bj = new Date(now.getTime() + 8 * 3600_000);                     // 平移到东八区视角
   const y = bj.getUTCFullYear(), m = bj.getUTCMonth();

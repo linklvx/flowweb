@@ -622,7 +622,7 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
       await service.tickFence('gi-1', 1n);
 
       const sql = String(prisma.$queryRaw.mock.calls[0][0]);
-      expect(sql).toContain('now()');
+      expect(sql).toMatch(/"heartbeatAt"\s*=\s*now\(\)/);
       expect(sql).not.toContain('AT TIME ZONE');
     });
   });
