@@ -7,9 +7,10 @@
 //     projector 预检序单源；失败回滚批次不计数）。
 //   · projection_failed_total{reason}：投影闭包失败（reason=typed〔BindingProjectionFailedError〕/
 //     unexpected（帧级闭包非 typed 异常）/rebuild-page（rebuild 分页事务失败）——闭集短标签）。
-//   · gap_seq（gauge）：**首现 gap 序号**语义——实时帧批（CAS 形态）投影未覆盖且帧水位已推进时，
-//     记该批 newPgSeq；仅当 gauge 为 0 时写入（首现）；rebuild CAS 清 dirty 时归 0（gap 闭合）。
-//     catch-up 形（expectedPgSeq=null——replayAll 恒不覆盖）不观测（其覆盖由 dirty+rebuild 承载）。
+//   · gap_seq（gauge）：**首现 gap 序号**语义——实时帧批（CAS 形态）投影未覆盖（含 import 申报
+//     未覆盖批）且帧水位已推进时，记该批 newPgSeq；仅当 gauge 为 0 时写入（首现）；rebuild CAS 清
+//     dirty 时归 0（gap 闭合）。catch-up 形（expectedPgSeq=null——replayAll 恒不覆盖）不观测（其覆盖
+//     由 dirty+rebuild 承载）。
 //   · watermark_lag（gauge）：pgSeq−mediaBindingSeq——appendBatch 落定（① RETURNING 实读+② 覆盖
 //     判定）/rebuild 清 dirty/backfill 候选观测点更新；全局 gauge=最后观测项目（单实例前提——
 //     逐项目分诊=结构化日志+ProjectionBackfillState 行）。
@@ -47,7 +48,7 @@ export const mediaBindingProjectionFailedTotal = new Counter({
 /** 首现 gap 序号（投影失败致覆盖中断的 newPgSeq；0=无 gap——rebuild 清 dirty 时归零）。 */
 export const mediaBindingGapSeq = new Gauge({
   name: 'media_binding_gap_seq',
-  help: '首现 gap 的 newPgSeq（实时帧批投影未覆盖且帧水位推进——仅 gauge=0 时写入；rebuild CAS 清 dirty 归 0；catch-up 形不观测）',
+  help: '首现 gap 的 newPgSeq（实时帧批投影未覆盖或 import 申报未覆盖批致覆盖中断——仅 gauge=0 时写入；rebuild CAS 清 dirty 归 0；catch-up 形不观测）',
   registers: [register],
 });
 

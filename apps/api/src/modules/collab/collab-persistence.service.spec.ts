@@ -235,4 +235,33 @@ describe('CollabPersistenceService 独立实例化全链（RC2——不启 WS Se
     expect(updateMany).toHaveBeenCalledTimes(1);
     expect(updateMany.mock.calls[0][0]).toMatchObject({ where: { projectId: PID }, data: { bindingsDirty: true } });
   });
+
+  it('C1 恢复链 #2：replayAll 回灌落定（spool 清空）后清 importPending——后续维护写不再申报未覆盖', async () => {
+    const doc = new Y.Doc();
+    svc.observeDocument(doc, PID, NAME);
+    // 阶段 A：import 写 + PG 段失败（回退通道）→帧入 spool、队列已清空、marker 保持
+    const imp = new Y.Doc();
+    imp.getMap('nodes').set('n-imp', { fileId: 'm1' });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(imp), 'import');
+    repo.appendBatch.mockRejectedValueOnce(Object.assign(new Error('injected pg down'), { pgPending: true }));
+    expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(false);
+    expect(spool.hasFrames(PID)).toBe(true);
+    (svc as unknown as { cancelPersistRetry(n: string): void }).cancelPersistRetry(NAME);   // 退避梯不干扰
+    // 阶段 B：接 sink + 回灌（reconcileSpool 生产入口）——落定后 marker 使命完成（spool 空∧队列空）
+    const sink = vi.fn(async (_pid: string, _payload: Uint8Array, _opts?: { bindingUncovered?: boolean }) => {});
+    svc.setMaintenanceSink(sink as never);
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    await (svc as unknown as { reconcileSpool(): Promise<void> }).reconcileSpool();
+    expect(spool.hasFrames(PID)).toBe(false);
+    expect(enqueue).toHaveBeenCalled();   // replay onReplayed 入队（rebuild 收敛）
+    (svc as unknown as { cancelPersistRetry(n: string): void }).cancelPersistRetry(NAME);   // rearmQueues 梯随清
+    // 阶段 C：后续普通维护写——marker 已清 → 不再申报未覆盖（修前 opts={bindingUncovered:true}）
+    const plain = new Y.Doc();
+    plain.getMap('nodes').set('n-plain', { v: 1 });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(plain), SERVER_TRANSACT_ORIGIN);
+    expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(true);
+    expect(sink).toHaveBeenCalledTimes(1);
+    expect(sink.mock.calls[0][2]).toBeUndefined();
+  });
 });

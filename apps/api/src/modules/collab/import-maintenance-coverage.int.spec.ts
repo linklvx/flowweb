@@ -23,6 +23,7 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { BindingRebuildService } from './binding-rebuild.service';
 import { ProjectionBackfillRunner } from './projection-backfill.runner';
 import { canvasDocName } from './doc-name.util';
+import { SERVER_TRANSACT_ORIGIN } from '@flowweb/shared';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow, FIXTURE_TEAM, FIXTURE_USER } from '../../test-utils/db-fixtures';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 
@@ -33,6 +34,7 @@ const PID_LAZY = '0c3a8-c1-lazy';
 const PID_DIRECT = '0c3a8-c1-direct';
 const PID_PLAIN = '0c3a8-c1-plain';
 const PID_MIX = '0c3a8-c1-mixed';
+const PID_RECOVERY = '0c3a8-c1-recovery';
 const M = 'c3a8-c1-media';
 
 /** connection 帧内容（node n-conn data.referenceImage=M——mediaLww 现役写权键）。 */
@@ -136,7 +138,7 @@ type MaintSubmit = (projectId: string, payload: Uint8Array, opts?: { bindingUnco
   }
 
   beforeAll(async () => {
-    for (const pid of [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX]) await ensureProjectFixture(prisma, pid);
+    for (const pid of [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX, PID_RECOVERY]) await ensureProjectFixture(prisma, pid);
     await prisma.media.deleteMany({ where: { id: M } });
     await prisma.media.create({
       data: { id: M, userId: FIXTURE_USER, teamId: FIXTURE_TEAM, key: `c3a8/${M}`, originalName: 'm.png', mimeType: 'image/png', size: 1n, type: 'uploaded' },
@@ -148,24 +150,24 @@ type MaintSubmit = (projectId: string, payload: Uint8Array, opts?: { bindingUnco
     spool = new CollabSpoolService(dir);
     spool.setOwner('c3a8-c1-owner');
     await ensureLeaseFixture(prisma, repo);
-    await prisma.projectionBackfillState.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX] } } });
-    await prisma.mediaBinding.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX] } } });
-    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX] } } });
-    await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX] } } });
-    await prisma.canvasDoc.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX] } } });
+    await prisma.projectionBackfillState.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX, PID_RECOVERY] } } });
+    await prisma.mediaBinding.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX, PID_RECOVERY] } } });
+    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX, PID_RECOVERY] } } });
+    await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX, PID_RECOVERY] } } });
+    await prisma.canvasDoc.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX, PID_RECOVERY] } } });
   });
 
   afterEach(async () => { /* runner 无定时器（onModuleInit 未调）——无需 shutdown；suite 级复用 */ });
 
   afterAll(async () => {
-    await prisma.projectionBackfillState.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX] } } });
-    await prisma.mediaBinding.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX] } } });
-    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX] } } });
-    await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX] } } });
-    await prisma.canvasDoc.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX] } } });
+    await prisma.projectionBackfillState.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX, PID_RECOVERY] } } });
+    await prisma.mediaBinding.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX, PID_RECOVERY] } } });
+    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX, PID_RECOVERY] } } });
+    await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX, PID_RECOVERY] } } });
+    await prisma.canvasDoc.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX, PID_RECOVERY] } } });
     await prisma.media.deleteMany({ where: { id: M } });
     await restoreLeaseRow(prisma);
-    for (const pid of [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX]) await cleanupProjectFixture(prisma, pid);
+    for (const pid of [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX, PID_RECOVERY]) await cleanupProjectFixture(prisma, pid);
     await cleanupDir();
     await prisma.$disconnect();
   });
@@ -255,6 +257,57 @@ type MaintSubmit = (projectId: string, payload: Uint8Array, opts?: { bindingUnco
     expect(await prisma.mediaBinding.count({ where: { projectId: PID_MIX, nodeId: 'n-imp', targetField: 'fileId', mediaId: M } })).toBe(1);
     expect(await prisma.mediaBinding.count({ where: { projectId: PID_MIX, nodeId: 'n-conn', targetField: 'referenceImage', mediaId: M } })).toBe(1);
     expect(await docState(PID_MIX)).toMatchObject({ pgSeq: 2n, mediaBindingSeq: 2n, bindingsDirty: false });
+    doc.destroy();
+  }, 60_000);
+
+  it('⑤恢复链（spool 盲区——spec 复审 Important）：import flush PG 失败→内容入 spool→队列通道（handoff）成功不结算（spool 未清）→replayAll 回灌+rebuild 收敛', async () => {
+    await seedHead(PID_RECOVERY);
+    const doc = new Y.Doc();
+    const name = docName(PID_RECOVERY);
+    let failAppend = true;
+    const flakyRepo = {
+      appendBatch: async (...args: unknown[]) => {
+        if (failAppend) { failAppend = false; throw Object.assign(new Error('injected pg down'), { pgPending: true }); }
+        return (repo.appendBatch as unknown as (...a: unknown[]) => Promise<unknown>)(...args);
+      },
+      loadForHydration: (pid: string) => repo.loadForHydration(pid),
+    };
+    const runner2 = new ProjectionBackfillRunner(prisma as never, rebuild as never);
+    const svc = new CollabPersistenceService(flakyRepo as never, spool as never);
+    svc.bindHost(hostOf(doc, name));
+    svc.setBindingRecoveryFace({ markDirty: async (pid) => runner2.markDirty(pid), enqueue: (pid) => runner2.enqueue(pid) });
+    svc.observeDocument(doc, PID_RECOVERY, name);
+    // import 前置 dirty + origin='import' apply；PG 段失败（pgPending）→帧只在 spool（无 actor 残留）
+    await runner2.markDirty(PID_RECOVERY);
+    Y.applyUpdate(doc, importDiff('n-rec'), 'import');
+    expect(await svc.storeDocumentUnlocked({ document: doc as never, documentName: name }, 'maintenance')).toBe(false);
+    expect(spool.hasFrames(PID_RECOVERY)).toBe(true);
+    expect(await docState(PID_RECOVERY)).toMatchObject({ pgSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: true });
+    // 新维护写 + handoff 队列通道（WAL-only）成功：队列清空但 spool 仍有 import 帧 → 结算必须延后
+    const plain = new Y.Doc();
+    plain.getMap('nodes').set('n-plain', new Y.Map([['type', 'textInput']]));
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(plain), SERVER_TRANSACT_ORIGIN);
+    expect(await svc.handoffPendingToSpool(PID_RECOVERY)).toBe(true);
+    expect(spool.hasFrames(PID_RECOVERY)).toBe(true);   // import 帧仍在 spool（未落 PG）
+    await runner2.drain().catch(() => 0);               // 修前：settle 清标记+enqueue→rebuild 以旧前缀清 dirty（红）
+    const mid = await docState(PID_RECOVERY);
+    expect(mid?.bindingsDirty).toBe(true);              // 修前 false（假覆盖：settle 无视 spool 残帧）
+    expect(mid?.mediaBindingSeq).toBe(0n);
+    expect(await prisma.mediaBinding.count({ where: { projectId: PID_RECOVERY, nodeId: 'n-rec' } })).toBe(0);
+    // 恢复链落定：reconcileSpool 回灌（markDirty 前置+catch-up covered=false+onReplayed 入队）→rebuild 收敛
+    await (svc as unknown as { reconcileSpool(): Promise<void> }).reconcileSpool();
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      await runner2.drain().catch(() => 0);
+      const st = await prisma.projectionBackfillState.findUnique({ where: { projectId: PID_RECOVERY } });
+      if (st?.state === 'DONE') break;
+      if (Date.now() > deadline) throw new Error('⑤：恢复链 runner 未在 15s 内收敛');
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(await prisma.mediaBinding.count({ where: { projectId: PID_RECOVERY, nodeId: 'n-rec', targetField: 'fileId', mediaId: M } })).toBe(1);
+    const fin = await docState(PID_RECOVERY);
+    expect(fin?.bindingsDirty).toBe(false);
+    expect(fin?.mediaBindingSeq).toBe(fin?.pgSeq);
     doc.destroy();
   }, 60_000);
 });

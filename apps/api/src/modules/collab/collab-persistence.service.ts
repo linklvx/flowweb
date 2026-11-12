@@ -558,11 +558,14 @@ export class CollabPersistenceService {
    *  bindingRecoveryFace.enqueue 一次（rebuild 收敛）；分块未清空保持标记（后续块仍申报未覆盖）。 */
   private readonly importPending = new Set<string>();
 
-  /** import 内容已全落 PG 的收口点（maintenance 通道成功且 pending 队列空）：清标记+入队 rebuild。
-   *  分块/尾部新写未清空=保持标记（下一 flush 仍申报未覆盖）。 */
+  /** import 内容已全落 PG 的收口点（maintenance 通道成功且 pending 队列空 ∧ **spool 空**）：清标记+
+   *  入队 rebuild。**队列空≠内容落 PG**——PG 段失败时队列已 splice、字节只在 spool（未 confirm 帧）；
+   *  此时清标记会使后续 spool 帧通道重发不再申报 bindingUncovered→空 delta covered=true→假覆盖。
+   *  分块/尾部新写/spool 未清空=保持标记（下一 flush/帧重发仍申报未覆盖）。 */
   private settleImportPending(projectId: string): void {
     if (!this.importPending.has(projectId)) return;
     if ((this.pendingQueues.get(projectId)?.length ?? 0) > 0) return;
+    if (this.spool.hasFrames(projectId)) return;   // spool 尾批未落 PG——内容未全落定，标记保持
     this.importPending.delete(projectId);
     this.bindingRecoveryFace?.enqueue(projectId);
   }
@@ -980,7 +983,15 @@ export class CollabPersistenceService {
       // C3a-8（replay 腿）：回灌前置 dirty（防假覆盖）+落定后入队 rebuild（经 runner）
       ...(bindingFace ? {
         onPendingFrames: (pid: string) => bindingFace.markDirty(pid),
-        onReplayed: (pid: string) => bindingFace.enqueue(pid),
+        onReplayed: (pid: string) => {
+          bindingFace.enqueue(pid);
+          // spec 复审 Important：回灌批次落定→该帧内容已在 PG 且 replay 路径已 markDirty+enqueue
+          // （标记使命完成）；spool 仍有残帧（预算耗尽/后续批）或 pending 队列仍有未 flush 写（内容
+          // 未全落 PG）则保留标记，待后续落定再收口（防 per-project Set 永久滞留的复侧清理）。
+          if (!this.spool.hasFrames(pid) && (this.pendingQueues.get(pid)?.length ?? 0) === 0) {
+            this.importPending.delete(pid);
+          }
+        },
       } : {}),
     });
     if (ownPending) this.rearmQueues();   // own 段的驱动=退避梯（replayAll 不点名全量——幂等回灌无害）
