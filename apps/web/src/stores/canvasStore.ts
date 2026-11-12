@@ -561,8 +561,9 @@ export const chunkCopyPlan = (plan: CopyPlan): CopyPlan[] => {
 
 /** T25b 四读径③（plan :337）：复制/粘贴→副本媒体服务端 typed 绑定（BindMedia 命令——源
  *  nodeId/mediaId 作命令参数非 doc 字段）。doc 副本保留 fileId=既有裁决（Z11''-v14 消灭空图
- *  窗口——乐观 UI）；服务端 NodeArtifact/MediaBinding 权威面经 REST 建立（expectedRev=0 新槽
- *  INSERT）。fail-soft：跨团队拒/409/网络失败=toast 告知不阻断粘贴主链（副本 doc 引用保留）。
+ *  窗口——乐观 UI）；服务端 NodeArtifact/ArtifactProjection 权威面经 REST 建立（expectedRev=0 新槽
+ *  INSERT）；MediaBinding 由 doc 帧级投影出现（C3a-7 起命令面零 binding 写）。fail-soft：跨团队拒/
+ *  409/网络失败=toast 告知不阻断粘贴主链（副本 doc 引用保留）。
  *  只对「已落位副本」发命令（分块粘贴拒块不入集）。 */
 function rebindCopiedMedia(idMap: Map<string, string>): void {
   const pid = useCanvasStore.getState().projectId;

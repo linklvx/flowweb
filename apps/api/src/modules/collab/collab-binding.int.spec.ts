@@ -127,6 +127,7 @@ maybe('C3a-7：命令面读写两改——BindMedia 零 binding 写+粘贴帧投
     });
     expect(artifact?.rev).toBe(1);
     expect(artifact?.mediaId).toBe('m-c3a7-own');
+    expect(artifact?.state).toBe('stored');
     const projection = await prisma.artifactProjection.findFirst({ where: { artifactId: artifact!.id, artifactRev: 1 } });
     expect(projection?.state).toBe('pending');
     // ★零 binding 直写：命令不写 MediaBinding（目标槽 binding 由客户端 doc 帧→投影出现——族①）

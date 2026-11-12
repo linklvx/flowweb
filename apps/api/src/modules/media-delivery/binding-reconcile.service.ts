@@ -19,14 +19,14 @@
 // 形态纪律=MaterializeJob/IntentReconcile/pending-upload sweep 同族：原生 setInterval+unref+
 // busy 防重入（R28——@Cron 全仓未导入是死代码）；doc 读=withSession(read)（lease 失守/vacuum
 // 503 ⇒ scan-failed 计数本轮跳过，幂等重入下轮收敛——惰性语义不承诺即时）。
-// finalize 同步 upsert（source=generated 主槽位）已由 T10 bindInTx 承载（artifact-commit
-// finalizeInTx cas.won 分支+T11 collab-media replace 命令——本服务不再重复写，只负责兜底收敛）。
+// 命令面零 binding 写（C3a-7 bindInTx 本体已删）——finalize/replace 的 binding 收敛=doc 帧级
+// 投影/全量 rebuild/本服务惰性扫描兜底。
 //
-// 【并发语义钉明（T16 质评#2）】本服务事务（ReadCommitted 无锁读）与 finalize bindInTx 并发时
-// last-writer-wins：①doc 快照旧于 finalize ⇒ upsert 可能回写旧 mediaId；②finalize 新建行可能被
-// 误判 stale 删——两形态均由惰性语义自愈（post-apply 触发 ≤drain 周期重建+GC 以 doc 扫描为终裁
+// 【并发语义钉明（T16 质评#2）】本服务事务（ReadCommitted 无锁读）与帧级投影/rebuild 并发时
+// last-writer-wins：①doc 快照旧于帧级投影/rebuild ⇒ upsert 可能回写旧 mediaId；②投影/rebuild
+// 新建行可能被误判 stale 删——两形态均由惰性语义自愈（post-apply 触发 ≤drain 周期重建+GC 以 doc 扫描为终裁
 // 不依赖 binding 完整性+facts 按 mediaId 查询不按 project fan-out）。slotKeyOf 省略 role 的前提=
-// 现网全部槽位 role='primary'（schema 默认值+全仓唯一写点 bindInTx 同款）——非 primary role 落地
+// 现网全部槽位 role='primary'（schema 默认值+投影器/rebuild 写点同款）——非 primary role 落地
 // 时须先扩 slotKeyOf 否则会被误判 stale 删。
 import { Inject, Injectable, Logger, OnModuleInit, OnApplicationShutdown } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -141,7 +141,7 @@ export class BindingReconcileService implements OnModuleInit, OnApplicationShutd
   /** 周期候选发现（MediaBinding.projectId ∪ NodeArtifact.projectId——覆盖「行在需清扫」与
    *  「artifact 在可能有引用」两域；游标轮转分页）。纯新增引用无行无 artifact 的项目由
    *  投影 post-apply 触达（生成链）——上传引用键（referenceImage 等）落 binding 的首驱=
-   *  上传所在项目的任一投影/finalize（bindInTx 主槽先行，其余键随本轮收敛）。 */
+   *  上传所在项目的任一 doc 帧投影（帧级投影主槽先行）/rebuild（其余键随本轮收敛）。 */
   async discover(): Promise<number> {
     const rows = await this.prisma.$queryRaw<{ projectId: string }[]>(Prisma.sql`
       SELECT DISTINCT "projectId" FROM (

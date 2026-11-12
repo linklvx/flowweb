@@ -21,9 +21,6 @@ const perm = { assertEditorWithTeam: vi.fn() };
 const nodeArtifacts = { casUpsert: vi.fn() };
 const port: MediaRefsReadPort = { readNodeRefs: vi.fn() };
 
-function txOf<T>(impl: T): { $transaction: (fn: (tx: T) => Promise<unknown>) => Promise<unknown> } {
-  return { $transaction: (fn: (tx: T) => Promise<unknown>) => fn(impl) };
-}
 const tx = {
   artifactProjection: { updateMany: vi.fn(), createMany: vi.fn() },
   mediaBinding: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), upsert: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },   // 零读写断言面（任意操作被调=红）
@@ -90,6 +87,14 @@ describe('C3a-7：BindMedia——校验+NodeArtifact/Projection 写（零 MediaB
     const c = await make();
     prisma.nodeArtifact.findFirst.mockResolvedValue(null);
     (port.readNodeRefs as ReturnType<typeof vi.fn>).mockResolvedValue([ref('m-other')]);
+    await expect(c.command('p1', BIND_BODY, req())).rejects.toMatchObject({ errorCode: 'SOURCE_MEDIA_MISMATCH', status: 400 });
+    expect(nodeArtifacts.casUpsert).not.toHaveBeenCalled();
+  });
+
+  it('★分档②（空集）：源节点在册零引用（端口 []）→400 SOURCE_MEDIA_MISMATCH', async () => {
+    const c = await make();
+    prisma.nodeArtifact.findFirst.mockResolvedValue(null);
+    (port.readNodeRefs as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     await expect(c.command('p1', BIND_BODY, req())).rejects.toMatchObject({ errorCode: 'SOURCE_MEDIA_MISMATCH', status: 400 });
     expect(nodeArtifacts.casUpsert).not.toHaveBeenCalled();
   });

@@ -6,7 +6,7 @@
 
 **Architecture:** 派生索引单写者（appendBatch inTx 帧级快照+SAVEPOINT 隔离）+连续投影前缀水位（**帧/binding 水位两 UPDATE 解耦**）+PG 重建 oracle 永久删除证人（**候选无关全 UUID 叶**+DeletionBarrier fence/drain）+引用并集保护（**保留 mediaId FK=锁耦合**）；时间语义经单一终态 init 全列 timestamptz 归一。每卡 additive 独立 verify 绿，C1 为终态 schema cut。
 
-**Tech Stack:** TypeScript strict / NestJS / Prisma（迁移 additive 纪律）/ Yjs 13.6.32 / vitest+node:test / prom-client / `pnpm verify:fast`（12 步）与 `pnpm verify`（full 31 步）。
+**Tech Stack:** TypeScript strict / NestJS / Prisma（迁移 additive 纪律）/ Yjs 13.6.32 / vitest+node:test / prom-client / `pnpm verify:fast`（12 步）与 `pnpm verify`（full 32 步）。
 
 **执行纪律（批级，承 spec §0）：** 每任务先红→绿→commit；行号=当前 master；每卡双评审（spec ✅+quality ✅）才进下卡；**C3a-4/C3a-7/C3a-8 等高风险 commit 逐个跑 `pnpm verify`（full）**；迁移 additive+immutability baseline 同 commit；指标入 `.metrics.ts`+`--write-metric-names` 同 commit；spec §3 为设计权威——冲突以 spec 为准并停下上报。
 

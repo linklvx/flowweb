@@ -38,7 +38,7 @@ const BASELINE_IDS = [
   'check-collab-module-size', 'check-exact-pins', 'check-plan-census', 'check-media-binding-writers', 'scripts-node-test', 'api-eslint',
 ];
 
-test('③ full 的 id 序列逐字等于引入时的 30 步基线常量（R4a\' +api-test-heavy；Y1a T0 +check-exact-pins；Y1a T3 +check-plan-census；Y1c T5c census 移位 fast；C3a-7 +check-media-binding-writers）', () => {
+test('③ full 的 id 序列逐字等于引入时的 32 步基线常量（R4a\' +api-test-heavy；Y1a T0 +check-exact-pins；Y1a T3 +check-plan-census；Y1c T5c census 移位 fast；C3a-7 +check-media-binding-writers）', () => {
   assert.deepEqual(ids, BASELINE_IDS);
 });
 

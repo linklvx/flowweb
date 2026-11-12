@@ -2,7 +2,8 @@
 // Y1c T25b 四读径③ web 接线（plan :337）：复制/粘贴后副本媒体的服务端 typed BindMedia 绑定。
 // ★红形态=「现零消费」——粘贴/duplicate 现状零 REST 调用（shared 契约+api 端点在位、web 无接线）：
 // 修前 bindMedia mock 零调用（红）。doc 副本保留 fileId=既有裁决（Z11''-v14 消灭空图窗口），
-// 服务端 NodeArtifact/MediaBinding 权威面经本接线建立（expectedRev=0 新槽 INSERT）。
+// 服务端 NodeArtifact/ArtifactProjection 权威面经本接线建立（expectedRev=0 新槽 INSERT）；
+// MediaBinding 由 doc 帧级投影出现（C3a-7 起命令面零 binding 写）。
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const bindMediaMock = vi.hoisted(() => vi.fn());
