@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Logger } from '@nestjs/common';
 import * as Y from 'yjs';
+import { SERVER_TRANSACT_ORIGIN } from '@flowweb/shared';   // C3a-8 C1：普通维护写 origin（负控）
 import { CollabPersistenceService, type CollabPersistenceHost } from './collab-persistence.service';
 import { CollabSpoolService } from './collab-spool.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
@@ -156,5 +157,82 @@ describe('CollabPersistenceService 独立实例化全链（RC2——不启 WS Se
       spoolFiles: 0, spoolBytes: 0, strandedFiles: 0, strandedBytes: 0,
       loadedDocs: 3, connections: 5, residentDocs: 3, directConns: 2,   // residentDocs=loadedDocs 同源（Z47 分解字段）
     });
+  });
+
+  // ═══ C3a-8 修复批 C1：import 维护批次申报未覆盖（persistence 级）═══
+
+  it('C1：origin=import → sink 收到 {bindingUncovered:true}；队列清空后 bindingRecoveryFace.enqueue 恰一次', async () => {
+    const sink = vi.fn(async (_pid: string, _payload: Uint8Array, _opts?: { bindingUncovered?: boolean }) => {});
+    svc.setMaintenanceSink(sink as never);
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    const doc = new Y.Doc();
+    svc.observeDocument(doc, PID, NAME);
+    const w = new Y.Doc();
+    w.getMap('nodes').set('n-imp', { fileId: 'm1' });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(w), 'import');
+    expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(true);
+    expect(sink).toHaveBeenCalledTimes(1);
+    expect(sink.mock.calls[0][2]).toEqual({ bindingUncovered: true });   // 申报未覆盖（闭包 dirty+covered=false）
+    expect(enqueue).toHaveBeenCalledTimes(1);                            // 队列清空（import 内容全落 PG）→入队
+    expect(enqueue).toHaveBeenCalledWith(PID);
+  });
+
+  it('C1 负控：普通维护写（非 import）→ sink 无 flag；不入队（禁把服务端投递写全部改脏）', async () => {
+    const sink = vi.fn(async (_pid: string, _payload: Uint8Array, _opts?: { bindingUncovered?: boolean }) => {});
+    svc.setMaintenanceSink(sink as never);
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    const doc = new Y.Doc();
+    svc.observeDocument(doc, PID, NAME);
+    const w = new Y.Doc();
+    w.getMap('nodes').set('n-plain', { v: 1 });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(w), SERVER_TRANSACT_ORIGIN);
+    expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(true);
+    expect(sink).toHaveBeenCalledTimes(1);
+    expect(sink.mock.calls[0][2]).toBeUndefined();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('C1 分块未清空不提前入队：sink 窗内新写留队列→marker 保持；下一 flush 清空后才 enqueue', async () => {
+    const doc = new Y.Doc();
+    svc.observeDocument(doc, PID, NAME);
+    let injected = false;
+    const sink = vi.fn(async () => {
+      if (!injected) {
+        injected = true;
+        const extra = new Y.Doc();
+        extra.getMap('nodes').set('n-tail', { v: 1 });
+        Y.applyUpdate(doc, Y.encodeStateAsUpdate(extra), SERVER_TRANSACT_ORIGIN);   // 尾部新写（flush 窗）
+      }
+    });
+    svc.setMaintenanceSink(sink as never);
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    const imp = new Y.Doc();
+    imp.getMap('nodes').set('n-imp', { fileId: 'm1' });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(imp), 'import');
+    expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(true);
+    expect(svc.hasPendingWrites(PID)).toBe(true);        // 尾部新写仍在队列（分块未清空）
+    expect(enqueue).not.toHaveBeenCalled();              // 不提前入队
+    expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(true);
+    expect(svc.hasPendingWrites(PID)).toBe(false);
+    expect(enqueue).toHaveBeenCalledTimes(1);            // 全清后入队一次
+  });
+
+  it('C1 无 sink 回退面：importPending → appendBatch 闭包置 dirty 且返回 covered=false（懒建档 covered=false 同源）', async () => {
+    const doc = new Y.Doc();
+    svc.observeDocument(doc, PID, NAME);
+    const w = new Y.Doc();
+    w.getMap('nodes').set('n-imp', { fileId: 'm1' });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(w), 'import');
+    expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(true);
+    const call = (repo.appendBatch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
+    const inTx = call[3] as ((tx: unknown) => Promise<{ bindingCovered: boolean }>) | undefined;
+    expect(typeof inTx).toBe('function');
+    const updateMany = vi.fn(async (_arg: unknown) => ({ count: 1 }));
+    await expect(inTx!({ canvasDoc: { updateMany } })).resolves.toEqual({ bindingCovered: false });
+    expect(updateMany).toHaveBeenCalledTimes(1);
+    expect(updateMany.mock.calls[0][0]).toMatchObject({ where: { projectId: PID }, data: { bindingsDirty: true } });
   });
 });

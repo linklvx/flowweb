@@ -2,11 +2,12 @@
 // C3a-8（plan v3 Task C3a-8——spec 2026-11-11-foundation-batch-design.md §3.2-3 import 腿）：
 // recovery import **前置独立 PG 事务置 dirty 再 apply**（apply 在内存无同事务载体，第六轮 P1-9）——
 // 红测族②（真 PG）：
-//   ①顺序断言：withSession → markDirty（PG 持久）→ Y.applyUpdate(origin='import') → enqueue
-//     （doc update 监听器实证 apply 在 markDirty 之后）；
+//   ①顺序断言：withSession → markDirty（PG 持久）→ Y.applyUpdate(origin='import')（doc update 监听器
+//     实证 apply 在 markDirty 之后）；**C1 修复后 enqueue 不在 import 返回前**（归维护 flush 路径——
+//     import-maintenance-coverage.int.spec 钉死）；
 //   ②崩溃窗：import 返回后 dirty 已持久、rebuild 未跑（binding 缺行）——消费前 rebuild 收敛
 //     （定代重放 PG 前缀→binding 有 M）；
-//   ③零变更（空 commitDiff）不置 dirty/不入队（幂等早期返回不扰动）。
+//   ③零变更（空 commitDiff）不置 dirty（门控形态注记见文末）。
 // 装置：真 PG+真 repository/rebuild；docs=Y.Doc stub（withSession 直投——import 的 doc 依赖面单点）；
 // runner 假件记录调用序并真实写 dirty（生产 runner.markDirty 同式）。
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -83,7 +84,7 @@ maybe('C3a-8：recovery import 前置 dirty + 崩溃窗 rebuild 收敛（真 PG�
     await prisma.$disconnect();
   });
 
-  it('①顺序：markDirty（PG 持久）先于 apply(origin=import)，落定后 enqueue；②崩溃窗 rebuild 收敛 binding', async () => {
+  it('①顺序：markDirty（PG 持久）先于 apply(origin=import)；C1 修复后 enqueue 归维护 flush（本服务不提前入队）；②崩溃窗 rebuild 收敛 binding', async () => {
     const doc = new Y.Doc();
     const calls: string[] = [];
     doc.on('update', (_u: Uint8Array, origin: unknown) => { calls.push(`apply:${String(origin)}`); });
@@ -100,8 +101,9 @@ maybe('C3a-8：recovery import 前置 dirty + 崩溃窗 rebuild 收敛（真 PG�
     const svc = new CollabRecoveryImportService(docsStub, prisma as never, undefined, runner as never);
     const out = await svc.importEnvelope(PID, UID, envelopeOf('d-c3a8-dirty') as never);
     expect(out.dispositions.find((d) => d.nodeId === 'n-imp')?.disposition).toBe('import');
-    // 顺序：withSession → markDirty → apply → enqueue（apply 之后 markDirty=红）
-    expect(calls).toEqual(['withSession', 'markDirty', 'apply:import', `enqueue:${PID}`]);
+    // 顺序：withSession → markDirty → apply（apply 之后 markDirty=红）；C1 修复后**不在 import 返回前
+    // enqueue**（enqueue 归 persistence 维护 flush 路径——import-maintenance-coverage.int.spec 钉死）
+    expect(calls).toEqual(['withSession', 'markDirty', 'apply:import']);
     // 崩溃窗：dirty 已持久、rebuild 未跑（binding 缺行）
     const wm = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID }, select: { pgSeq: true, mediaBindingSeq: true, bindingsDirty: true } });
     expect(wm.bindingsDirty).toBe(true);

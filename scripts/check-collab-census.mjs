@@ -1859,6 +1859,7 @@ if (isMain()) {
       'apps/api/src/modules/collab/project-governance.service.ts': 1,      // governance origin 写 UPDATE ... IS DISTINCT FROM（C4-b Minor#5 扩 UPDATE 面——创建路径写点，行集=刚建 ACTIVE 行）
       'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 1,    // readLifecycleState（装载门分义读——C4-b）
       'apps/api/src/modules/collab/collab-append-audit.worker.ts': 1,      // C3 审计 skip 面（inactive 判定列）
+      'apps/api/src/modules/collab/projection-backfill.runner.ts': 1,      // C3a-8 修复批 I2：lifecycleState 分义读（非 ACTIVE/行缺=bail-out——delegate 读过滤见不到非 ACTIVE 行，故 raw 必要）
       'apps/api/src/modules/collab/collab-replay-canary.poller.ts': 2,     // canary active 计数+候选批（ACTIVE 谓词）
       'apps/api/src/modules/collab/collab-canary-verify.worker.ts': 2,     // pin 候选 join（inactive 判定列）
       'apps/api/src/modules/collab/runtime-feed.retention.service.ts': 2,  // retention 扫 join ACTIVE（C1 scope 过滤）

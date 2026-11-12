@@ -37,6 +37,15 @@ import { createCanvasDoc } from './canvas-doc.factory';
 import { toDocLike } from './doc-like.util';
 import { clearMediaBindingGap, mediaBindingProjectionFailedTotal, mediaBindingWatermarkLag, recordMediaBindingProjection } from './media-binding.metrics';   // C3a-8：write/skip/projection_failed/gap/lag 观测面
 
+/** C3a-8 修复批 I2：rebuild 不可继续的 typed error（项目行缺失/非 ACTIVE 等）——**禁 return 后继续
+ *  走 CAS**（teamId=null 时 return 会使 commitByCas 清 dirty+推水位=擦除失败/恢复后假覆盖）。 */
+export class BindingRebuildAbortedError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'BindingRebuildAbortedError';
+  }
+}
+
 /** rebuild 锚（锁外快照三元——CAS 四条件的期望侧；pgSeq/generation/expectedBindingSeq 任一
  *  在写面落定前被并发移动即 CAS 失败）。 */
 export interface RebuildAnchor {
@@ -96,7 +105,9 @@ export class BindingRebuildService {
         else delta.set(r.nodeId, [r]);
       }
       const teamId = (await this.prisma.canvasProject.findUnique({ where: { id: projectId }, select: { teamId: true } }))?.teamId;
-      if (teamId == null) return;   // 项目行缺（FK Cascade 已随删 binding 行）——写面 no-op，CAS 自证 cas-miss
+      // C3a-8 修复批 I2：项目行缺失/被读过滤（非 ACTIVE）——**throw 禁 return**（return 会使 CAS
+      // 清 dirty+推水位=假覆盖；回滚由调用方/runner 退避处理）。
+      if (teamId == null) throw new BindingRebuildAbortedError(`CanvasProject 行缺失或不可读（${projectId}）——rebuild 中止（禁 CAS）`);
       // ⑤ 分页短事务写（每页原子：desired upsert+非 desired 槽删——projector diff 语义）
       const entries = [...delta.entries()];
       for (let i = 0; i < entries.length; i += REBUILD_PAGE_NODES) {

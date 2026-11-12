@@ -447,6 +447,9 @@ interface QueueItem {
   actor: { userId: string; actorKind: CanvasActorKind };
   /** Y1c T24：帧新增 structs 的 client 集（准入段计算——绑定执法/L2 毒帧计数消费）。 */
   newClients?: number[];
+  /** C3a-8 修复批 C1（persistence 维护 flush 申报）：本条维护帧内容未经 binding 投影（import
+   *  origin）——闭包置 dirty+covered=false（禁水位推进）；connection 帧恒 undefined。 */
+  bindingUncovered?: boolean;
   resolve: (r: ActorFrameResult) => void;
   reject: (e: FrameRejectError) => void;
 }
@@ -471,6 +474,8 @@ interface AppliedEntry {
   onLanded: (() => void) | null;
   onFailed: ((flags: Record<string, unknown>) => void) | null;
   hashHex: string;              // 失败面 clearDedup 用（connection 帧已 settle——仅维护帧消费）
+  /** C3a-8 修复批 C1：维护帧申报未覆盖（闭包禁 binding 水位推进；随 QueueItem 透传）。 */
+  bindingUncovered?: boolean;
 }
 
 /** C3a-3：空 delta 单例（维护帧/无 touched 帧——零分配共享，只读形态安全）。 */
@@ -838,13 +843,14 @@ export class CollabProjectActorService {
    *  无 ACK 面，等 PG 是零代价更强承诺）；PG 失败帧 WAL 安全未 confirm→reject（pgPending 族旗标）
    *  交维护方退避梯回灌〔spool 去重幂等〕。维护帧豁免 per-project 背压/入站上限/SS2 预算=服务端帧
    *  设计内豁免（payload 已生效字节非连接面放大源；WAL 容量界仍由 spool 自守）。 */
-  submitMaintenance(projectId: string, payload: Uint8Array): Promise<ActorFrameResult> {
+  submitMaintenance(projectId: string, payload: Uint8Array, opts?: { bindingUncovered?: boolean }): Promise<ActorFrameResult> {
     const st = this.stateOf(projectId);
     return new Promise<ActorFrameResult>((resolve, reject) => {
       st.queue.push({
         payload, hashHex: createHash('sha256').update(payload).digest('hex'), conn: null, kind: 'maintenance',
         bytes: payload.byteLength, enqueuedAt: Date.now(), submitGeneration: undefined,
         actor: { userId: 'system', actorKind: 'system' },
+        bindingUncovered: opts?.bindingUncovered === true,
         resolve: (r) => resolve(r), reject: (e) => reject(e),
       });
       void this.drain(projectId);
@@ -1454,6 +1460,7 @@ export class CollabProjectActorService {
           }
         : null,
       hashHex: item.hashHex,
+      bindingUncovered: item.bindingUncovered === true,
     };
   }
 
@@ -1590,6 +1597,10 @@ export class CollabProjectActorService {
       // appliedQueue 连续前缀）；空合并=帧无 touched→闭包零开销直返 covered（投影跳过）。
       const batchDelta = new Map<string, readonly MediaRef[] | null>();
       for (const e of prefix) for (const [nodeId, refs] of e.bindingDelta) batchDelta.set(nodeId, refs);
+      // C3a-8 修复批 C1（spec 评审 Critical）：本前缀含 persistence 申报的未覆盖维护帧（import origin
+      // ——内容未经 binding 投影）⇒ 闭包置 dirty+covered=false（禁推 binding 水位；懒建档按 covered
+      // =false 落 dirty=true+mediaBindingSeq=0）。非 import 维护帧/连接帧恒 covered 语义不变。
+      const hasUncovered = prefix.some((e) => e.bindingUncovered === true);
       // C3a-8（spec §3.2-7 write_total/skip_total）：投影统计经闭包回传，**落定后**才计数（回滚不计数
       // ——M-3 同律）。
       let projectionStats: ProjectionStats | undefined;
@@ -1604,14 +1615,20 @@ export class CollabProjectActorService {
         // 违「帧照常提交」；该形态 dirty 由懒建档 INSERT 显式置位兜底）→bindingCovered=false（② 不进
         // ——水位不推，脏态交 C3a-6 rebuild 收敛；帧照常提交）。
         if (frames) lifecycleCounts = await this.lifecycleObserver!.persistFramesInTx(tx, pid, frames, seedPresence ? { seedPresence } : undefined);
-        if (batchDelta.size === 0) return { bindingCovered: true };   // 空 delta=零 binding 面（covered=true——② 水位可进）
+        // C1（混批边界——coordinator 补充）：前缀可能同时含 connection 帧（媒体 delta）与未覆盖维护帧。
+        // 正常投影照做（若有 delta）；**之后**统一按「含未覆盖条目」申报 covered=false——即使 delta 非空
+        // 也禁推进水位（该前缀的帧水位会越过未投影的 import 内容）。dirty 先置（同事务；投影失败再置幂等）。
+        if (hasUncovered) {
+          await tx.canvasDoc.updateMany({ where: { projectId: pid }, data: { bindingsDirty: true } });
+        }
+        if (batchDelta.size === 0) return { bindingCovered: !hasUncovered };   // 空 delta=零 binding 面（无未覆盖=② 水位可进）
         await tx.$executeRaw`SAVEPOINT media_binding_projection`;
         try {
           const teamId = (await tx.canvasProject.findUnique({ where: { id: pid }, select: { teamId: true } }))?.teamId;
           if (teamId == null) throw new BindingProjectionFailedError(`CanvasProject 行缺失（${pid}）——投影面不可判队`);
           projectionStats = await projectBindings(tx, pid, teamId, batchDelta);
           await tx.$executeRaw`RELEASE SAVEPOINT media_binding_projection`;
-          return { bindingCovered: true };
+          return { bindingCovered: !hasUncovered };   // 混批：delta 已投影但前缀含未覆盖维护帧→禁推水位
         } catch (err) {
           // C3a-6 评审承接：投影失败原因可查（BindingProjectionFailedError 含 cause——dirty 的分诊面；
           // 与帧提交解耦：ROLLBACK/置 dirty 后仅留痕，禁 rethrow 连坐帧）

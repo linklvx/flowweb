@@ -218,6 +218,12 @@ export class CollabPersistenceService {
         // 的服务端写——节流 1 次/pid/小时防刷屏；load/import/maintenance=合法受控路径零告警）。
         const originKind = classifyDocUpdateOrigin(origin, { replaying: this.replaying.has(document) });
         docUpdateOriginTotal.inc({ origin: originKind });
+        // C3a-8 修复批 C1：import 写标记（维护 flush 时向 sink 申报 bindingUncovered——导入内容
+        // 未经帧级投影，禁水位宣称覆盖）；gate/load/server-direct 不动标记。
+        if (originKind === 'import') {
+          const importPid = this.docProject.get(document);
+          if (importPid) this.importPending.add(importPid);
+        }
         if (originKind === 'server-direct') this.warnServerDirectWrite(this.docProject.get(document) ?? '-', u.byteLength);
         if (this.replaying.has(document)) return;
         const pid = this.docProject.get(document)!;
@@ -395,6 +401,7 @@ export class CollabPersistenceService {
         queue.splice(0, n);
       }
       this.leaveInFlight(projectId);                               // X2 落定点②：WAL fsync 成功
+      this.settleImportPending(projectId);                         // C3a-8 C1：import 内容全落 PG→清标记+入队 rebuild
       this.storeFailedDocs.delete(projectId);
       // 吸收的旧帧（merged 进本批 PG 行——内容已入 PG）显式 confirm：段回收判据=全部帧 confirmed
       // （合并产物帧+旧帧——缺此=旧帧永滞段、下轮 peek 再吸收=写放大循环；actor 只 confirm 本批新帧）
@@ -426,6 +433,7 @@ export class CollabPersistenceService {
   /** V10：终态拦截的显式清账——丢弃是对的，静默丢弃不是。Y1：丢弃=归属落定——leaveInFlight
    *  （Set.delete 幂等；事件到达时 store 在飞的窗口由此收口，防已删项目永久占用 storeInFlight）。B3 承接账②：documentName 形参删除（体内零消费——eslint unused 收口；调用点两处同文件内同步）。 */
   private discardForGoneProject(projectId: string): boolean {
+    this.importPending.delete(projectId);   // C3a-8 C1：终态丢弃后零恢复入队（标记随清）
     const q = this.pendingQueues.get(projectId);
     const batches = q?.length ?? 0;
     if (q && batches > 0) {
@@ -507,8 +515,8 @@ export class CollabPersistenceService {
   /** Y1c T9：维护写独立 append 通道 sink（gateway 接线=actor.submitMaintenance——WAL 帧+PG 行+
    *  confirm 的单写者串行段；本服务不再直接 repo.append/spool.append〔PG 腿全部经 sink——新表
    *  行 walSeq/generation 口径由 actor 统一〕）。resolve=WAL fsync 落定（Spooled 档）。 */
-  private maintenanceSink: ((projectId: string, payload: Uint8Array) => Promise<unknown>) | null = null;
-  setMaintenanceSink(fn: (projectId: string, payload: Uint8Array) => Promise<unknown>): void {
+  private maintenanceSink: ((projectId: string, payload: Uint8Array, opts?: { bindingUncovered?: boolean }) => Promise<unknown>) | null = null;
+  setMaintenanceSink(fn: (projectId: string, payload: Uint8Array, opts?: { bindingUncovered?: boolean }) => Promise<unknown>): void {
     this.maintenanceSink = fn;
   }
 
@@ -543,12 +551,32 @@ export class CollabPersistenceService {
     this.bindingRecoveryFace = face ?? null;
   }
 
+  /** C3a-8 修复批 C1（spec 评审 Critical——import enqueue 早于维护 flush 落 PG → 假覆盖）：
+   *  origin='import' 写过的项目集（per project Set）。维护 flush 期间（含分块）该项目的维护帧向
+   *  sink/回退申报 `bindingUncovered`——帧闭包置 dirty+covered=false（禁推 binding 水位/懒建档落
+   *  dirty），杜绝「导入内容未投影而水位宣称覆盖」。队列清空（import 内容全落 PG）才清标记并
+   *  bindingRecoveryFace.enqueue 一次（rebuild 收敛）；分块未清空保持标记（后续块仍申报未覆盖）。 */
+  private readonly importPending = new Set<string>();
+
+  /** import 内容已全落 PG 的收口点（maintenance 通道成功且 pending 队列空）：清标记+入队 rebuild。
+   *  分块/尾部新写未清空=保持标记（下一 flush 仍申报未覆盖）。 */
+  private settleImportPending(projectId: string): void {
+    if (!this.importPending.has(projectId)) return;
+    if ((this.pendingQueues.get(projectId)?.length ?? 0) > 0) return;
+    this.importPending.delete(projectId);
+    this.bindingRecoveryFace?.enqueue(projectId);
+  }
+
   /** 维护通道统一出口：sink 接线（gateway 生产形态）=actor.submitMaintenance 单写者串行段；未接线
    *  （直构/actor 缺席面）=内置回退——spool.appendTracked（WAL fsync+walSeq）→repo.appendBatch 单帧行
    *  →confirm（与 actor 同序同语义；仅存在于 sink 缺席时，不与 actor 并存=无第二写者面）。 */
   private async runMaintenanceChannel(projectId: string, payload: Uint8Array): Promise<void> {
+    // C3a-8 修复批 C1：import 内容未投影——维护帧向 sink/回退申报 bindingUncovered（闭包置 dirty+
+    // covered=false；禁水位推进）。非 import 项目=零 flag（服务端投递写不得全部改脏）。
+    const uncovered = this.importPending.has(projectId);
+    const opts = uncovered ? { bindingUncovered: true } : undefined;
     if (this.maintenanceSink) {
-      await this.maintenanceSink(projectId, payload);
+      await this.maintenanceSink(projectId, payload, opts);
       return;
     }
     const t = await this.spool.appendTracked(projectId, payload);   // WAL-first（BOI：新家先落定）；dedup 命中（t.dedup——T30b A2）照旧走 PG 落定：本通道=in-process 维护重试面（原帧落定失败才重发，旧 walSeq>内存 pgSeq 恒安全），跨重启 adoption noop 语义归 actor 消费面
@@ -558,12 +586,20 @@ export class CollabPersistenceService {
     const { CanvasDocUpdateRepository: Repo } = await import('./canvas-doc-update.repository');
     const { createHash } = await import('node:crypto');
     try {
+      // C1（无 sink 回退面同一语义）：bindingUncovered → 同事务置 dirty+返回 covered=false（appBatch
+      // ② 不进；懒建档按 covered=false 落 dirty=true+mediaBindingSeq=0）。
+      const inTx = uncovered
+        ? async (tx: import('@prisma/client').Prisma.TransactionClient) => {
+            await tx.canvasDoc.updateMany({ where: { projectId }, data: { bindingsDirty: true } });
+            return { bindingCovered: false };
+          }
+        : undefined;
       const r = await this.repo.appendBatch(projectId, [Repo.singleFrameRow({
         generation: this.spool.currentGeneration(projectId),
         walSeq: t.walSeq,
         frameHash: createHash('sha256').update(payload).digest(),
         update: payload,
-      })]);
+      })], undefined, inTx);
       if (!r.ok) throw Object.assign(new Error('maintenance fallback fenced'), { fenced: true, pgPending: true });
       this.pgBreaker.recordSuccess();
     } catch (err) {
@@ -873,6 +909,7 @@ export class CollabPersistenceService {
           }
         }
       }
+      this.settleImportPending(projectId);   // C3a-8 C1：import 内容全落 PG（queue/frames 两通道）→清标记+入队
       this.cancelPersistRetry(documentName);
       this.setPersistStatus(documentName, true);
     } catch (err) {
@@ -982,6 +1019,7 @@ export class CollabPersistenceService {
       return false;                                            // 交织窗——拒淘汰（批留队列重发，CRDT 幂等吸收）
     }
     queue.splice(0, n);                                        // 新家（WAL/PG）已落定——移出旧归属
+    this.settleImportPending(projectId);                       // C3a-8 C1：import 内容全落 PG→清标记+入队
     return true;
   }
 
@@ -1008,6 +1046,7 @@ export class CollabPersistenceService {
           queue.splice(0, n);                                    // 新家（WAL/PG）已落定——移出旧归属
         }
         this.leaveInFlight(projectId);                           // X2 落定点②（卸载交接变体）
+        this.settleImportPending(projectId);                     // C3a-8 C1：import 内容全落 PG→清标记+入队
       } catch (err) {
         yjsUnloadHandoffFailureTotal.inc();
         this.host.logger.error(`unload handoff failed for ${documentName}, batch retained in queue: ${(err as Error).message}`);
@@ -1124,6 +1163,7 @@ export class CollabPersistenceService {
    *  留 gateway）。X1：discardForGoneProject=唯一必然执行点；Z11①：cancel 后保收割梯。V11 禁慢操作随迁：零磁盘 I/O。 */
   onProjectGone(projectId: string): void {
     this.deletedProjects.add(projectId);
+    this.importPending.delete(projectId);                        // C3a-8 C1：终态项目零恢复入队（标记随清防滞留）
     this.cancelPersistRetry(`project:${projectId}`);            // 定时器随清
     if (this.spool.hasFrames(projectId)) this.schedulePersistRetry(`project:${projectId}`);   // Z11①（TD-28 修复：与 :918 cancel 同键——裸 pid 会被 retryPersist 的 parseDocName 折空串→探空即 cancel，收割梯空转退化为启动回灌兜底）
     this.lastCompactAt.delete(projectId);                       // 卸载清理的第二入口（Task 7 钩子为第一入口）

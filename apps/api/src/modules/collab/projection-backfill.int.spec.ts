@@ -7,7 +7,7 @@
 //   ② backfill 100 项目不惊群+断点续跑+持久状态行可查：每 tick 处理数≤BACKFILL_PROJECTS_PER_TICK、
 //      重建并发恒 1（严格串行）；两轮 runner（不同 backfillEpoch）接力跑完=断点续跑；全 DONE+verifiedSeq
 //      可查；重复跑零动作（幂等）。
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import * as Y from 'yjs';
 import { CollabSpoolService } from './collab-spool.service';
@@ -21,6 +21,8 @@ import { makeSpoolDir } from '../../test-utils/spool-dir';
 const hasDb = !!process.env.DATABASE_URL;
 const maybe = hasDb ? describe : describe.skip;
 const PID = '0c3a8-backfill-replay';
+const PID_BOOT = '0c3a8-boot-leg';
+const PID_I2 = '0c3a8-i2-bailout';
 const M1 = 'c3a8-bf-media-1';
 const BF_PIDS = Array.from({ length: 100 }, (_, i) => `0c3a8-bf-${String(i).padStart(3, '0')}`);
 
@@ -43,26 +45,30 @@ maybe('C3a-8：ProjectionBackfillRunner（真 PG——恢复 replay 腿+100 项�
 
   beforeAll(async () => {
     await ensureProjectFixture(prisma, PID);
+    await ensureProjectFixture(prisma, PID_BOOT);
+    await ensureProjectFixture(prisma, PID_I2);
     await prisma.media.deleteMany({ where: { id: M1 } });
     await prisma.media.create({
       data: { id: M1, userId: FIXTURE_USER, teamId: FIXTURE_TEAM, key: `c3a8/${M1}`, originalName: 'm.png', mimeType: 'image/png', size: 1n, type: 'uploaded' },
     });
-    await prisma.projectionBackfillState.deleteMany({ where: { projectId: { in: [PID, ...BF_PIDS] } } });
+    await prisma.projectionBackfillState.deleteMany({ where: { projectId: { in: [PID, PID_BOOT, PID_I2, ...BF_PIDS] } } });
   });
 
   beforeEach(async () => { await ensureLeaseFixture(prisma, repo); });
 
   afterAll(async () => {
-    await prisma.projectionBackfillState.deleteMany({ where: { projectId: { in: [PID, ...BF_PIDS] } } });
-    await prisma.mediaBinding.deleteMany({ where: { projectId: { in: [PID, ...BF_PIDS] } } });
-    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: { in: [PID, ...BF_PIDS] } } });
-    await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: { in: [PID, ...BF_PIDS] } } });
-    await prisma.canvasDoc.deleteMany({ where: { projectId: { in: [PID, ...BF_PIDS] } } });
+    await prisma.projectionBackfillState.deleteMany({ where: { projectId: { in: [PID, PID_BOOT, PID_I2, ...BF_PIDS] } } });
+    await prisma.mediaBinding.deleteMany({ where: { projectId: { in: [PID, PID_BOOT, PID_I2, ...BF_PIDS] } } });
+    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: { in: [PID, PID_BOOT, PID_I2, ...BF_PIDS] } } });
+    await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: { in: [PID, PID_BOOT, PID_I2, ...BF_PIDS] } } });
+    await prisma.canvasDoc.deleteMany({ where: { projectId: { in: [PID, PID_BOOT, PID_I2, ...BF_PIDS] } } });
     await prisma.canvasProject.deleteMany({ where: { id: { in: BF_PIDS } } });
     await prisma.collabOpsGate.deleteMany({ where: { projectId: { in: BF_PIDS } } });
     await prisma.media.deleteMany({ where: { id: M1 } });
     await restoreLeaseRow(prisma);
     await cleanupProjectFixture(prisma, PID);
+    await cleanupProjectFixture(prisma, PID_BOOT);
+    await cleanupProjectFixture(prisma, PID_I2);
     await prisma.$disconnect();
   });
 
@@ -175,4 +181,95 @@ maybe('C3a-8：ProjectionBackfillRunner（真 PG——恢复 replay 腿+100 项�
     expect(await prisma.canvasDoc.count({ where: { projectId: { in: BF_PIDS }, bindingsDirty: true } })).toBe(0);
     expect(await prisma.projectionBackfillState.findMany({ where: { projectId: { in: BF_PIDS } }, orderBy: { projectId: 'asc' } })).toEqual(snapshotBefore);
   }, 180_000);
+
+  it('I2（修复批）：非 ACTIVE（ERASING）项目 bail-out——不写 DONE、dirty 保持、rebuild 零调用；恢复 ACTIVE 后收敛', async () => {
+    const { dir, cleanup } = await makeSpoolDir('c3a8-i2-');
+    try {
+      await prisma.$transaction([
+        prisma.mediaBinding.deleteMany({ where: { projectId: PID_I2 } }),
+        prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID_I2 } }),
+        prisma.canvasDocSnapshot.deleteMany({ where: { projectId: PID_I2 } }),
+        prisma.canvasDoc.deleteMany({ where: { projectId: PID_I2 } }),
+      ]);
+      await prisma.canvasDoc.create({
+        data: { projectId: PID_I2, generation: 1, schemaVersion: 3, pgSeq: 5n, walCheckpointSeq: 5n, mediaBindingSeq: 0n, bindingsDirty: true },
+      });
+      await prisma.$executeRaw`UPDATE "CanvasProject" SET "lifecycleState" = 'DELETING' WHERE "id" = ${PID_I2}::text`;
+      let rebuildCalls = 0;
+      const spy = {
+        snapshotAnchor: (pid: string) => rebuild.snapshotAnchor(pid),
+        rebuildProjectBindings: async (pid: string) => { rebuildCalls += 1; return rebuild.rebuildProjectBindings(pid); },
+      };
+      const runner = new ProjectionBackfillRunner(prisma as never, spy as never);
+      expect(await runner.runProject(PID_I2)).toBe('bailed');   // 非 ACTIVE → bail-out（修前：teamId=null return→CAS 清 dirty=假覆盖）
+      expect(rebuildCalls).toBe(0);
+      expect((await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID_I2 }, select: { bindingsDirty: true } })).bindingsDirty).toBe(true);
+      const st = await prisma.projectionBackfillState.findUnique({ where: { projectId: PID_I2 } });
+      expect(st?.state).not.toBe('DONE');   // 不写 DONE（行可缺=零状态写）
+      // 恢复 ACTIVE → 收敛
+      await prisma.$executeRaw`UPDATE "CanvasProject" SET "lifecycleState" = 'ACTIVE' WHERE "id" = ${PID_I2}::text`;
+      // pgSeq=5 但无行——rebuild 空 delta 后 CAS 清 dirty+齐水位（语义=无媒体引用）
+      expect(await runner.runProject(PID_I2)).toBe('done');
+      expect(rebuildCalls).toBe(1);
+      expect(await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID_I2 }, select: { bindingsDirty: true, mediaBindingSeq: true } }))
+        .toEqual({ bindingsDirty: false, mediaBindingSeq: 5n });
+      expect((await prisma.projectionBackfillState.findUniqueOrThrow({ where: { projectId: PID_I2 } })).state).toBe('DONE');
+    } finally {
+      await prisma.$executeRaw`UPDATE "CanvasProject" SET "lifecycleState" = 'ACTIVE' WHERE "id" = ${PID_I2}::text`;
+      await cleanup();
+    }
+  }, 60_000);
+
+  it('I1（修复批）：boot replayed>0 腿时序——boot 检查先行 rebuild（清 dirty@pSeq0）→replayAll 标 dirty+append+入队→最终 binding 正确∧mediaBindingSeq==pgSeq', async () => {
+    const { dir, cleanup } = await makeSpoolDir('c3a8-boot-leg-');
+    try {
+      await prisma.$transaction([
+        prisma.mediaBinding.deleteMany({ where: { projectId: PID_BOOT } }),
+        prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID_BOOT } }),
+        prisma.canvasDocSnapshot.deleteMany({ where: { projectId: PID_BOOT } }),
+        prisma.canvasDoc.deleteMany({ where: { projectId: PID_BOOT } }),
+      ]);
+      await prisma.canvasDoc.create({
+        data: { projectId: PID_BOOT, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: true },
+      });
+      const s1 = new CollabSpoolService(dir);
+      s1.setOwner('c3a8-boot-owner');
+      await s1.append(PID_BOOT, mediaFrame('n-boot', M1));   // 未落 PG 的 spool 帧（崩溃重启形态）
+      const s2 = new CollabSpoolService(dir);
+      s2.setOwner('c3a8-boot-owner');
+      await s2.scan();
+      const runner = new ProjectionBackfillRunner(prisma as never, rebuild as never);
+      // ① boot 检查先行 enqueue→rebuild 在 spool 帧未 append 前跑：空 PG 前缀 → CAS 清 dirty（pgSeq=0 合法）
+      expect(await runner.runProject(PID_BOOT)).toBe('done');
+      expect(await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID_BOOT }, select: { pgSeq: true, bindingsDirty: true } }))
+        .toEqual({ pgSeq: 0n, bindingsDirty: false });
+      expect(await prisma.mediaBinding.count({ where: { projectId: PID_BOOT } })).toBe(0);
+      // ② replayAll：前置 dirty（C3a-8）→append（catch-up 不推 binding 水位）→onReplayed 触发
+      const onReplayed = vi.fn();
+      const report = await s2.replayAll(repo, {
+        projectIds: [PID_BOOT],
+        onPendingFrames: (pid) => runner.markDirty(pid),
+        onReplayed,   // 断言前不真入队（避免 setTimeout 窗清 dirty 竞态——入队面下方显式调）
+      });
+      expect(report.replayed).toBe(1);
+      expect(onReplayed).toHaveBeenCalledWith(PID_BOOT, 1);
+      expect(await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID_BOOT }, select: { pgSeq: true, mediaBindingSeq: true, bindingsDirty: true } }))
+        .toEqual({ pgSeq: 1n, mediaBindingSeq: 0n, bindingsDirty: true });
+      // ③ runner 收敛（enqueue 即时排水/直调 drain——轮询 DONE）
+      runner.enqueue(PID_BOOT);
+      const deadline = Date.now() + 15_000;
+      for (;;) {
+        await runner.drain().catch(() => 0);
+        const st = await prisma.projectionBackfillState.findUnique({ where: { projectId: PID_BOOT } });
+        if (st?.state === 'DONE') break;
+        if (Date.now() > deadline) throw new Error('I1：runner 未在 15s 内收敛');
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(await prisma.mediaBinding.count({ where: { projectId: PID_BOOT, nodeId: 'n-boot', targetField: 'fileId', mediaId: M1 } })).toBe(1);
+      const fin = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID_BOOT }, select: { pgSeq: true, mediaBindingSeq: true, bindingsDirty: true } });
+      expect(fin).toEqual({ pgSeq: 1n, mediaBindingSeq: 1n, bindingsDirty: false });   // 无假覆盖：水位==帧水位
+    } finally {
+      await cleanup();
+    }
+  }, 60_000);
 });

@@ -452,7 +452,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       hardClose: (conn, code, reason) => this.sessionGuard.hardClose(conn, code, reason),
       consumeBytesBucket: (socketId, bytes) => this.sessionGuard.consumeBytesBucket(socketId, bytes),
     });
-    this.persistence.setMaintenanceSink((pid, payload) => this.projectActor.submitMaintenance(pid, payload));
+    // C3a-8 修复批 C1：维护帧申报透传（persistence importPending → sink opts → actor 闭包 covered=false）
+    this.persistence.setMaintenanceSink((pid, payload, opts) => this.projectActor.submitMaintenance(pid, payload, opts));
     // Y1c T26 二轮 R-1①：观察器 face 注入 persistence（reconcileSpool 的 replayAll 入口带 stale 面）
     // Y1c T27 收尾 I-3'（Controller 裁定 (a) 接线）：face 扩传 derive+persist 两面——reconciler 30s
     // 回灌帙重派生 lifecycle/义务/fence（boot 预算耗尽残帧/adopt 外来段帙缺档=doc-lag 窗根修；

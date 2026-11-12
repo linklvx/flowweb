@@ -1,8 +1,8 @@
 // apps/api/src/modules/collab/media-binding.metrics.ts
 // C3a-8（plan v3 Task C3a-8——spec 2026-11-11-foundation-batch-design.md §3.2-7 指标清单）：
 // MediaBinding 投影/回填/漂移观测面。语义钉死（低基数——禁逐项目标签；单实例 ADR 前提）：
-//   · write_total{source}：**成功提交后的行写计数**——source='append'（帧级投影 RELEASE 成功后）
-//     /'rebuild'（全量 rebuild 每页短事务提交后）；**rollback 不计数**（计数点=tx 成功返回后）。
+//   · write_total{source}：**净 upsert 行写计数（不含 diff/尾删）**——source='append'（帧级投影
+//     RELEASE 成功后）/'rebuild'（全量 rebuild 每页短事务提交后）；**rollback 不计数**。
 //   · skip_total{reason}：投影成功的槽位准入跳过（reason=missing|cross-team|soft-deleted——与
 //     projector 预检序单源；失败回滚批次不计数）。
 //   · projection_failed_total{reason}：投影闭包失败（reason=typed〔BindingProjectionFailedError〕/
@@ -23,7 +23,7 @@ import type { ProjectionStats } from './media-binding-projector';
 /** 投影行写计数（source=append 帧级投影/rebuild 全量 rebuild——提交成功后才计数）。 */
 export const mediaBindingWriteTotal = new Counter({
   name: 'media_binding_write_total',
-  help: 'MediaBinding 行写计数（source=append 帧级投影 RELEASE 成功/rebuild 每页短事务成功后——rollback 不计数）',
+  help: 'MediaBinding 净 upsert 行写计数（source=append 帧级投影 RELEASE 成功/rebuild 每页短事务成功后——**仅净 upsert 行写，不含 diff/尾删**；rollback 不计数）',
   labelNames: ['source'],
   registers: [register],
 });

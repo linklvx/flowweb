@@ -38,8 +38,8 @@ export const BACKFILL_RETRY_BACKOFF_MS = 30_000;
 /** 持久状态行 state 值（schema 无 enum——代码内闭集，DB CHECK 四态约束同源）。 */
 export type ProjectionBackfillStateValue = 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED';
 
-/** 单项目回填结果（测试/日志面）。 */
-export type BackfillRunOutcome = 'done' | 'no-doc' | 'cas-miss' | 'failed';
+/** 单项目回填结果（测试/日志面）。bailed=项目非 ACTIVE（ERASING 等）——本轮不写 DONE，dirty 保持。 */
+export type BackfillRunOutcome = 'done' | 'no-doc' | 'cas-miss' | 'failed' | 'bailed';
 
 @Injectable()
 export class ProjectionBackfillRunner implements OnModuleInit, OnApplicationShutdown {
@@ -133,8 +133,12 @@ export class ProjectionBackfillRunner implements OnModuleInit, OnApplicationShut
     }
   }
 
-  /** 单项目回填（持久行 PENDING→RUNNING→DONE|FAILED；cleared 才 DONE+verifiedSeq=anchor.pgSeq）。 */
+  /** 单项目回填（持久行 PENDING→RUNNING→DONE|FAILED；cleared 才 DONE+verifiedSeq=anchor.pgSeq）。
+   *  C3a-8 修复批 I2：首步 raw 读 CanvasProject.lifecycleState（绕读过滤——非 ACTIVE 项目行对
+   *  delegate 读不可见）——非 'ACTIVE'/行缺=**bail-out**（不写 DONE、dirty 保持、退避下轮再看；
+   *  ERASING 项目由擦除收口，禁以 teamId=null 假清 dirty）。 */
   async runProject(projectId: string): Promise<BackfillRunOutcome> {
+    if ((await this.readLifecycleState(projectId)) !== 'ACTIVE') return 'bailed';
     await this.setState(projectId, 'PENDING');
     await this.setState(projectId, 'RUNNING');
     const anchor = await this.rebuild.snapshotAnchor(projectId);
@@ -190,6 +194,14 @@ export class ProjectionBackfillRunner implements OnModuleInit, OnApplicationShut
       SELECT COUNT(*)::bigint AS n FROM "CanvasDoc"
       WHERE "bindingsDirty" = true OR "mediaBindingSeq" < "pgSeq"`;
     return Number(rows[0]?.n ?? 0n);
+  }
+
+  /** I2：lifecycleState 无过滤 raw 读（读过滤 Proxy 只辖 delegate 读——非 ACTIVE 行对 findUnique
+   *  不可见；行缺失同判非 ACTIVE）。 */
+  private async readLifecycleState(projectId: string): Promise<string | null> {
+    const rows = await this.prisma.$queryRaw<{ lifecycleState: string | null }[]>`
+      SELECT "lifecycleState" FROM "CanvasProject" WHERE "id" = ${projectId}::text LIMIT 1`;
+    return rows[0]?.lifecycleState ?? null;
   }
 
   private async setState(projectId: string, state: ProjectionBackfillStateValue, verifiedSeq?: bigint): Promise<void> {
