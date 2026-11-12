@@ -35,6 +35,7 @@ import { projectBindings } from './media-binding-projector';
 import type { MediaRef } from '@flowweb/shared';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { toDocLike } from './doc-like.util';
+import { clearMediaBindingGap, mediaBindingProjectionFailedTotal, mediaBindingWatermarkLag, recordMediaBindingProjection } from './media-binding.metrics';   // C3a-8：write/skip/projection_failed/gap/lag 观测面
 
 /** rebuild 锚（锁外快照三元——CAS 四条件的期望侧；pgSeq/generation/expectedBindingSeq 任一
  *  在写面落定前被并发移动即 CAS 失败）。 */
@@ -46,7 +47,6 @@ export interface RebuildAnchor {
 
 export type RebuildOutcome =
   | { outcome: 'no-doc' }   // CanvasDoc 行缺（项目未建档/已级联删除）
-  | { outcome: 'in-flight' }   // 同项目 rebuild 进行中（装载缝并发触发去重）
   | { outcome: 'cleared'; pgSeq: bigint }   // CAS 落定：dirty 清+mediaBindingSeq=pgSeq
   | { outcome: 'cas-miss' };   // CAS 0 行：dirty 保持，下轮重试
 
@@ -63,8 +63,6 @@ const REBUILD_PAGE_NODES = 500;
 @Injectable()
 export class BindingRebuildService {
   private readonly logger = new Logger(BindingRebuildService.name);
-  /** 装载缝 fire-and-forget 并发触发去重（单项目单飞；C3a-8 BackfillRunner 队列化后本守卫退役）。 */
-  private readonly inFlight = new Set<string>();
 
   // 显式 @Inject：vitest esbuild 不生成设计时类型元数据（canvas-doc-update.repository 同模式）
   constructor(
@@ -103,7 +101,13 @@ export class BindingRebuildService {
       const entries = [...delta.entries()];
       for (let i = 0; i < entries.length; i += REBUILD_PAGE_NODES) {
         const chunk = new Map(entries.slice(i, i + REBUILD_PAGE_NODES));
-        await this.prisma.$transaction((tx) => projectBindings(tx, projectId, teamId, chunk), { timeout: 5_000, maxWait: 1_000 });
+        try {
+          const stats = await this.prisma.$transaction((tx) => projectBindings(tx, projectId, teamId, chunk), { timeout: 5_000, maxWait: 1_000 });
+          recordMediaBindingProjection('rebuild', stats);   // C3a-8：页事务提交成功后计数（回滚不计数）
+        } catch (err) {
+          mediaBindingProjectionFailedTotal.inc({ reason: 'rebuild-page' });
+          throw err;
+        }
       }
       // 全量替换尾腿：doc 外节点的现存行清（stale 行——不在 delta 域=增量投影永不触达）
       const existingNodeIds = await this.prisma.$queryRaw<{ nodeId: string }[]>`
@@ -127,26 +131,27 @@ export class BindingRebuildService {
         AND "pgSeq" = ${anchor.pgSeq}::bigint
         AND generation = ${anchor.generation}::int
         AND "bindingsDirty" = true`;
-    return n === 1 ? { outcome: 'cleared', pgSeq: anchor.pgSeq } : { outcome: 'cas-miss' };
+    if (n === 1) {
+      // C3a-8（spec §3.2-7）：gap 闭合（首现 gap 序号归 0）+ 水位 lag=0（本观测点后该投影域连续）
+      clearMediaBindingGap();
+      mediaBindingWatermarkLag.set(0);
+      return { outcome: 'cleared', pgSeq: anchor.pgSeq };
+    }
+    return { outcome: 'cas-miss' };
   }
 
-  /** 组合入口（生产消费面——gateway 装载缝 boot 判定直接调；单项目最小形态，队列归 C3a-8）。 */
+  /** 组合入口（生产消费面——C3a-8 起经 ProjectionBackfillRunner 队列串行（enqueue 单项目单飞）；
+   *  方法本身可直调（测试/维护面）——队列去重归 runner，本服务零 inFlight 守卫）。 */
   async rebuildProjectBindings(projectId: string): Promise<RebuildOutcome> {
-    if (this.inFlight.has(projectId)) return { outcome: 'in-flight' };
-    this.inFlight.add(projectId);
-    try {
-      const anchor = await this.snapshotAnchor(projectId);
-      if (!anchor) return { outcome: 'no-doc' };
-      await this.writeBindingsAt(projectId, anchor);
-      const r = await this.commitByCas(projectId, anchor);
-      if (r.outcome === 'cas-miss') {
-        // 持续 dirty 分诊面（§3.2-7 无 binding_dirty 指标——头注记录性注释）：miss=写面读点后
-        // 有并发移动（append/换代），dirty 保持由下轮装载/backfill 重试收敛
-        this.logger.warn(`binding rebuild CAS miss for ${projectId}（写面读点后有并发 append/换代——dirty 保持，下轮重试；anchor g=${anchor.generation} S=${anchor.pgSeq} expected=${anchor.expectedBindingSeq}）`);
-      }
-      return r;
-    } finally {
-      this.inFlight.delete(projectId);
+    const anchor = await this.snapshotAnchor(projectId);
+    if (!anchor) return { outcome: 'no-doc' };
+    await this.writeBindingsAt(projectId, anchor);
+    const r = await this.commitByCas(projectId, anchor);
+    if (r.outcome === 'cas-miss') {
+      // 持续 dirty 分诊面（§3.2-7 无 binding_dirty 指标——头注记录性注释）：miss=写面读点后
+      // 有并发移动（append/换代），dirty 保持由下轮装载/backfill 重试收敛
+      this.logger.warn(`binding rebuild CAS miss for ${projectId}（写面读点后有并发 append/换代——dirty 保持，下轮重试；anchor g=${anchor.generation} S=${anchor.pgSeq} expected=${anchor.expectedBindingSeq}）`);
     }
+    return r;
   }
 }

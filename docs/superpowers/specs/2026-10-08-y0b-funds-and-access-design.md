@@ -1126,7 +1126,14 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - ledger_frozen_drift_total
 - ledger_orphan_unreleasable_total
 - media_acl_denied
+- media_binding_backfill_remaining
+- media_binding_drift_total
+- media_binding_gap_seq
+- media_binding_projection_failed_total
 - media_binding_reconcile_outcome_total
+- media_binding_skip_total
+- media_binding_watermark_lag
+- media_binding_write_total
 - media_fact_age_seconds
 - media_fact_read_total
 - media_fact_unfinished_state_age_seconds

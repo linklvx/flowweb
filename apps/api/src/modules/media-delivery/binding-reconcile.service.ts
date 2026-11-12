@@ -1,74 +1,58 @@
-// apps/api/src/modules/media-delivery/binding-reconcile.service.ts —— Y1a+Y1b T16
-//（spec :25 裁决③「binding 服务端惰性 reconcile」/:80 Z7''-v14「current-state upsert——create-only
-// 废止」/:91 Z18''「MediaBinding current-state upsert+finalize 同步 upsert」）：
-// MediaBinding=doc 引用纯索引（降级纯索引——T2 已无状态机列），本服务=该索引的唯一惰性维护者：
+// apps/api/src/modules/media-delivery/binding-reconcile.service.ts
+// C3a-8（plan v3 Task C3a-8——spec 2026-11-11-foundation-batch-design.md §3.2-3/§3.2-7）：
+// MediaBinding **只读漂移检测**（Y1a+Y1b T16 的 current-state upsert 写面随单写者纪律退役）。
 //
-//   collectMediaRefs(doc) 九键扫描（shared 单源——fileId/referenceImage/
-//   referenceVideo/referenceAudio/images[].id/allImages/trimmedFileId/videoFileId/audioFileId）
-//   →逐引用：Media 行存在性+Media.teamId===project.teamId 校验（跨 team 拒+计数+不建行——读侧
-//   ACL 403 兜底已由 content 单门承载，binding 只管索引不执法）
-//   →current-state upsert（ON CONFLICT 槽位键 DO UPDATE mediaId——同槽位换 media 即改行；
-//   v10.1 create-only「当前槽位靠 createdAt 猜」废止）
-//   →stale 清扫（doc 无引用但 binding 行在→删行——删除节点/清槽位自然收敛；项目灭失→全行清）。
+// 语义（第六轮 P1-4 裁定）：doc 真值经 **PG 定代前缀**重建——readRebuildAnchor(g,pgSeq)+
+// loadForHydrationAt(pid,{generation,pgSeq})（repository 单源；**禁 withSession 活 doc**：活 doc=当前
+// 内存态非已提交前缀，与 binding 水位不可比）。发现面=**CanvasDoc 全表分页**（游标轮转）——漂移可能
+// 存在于「dirty=false 且水位齐」的项目（DB 行被手工删/并发写错），故不只扫候选集。
 //
-// 触发形态（裁决③「零客户端调用/零新端点/离线 paste 天然覆盖」——本服务自持双 timer）：
-//   ①post-apply 触发：投影 poller mark projected 后 requestReconcile(projectId)（T15 交接面——
-//     生成交付落 doc 即刻对齐索引；fire-and-forget 不阻塞投影循环）；
-//   ②周期触发：候选发现轮（MediaBinding.projectId ∪ NodeArtifact.projectId 去重游标轮转——
-//     离线 paste/上传引用等无投影路径的兜底收敛）。
-// 形态纪律=MaterializeJob/IntentReconcile/pending-upload sweep 同族：原生 setInterval+unref+
-// busy 防重入（R28——@Cron 全仓未导入是死代码）；doc 读=withSession(read)（lease 失守/vacuum
-// 503 ⇒ scan-failed 计数本轮跳过，幂等重入下轮收敛——惰性语义不承诺即时）。
-// 命令面零 binding 写（C3a-7 bindInTx 本体已删）——finalize/replace 的 binding 收敛=doc 帧级
-// 投影/全量 rebuild/本服务惰性扫描兜底。
+// 单项目检测（reconcileProject——幂等可重入）：
+//   ① anchor=readRebuildAnchor（行缺=跳过；清理归 erasure/FK cascade）
+//   ② 定代重放 doc@pgSeq → collectMediaRefs（shared 单源）
+//   ③ 准入过滤=**与 projector 同款**（admitMediaRef 单源：Media 行存在∧team 同队∧
+//      (DELETING∨deletedAt=null)）→desired 槽集（mediaBindingSlotKey 五元组）
+//   ④ 与 DB MediaBinding 行 diff：missing（doc 引用缺行）/extra（行无 doc 引用）/mismatch（同槽异
+//      mediaId）——`media_binding_drift_total{kind}` 计数+WARN 日志
+//   ⑤ 漂移命中→`canvasDoc.updateMany` 置 bindingsDirty=true + `runner.enqueue(pid)`（**唯一修复路径=
+//      全量 rebuild；本服务零 MediaBinding 写**——静态单写者门禁白名单已移除本文件）
 //
-// 【并发语义钉明（T16 质评#2）】本服务事务（ReadCommitted 无锁读）与帧级投影/rebuild 并发时
-// last-writer-wins：①doc 快照旧于帧级投影/rebuild ⇒ upsert 可能回写旧 mediaId；②投影/rebuild
-// 新建行可能被误判 stale 删——两形态均由惰性语义自愈（post-apply 触发 ≤drain 周期重建+GC 以 doc 扫描为终裁
-// 不依赖 binding 完整性+facts 按 mediaId 查询不按 project fan-out）。slotKeyOf 省略 role 的前提=
-// 现网全部槽位 role='primary'（schema 默认值+投影器/rebuild 写点同款）——非 primary role 落地
-// 时须先扩 slotKeyOf 否则会被误判 stale 删。
+// 触发形态（双 timer 不变）：①post-apply 触发（投影 poller mark projected 后 requestReconcile）；
+// ②周期发现轮（CanvasDoc 全表 5min）。drain 仍为 5s/8 项目上界——单项目读=一次定代 RR 事务。
+// 项目行缺失（readRebuildAnchor=null）=跳过：其 binding 行由项目 FK Cascade/erasure 清理，不产生漂移。
 import { Inject, Injectable, Logger, OnModuleInit, OnApplicationShutdown } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { collectMediaRefs, type MediaRef } from '@flowweb/shared';
+import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
+import { CanvasDocUpdateRepository } from '../collab/canvas-doc-update.repository';
+import { ProjectionBackfillRunner } from '../collab/projection-backfill.runner';
+import { createCanvasDoc } from '../collab/canvas-doc.factory';
 import { toDocLike } from '../collab/doc-like.util';
-import { mediaBindingReconcileOutcomeTotal } from './binding-reconcile.metrics';
+import { admitMediaRef, mediaBindingSlotKey } from '../collab/media-binding-projector';
+import { mediaBindingDriftTotal } from '../collab/media-binding.metrics';
 
 // ── reconcile 参数（同族纪律：常数不进 env——热循环红线非立即重投） ──
-/** 触发队列排水周期（post-apply 请求的收敛延迟上界——投影 projected 后索引对齐节奏）。 */
+/** 触发队列排水周期（post-apply 请求的收敛延迟上界）。 */
 export const RECONCILE_DRAIN_INTERVAL_MS = 5_000;
-/** 周期候选发现轮（离线 paste/上传引用兜底——无投影路径的引用最长滞后窗）。 */
+/** 周期候选发现轮（CanvasDoc 全表漂移巡检——未被任何触发路径触及的项目兜底）。 */
 export const RECONCILE_DISCOVER_INTERVAL_MS = 5 * 60_000;
 /** 每 drain tick 排水上界（单 doc 读成本摊薄——积压按轮消化）。 */
 export const RECONCILE_DRAIN_BUDGET = 8;
 /** 周期发现每轮候选上界（游标轮转——sweepOrphanExec 同款全量轮转非进度承诺）。 */
 export const RECONCILE_DISCOVER_PAGE = 64;
 
-/** 单轮 reconcile 摘要（测试/观测面——计数即指标 label 域）。 */
+/** 单轮只读 reconcile 摘要（测试/观测面——漂移形态，写面计数已退役）。 */
 export interface ReconcileSummary {
   projectId: string;
-  /** doc 读成功（false=本轮跳过——scan-failed 已计数，下轮触发重扫）。 */
+  /** 检测可执行（false=项目行/文档行缺失或扫描失败——本轮跳过）。 */
   ok: boolean;
+  /** doc@pgSeq 引用条目数（准入前）。 */
   scanned: number;
-  upserted: number;
-  deleted: number;
-  crossTeamRejected: number;
-  /** doc 引用的 mediaId 无 Media 行（行灭失——FK 防线拒建，GC/doc 清理后自然消失）。 */
-  missingMedia: number;
-}
-
-export type ReconcileOutcome = 'upserted' | 'deleted' | 'cross-team-rejected' | 'missing-media' | 'scan-failed';
-
-function inc(outcome: ReconcileOutcome, n = 1): void {
-  mediaBindingReconcileOutcomeTotal.inc({ outcome }, n);
-}
-
-/** 槽位键（MediaBinding @@unique([projectId,nodeId,role,targetField,targetItemId]) 的应用层形态）。
- *  九键引用 role 恒 primary（MediaRef.role 常量槽——C3a-1 加）——slotKey 省略 role 即此义。 */
-function slotKeyOf(r: { nodeId: string; targetField: string; targetItemId: string }): string {
-  return `${r.nodeId}\u0000${r.targetField}\u0000${r.targetItemId}`;
+  /** 漂移分类计数（missing=doc 引用缺行/extra=行无引用/mismatch=同槽异 mediaId）。 */
+  drift: { missing: number; extra: number; mismatch: number };
+  /** 漂移命中→已置 dirty+入队（false=零漂移零动作）。 */
+  dirtyMarked: boolean;
 }
 
 @Injectable()
@@ -85,7 +69,8 @@ export class BindingReconcileService implements OnModuleInit, OnApplicationShutd
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(CollabDocumentService) private readonly docs: CollabDocumentService,
+    @Inject(CanvasDocUpdateRepository) private readonly repo: CanvasDocUpdateRepository,
+    @Inject(ProjectionBackfillRunner) private readonly backfill: ProjectionBackfillRunner,
   ) {}
 
   onModuleInit(): void {
@@ -127,7 +112,6 @@ export class BindingReconcileService implements OnModuleInit, OnApplicationShutd
         this.queue.delete(projectId);
         const s = await this.reconcileProject(projectId).catch((e) => {
           this.logger.warn(`reconcile project=${projectId} 失败（下轮触发重扫）: ${(e as Error).message}`);
-          inc('scan-failed');
           return null;
         });
         if (s) processed += 1;
@@ -138,17 +122,12 @@ export class BindingReconcileService implements OnModuleInit, OnApplicationShutd
     }
   }
 
-  /** 周期候选发现（MediaBinding.projectId ∪ NodeArtifact.projectId——覆盖「行在需清扫」与
-   *  「artifact 在可能有引用」两域；游标轮转分页）。纯新增引用无行无 artifact 的项目由
-   *  投影 post-apply 触达（生成链）——上传引用键（referenceImage 等）落 binding 的首驱=
-   *  上传所在项目的任一 doc 帧投影（帧级投影主槽先行）/rebuild（其余键随本轮收敛）。 */
+  /** 周期发现（**CanvasDoc 全表**游标轮转——发现面含「干净但漂移」项目；页尽回卷）。 */
   async discover(): Promise<number> {
     const rows = await this.prisma.$queryRaw<{ projectId: string }[]>(Prisma.sql`
-      SELECT DISTINCT "projectId" FROM (
-        SELECT "projectId" FROM "MediaBinding" WHERE "projectId" > ${this.discoverCursor ?? ''}
-        UNION
-        SELECT "projectId" FROM "NodeArtifact" WHERE "projectId" > ${this.discoverCursor ?? ''}
-      ) t ORDER BY "projectId" LIMIT ${RECONCILE_DISCOVER_PAGE}`);
+      SELECT "projectId" FROM "CanvasDoc"
+      WHERE "projectId" > ${this.discoverCursor ?? ''}
+      ORDER BY "projectId" LIMIT ${RECONCILE_DISCOVER_PAGE}`);
     if (rows.length > 0) {
       this.discoverCursor = rows[rows.length - 1].projectId;
       if (rows.length < RECONCILE_DISCOVER_PAGE) this.discoverCursor = null;   // 轮尽回卷
@@ -159,108 +138,65 @@ export class BindingReconcileService implements OnModuleInit, OnApplicationShutd
     return rows.length;
   }
 
-  /** 单 project 全量 reconcile（幂等重入收敛——desired=doc 现值，DB 面=desired 恰好）。 */
+  /** 单 project 只读漂移检测（幂等重入——desired=doc@pgSeq 现值 vs DB 面。漂移→dirty+入队）。 */
   async reconcileProject(projectId: string): Promise<ReconcileSummary> {
     const summary: ReconcileSummary = {
-      projectId, ok: false, scanned: 0, upserted: 0, deleted: 0, crossTeamRejected: 0, missingMedia: 0,
+      projectId, ok: false, scanned: 0, drift: { missing: 0, extra: 0, mismatch: 0 }, dirtyMarked: false,
     };
-    const project = await this.prisma.canvasProject.findUnique({
-      where: { id: projectId },
-      select: { teamId: true },
-    });
-    if (!project) {
-      // 项目灭失：doc 无从扫——全行清（stale 兜底；引用图随项目级联语义消亡）。
-      const { count } = await this.prisma.mediaBinding.deleteMany({ where: { projectId } });
-      summary.deleted = count;
-      inc('deleted', count);
-      summary.ok = true;
-      return summary;
-    }
+    // ① anchor（行缺=跳过——清理归 erasure/FK cascade）
+    const anchor = await this.repo.readRebuildAnchor(projectId);
+    if (!anchor) return summary;
+    const project = await this.prisma.canvasProject.findUnique({ where: { id: projectId }, select: { teamId: true } });
+    if (!project) return summary;
+    // ② 定代前缀重放 doc@pgSeq（禁活 doc）
+    const doc = createCanvasDoc();
     let refs: MediaRef[];
     try {
-      refs = await this.docs.withSession(projectId, (doc) => collectMediaRefs(toDocLike(doc)), { mode: 'read' });
-    } catch (e) {
-      // lease 失守/vacuum/结构缺失——惰性语义本轮跳过（计数观测，下轮触发重扫）。
-      this.logger.warn(`reconcile doc 读失败 project=${projectId}（跳过本轮）: ${(e as Error).message}`);
-      inc('scan-failed');
-      return summary;
+      const { state, updates } = await this.repo.loadForHydrationAt(projectId, { generation: anchor.generation, pgSeq: anchor.pgSeq });
+      if (state) Y.applyUpdate(doc, new Uint8Array(state));
+      for (const u of updates) Y.applyUpdate(doc, new Uint8Array(u));
+      refs = collectMediaRefs(toDocLike(doc));
+      summary.scanned = refs.length;
+      summary.ok = true;
+    } finally {
+      doc.destroy();
     }
-    summary.scanned = refs.length;
-    return this.applyRefs(projectId, project.teamId, refs);
-  }
-
-  /** desired 引用集 → DB 面（current-state upsert+跨 team 拒+stale 清扫；单事务）。测试直调入口
-   *  （refs 可由测试直接构造——doc 读面经 reconcileProject 覆盖）。 */
-  async applyRefs(projectId: string, teamId: string, refs: readonly MediaRef[]): Promise<ReconcileSummary> {
-    const summary: ReconcileSummary = {
-      projectId, ok: true, scanned: refs.length, upserted: 0, deleted: 0, crossTeamRejected: 0, missingMedia: 0,
-    };
-    // ①引用 media 行存在性+team 校验（一次 IN 读——mediaId 去重）。
+    // ③ 准入过滤（projector 同款）→desired 槽集
     const mediaIds = [...new Set(refs.map((r) => r.mediaId))];
     const mediaRows = mediaIds.length > 0
-      ? await this.prisma.media.findMany({ where: { id: { in: mediaIds } }, select: { id: true, teamId: true } })
+      ? await this.prisma.media.findMany({ where: { id: { in: mediaIds } }, select: { id: true, teamId: true, deletionState: true, deletedAt: true } })
       : [];
-    const teamById = new Map(mediaRows.map((m) => [m.id, m.teamId]));
-    const admitted: MediaRef[] = [];
+    const mediaById = new Map(mediaRows.map((m) => [m.id, m]));
+    const desired = new Map<string, string>();
     for (const r of refs) {
-      const mediaTeam = teamById.get(r.mediaId);
-      if (mediaTeam === undefined) {
-        summary.missingMedia += 1;
-        inc('missing-media');
-        continue;   // 行灭失——FK 防线拒建（doc 陈旧引用，GC/清槽后自然消失）
+      if (admitMediaRef(mediaById.get(r.mediaId), project.teamId) === 'admitted') {
+        desired.set(mediaBindingSlotKey(r), r.mediaId);
       }
-      if (mediaTeam !== teamId) {
-        summary.crossTeamRejected += 1;
-        inc('cross-team-rejected');
-        continue;   // 跨 team 拒+不建行（读侧 ACL 403 兜底在 content 单门——裁决③）
-      }
-      admitted.push(r);
     }
-
-    // ②单事务：净变更分类（P2#6——幂等重扫零虚高：unchanged 槽跳写）+upsert 净变更集
-    //    （ON CONFLICT 槽位键 DO UPDATE mediaId——current-state）+删 stale（本项目槽位不在
-    //    desired 集的行）。upserted=create+update 净计数（同 doc 重扫第二轮回零）。
-    const desiredByKey = new Map<string, MediaRef>();
-    for (const r of admitted) desiredByKey.set(slotKeyOf(r), r);
-    await this.prisma.$transaction(async (tx) => {
-      const existing = await tx.mediaBinding.findMany({
-        where: { projectId },
-        select: { id: true, nodeId: true, targetField: true, targetItemId: true, mediaId: true },
-      });
-      const existingByKey = new Map(existing.map((row) => [slotKeyOf(row), row]));
-      let netUpserts = 0;
-      for (const [key, r] of desiredByKey) {
-        const prior = existingByKey.get(key);
-        if (prior && prior.mediaId === r.mediaId) continue;   // unchanged——跳写（幂等重扫零动作）
-        await tx.mediaBinding.upsert({
-          where: {
-            projectId_nodeId_role_targetField_targetItemId: {
-              projectId, nodeId: r.nodeId, role: 'primary',
-              targetField: r.targetField, targetItemId: r.targetItemId,
-            },
-          },
-          create: {
-            mediaId: r.mediaId, projectId, nodeId: r.nodeId, teamId,
-            role: 'primary', targetField: r.targetField, targetItemId: r.targetItemId,
-          },
-          update: { mediaId: r.mediaId },   // current-state：同槽位换 media 即改行（create-only 废止）
-        });
-        netUpserts += 1;
-      }
-      const staleIds = existing
-        .filter((row) => !desiredByKey.has(slotKeyOf(row)))
-        .map((row) => row.id);
-      if (staleIds.length > 0) {
-        await tx.mediaBinding.deleteMany({ where: { id: { in: staleIds } } });
-      }
-      summary.upserted = netUpserts;
-      summary.deleted = staleIds.length;
+    // ④ diff（只读读面）
+    const existing = await this.prisma.mediaBinding.findMany({
+      where: { projectId },
+      select: { nodeId: true, role: true, targetField: true, targetItemId: true, mediaId: true },
     });
-    inc('upserted', summary.upserted);
-    inc('deleted', summary.deleted);
+    const existingKeys = new Set<string>();
+    for (const row of existing) {
+      const key = mediaBindingSlotKey(row);
+      existingKeys.add(key);
+      const want = desired.get(key);
+      if (want === undefined) summary.drift.extra += 1;
+      else if (want !== row.mediaId) summary.drift.mismatch += 1;
+    }
+    for (const key of desired.keys()) if (!existingKeys.has(key)) summary.drift.missing += 1;
+    // ⑤ 漂移→置 dirty+入队（唯一修复路径=rebuild；本服务零 MediaBinding 写）
+    const total = summary.drift.missing + summary.drift.extra + summary.drift.mismatch;
+    if (total === 0) return summary;
+    if (summary.drift.missing > 0) mediaBindingDriftTotal.inc({ kind: 'missing' }, summary.drift.missing);
+    if (summary.drift.extra > 0) mediaBindingDriftTotal.inc({ kind: 'extra' }, summary.drift.extra);
+    if (summary.drift.mismatch > 0) mediaBindingDriftTotal.inc({ kind: 'mismatch' }, summary.drift.mismatch);
+    await this.prisma.canvasDoc.updateMany({ where: { projectId }, data: { bindingsDirty: true } });
+    this.backfill.enqueue(projectId);
+    summary.dirtyMarked = true;
+    this.logger.warn(`binding drift for ${projectId}（missing=${summary.drift.missing} extra=${summary.drift.extra} mismatch=${summary.drift.mismatch}——置 dirty+入队 rebuild，本服务零写）`);
     return summary;
   }
 }
-
-/** 便利类型（GC 引用图复用 MediaRef——doc 扫描出口）。 */
-export type { MediaRef };

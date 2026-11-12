@@ -8,7 +8,9 @@ import { Counter, register } from 'prom-client';
  *  outcome=upserted（current-state upsert 命中——含同槽位换 media 改行）/deleted（stale 清扫——
  *  doc 无引用的槽位行删除）/cross-team-rejected（Media.teamId≠project.teamId 拒+不建行——
  *  恶意/跨队 paste 面单端可见）/missing-media（doc 引用行已灭失的 mediaId 拒建——FK 防线）/
- *  scan-failed（doc 读失败〔lease/vacuum 503 等〕——本轮跳过，下轮触发重扫）。 */
+ *  scan-failed（doc 读失败〔lease/vacuum 503 等〕——本轮跳过，下轮触发重扫）。
+ *  **C3a-8 退役注记**：reconcile 已只读漂移检测化（零 MediaBinding 写）——本计数在应用内**零
+ *  producer**（保留登记=dashboard/历史序列连续性；漂移观测面=media_binding_drift_total）。 */
 export const mediaBindingReconcileOutcomeTotal = new Counter({
   name: 'media_binding_reconcile_outcome_total',
   help: 'Y1b T16：MediaBinding current-state reconcile 逐动作计数（outcome=upserted/deleted/cross-team-rejected/missing-media/scan-failed——spec 裁决③ 惰性 reconcile 观测面）',

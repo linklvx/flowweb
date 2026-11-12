@@ -535,6 +535,14 @@ export class CollabPersistenceService {
     this.lifecycleObserverFace = face ?? null;
   }
 
+  /** C3a-8（spec §3.2-3 恢复四路 replay 腿）：binding 恢复面注入（gateway 经 setter 传
+   *  ProjectionBackfillRunner——markDirty 前置独立 PG 写/enqueue 回灌后入队 rebuild）。未注入
+   *  （直构/测试）=null：reconciler 回灌不带 binding 恢复钩（boot 路径独立接线不受影响）。 */
+  private bindingRecoveryFace: { markDirty(projectId: string): Promise<void>; enqueue(projectId: string): void } | null = null;
+  setBindingRecoveryFace(face: { markDirty(projectId: string): Promise<void>; enqueue(projectId: string): void } | null | undefined): void {
+    this.bindingRecoveryFace = face ?? null;
+  }
+
   /** 维护通道统一出口：sink 接线（gateway 生产形态）=actor.submitMaintenance 单写者串行段；未接线
    *  （直构/actor 缺席面）=内置回退——spool.appendTracked（WAL fsync+walSeq）→repo.appendBatch 单帧行
    *  →confirm（与 actor 同序同语义；仅存在于 sink 缺席时，不与 actor 并存=无第二写者面）。 */
@@ -924,12 +932,18 @@ export class CollabPersistenceService {
     // Y1c T27 收尾 I-3'（Controller 裁定 (a) 接线）：face 两面齐备时 derive+persist 随载——回灌帙
     // 重派生 lifecycle/义务/fence（恢复链终态=与首次 apply 等价——doc-lag 窗缺档根修；缺面=stale-only）。
     const face = this.lifecycleObserverFace;
+    const bindingFace = this.bindingRecoveryFace;
     await this.spool.replayAll(this.repo, {
       ...(byProject.length ? { projectIds: byProject } : {}),
       ...(face ? { lifecycleObserver: face } : {}),
       ...(face?.deriveLifecycleFramesForReplay && face?.persistFramesInTx ? {
         deriveLifecycleFrames: (pid: string, frames: ReadonlyArray<{ walSeq: bigint; payload: Uint8Array }>, memo: import('./collab-spool.service').ReplayDeriveMemo) => face.deriveLifecycleFramesForReplay!(pid, frames, memo),
         lifecyclePersist: (tx: import('@prisma/client').Prisma.TransactionClient, pid: string, frames: ReadonlyArray<{ walSeq: bigint; effects: readonly import('@flowweb/shared').FrameEffect[] }>) => face.persistFramesInTx!(tx, pid, frames),
+      } : {}),
+      // C3a-8（replay 腿）：回灌前置 dirty（防假覆盖）+落定后入队 rebuild（经 runner）
+      ...(bindingFace ? {
+        onPendingFrames: (pid: string) => bindingFace.markDirty(pid),
+        onReplayed: (pid: string) => bindingFace.enqueue(pid),
       } : {}),
     });
     if (ownPending) this.rearmQueues();   // own 段的驱动=退避梯（replayAll 不点名全量——幂等回灌无害）

@@ -1799,6 +1799,14 @@ export class CollabSpoolService {
       deriveLifecycleFrames?: (projectId: string, frames: ReadonlyArray<{ walSeq: bigint; payload: Uint8Array }>, memo: ReplayDeriveMemo) => Promise<ReplayDerivedBatch | ReadonlyArray<{ walSeq: bigint; effects: readonly import('@flowweb/shared').FrameEffect[] }> | null>;
       /** observer persist 面（与 deriveLifecycleFrames 配对消费——结构内联同 stale 面先例）。 */
       lifecyclePersist?: (tx: import('@prisma/client').Prisma.TransactionClient, projectId: string, frames: ReadonlyArray<{ walSeq: bigint; effects: readonly import('@flowweb/shared').FrameEffect[] }>) => Promise<unknown>;
+      /** **C3a-8（spec §3.2-3 恢复四路 replay 腿）**：有帧待重放的项目在**进入 appendBatch 之前**置
+       *  CanvasDoc.bindingsDirty=true（独立 PG 写——立即脏门；重放帧的媒体引用未经投影）。失败仅留痕
+       *  **不阻回灌**：catch-up 形恒不推 binding 水位，`mediaBindingSeq<pgSeq` lag 谓词+onReplayed 兜底。
+       *  接线=gateway/persistence → ProjectionBackfillRunner.markDirty。 */
+      onPendingFrames?: (projectId: string) => Promise<void> | void;
+      /** **C3a-8**：本项目回灌落定（replayed>0）后触发——接线=runner.enqueue（rebuild 收敛重放帧的
+       *  媒体引用；崩溃窗由已持久 dirty 兜底，boot/枚举续跑）。 */
+      onReplayed?: (projectId: string, replayed: number) => void;
     },
   ): Promise<{ replayed: number; failed: number; discarded: number }> {
     const deadline = Date.now() + (opts?.budgetMs ?? CollabSpoolService.REPLAY_BUDGET_MS);
@@ -1838,9 +1846,23 @@ export class CollabSpoolService {
       const staleInTx = opts?.lifecycleObserver
         ? async (tx: import('@prisma/client').Prisma.TransactionClient) => { staledThisTx = await opts!.lifecycleObserver!.staleProjectFencesInTx(tx, projectId); }
         : undefined;
+      let projectReplayed = 0;   // C3a-8：本项目落定帧数（>0 → onReplayed 入队 rebuild）
+      let dirtyEnsured = false;
       for (;;) {                                                 // X8：分轮
         const frames = (await this.peek(projectId)).slice(0, CollabSpoolService.REPLAY_MERGE_MAX_FRAMES);
         if (frames.length === 0) break;
+        // C3a-8（spec §3.2-3 replay 腿）：有帧待重放=先置 dirty（独立 PG 写，**先于 appendBatch**）——
+        // 重放帧未经 binding 投影；dirty=立即脏门（boot 判定/rebuild 选中加速）。置位失败**不阻回灌**：
+        // catch-up 形（expectedPgSeq=null）恒不推 binding 水位 ⇒ mediaBindingSeq<pgSeq 的 lag 谓词+
+        // onReplayed 入队仍是兜底面（帧落 PG 优先于脏标记强化）。
+        if (!dirtyEnsured) {
+          dirtyEnsured = true;
+          try {
+            await opts?.onPendingFrames?.(projectId);
+          } catch (e) {
+            this.logger.error(`spool replay binding-dirty 前置失败（${projectId}）——继续回灌（lag 谓词兜底）: ${(e as Error).message}`);
+          }
+        }
         const totalBytes = frames.reduce((s, f) => s + f.payload.byteLength, 0);
         if (totalBytes > CollabSpoolService.REPLAY_MERGE_MAX_BYTES) frames.length = this.truncateByBytes(frames, CollabSpoolService.REPLAY_MERGE_MAX_BYTES);
         // Y1c T27 收口 I-3+M-b：帧前缀重派生（轮内帧集，memo 基线 clone）——null/失败=保守回退
@@ -1861,6 +1883,7 @@ export class CollabSpoolService {
           await this.confirm(projectId, frames.map((f) => f.frameId));
           if (staledThisTx > 0) lifecycleFencesStaledTotal.inc(staledThisTx);
           replayed += frames.length;
+          projectReplayed += frames.length;
           roundAppended = true;
         } catch (e) {
           if (isFkGone(e)) {                                     // V6：项目已删 DB 权威证据
@@ -1885,6 +1908,7 @@ export class CollabSpoolService {
                 await this.confirm(projectId, [frame.frameId]);
                 if (staledThisTx > 0) lifecycleFencesStaledTotal.inc(staledThisTx);
                 replayed += 1;
+                projectReplayed += 1;
                 break;
               } catch (e2) {
                 if (isFkGone(e2)) { await this.confirm(projectId, [frame.frameId]); discarded += 1; yjsUpdatesDiscardedDeletedTotal.inc({ source: 'spool' }); break; }
@@ -1897,6 +1921,8 @@ export class CollabSpoolService {
         if (!roundAppended) break;
         if (Date.now() > deadline) break;
       }
+      // C3a-8：本项目帧落定→入队 rebuild（收敛重放帧的媒体引用；崩溃窗由先置 dirty 兜底）
+      if (projectReplayed > 0) opts?.onReplayed?.(projectId, projectReplayed);
     }
     return { replayed, failed, discarded };
   }

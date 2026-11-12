@@ -41,9 +41,9 @@ const ref = (nodeId: string, mediaId: string, targetField: MediaRefTargetField =
 
 const delta = (entries: Record<string, readonly MediaRef[] | null>) => new Map(Object.entries(entries));
 
-/** 单轮投影（单事务——③族「一轮事务落」口径）。 */
-async function project(prisma: PrismaClient, d: Map<string, readonly MediaRef[] | null>): Promise<void> {
-  await prisma.$transaction((tx) => projectBindings(tx, PID, FIXTURE_TEAM, d), { timeout: 5_000 });
+/** 单轮投影（单事务——③族「一轮事务落」口径）。C3a-8：返回投影统计（write/skip 指标同源）。 */
+async function project(prisma: PrismaClient, d: Map<string, readonly MediaRef[] | null>) {
+  return prisma.$transaction((tx) => projectBindings(tx, PID, FIXTURE_TEAM, d), { timeout: 5_000 });
 }
 
 /** 该项目 binding 行集（断言面：五元组槽键+mediaId）。 */
@@ -78,13 +78,15 @@ maybe('C3a-5：MediaBindingProjector 四族（真 PG）', () => {
   });
 
   // ── 族①：diff 语义（delta→SQL 效应）──
-  it('①a：upsert 槽位——新槽写行+同槽重投幂等（零 churn：行数/槽键/mediaId 不变）', async () => {
+  it('①a：upsert 槽位——新槽写行+同槽重投幂等（零 churn：行数/槽键/mediaId 不变）；统计 written=净写行数', async () => {
     await prisma.mediaBinding.deleteMany({ where: { projectId: PID, nodeId: 'a' } });
-    await project(prisma, delta({ a: [ref('a', M.fresh1)] }));
+    const s1 = await project(prisma, delta({ a: [ref('a', M.fresh1)] }));
+    expect(s1).toEqual({ written: 1, deleted: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } });
     let rs = await rowsOf(prisma);
     expect(slotKeys(rs)).toEqual([`a|primary|fileId|=>${M.fresh1}`]);
     const idBefore = rs[0].id;
-    await project(prisma, delta({ a: [ref('a', M.fresh1)] }));   // 同槽同 mediaId 重投=幂等
+    const s2 = await project(prisma, delta({ a: [ref('a', M.fresh1)] }));   // 同槽同 mediaId 重投=幂等
+    expect(s2.written).toBe(0);   // C3a-8：未变更槽零写（write_total 不虚高）
     rs = await rowsOf(prisma);
     expect(rs).toHaveLength(1);
     expect(rs[0].id).toBe(idBefore);   // 未变更槽零 churn（非 delete+reinsert）
@@ -132,7 +134,8 @@ maybe('C3a-5：MediaBindingProjector 四族（真 PG）', () => {
     expect(await prisma.mediaBinding.count({ where: { projectId: PID, nodeId: { in: ['sa', 'sz'] } } })).toBe(2);
     // 把 fresh1 软删后重投 sa 槽（doc 仍引用）→sa 槽清、sz 槽（不在本 delta）留存
     await prisma.media.update({ where: { id: M.fresh1 }, data: { deletedAt: new Date() } });
-    await project(prisma, delta({ sa: [ref('sa', M.fresh1)] }));
+    const soft = await project(prisma, delta({ sa: [ref('sa', M.fresh1)] }));
+    expect(soft.skipped['soft-deleted']).toBe(1);   // C3a-8：skip_total{soft-deleted}（DELETING 优先于软删——②a 已锁）
     expect(await prisma.mediaBinding.count({ where: { projectId: PID, nodeId: 'sa' } })).toBe(0);   // 该槽现存行清（防指向死 media 永久过度保护）
     expect(await prisma.mediaBinding.count({ where: { projectId: PID, nodeId: 'sz' } })).toBe(1);   // 只清该槽——不删该 media 其他槽
     await prisma.media.update({ where: { id: M.fresh1 }, data: { deletedAt: null } });   // 还原（后续族用）
@@ -144,10 +147,12 @@ maybe('C3a-5：MediaBindingProjector 四族（真 PG）', () => {
     await project(prisma, delta({ ma: [ref('ma', M.fresh3)], xa: [ref('xa', M.fresh3)] }));
     expect(await prisma.mediaBinding.count({ where: { projectId: PID, nodeId: { in: ['ma', 'xa'] } } })).toBe(2);
     // 重投为不存在 media/跨队 media（doc 仍引用）→两槽现存行清（skip 槽位删现存行——与②b 软删同语义）
-    await project(prisma, delta({
+    const s = await project(prisma, delta({
       ma: [ref('ma', 'c3a5-media-nonexistent-uuid')],
       xa: [ref('xa', M.cross)],
     }));
+    expect(s.skipped.missing).toBe(1);   // C3a-8：skip_total{missing}
+    expect(s.skipped['cross-team']).toBe(1);   // C3a-8：skip_total{cross-team}
     expect(await prisma.mediaBinding.count({ where: { projectId: PID, nodeId: { in: ['ma', 'xa'] } } })).toBe(0);
   });
 

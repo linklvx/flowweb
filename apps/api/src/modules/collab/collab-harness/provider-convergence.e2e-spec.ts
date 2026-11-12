@@ -67,6 +67,8 @@ import { ProjectPermissionService } from '../../team/project-permission.service'
 import { SessionService } from '../../../auth/session.service';
 import { ProjectionOutboxPoller } from '../../media-delivery/projection-outbox.poller';
 import { BindingReconcileService } from '../../media-delivery/binding-reconcile.service';
+import { BindingRebuildService } from '../binding-rebuild.service';
+import { ProjectionBackfillRunner } from '../projection-backfill.runner';
 import { memberRevokedConns } from '../store.metrics';
 import { mediaAclDenied } from '../../team/team.metrics';
 import { assertTeamMember } from '../../team/team.util';
@@ -95,6 +97,7 @@ let spoolDir: string;
 let serverPort: number;
 let poller: ProjectionOutboxPoller;
 let reconciler: BindingReconcileService;
+let backfill: ProjectionBackfillRunner;
 
 /** PG 行装载重放（重启模拟的读侧）。 */
 async function reviveFromPg(pid: string): Promise<Y.Doc> {
@@ -164,6 +167,7 @@ async function teardownProject(pid: string): Promise<void> {
   await prisma.artifactProjection.deleteMany({ where: { projectId: pid } }).catch(() => {});
   await prisma.nodeArtifact.deleteMany({ where: { projectId: pid } }).catch(() => {});
   await prisma.mediaBinding.deleteMany({ where: { projectId: pid } }).catch(() => {});
+  await prisma.projectionBackfillState.deleteMany({ where: { projectId: pid } }).catch(() => {});
   await prisma.nodeLifecycle.deleteMany({ where: { projectId: pid } }).catch(() => {});
   await prisma.deliveryFence.deleteMany({ where: { projectId: pid } }).catch(() => {});
   await prisma.runtimeEvent.deleteMany({ where: { projectId: pid } }).catch(() => {});
@@ -212,10 +216,12 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     // Y1c T22（G5 切交付）：deliverArtifact 改 PG 写——真 feed+真 lifecycle observer（fence 权威）
     docSvc = new CollabDocumentService(gateway, repo, residency,
       new RuntimeFeedService(prisma as any), new CollabLifecycleObserverService(prisma as any));
-    reconciler = new BindingReconcileService(prisma as any, docSvc);
+    reconciler = new BindingReconcileService(prisma as any, repo, (backfill = new ProjectionBackfillRunner(prisma as any, new BindingRebuildService(prisma as any, repo))));
   }, 60_000);
 
   afterAll(async () => {
+    backfill?.onApplicationShutdown();
+    reconciler?.onApplicationShutdown();
     for (const pid of residency?.residentProjectIds() ?? []) await residency.releaseSessionFor(pid).catch(() => {});
     lease?.halt();
     await lease?.release().catch(() => {});
@@ -272,7 +278,7 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     await teardownProject(PID);
   }, 30_000);
 
-  it('场景 B（投影 superseded→binding current-state 串联）：用户 replace（NodeArtifact rev 前进+doc 现值）后旧投影 superseded 不覆盖 doc 现值+binding reconcile=doc 现值 current-state（新槽位行 upsert）', async () => {
+  it('场景 B（投影 superseded→binding 只读漂移检测+rebuild 串联）：用户 replace（NodeArtifact rev 前进+doc 现值）后旧投影 superseded 不覆盖 doc 现值；reconcile 只读检出 missing 漂移（置 dirty+入队）→rebuild 收敛 doc 现值', async () => {
     const PID = `t19-e2e-bind`;
     const NODE = 'n-bind';
     await seedProject(PID);
@@ -294,8 +300,12 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     const fileId = await residency.withSession(PID, (doc) => ((doc.getMap('nodes').get(NODE) as Y.Map<any>).get('data') as Y.Map<any>).get('fileId'), { mode: 'read' });
     expect(fileId).toBe('media-user-replaced');
 
-    // binding current-state：doc 现值=期望集（upsert 新行；media 行缺席→missing-media 拒建——只验 reconcile 反映 doc 现值通道）
-    // 先造真 Media 行使 binding 可建（FK 防线）
+    // C3a-8：reconcile 只读检测经 **PG 定代前缀**（禁活 doc）——先让 replace 写落 PG（真持久链）
+    await new Promise((r) => setTimeout(r, 350));
+    gateway.server.hocuspocus.flushPendingStores();
+    await pollUntil(() => gateway.isPersistedComplete(PID), 5_000);
+    // binding 真值：先造真 Media 行（准入通过），reconcile 检出 doc 引用缺行（missing 漂移）——
+    // **本服务零 MediaBinding 写**：只置 dirty+入队 rebuild（唯一修复路径）
     const user = await prisma.user.findUnique({ where: { id: 'y0a-fixture-user' } });
     await prisma.media.create({
       data: {
@@ -305,11 +315,23 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
       },
     });
     const summary = await reconciler.reconcileProject(PID);
-    expect(summary.upserted).toBeGreaterThanOrEqual(1);
+    expect(summary.drift.missing).toBeGreaterThanOrEqual(1);   // doc 现值未被投影→漂移检出
+    expect(summary.dirtyMarked).toBe(true);                    // 置 dirty（修复归 rebuild）
+    // runner 收敛（入队→rebuild 定代重放→binding=doc 现值）
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      await backfill.drain().catch(() => 0);
+      const b = await prisma.mediaBinding.findFirst({
+        where: { projectId: PID, nodeId: NODE, role: 'primary', targetField: 'fileId', targetItemId: '' },
+      });
+      if (b) break;
+      if (Date.now() > deadline) throw new Error('backfill 未在 15s 内收敛 binding（reconcile→runner 链断）');
+      await new Promise((r) => setTimeout(r, 100));
+    }
     const binding = await prisma.mediaBinding.findFirst({
       where: { projectId: PID, nodeId: NODE, role: 'primary', targetField: 'fileId', targetItemId: '' },
     });
-    expect(binding?.mediaId).toBe('media-user-replaced');   // current-state=doc 现值（replace 后同槽位改行）
+    expect(binding?.mediaId).toBe('media-user-replaced');   // rebuild 后 binding=doc 现值（reconcile 零写）
     await prisma.media.deleteMany({ where: { projectId: PID } });
     await teardownProject(PID);
   }, 30_000);

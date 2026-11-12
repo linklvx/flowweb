@@ -81,7 +81,8 @@ import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabLifecycleObserverService, type LifecycleFrame } from './collab-lifecycle-observer.service';
 import { projectDocName, parseDocName, canvasDocName } from './doc-name.util';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
-import { projectBindings, BindingProjectionFailedError } from './media-binding-projector';   // C3a-5：inTx 闭包投影面
+import { projectBindings, BindingProjectionFailedError, type ProjectionStats } from './media-binding-projector';   // C3a-5：inTx 闭包投影面（C3a-8：ProjectionStats 返回）
+import { mediaBindingProjectionFailedTotal, recordMediaBindingProjection } from './media-binding.metrics';   // C3a-8：write/skip/projection_failed 计数（落定后）
 import { ProjectErasingError } from './project-lock';   // C4-b：fence 拒帧终态处置（FK 族同判）
 import { captureCollabException } from '../../utils/sentry-scrub';
 import { actorDrainBatchTotal, actorDrainBatchFrames, actorDedupHitTotal, actorFrameOutcomeTotal, actorPoisonFrameTotal, bindingDeltaBytes, collabQuotaFrameRejectedTotal, frameEffectsTotal, graphAnomalyTotal, inboundQueueOverLimitTotal, lifecycleObligationsCreatedTotal, lifecycleRowsCreatedTotal, projectBackpressureTotal, ss2SemaphoreTotal, yjsStorePayloadBytes, yjsStoreTotal } from './store.metrics';
@@ -1589,6 +1590,9 @@ export class CollabProjectActorService {
       // appliedQueue 连续前缀）；空合并=帧无 touched→闭包零开销直返 covered（投影跳过）。
       const batchDelta = new Map<string, readonly MediaRef[] | null>();
       for (const e of prefix) for (const [nodeId, refs] of e.bindingDelta) batchDelta.set(nodeId, refs);
+      // C3a-8（spec §3.2-7 write_total/skip_total）：投影统计经闭包回传，**落定后**才计数（回滚不计数
+      // ——M-3 同律）。
+      let projectionStats: ProjectionStats | undefined;
       const r = await this.repo.appendBatch(pid, rows, {
         expectedPgSeq: w?.pgSeq ?? 0n,
         newPgSeq: lastWalSeq,
@@ -1605,18 +1609,20 @@ export class CollabProjectActorService {
         try {
           const teamId = (await tx.canvasProject.findUnique({ where: { id: pid }, select: { teamId: true } }))?.teamId;
           if (teamId == null) throw new BindingProjectionFailedError(`CanvasProject 行缺失（${pid}）——投影面不可判队`);
-          await projectBindings(tx, pid, teamId, batchDelta);
+          projectionStats = await projectBindings(tx, pid, teamId, batchDelta);
           await tx.$executeRaw`RELEASE SAVEPOINT media_binding_projection`;
           return { bindingCovered: true };
         } catch (err) {
           // C3a-6 评审承接：投影失败原因可查（BindingProjectionFailedError 含 cause——dirty 的分诊面；
           // 与帧提交解耦：ROLLBACK/置 dirty 后仅留痕，禁 rethrow 连坐帧）
           this.host.logger.error(`binding projection failed for ${pid}（帧照常提交+置 dirty——C3a-6 rebuild 收敛）: ${(err as Error).message}`);
+          mediaBindingProjectionFailedTotal.inc({ reason: err instanceof BindingProjectionFailedError ? 'typed' : 'unexpected' });
           await tx.$executeRaw`ROLLBACK TO SAVEPOINT media_binding_projection`;
           await tx.canvasDoc.updateMany({ where: { projectId: pid }, data: { bindingsDirty: true } });
           return { bindingCovered: false };
         }
       });
+      if (r.ok && projectionStats) recordMediaBindingProjection('append', projectionStats);
       if (r.ok && st.lifecycleSeedPresence !== undefined) {
         st.lifecycleSeedPresence = undefined;   // 落定才消费（失败重试复用——seed 幂等）
         this.lifecycleObserver?.clearStaleFenceMark(pid);   // R-1②：stale 标记随重对齐落定清除

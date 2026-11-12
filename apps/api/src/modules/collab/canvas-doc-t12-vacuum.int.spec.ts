@@ -74,6 +74,9 @@ maybe('Y1c T12 vacuum 换代通道（真 PG）', () => {
     if ('aborted' in replaced) throw new Error(`vacuumReplace 意外 aborted（I1.2 判别面）: ${JSON.stringify(replaced)}`);
     const { generation } = replaced;
     expect(generation).toBe(1);
+    // C3a-8（spec §3.2-3 恢复四路 vacuum 腿）：换代内容变（pgSeq 不重置）→同事务置 dirty；
+    // 清 dirty 唯一路径=全量 rebuild（定代重放新代前缀）。
+    expect((await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID }, select: { bindingsDirty: true } })).bindingsDirty).toBe(true);
 
     // 换代通道 name 面：canonical wire 名跨代互异（generation/docName 必变——v1.3 同 name 反例死）
     expect(canvasDocName(PID, 0)).not.toBe(canvasDocName(PID, generation));

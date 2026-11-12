@@ -34,6 +34,7 @@ import { CollabDocumentService } from './collab-document.service';
 import { readCanvasDocHead } from './canvas-doc-head';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { CollabLifecycleObserverService } from './collab-lifecycle-observer.service';
+import { ProjectionBackfillRunner } from './projection-backfill.runner';   // C3a-8：import 前置 dirty+落定入队 rebuild
 import { PrismaService } from '../../prisma/prisma.service';
 
 /** Y1c T16/T24：L1 扫描 URL allowlist 单表（同 actor XML_ATTR_URL_ALLOWED_HOSTS——env 注入受控域；
@@ -125,6 +126,9 @@ export class CollabRecoveryImportService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     /** 收口 I-5：生命周期观察器（staleFence 标记→下一帧批 presence 重播种）；@Optional=直构测试。 */
     @Optional() @Inject(CollabLifecycleObserverService) private readonly lifecycle?: CollabLifecycleObserverService | null,
+    /** C3a-8（spec §3.2-3 import 腿）：apply 前置 dirty（独立 PG 事务）+落定后入队 rebuild；
+     *  @Optional=直构测试（缺省不置 dirty——生产 module 恒注入）。 */
+    @Optional() @Inject(ProjectionBackfillRunner) private readonly bindingBackfill?: ProjectionBackfillRunner | null,
   ) {}
 
   async importEnvelope(
@@ -188,7 +192,7 @@ export class CollabRecoveryImportService {
     }
     const docRow = head.status === 'found' ? { generation: head.row.generation } : null;
 
-    return this.docs.withSession(projectId, (live) => {
+    return this.docs.withSession(projectId, async (live) => {
       // ── 唯一允许 clone 的场所（§3.2）：候选=live 全量快照 clone（census ⑯：createCanvasDoc 工厂收编） ──
       const candidate = createCanvasDoc();
       Y.applyUpdate(candidate, Y.encodeStateAsUpdate(live));
@@ -279,7 +283,13 @@ export class CollabRecoveryImportService {
 
       // ── commit：origin='import' 直写 live doc（分类计数=doc_update_origin_total{origin='import'}；
       //    persistence 维护队列承接 WAL/PG——与 writeBatch 维护档同链） ──
-      if (commitDiff.byteLength > 0) Y.applyUpdate(live, commitDiff, 'import');
+      // C3a-8（spec §3.2-3 import 腿）：**先独立 PG 事务置 dirty，再 apply**——apply 在内存无同事务
+      // 载体（第六轮 P1-9）；dirty 门阻断增量 binding 水位推进=导入内容未经帧投影不得假覆盖。dirty 写
+      // 失败=整导入失败（fail-closed：禁无脏门 apply）。落定后入队 rebuild（内容变→全量重投影）。
+      if (commitDiff.byteLength > 0) {
+        await this.bindingBackfill?.markDirty(projectId);
+        Y.applyUpdate(live, commitDiff, 'import');
+      }
 
       // 收口 I-5：import 绕过 actor 帧管线（零 FrameEffects/零 NodeLifecycle 行）——同 doc 实例窗内
       // 导入节点起生成=deliveryFence unregistered fail-closed 拒。修=T26 R-1② form a 机制复用：
@@ -287,6 +297,7 @@ export class CollabRecoveryImportService {
       // 播种自愈链闭合（形态论证：直接 seedPresence=第二写者与 actor flush 的 lifecycleSeq MAX+1
       // 分配无序〔T26 M-3 选型已否决〕；标记面=机制现成同语义——重对齐按 doc presence 真值）。
       if (commitDiff.byteLength > 0 && this.lifecycle) this.lifecycle.markStaleFence(projectId);
+      if (commitDiff.byteLength > 0) this.bindingBackfill?.enqueue(projectId);   // C3a-8：消费前 rebuild 收敛
 
       return {
         edgeDispositions,

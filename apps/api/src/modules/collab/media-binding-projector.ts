@@ -41,21 +41,49 @@ type ProjectorTx = Pick<Prisma.TransactionClient, '$queryRaw' | '$executeRaw'>;
 /** 槽位行（MediaBinding @@unique 五元组的 node 侧四元——projectId/teamId 恒投影域常量）。 */
 interface SlotRow { nodeId: string; role: string; targetField: string; targetItemId: string; mediaId: string }
 
-const slotKeyOf = (s: { nodeId: string; role: string; targetField: string; targetItemId: string }): string =>
+/** C3a-8（spec §3.2-7 write_total/skip_total 面）：投影准入跳过原因（闭集——指标 label 同源）。 */
+export type BindingSkipReason = 'missing' | 'cross-team' | 'soft-deleted';
+
+/** C3a-8：投影统计返回形（调用方**事务提交成功后**计数——rollback 不计数；written=净 upsert 行数/
+ *  deleted=diff 删除行数/skipped=准入跳过槽位数）。 */
+export interface ProjectionStats {
+  written: number;
+  deleted: number;
+  skipped: Record<BindingSkipReason, number>;
+}
+
+/** 槽位键（MediaBinding @@unique 五元组单源——projector diff/rebuild stale 尾/reconcile 漂移对比同式）。 */
+export const mediaBindingSlotKey = (s: { nodeId: string; role: string; targetField: string; targetItemId: string }): string =>
   `${s.nodeId}\u0000${s.role}\u0000${s.targetField}\u0000${s.targetItemId}`;
 
-/** MediaBinding 帧级投影（单事务内调用——调用方=actor 组合闭包〔C3a-5〕/rebuild〔C3a-6〕）。 */
-export async function projectBindings(tx: ProjectorTx, projectId: string, teamId: string, batchDelta: BindingDelta): Promise<void> {
+/** C3a-8（spec §3.2-2 预检序单源）：单引用准入判定——missing（行灭失）→cross-team→soft-deleted；
+ *  DELETING 优先于软删（deletedAt≠null ∧ DELETING=照写、忽略软删）。调用方=projector 本体与只读
+ *  reconcile 漂移检测（同一准入语义——漂移检测不得比投影更严/更松）。 */
+export function admitMediaRef(
+  media: { teamId: string; deletionState: string; deletedAt: Date | null } | undefined,
+  teamId: string,
+): BindingSkipReason | 'admitted' {
+  if (!media) return 'missing';
+  if (media.teamId !== teamId) return 'cross-team';
+  if (media.deletionState !== 'DELETING' && media.deletedAt != null) return 'soft-deleted';
+  return 'admitted';
+}
+
+const emptyStats = (): ProjectionStats => ({ written: 0, deleted: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } });
+
+/** MediaBinding 帧级投影（单事务内调用——调用方=actor 组合闭包〔C3a-5〕/rebuild〔C3a-6〕）。
+ *  C3a-8：返回投影统计（调用方事务提交成功后才计数）。 */
+export async function projectBindings(tx: ProjectorTx, projectId: string, teamId: string, batchDelta: BindingDelta): Promise<ProjectionStats> {
   try {
-    await project(tx, projectId, teamId, batchDelta);
+    return await project(tx, projectId, teamId, batchDelta);
   } catch (err) {
     if (err instanceof BindingProjectionFailedError) throw err;
     throw new BindingProjectionFailedError(`binding projection failed for project ${projectId}: ${(err as Error).message}`, { cause: err });
   }
 }
 
-async function project(tx: ProjectorTx, projectId: string, teamId: string, batchDelta: BindingDelta): Promise<void> {
-  if (batchDelta.size === 0) return;   // 空 delta=帧无 touched（C3a-4 投影跳过零开销——闭包同判直返）
+async function project(tx: ProjectorTx, projectId: string, teamId: string, batchDelta: BindingDelta): Promise<ProjectionStats> {
+  if (batchDelta.size === 0) return emptyStats();   // 空 delta=帧无 touched（C3a-4 投影跳过零开销——闭包同判直返）
 
   // ① touched 节点现存行（diff 基线——NODE_DELETED/空槽位集节点无 desired 槽→现存行全删；他 node 行零波及）
   const nodeIds = [...batchDelta.keys()];
@@ -69,7 +97,7 @@ async function project(tx: ProjectorTx, projectId: string, teamId: string, batch
   for (const refs of batchDelta.values()) {
     if (refs === null) continue;   // NODE_DELETED：无 desired 槽→现存行全删（diff 自然语义）
     for (const r of refs) {
-      desired.set(slotKeyOf(r), { nodeId: r.nodeId, role: r.role, targetField: r.targetField, targetItemId: r.targetItemId, mediaId: r.mediaId });
+      desired.set(mediaBindingSlotKey(r), { nodeId: r.nodeId, role: r.role, targetField: r.targetField, targetItemId: r.targetItemId, mediaId: r.mediaId });
       mediaIds.add(r.mediaId);
     }
   }
@@ -79,19 +107,18 @@ async function project(tx: ProjectorTx, projectId: string, teamId: string, batch
 
   // ③ 预检序逐 media 行判定（顺序不可换——头注伪码）：skip 槽位不写→④ diff 清其现存行
   const writable: SlotRow[] = [];
+  const skipped: Record<BindingSkipReason, number> = { missing: 0, 'cross-team': 0, 'soft-deleted': 0 };
   for (const s of desired.values()) {
-    const media = mediaById.get(s.mediaId);
-    if (!media) continue;   // skip('missing')
-    if (media.teamId !== teamId) continue;   // skip('cross-team')
-    if (media.deletionState !== 'DELETING' && media.deletedAt != null) continue;   // skipAndClearSlot('soft-deleted')——DELETING 优先（照写忽略 deletedAt）
+    const verdict = admitMediaRef(mediaById.get(s.mediaId), teamId);
+    if (verdict !== 'admitted') { skipped[verdict] += 1; continue; }
     writable.push(s);
   }
 
   // ④ diff：未变更槽零 churn；槽位值变=ON CONFLICT 替换（旧行条件删+新行写的等值终态）；skip/撤除槽=现存行删
-  const writableKeys = new Set(writable.map(slotKeyOf));
-  const deleteIds = existing.filter((r) => !writableKeys.has(slotKeyOf(r))).map((r) => r.id);
-  const existingBySlot = new Map(existing.map((r) => [slotKeyOf(r), r]));
-  const upserts = writable.filter((s) => existingBySlot.get(slotKeyOf(s))?.mediaId !== s.mediaId);
+  const writableKeys = new Set(writable.map(mediaBindingSlotKey));
+  const deleteIds = existing.filter((r) => !writableKeys.has(mediaBindingSlotKey(r))).map((r) => r.id);
+  const existingBySlot = new Map(existing.map((r) => [mediaBindingSlotKey(r), r]));
+  const upserts = writable.filter((s) => existingBySlot.get(mediaBindingSlotKey(s))?.mediaId !== s.mediaId);
   if (deleteIds.length > 0) {
     await tx.$executeRaw`DELETE FROM "MediaBinding" WHERE id = ANY(${deleteIds}::text[])`;
   }
@@ -109,4 +136,5 @@ async function project(tx: ProjectorTx, projectId: string, teamId: string, batch
       ) AS u(id, "mediaId", "nodeId", role, "targetField", "targetItemId")
       ON CONFLICT ("projectId", "nodeId", role, "targetField", "targetItemId") DO UPDATE SET "mediaId" = EXCLUDED."mediaId"`;
   }
+  return { written: upserts.length, deleted: deleteIds.length, skipped };
 }

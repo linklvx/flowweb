@@ -29,7 +29,8 @@ import { CollabMediaRefsReadAdapter, MEDIA_REFS_READ_PORT } from './media-refs-r
 import { CollabRecoveryAcceptController } from './collab-recovery-accept.controller';
 import { CollabCanvasReadController } from './collab-canvas-read.controller';   // T25b 微批 C-1：用户面画布读（assertEditor 门+标准 envelope）   // T25b B5：server-restored 管理员裁定接受（OWNER/ADMIN 门）
 import { CollabMaintenanceService } from './collab-maintenance.service';   // Y1c T27：维护窗口+世代切换状态机（单换代入口——freeze 4413/行级关闸/SWITCHING 事务后 close）
-import { BindingRebuildService } from './binding-rebuild.service';   // C3a-6：MediaBinding 全量 rebuild（唯一清 dirty+推 mediaBindingSeq——装载缝 boot 判定直接调）
+import { BindingRebuildService } from './binding-rebuild.service';   // C3a-6：MediaBinding 全量 rebuild（唯一清 dirty+推 mediaBindingSeq——C3a-8 经 BackfillRunner 队列消费）
+import { ProjectionBackfillRunner } from './projection-backfill.runner';   // C3a-8：恢复四路统一入队+全表分页回填（boot/replay/import/vacuum/drift→rebuild；持久 ProjectionBackfillState 行）
 import { CollabMaintenanceController } from './collab-maintenance.controller';   // Y1c T27：REST 控制面（admin guard+幂等键）
 import { CollabShrinkService } from './collab-shrink.service';
 import { CollabCompactPoller } from './collab-compact.poller';   // Y1c T12：dev role=all compact 轮询面装配（硬输入 #4）
@@ -79,6 +80,7 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
     CollabShrinkService,   // Y0b-4 T8：REST shrink（Q-G 影子预演/TOCTOU 同步段/信号量/thaw）
     CollabMaintenanceService,   // Y1c T27：维护状态机（vacuum 委托单换代入口+REST 控制面载体——gateway 尾参/shrink @Optional 双消费）
     BindingRebuildService,   // C3a-6：binding 全量 rebuild（gateway 尾参注入——单例与 gateway 同 prisma/repo 实例面）
+    ProjectionBackfillRunner,   // C3a-8：backfill runner（恢复四路入队+首次启动全表分页枚举；媒体域 reconcile 注入触发 rebuild）
     CollabMediaRefsReadAdapter,   // C3a-7：BindMedia doc 源节点兜底端口适配（读活 doc——命令面即时校验允许）
     { provide: MEDIA_REFS_READ_PORT, useExisting: CollabMediaRefsReadAdapter },   // C3a-7：端口令牌→适配器（测试 useValue 注入 mock）
     TelemetryService,   // Y0b-5 T1：sendBeacon 遥测批次 ingest（一律 204——计数族在 store.metrics）
@@ -114,6 +116,6 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
   // .currentEpoch；模块外消费面唯一=ProjectionOutboxPoller）。
   // T25b 四读径①：exports += RuntimeFeedService（video-work 公开快照 projection join 读面——
   // snapshotEnvelope 已提交态折叠；偏离 21 直注登记族追加同款）。
-  exports: [CollabDocumentService, CollabWritePort, CollabResidencyService, CollabLeaseService, CanvasDocUpdateRepository, RuntimeFeedService],   // Y1c T32：CollabDocWriterService 导出随 writeBatch 门面退役删除（维护域走纯函数 applyWriteOpsToDoc 直调）   // Y0c T8：消费面逐步扩（T12 收编 shrink/intent-reconcile）；Y0c T15：residency 面导出（T16/T17 reaper/释放入口消费）；Y1c T21：+CanvasDocUpdateRepository（ExecutionRequestService PG 前缀重建档——受理冻结读面）
+  exports: [CollabDocumentService, CollabWritePort, CollabResidencyService, CollabLeaseService, CanvasDocUpdateRepository, RuntimeFeedService, ProjectionBackfillRunner],   // C3a-8：ProjectionBackfillRunner 导出（media-delivery reconcile 漂移→入队 rebuild；DI 环检查=CollabModule 不 import MediaDeliveryModule）   // Y1c T32：CollabDocWriterService 导出随 writeBatch 门面退役删除（维护域走纯函数 applyWriteOpsToDoc 直调）   // Y0c T8：消费面逐步扩（T12 收编 shrink/intent-reconcile）；Y0c T15：residency 面导出（T16/T17 reaper/释放入口消费）；Y1c T21：+CanvasDocUpdateRepository（ExecutionRequestService PG 前缀重建档——受理冻结读面）
 })
 export class CollabModule {}

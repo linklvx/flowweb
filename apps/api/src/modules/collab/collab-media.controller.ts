@@ -3,9 +3,8 @@
 // 0 行=superseded → 409 ARTIFACT_REV_CONFLICT；服务端特权写收敛为 deliverArtifact/replaceMedia/
 // clearMedia 三 op）。成功=NodeArtifact CAS（rev+1、source='replace'）+新 ArtifactProjection pending
 // （[artifactId,artifactRev]）+旧非终态投影 superseded（C3a-7：零 MediaBinding 写——bindInTx 退役，
-// 目标槽 binding 由客户端 doc 帧→appendBatch 帧级投影出现）；
-// 随后 doc 过渡期直写（T15 投影 poller 未建前用 T10 同款 writeBatch 保交付；投影行照插——poller
-// 上线后内容等值 fast path 收敛）。
+// 目标槽 binding 由客户端 doc 帧→appendBatch 帧级投影出现）；doc 内容收敛=投影 poller
+// （ArtifactProjection→poller fast path，异步）——T15 收口起本命令零 doc 直写。
 // 端点面：GET /api/projects/:id/collab/nodes/:nodeId/media=槽位状态 {targetField,rev,mediaId}
 // （客户端初始 expectedRev 来源——doc 不携带 rev，权威在 PG〔v14 裁决① fileIdRev 删除〕）；
 // POST 同路径=命令 {action:'replace',mediaId,expectedRev} | {action:'clear',expectedRev}。

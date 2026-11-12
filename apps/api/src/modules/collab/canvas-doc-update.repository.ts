@@ -20,6 +20,7 @@ import {
   yjsSnapshotReadTotal,
   yjsStoreCompactFailureTotal,
 } from './store.metrics';
+import { observeMediaBindingGap, mediaBindingWatermarkLag } from './media-binding.metrics';   // C3a-8：gap_seq/watermark_lag 观测点
 
 /** T18（Y1b T2）：一致读行形状（readConsistent 单源——装载/快照两出口共用）。
  *  Y1c T11（快照权威切换）：state/stateSeq 改源自 CanvasDocSnapshot（按 CanvasDoc.currentSnapshotRev
@@ -289,7 +290,7 @@ export class CanvasDocUpdateRepository {
         // inTx（含 SAVEPOINT 段）仍在 ① 前，①② 在 inTx 返回后按结果执行。
         let bindingCovered = false;
         if (inTx) bindingCovered = (await inTx(tx))?.bindingCovered === true;
-        if (!wm) return { inserted: n, watermark: 'skipped' as const, covered: bindingCovered };
+        if (!wm) return { inserted: n, watermark: 'skipped' as const, covered: bindingCovered, mediaSeqAfter: null, gapNewPg: null };
         // —— 水位推进（与行插入同事务——崩溃恢复=从 pgSeq 重放 WAL，不依赖进程内状态）——
         // C1（T10 收口）：两条 UPDATE 的 WHERE 各带 lease fence（与 INSERT fence 同 owner 语义）——
         // 否则「全 fenced」facet（租约丢失窗 CAS expected 恰匹配）INSERT 0 行而 CAS 照常推 pgSeq
@@ -297,27 +298,43 @@ export class CanvasDocUpdateRepository {
         const newPg = wm.newPgSeq;
         const wc = wm.walCheckpointSeq > newPg ? wm.walCheckpointSeq : newPg;   // CHECK pgSeq≤walCheckpointSeq 守恒
         const updated = wm.expectedPgSeq != null
-          ? await tx.$queryRaw<{ pgSeq: bigint }[]>`
+          ? await tx.$queryRaw<{ pgSeq: bigint; mediaBindingSeq: bigint }[]>`
               UPDATE "CanvasDoc" SET "walCheckpointSeq" = ${wc}::bigint, "pgSeq" = ${newPg}::bigint
               WHERE "projectId" = ${projectId}::text AND generation = ${rows[0].generation}::int AND "pgSeq" = ${wm.expectedPgSeq}::bigint
                 AND EXISTS (SELECT 1 FROM "CollabLease" WHERE scope = 'primary' AND owner = ${owner})
-              RETURNING "pgSeq"`
-          : await tx.$queryRaw<{ pgSeq: bigint }[]>`
+              RETURNING "pgSeq", "mediaBindingSeq"`
+          : await tx.$queryRaw<{ pgSeq: bigint; mediaBindingSeq: bigint }[]>`
               UPDATE "CanvasDoc" SET "walCheckpointSeq" = GREATEST("walCheckpointSeq", ${wc}::bigint), "pgSeq" = ${newPg}::bigint
               WHERE "projectId" = ${projectId}::text AND "pgSeq" < ${newPg}::bigint
                 AND EXISTS (SELECT 1 FROM "CollabLease" WHERE scope = 'primary' AND owner = ${owner})
-              RETURNING "pgSeq"`;
+              RETURNING "pgSeq", "mediaBindingSeq"`;
         // —— C3a-4 ② binding 水位（第六轮 P0-1 两 UPDATE 解耦/第七轮 P0-4）：帧/binding 水位拆两条
         //    UPDATE——binding CAS 失败不卡 pgSeq（① 永远推进，与 binding 无关）。仅 ① 落定（rowCount=1）
         //    ∧ CAS 形态（catch-up 形无 expectedContiguous——replayAll 恒不覆盖）∧ bindingCovered（应用侧
         //    门：false 直接不发 SQL）时执行；四 WHERE 门与无 lease fence 论证见 advanceBindingWatermark。 ——
-        if (updated.length > 0 && bindingCovered && wm.expectedPgSeq != null) {
-          await this.advanceBindingWatermark(tx, projectId, wm.expectedPgSeq, newPg);
+        const bindingAdvanced = updated.length > 0 && bindingCovered && wm.expectedPgSeq != null;
+        if (bindingAdvanced) {
+          await this.advanceBindingWatermark(tx, projectId, wm.expectedPgSeq!, newPg);
         }
-        return { inserted: n, watermark: updated.length > 0 ? 'advanced' as const : (wm.expectedPgSeq != null ? 'cas-miss' as const : 'noop' as const), covered: bindingCovered };
+        // C3a-8（spec §3.2-7 gap_seq/watermark_lag 观测）：① RETURNING 实读 mediaBindingSeq；② 落定
+        // 时该值已被推至 newPg（覆盖连续——lag=0）。首现 gap=实时帧批（CAS 形态）投影未覆盖且帧水位
+        // 推进——仅 gauge=0 时写（首现语义；rebuild 清 dirty 归 0）。
+        const mediaSeqAfter = bindingAdvanced ? newPg : (updated[0]?.mediaBindingSeq ?? null);
+        return {
+          inserted: n,
+          watermark: updated.length > 0 ? 'advanced' as const : (wm.expectedPgSeq != null ? 'cas-miss' as const : 'noop' as const),
+          covered: bindingCovered,
+          mediaSeqAfter,
+          gapNewPg: updated.length > 0 && wm.expectedPgSeq != null && !bindingCovered ? newPg : null,
+        };
       },
       { timeout: 5_000, maxWait: 1_000 },
     );
+    // C3a-8：观测点——仅 ① 落定（watermark=advanced）后有实读水位可报；lag=pgSeq−mediaBindingSeq。
+    if (watermarkLanded.watermark === 'advanced' && watermarkLanded.mediaSeqAfter != null) {
+      mediaBindingWatermarkLag.set(Number(wm!.newPgSeq - watermarkLanded.mediaSeqAfter));
+      if (watermarkLanded.gapNewPg != null) observeMediaBindingGap(watermarkLanded.gapNewPg);
+    }
     if (watermarkLanded.watermark === 'cas-miss') {
       // CAS 0 行两分：pgSeq 已 ≥ newPgSeq（回灌/reconciler 并发先收敛——行 updateHash 幂等已覆盖）=ok；
       // 行缺失=懒建档（旧链 compact create 同语义——首 CAS 建行）；其余=真 fenced（二次查区分同旧契约）。
@@ -749,8 +766,10 @@ export class CanvasDocUpdateRepository {
         });
         await tx.canvasDoc.upsert({
           where: { projectId },
-          update: { generation, vacuumEpoch, currentSnapshotRev: 0n, purgeBelowSeq: null },
-          create: { projectId, generation, vacuumEpoch },
+          // C3a-8（spec §3.2-3 恢复四路 vacuum 腿）：换代内容变（pgSeq 不重置）——同事务置 dirty，
+          // 任何增量投影成功不得推 binding 水位；清 dirty 唯一路径=全量 rebuild（定代重放）。
+          update: { generation, vacuumEpoch, currentSnapshotRev: 0n, purgeBelowSeq: null, bindingsDirty: true },
+          create: { projectId, generation, vacuumEpoch, bindingsDirty: true },
         });
         // 锁内实读=该项目全部增量行（append-only+compact 排队）——按 projectId 整删（行集=被删集等价）
         await tx.canvasDocUpdate.deleteMany({ where: { projectId } });

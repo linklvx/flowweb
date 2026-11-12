@@ -61,6 +61,7 @@ import { CanvasDocUpdateRepository, type HydrationRow } from './canvas-doc-updat
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
 import { RuntimeFeedService } from './runtime-feed.service';
+import { ProjectionBackfillRunner } from './projection-backfill.runner';   // C3a-8：vacuum 换代后 binding 回填入队
 import { createCanvasDoc } from './canvas-doc.factory';
 import { readCanvasDocHead } from './canvas-doc-head';   // 契约 1 豁免读面（缺头三态——CanvasDoc 头行读不绕 repository 装载单源）
 import { toDocLike } from './doc-like.util';
@@ -149,6 +150,9 @@ export class CollabMaintenanceService {
     @Optional() @Inject(CollabProjectActorService) private readonly actor?: CollabProjectActorService | null,
     @Optional() @Inject(CollabSpoolService) private readonly spool?: CollabSpoolService | null,
     @Optional() @Inject(RuntimeFeedService) private readonly feed?: RuntimeFeedService | null,
+    /** C3a-8（spec §3.2-3 vacuum 腿）：换代后 binding 回填入队（Dirty 已随 vacuumReplace 同事务置位；
+     *  入队=即时收敛；未注入（直构/测试）=null 无队列，候选由 runner 周期枚举兜底）。 */
+    @Optional() @Inject(ProjectionBackfillRunner) private readonly bindingBackfill?: ProjectionBackfillRunner | null,
   ) {}
 
   bindHost(host: CollabMaintenanceHost): void { this.host = host; }
@@ -453,6 +457,9 @@ export class CollabMaintenanceService {
     });
     await this.host?.releaseResidentDoc(pid).catch(() => {});
     this.snapshotInvalidator?.(pid);
+    // C3a-8（spec §3.2-3 vacuum 腿）：换代内容变（pgSeq 不重置，dirty 已随 vacuumReplace 同事务置位）
+    // ——入队 rebuild（定代重放新代前缀）；崩溃窗由持久 dirty+runner 全表枚举兜底。
+    this.bindingBackfill?.enqueue(pid);
   }
 
   /** VERIFYING 段动作：PG 重载新代→records hash 对比 EXPORTING 基准（audit 行）。 */
