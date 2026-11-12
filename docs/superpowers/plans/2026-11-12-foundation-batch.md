@@ -214,7 +214,7 @@ return writeBinding();
 
 ### Task C1-3：时间代码全量
 
-同 v1（补偿谓词/::timestamp/脚本三件/deploy-guard 翻转+改名/测试锚全量）；验收=`grep AT TIME ZONE 'utc'` 零命中+`grep ::timestamp` 零命中+**完整 `pnpm --filter @flowweb/api test:int` 套件绿**（C1-1 质量评审 Important：tsz 切面后时间语义确定性红面 ≥16 例——`projection-outbox.poller.int.spec` 14 例〔`projection-outbox.poller.ts:207-209`〕+`materialize.int`/`t23-resource-recovery.int` 等；同模式面 `media-probe.poller.ts`/`project-erasure.poller.ts`/`object-manifest.service.ts`/`intent-reconcile.service.ts` 须穷举清零；**`verify full` 不含 int 池，不得以其绿替代**）+`pnpm verify` full+Commit。
+同 v1（补偿谓词/::timestamp/脚本三件/deploy-guard 翻转+改名/测试锚全量）；验收=`grep AT TIME ZONE 'utc'` 零命中+`grep -P '::timestamp(?!z)'` 零命中（**`::timestamptz` 是目标形态不是违规**——字面 grep `::timestamp` 会误命中其子串，C1-4 raw SQL 门须按 cast 解析分类）+**完整 `pnpm --filter @flowweb/api test:int` 套件绿**（C1-1 质量评审 Important：tsz 切面后时间语义确定性红面 ≥16 例——`projection-outbox.poller.int.spec` 14 例〔`projection-outbox.poller.ts:207-209`〕+`materialize.int`/`t23-resource-recovery.int` 等；同模式面 `media-probe.poller.ts`/`project-erasure.poller.ts`/`object-manifest.service.ts`/`intent-reconcile.service.ts` 须穷举清零；**`verify full` 不含 int 池，不得以其绿替代**）+`pnpm verify` full+Commit。
 
 ### Task C1-4：三门禁+双时区
 
