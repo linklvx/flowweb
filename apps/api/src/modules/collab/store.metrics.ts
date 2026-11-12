@@ -1257,6 +1257,15 @@ export const frameEffectsTotal = new Counter({
   registers: [register],
 });
 
+/** C3a-3（spec §3.2-1/§3.2-7）：帧级 bindingDelta 序列化字节直方图——applied 队列预算同口径
+ *  （payload+delta 计入 Q-I2 appliedBytes）；帧无 touched=空 delta 零观测（C3a-4 投影跳过零开销）。 */
+export const bindingDeltaBytes = new Histogram({
+  name: 'binding_delta_bytes',
+  help: '帧级 bindingDelta（touched 节点 collectMediaRefsForNode 终态快照——NODE_DELETED=null 槽位全删）序列化字节分布（计入 applied 队列预算；帧无 touched 不观测）',
+  buckets: [128, 512, 2_048, 8_192, 32_768, 131_072, 524_288],
+  registers: [register],
+});
+
 /** T14（plan v11.2 片 S4——Z18''④/:30 四分叉裁定④）：flushDocument 交付判定出口计数（五分支
  *  闭集——T15 投影 poller 落地前的观测面；retry-spooled 持续增长=G58「spooled 无限重试+告警」
  *  的告警载体——PG 长停机值班信号，非失败计数）。 */

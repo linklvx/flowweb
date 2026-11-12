@@ -62,12 +62,14 @@ import {
 import {
   maskGraphAnomalies,
   MEDIA_REF_TARGET_FIELDS,
+  collectMediaRefsForNode,
   isFrameNodeTypeName,
   validateActorRanges,
   validateXmlL1,
   validateFrameDeny,
   validateAppliedL2,
   type FrameEffect,
+  type MediaRef,
   type ProjectDocIndex,
   type GateApplyOrigin,
   type ActorRange,
@@ -81,7 +83,7 @@ import { projectDocName, parseDocName, canvasDocName } from './doc-name.util';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { ProjectErasingError } from './project-lock';   // C4-b：fence 拒帧终态处置（FK 族同判）
 import { captureCollabException } from '../../utils/sentry-scrub';
-import { actorDrainBatchTotal, actorDrainBatchFrames, actorDedupHitTotal, actorFrameOutcomeTotal, actorPoisonFrameTotal, collabQuotaFrameRejectedTotal, frameEffectsTotal, graphAnomalyTotal, inboundQueueOverLimitTotal, lifecycleObligationsCreatedTotal, lifecycleRowsCreatedTotal, projectBackpressureTotal, ss2SemaphoreTotal, yjsStorePayloadBytes, yjsStoreTotal } from './store.metrics';
+import { actorDrainBatchTotal, actorDrainBatchFrames, actorDedupHitTotal, actorFrameOutcomeTotal, actorPoisonFrameTotal, bindingDeltaBytes, collabQuotaFrameRejectedTotal, frameEffectsTotal, graphAnomalyTotal, inboundQueueOverLimitTotal, lifecycleObligationsCreatedTotal, lifecycleRowsCreatedTotal, projectBackpressureTotal, ss2SemaphoreTotal, yjsStorePayloadBytes, yjsStoreTotal } from './store.metrics';
 import type { CollabConnection } from './collab.gateway';
 
 /** 帧受理结果（resolve 形态——ACK 档位前置面：walSeq=帧序号；noop=true=零 WAL 零 apply 放行
@@ -158,8 +160,14 @@ const mediaIdListOf = (v: unknown): string[] => {
   return [];
 };
 
+/** C3a-3（spec §3.2-1）：帧级 binding 快照——touched nodeId→槽位集（MediaRef 五元组含 role，
+ *  collectMediaRefsForNode 单源终态）；**null=NODE_DELETED**（帧边界 doc 已无该 node——全删其
+ *  全部槽位，与空槽位集〔node 在册零引用〕语义分立，C3a-5 投影器 diff 消费）。空 Map=帧无
+ *  touched（C3a-4 投影跳过零开销）。 */
+export type BindingDelta = ReadonlyMap<string, readonly MediaRef[] | null>;
+
 /** per-doc 收集器（WeakMap 键控——doc 消亡即失联；事件签名结构性窄化，零 @hocuspocus import）。 */
-class FrameEffectsCollector {
+export class FrameEffectsCollector {
   private buffer: FrameEffect[] = [];
   private walSeq: bigint = 0n;
   private frameDeleted = new Set<string>();
@@ -167,6 +175,10 @@ class FrameEffectsCollector {
   private eventBuffer: unknown[] = [];   // YEvent 结构性透传（takeEvents 出口窄化——shared validateAppliedL2 签名）
   private installed = new WeakSet<Y.Doc>();
   private nodeIds = new WeakMap<object, string>();   // typeIdToNodeId：node Y.Map 实例→nodeId
+  /** C3a-3：帧作用域 touched 保守集（begin 清空/takeBindingDelta 取走——spec §3.2-1 修剪规则：
+   *  root nodes add/delete/update、任何 path[0]=nodeId（nodes 域在册）事件全标；仅 position 域
+   *  跳过。YArrayEvent（changes.keys 恒空 Map——effects 词表零产出=根缺口）由本面承接。） */
+  private touched = new Set<string>();
 
   /** apply 前清空（失败/pending 丢弃不残留——契约 collector 语义）。 */
   begin(walSeq: bigint): void {
@@ -174,6 +186,7 @@ class FrameEffectsCollector {
     this.walSeq = walSeq;
     this.frameDeleted = new Set();
     this.eventBuffer = [];
+    this.touched = new Set();
   }
 
   /** apply 后取走（T24/T26 消费 buffer 的取走面）。 */
@@ -187,6 +200,19 @@ class FrameEffectsCollector {
   takeEvents(): Array<Y.YEvent<never>> {
     const out = this.eventBuffer as unknown as Array<Y.YEvent<never>>;
     this.eventBuffer = [];
+    return out;
+  }
+
+  /** C3a-3（spec §3.2-1）：帧边界 binding 快照取走（apply 后**终态 doc** 上算——帧内最后一刻
+   *  状态权威，非逐事件增量）；touched 保守集 × collectMediaRefsForNode 单源（候选无关全词表扫）
+   *  ——node 已不在 doc=null（NODE_DELETED，root delete/净删帧形态）。取走即清（帧作用域）。 */
+  takeBindingDelta(doc: Y.Doc): BindingDelta {
+    const nodes = doc.getMap('nodes');
+    const out = new Map<string, readonly MediaRef[] | null>();
+    for (const nodeId of this.touched) {
+      out.set(nodeId, nodes.has(nodeId) ? collectMediaRefsForNode(nodeId, nodes.get(nodeId)) : null);
+    }
+    this.touched = new Set();
     return out;
   }
 
@@ -207,6 +233,7 @@ class FrameEffectsCollector {
         if (path.length === 0) {
           // nodes 根：keysAdded→NODE_CREATED/RESTORED；keysDeleted→NODE_DELETED
           for (const [key, ch] of ev.changes.keys) {
+            this.touched.add(key);   // C3a-3：root add/delete/update 全标 touched（spec §3.2-1 保守——update 分支零 effect=根缺口由 touched 承接）
             if (ch.action === 'add') {
               const val = target?.get?.(key);
               const type = val && typeof val === 'object' ? (val as { get?: (k: string) => unknown }).get?.('type') : undefined;
@@ -237,6 +264,14 @@ class FrameEffectsCollector {
           }
         } else {
           const nodeId = String(path[0]);
+          // C3a-3：touched 保守收集（spec §3.2-1——effects 词表外独立面）：path[0]=nodeId 且 nodes
+          // 在册全标（YArrayEvent 形态 changes.keys 恒空 Map——数组 splice 零 effect 产出=根缺口由
+          // 本面承接）；仅 position 域跳过（path[1]='position' 子树 / node 级变更键集 ⊆{position}——
+          // position 不在 data 域 binding 零效应不误触）。meta/exec 顶层域不经本 observer。
+          const positionOnly = path.length === 1
+            ? [...ev.changes.keys.keys()].every((k) => k === 'position')
+            : path[1] === 'position';
+          if (nodes.has(nodeId) && !positionOnly) this.touched.add(nodeId);
           // 节点级/子 map 级：变更键 k=字段（path 尾名=子 map 身份〔data/position〕非字段——媒体字段
           // 判定恒用 k）；媒体引用字段→MEDIA_REF_*；其余→FIELD_CHANGED（逐键粒度）
           for (const [k, ch] of ev.changes.keys) {
@@ -425,11 +460,31 @@ interface AppliedEntry {
   actor: { userId: string; actorKind: CanvasActorKind };
   kind: QueueItem['kind'];
   effects: FrameEffect[];       // T26 义务 buffer 承载（per-walSeq——帧↔义务同事务）
+  /** C3a-3（spec §3.2-1）：帧级 binding 快照（touched→collectMediaRefsForNode 终态；null=
+   *  NODE_DELETED 全删该 node 槽位；空 Map=帧无 touched——C3a-4 投影跳过零开销）。 */
+  bindingDelta: BindingDelta;
+  /** delta 序列化字节（applied 队列预算口径——Q-I2 appliedBytes 计入；binding_delta_bytes 直方图同值单点 observe）。 */
+  bindingDeltaBytes: number;
   /** 维护帧落定回调（resolve 延后至 PG 落定——null=connection 帧〔fsync+apply 即 resolved〕）。 */
   onLanded: (() => void) | null;
   onFailed: ((flags: Record<string, unknown>) => void) | null;
   hashHex: string;              // 失败面 clearDedup 用（connection 帧已 settle——仅维护帧消费）
 }
+
+/** C3a-3：空 delta 单例（维护帧/无 touched 帧——零分配共享，只读形态安全）。 */
+const EMPTY_BINDING_DELTA: BindingDelta = new Map();
+/** C3a-3：bindingDelta 序列化字节（applied 队列预算+binding_delta_bytes 直方图同口径——确定性
+ *  序列化：nodeId 升序+槽位五元组定形；NODE_DELETED=null）。 */
+function bindingDeltaBytesOf(delta: BindingDelta): number {
+  if (delta.size === 0) return 0;
+  const payload = [...delta.keys()].sort().map((nodeId) => {
+    const refs = delta.get(nodeId) ?? null;
+    return [nodeId, refs === null ? null : refs.map((r) => [r.nodeId, r.mediaId, r.role, r.targetField, r.targetItemId])];
+  });
+  return Buffer.byteLength(JSON.stringify(payload));
+}
+/** C3a-3：applied 队列条目字节（payload+delta——Q-I2 appliedBytes 入队/出队同口径单源）。 */
+const appliedEntryBytes = (e: AppliedEntry): number => e.payload.byteLength + e.bindingDeltaBytes;
 
 interface ProjectActorState {
   queue: QueueItem[];
@@ -1248,7 +1303,7 @@ export class CollabProjectActorService {
           // Y1c T26 三轮 F-1：own-applied 高水位随推（本实例自有帧——presence 门槛 own 腿覆盖维护通道，
           // 防 doc-writer 直写〔pre-T22〕致 pgSeq 前进恒越 cap=播种/重对齐永久禁用）
           st.appliedSeq = walSeq;
-          entries[k] = this.mkAppliedEntry(pid, item, appended[k].frameId, walSeq, []);
+          entries[k] = this.mkAppliedEntry(pid, item, appended[k].frameId, walSeq, [], EMPTY_BINDING_DELTA);
           continue;
         }
         collector.begin(walSeq);
@@ -1354,7 +1409,7 @@ export class CollabProjectActorService {
           this.resolveItem(item, { walSeq, noop: true });
           continue;
         }
-        entries[k] = this.mkAppliedEntry(pid, item, appended[k].frameId, walSeq, effects);
+        entries[k] = this.mkAppliedEntry(pid, item, appended[k].frameId, walSeq, effects, collector.takeBindingDelta(document));
         actorFrameOutcomeTotal.inc({ outcome: 'applied' });
         this.resolveItem(item, { walSeq });   // 逐帧 resolve（beforeSync await——ACK 时帧必已 fsync+apply）
       }
@@ -1368,8 +1423,11 @@ export class CollabProjectActorService {
     void this.flushApplied(pid).catch(() => {});
   }
 
-  /** Y1c T10：applied 条目构造（维护帧 resolve/reject 延后至 flush 落定/失败——connection 帧已 settle）。 */
-  private mkAppliedEntry(pid: string, item: QueueItem, frameId: string, walSeq: bigint, effects: FrameEffect[]): AppliedEntry {
+  /** Y1c T10：applied 条目构造（维护帧 resolve/reject 延后至 flush 落定/失败——connection 帧已 settle）。
+   *  C3a-3：bindingDelta 入条目+序列化字节单点 observe（binding_delta_bytes 直方图——空 delta 零观测）。 */
+  private mkAppliedEntry(pid: string, item: QueueItem, frameId: string, walSeq: bigint, effects: FrameEffect[], bindingDelta: BindingDelta): AppliedEntry {
+    const deltaBytes = bindingDeltaBytesOf(bindingDelta);
+    if (deltaBytes > 0) bindingDeltaBytes.observe(deltaBytes);
     return {
       walSeq,
       frameId,
@@ -1378,6 +1436,8 @@ export class CollabProjectActorService {
       actor: item.actor,
       kind: item.kind,
       effects,
+      bindingDelta,
+      bindingDeltaBytes: deltaBytes,
       onLanded: item.kind === 'maintenance' ? () => { actorFrameOutcomeTotal.inc({ outcome: 'applied' }); this.resolveItem(item, { walSeq }); } : null,
       onFailed: item.kind === 'maintenance'
         ? (flags: Record<string, unknown>) => {
@@ -1393,7 +1453,7 @@ export class CollabProjectActorService {
 
   /** 便捷面（detached 路径——维护条目直推）。 */
   private pushApplied(pid: string, item: QueueItem, frameId: string, walSeq: bigint, effects: FrameEffect[]): void {
-    this.pushAppliedEntry(pid, this.mkAppliedEntry(pid, item, frameId, walSeq, effects));
+    this.pushAppliedEntry(pid, this.mkAppliedEntry(pid, item, frameId, walSeq, effects, EMPTY_BINDING_DELTA));
   }
 
   /** applied 队列入队单点（**walSeq 严格递增守卫**——G2 ①零重复）：维护通道重发已 applied 帧
@@ -1407,7 +1467,7 @@ export class CollabProjectActorService {
     const tail = st.appliedQueue[st.appliedQueue.length - 1];
     if (tail == null || entry.walSeq > tail.walSeq) {
       st.appliedQueue.push(entry);
-      st.appliedBytes += entry.payload.byteLength;   // Q-I2：字节运行和单点（submit 背压判界）
+      st.appliedBytes += appliedEntryBytes(entry);   // Q-I2：字节运行和单点（submit 背压判界；C3a-3 含 delta 字节）
       return;
     }
     const pg = this.spool.watermark(pid)?.pgSeq ?? 0n;
@@ -1601,7 +1661,7 @@ export class CollabProjectActorService {
             // C4-b：ProjectErasingError 同判（fence 拒帧=擦除域终态——弃置不重试；连接关闭归
             // gateway project.gone/sweep 复验面，actor 不跨域）。
             st.appliedQueue.splice(0, n);
-            st.appliedBytes -= prefix.reduce((s, e) => s + e.payload.byteLength, 0);   // Q-I2：出队单点同步
+            st.appliedBytes -= prefix.reduce((s, e) => s + appliedEntryBytes(e), 0);   // Q-I2：出队单点同步（C3a-3 含 delta 字节——与入队同口径）
             for (const e of prefix) e.onFailed?.({ pgPending: true, fk: true });
             actorDrainBatchTotal.inc({ result: err instanceof ProjectErasingError ? 'pg-erasing' : 'pg-fk' });
             this.host.logger.warn(`actor PG flush ${err instanceof ProjectErasingError ? 'ERASING' : 'FK'} for ${pid}——applied 条目弃置（项目${err instanceof ProjectErasingError ? '擦除中' : '已删'}），维护帧终态拒绝`);
@@ -1619,7 +1679,7 @@ export class CollabProjectActorService {
         }
         // 落定：新家=PG（CAS 同事务）——splice+confirm+维护帧 resolve（Q-M5：resolve 延后至此）
         st.appliedQueue.splice(0, n);
-        st.appliedBytes -= prefix.reduce((s, e) => s + e.payload.byteLength, 0);   // Q-I2：出队单点同步
+        st.appliedBytes -= prefix.reduce((s, e) => s + appliedEntryBytes(e), 0);   // Q-I2：出队单点同步（C3a-3 含 delta 字节——与入队同口径）
         await this.spool.confirm(pid, prefix.map((e) => e.frameId));
         for (const e of prefix) e.onLanded?.();
         this.landedSince.add(pid);   // disconnect flush-then-compact 判据（connection 帧不经维护队列——wrote 契约继任）

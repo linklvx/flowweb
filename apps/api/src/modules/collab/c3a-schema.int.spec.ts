@@ -14,7 +14,6 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
 import { ensureProjectFixture, cleanupProjectFixture, FIXTURE_TEAM, FIXTURE_USER } from '../../test-utils/db-fixtures';
 import { PROJECT_COLUMN_MODELS } from './scope-column.registry';
 
@@ -90,7 +89,7 @@ const MIG_DIR = join(__dirname, '../../../prisma/migrations');
     const row = await prisma.projectionBackfillState.findUniqueOrThrow({ where: { projectId: PID } });
     expect(row.state).toBe('FAILED');
     expect(row.verifiedSeq).toBe(beyondSafe);
-    expect(Math.abs(row.updatedAt.getTime() - sentAt.getTime())).toBeLessThanOrEqual(1); // tsz instant round-trip
+    expect(Math.abs(row.updatedAt.getTime() - sentAt.getTime())).toBeLessThanOrEqual(1); // 显式写读回 sanity——tz 判别钉在 C2-1 roundtrip spec（本断言无 naive/tsz 判别力）
     await expect(
       prisma.projectionBackfillState.update({ where: { projectId: PID }, data: { state: 'BOGUS' } }),
     ).rejects.toThrowError(/ProjectionBackfillState_state_check/);
