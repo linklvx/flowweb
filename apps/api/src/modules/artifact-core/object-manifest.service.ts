@@ -88,7 +88,7 @@ export class ObjectManifestService implements OnModuleInit, OnApplicationShutdow
         WHERE "state" IN ('LIVE', 'SWEEPING')
           AND (
             ("claimUntil" IS NOT NULL AND "claimUntil" < ${now}::bigint)
-            OR ("claimUntil" IS NULL AND "createdAt" < (now() AT TIME ZONE 'utc') - interval '24 hours')
+            OR ("claimUntil" IS NULL AND "createdAt" < now() - interval '24 hours')
           )
         ORDER BY "createdAt"
         LIMIT ${SWEEP_PAGE}`;
@@ -97,11 +97,11 @@ export class ObjectManifestService implements OnModuleInit, OnApplicationShutdow
       for (const c of candidates) {
         // CAS：删除时点谓词复检（claim 门+无 Media.key 引用——与候选谓词同式但于删除时点评估）
         const cas = await this.prisma.$queryRaw<Array<{ objectKey: string }>>`
-          UPDATE "ObjectManifest" SET "state" = 'SWEEPING', "updatedAt" = (now() AT TIME ZONE 'utc')
+          UPDATE "ObjectManifest" SET "state" = 'SWEEPING', "updatedAt" = now()
           WHERE "id" = ${c.id}::text AND "state" IN ('LIVE', 'SWEEPING')
             AND (
               ("claimUntil" IS NOT NULL AND "claimUntil" < ${now}::bigint)
-              OR ("claimUntil" IS NULL AND "createdAt" < (now() AT TIME ZONE 'utc') - interval '24 hours')
+              OR ("claimUntil" IS NULL AND "createdAt" < now() - interval '24 hours')
             )
             AND NOT EXISTS (SELECT 1 FROM "Media" d WHERE d."key" = "ObjectManifest"."objectKey")
           RETURNING "objectKey"`;

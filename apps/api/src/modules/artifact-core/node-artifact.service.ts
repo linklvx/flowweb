@@ -90,7 +90,7 @@ export class NodeArtifactService {
         ${randomUUID()}, ${p.projectId}, ${p.nodeId}, ${p.teamId}, ${role}, ${p.targetField}, ${targetItemId},
         ${p.mediaId ?? null}, ${p.resultText ?? null}, ${p.source}, ${p.sourceIntentRowId ?? null},
         ${p.sourceExecSeq ?? null}, ${artifactIndex},
-        ${p.state}::"ArtifactState", ${nextRev}, (now() AT TIME ZONE 'utc'), (now() AT TIME ZONE 'utc')
+        ${p.state}::"ArtifactState", ${nextRev}, now(), now()
       )
       ON CONFLICT ("projectId", "nodeId", "role", "targetField", "targetItemId")
       DO UPDATE SET
@@ -102,7 +102,7 @@ export class NodeArtifactService {
         "artifactIndex" = EXCLUDED."artifactIndex",
         "state" = EXCLUDED."state",
         "rev" = "NodeArtifact"."rev" + 1,
-        "updatedAt" = (now() AT TIME ZONE 'utc')
+        "updatedAt" = now()
       WHERE "NodeArtifact"."rev" = ${p.expectedRev}`;
     const row = await tx.nodeArtifact.findUnique({
       where: slotUniqueWhere({ projectId: p.projectId, nodeId: p.nodeId, targetField: p.targetField, role, targetItemId }),

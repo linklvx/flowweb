@@ -5,8 +5,8 @@
 //  - 100k 上限=**lastSeq−100_000 feedSeq 边界法**（feedSeq 分配稠密 1..lastSeq〔cursor upsert +1〕
 //    ⇒ feedSeq≤boundary 恒为保留窗外最旧 100k 次分配之外——原计数法 skip excess-1 全表扫废止；
 //    lastSeq<100k ⇒ boundary 负数恒不命中=时间窗单判）；
-//  - 7d 时间窗=createdAt<(now() AT TIME ZONE 'UTC')−7d（Prisma timestamp 列=UTC 墙钟——裸 now()
-//    受会话时区 Asia/Shanghai +08 影响窗口平移 8h，实测同因）。
+//  - 7d 时间窗=createdAt<now()−7d（DateTime 列=timestamptz(3)——裸 now() 即 timestamptz 瞬时值，
+//    会话时区无关；naive 列时代的补偿式时区转换已随 C1 rebaseline 拆除）。
 // 批内 DELETE ... RETURNING octet_length 循环至空（loop-to-empty——poller tick 事务内消费）+
 // 每 tick 非空删除批数上界（P0#1 cap 出口——部分进度提交、跨 tick 单调排空；空批不计防多项目饥饿）。
 // scope ACTIVE 过滤（C1）：join CanvasProject.lifecycleState='ACTIVE'+Team.status='ACTIVE'
@@ -70,7 +70,7 @@ export class RuntimeFeedRetentionService {
             SELECT "id" FROM "RuntimeEvent"
             WHERE "projectId" = ${p.projectId}::text
               AND ("feedSeq" <= ${boundary}
-                OR "createdAt" < ((now() AT TIME ZONE 'UTC') - (${RUNTIME_EVENT_RETENTION_DAYS} * interval '1 day')))
+                OR "createdAt" < (now() - (${RUNTIME_EVENT_RETENTION_DAYS} * interval '1 day')))
             ORDER BY "feedSeq" ASC
             LIMIT ${RUNTIME_EVENT_DELETE_BATCH}
           )
@@ -108,7 +108,7 @@ export class RuntimeFeedRetentionService {
       JOIN "Team" t ON t."id" = p."teamId" AND t."status" = 'ACTIVE'
       WHERE true${scope}
         AND (e."feedSeq" <= (f."lastSeq" - ${RUNTIME_EVENT_RETENTION_MAX_PER_PROJECT})
-          OR e."createdAt" < ((now() AT TIME ZONE 'UTC') - (${RUNTIME_EVENT_RETENTION_DAYS} * interval '1 day')))`;
+          OR e."createdAt" < (now() - (${RUNTIME_EVENT_RETENTION_DAYS} * interval '1 day')))`;
     return Number(rows[0]?.n ?? 0);
   }
 

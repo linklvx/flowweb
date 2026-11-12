@@ -180,15 +180,14 @@ export class MediaProbePoller implements OnModuleInit, OnApplicationShutdown {
       ? Prisma.sql`("sniffedMimeType" LIKE 'image/%' AND "sniffedMimeType" NOT IN ('image/svg+xml', 'image/svg'))`
       : Prisma.sql`"sniffedMimeType" LIKE 'video/%'`;
     return this.prisma.$transaction(async (tx) => {
-      // 时区陷阱（本地/生产实证）：Prisma DateTime 落 PG naive timestamp=UTC 墙钟，而 now() 转 naive
-      // 用会话 TimeZone（Asia/Shanghai=+8h）——裸比 now() 恒判"已过期"（lease/退避全失效）。
-      // 一律 (now() AT TIME ZONE 'utc') 取 UTC naive 对齐（CI postgres TZ=UTC 时两者等价，兼容双环境）。
+      // 时区纪律（C1 rebaseline 终态）：DateTime 列=timestamptz(3)——裸 now() 同族直接比较=瞬时比较，
+      // 会话时区无关（naive 列时代的补偿式时区转换已随 C1 拆除）。
       const candidates = await tx.$queryRaw<{ id: string; prev: ProbeState }[]>(Prisma.sql`
         SELECT "id", "probeState" AS "prev" FROM "Media"
         WHERE "status" = 'completed' AND "deletedAt" IS NULL AND ${mimeCond}
           AND (
-            ("probeState" = 'pending' AND ("nextProbeAt" IS NULL OR "nextProbeAt" <= (now() AT TIME ZONE 'utc')))
-            OR ("probeState" = 'running' AND "probeLeaseUntil" < (now() AT TIME ZONE 'utc'))
+            ("probeState" = 'pending' AND ("nextProbeAt" IS NULL OR "nextProbeAt" <= now()))
+            OR ("probeState" = 'running' AND "probeLeaseUntil" < now())
           )
         ORDER BY "nextProbeAt" NULLS FIRST, "createdAt" ASC
         LIMIT ${batch}

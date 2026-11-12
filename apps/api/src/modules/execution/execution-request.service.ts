@@ -556,10 +556,11 @@ export class ExecutionRequestService {
   async transitionRequestTerminal(requestId: string, state: 'COMPLETED' | 'FAILED'): Promise<void> {
     await this.prisma.$transaction([
       this.prisma.executionRequest.updateMany({ where: { id: requestId, state: REQ_STATE.EXECUTING }, data: { state } }),
-      // 时钟纪律：now() 按 UTC 墙钟折算（Prisma 写入的 timestamp 列=UTC 墙钟——裸 now() 受会话时区
-      // 〔Asia/Shanghai +08〕影响保留窗平移 8h；对拍点=team-credit voidForExecutionRequestInTx 同款）
+      // 时间写法（C1 rebaseline 终态）：DateTime 列=timestamptz(3)——裸 now() 即 timestamptz 瞬时值，
+      // 会话时区无关（naive 列时代的补偿式时区转换已随 C1 拆除）。对拍点=team-credit
+      // voidForExecutionRequestInTx 同款。
       this.prisma.$executeRaw`
-        UPDATE "ExecutionInput" SET "expiresAt" = (now() AT TIME ZONE 'UTC') + (${EXEC_INPUT_RETENTION_AFTER_FINAL_DAYS} * interval '1 day')
+        UPDATE "ExecutionInput" SET "expiresAt" = now() + (${EXEC_INPUT_RETENTION_AFTER_FINAL_DAYS} * interval '1 day')
         WHERE "requestId" = ${requestId}::text`,
     ]);
   }

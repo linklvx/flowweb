@@ -338,9 +338,14 @@ maybe('Y1a+Y1b T7：probe 单相（真 PG+真 S3+真 sharp/ffprobe）', () => {
 
   it('C2-2 改道：无 projectId 媒体+binding 在他项目 → done 后 MediaFact natural 行恰一（当前态无 projectId 维度——outbox union 门随改道拆除）', async () => {
     const id = await makeUploadMedia({ bytes: await png(7, 7), sniffed: 'image/png', projectId: null });
-    const bindingProject = `it-t7-bp-${Date.now()}`;
+    // C1-1 终态：MediaBinding.projectId FK Cascade——binding 的目标项目须为真实 CanvasProject 行
+    //（团队清理 afterAll 经 Team Cascade 兜底清项目/binding）。
+    const bindingProject = await prisma.canvasProject.create({
+      data: { name: `it-t7-bp-${Date.now()}`, teamId: TID },
+      select: { id: true },
+    });
     await prisma.mediaBinding.create({
-      data: { mediaId: id, projectId: bindingProject, nodeId: 'n1', teamId: TID },
+      data: { mediaId: id, projectId: bindingProject.id, nodeId: 'n1', teamId: TID },
     });
     const claimed = await poller.claimImageBatch();
     const target = claimed.find((r) => r.id === id);

@@ -167,17 +167,15 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
     const now = new Date();
     const leaseUntil = new Date(now.getTime() + ERASURE_RUN_LEASE_MS);
     return this.prisma.$transaction(async (tx) => {
-      // ★时区基准根修（P2-1 保护锚暴露的潜伏真 bug，C4-b 起在位）：leaseUntil 列=timestamp
-      // (naive——Prisma DateTime 映射，delegate 写入=UTC 字面)；raw 绑定 Date=timestamptz(UTC 真值)
-      // ——直接比较时 PG 把 naive 列按会话时区(+08)重解释 → 恒小 8h ⇒ 「leaseUntil < now」恒 TRUE
-      // （租约谓词形同虚设；此前测试只断「能恢复」被宽松腿掩盖，保护锚首断「未过期不得重认领」即暴露）。
-      // 正解=参数显式 AT TIME ZONE 'utc'（timestamptz→UTC naive——与 delegate 写入基准一致）。
+      // ★时区基准（C1 rebaseline 终态）：leaseUntil/heartbeatAt 列=timestamptz(3)——raw 绑定 Date 与
+      // 列同族直接比较/赋值=瞬时语义，会话时区无关（naive 列时代的补偿式时区转换已随 C1 拆除；
+      // 彼时 naive 列按会话时区重解释曾致「leaseUntil < now」恒 TRUE 的潜伏 bug）。
       const res = await tx.$executeRaw`
         UPDATE "ProjectErasureRun"
-        SET "claimOwner" = ${this.claimOwner}, "leaseUntil" = ${leaseUntil} AT TIME ZONE 'utc', "heartbeatAt" = ${now} AT TIME ZONE 'utc',
+        SET "claimOwner" = ${this.claimOwner}, "leaseUntil" = ${leaseUntil}, "heartbeatAt" = ${now},
             state = CASE WHEN state = 'PENDING' THEN 'RUNNING' ELSE state END
         WHERE "erasureId" = ${erasureId}
-          AND ("leaseUntil" < ${now} AT TIME ZONE 'utc'
+          AND ("leaseUntil" < ${now}
                OR "claimOwner" IS NULL
                OR ("claimOwner" = ${this.claimOwner} AND "attempts" = 0))`;
       if (res === 0) return null;

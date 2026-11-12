@@ -229,14 +229,13 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
       ) VALUES (
         ${randomUUID()}, ${params.userId}, ${params.teamId}, ${params.projectId ?? null}, ${params.nodeId ?? null}, ${params.taskId ?? null},
         'flowai', ${params.key}, ${params.originalName}, ${params.mimeType}, 0, 'generated', 'processing'::"MediaStatus",
-        ${params.sourceUrl}, ${params.sourceUrlExpiresAt.toISOString()}::timestamp, ${params.sourceIntentRowId ?? null}, ${params.sourceExecSeq ?? null}, ${params.artifactIndex ?? 0}, ${params.key},
-        (now() AT TIME ZONE 'utc')
+        ${params.sourceUrl}, ${params.sourceUrlExpiresAt.toISOString()}::timestamptz, ${params.sourceIntentRowId ?? null}, ${params.sourceExecSeq ?? null}, ${params.artifactIndex ?? 0}, ${params.key},
+        now()
       )
       ON CONFLICT ("bucket", "key") DO NOTHING`;
-    // 时区陷阱（T12 实证 2026-10-21）：$executeRaw 的 Date 裸参按**本地墙钟**序列化进 naive timestamp
-    //（Asia/Shanghai=+8h 漂移；模型 API〔create/updateMany〕无此面）——sourceUrlExpiresAt 一律
-    // toISOString()::timestamp（PG 对 timestamp 忽略 Z 后缀取 UTC 墙钟，round-trip 精确）。消费面=
-    // upstream resolveCallUrl 新鲜判定+T12 materialize 源过期重试判据——漂移即判错方向。
+    // 时间写法（C1 rebaseline 终态）：DateTime 列=timestamptz(3)——toISOString() 携 Z 后缀经
+    // ::timestamptz 显式 cast=瞬时精确（会话时区无关；naive 列时代的 timestamp 参数 cast 已随 C1 拆除）。
+    // 消费面=upstream resolveCallUrl 新鲜判定+T12 materialize 源过期重试判据——漂移即判错方向。
     const media = await tx.media.findUniqueOrThrow({ where: { bucket_key: { bucket: 'flowai', key: params.key } } });
     // C2-2 改道：新行=无 increment 路径——bump 单源（factVersion 0→1+state processing fact 同事务；
     // MediaFact 无 projectId 列——「if (params.projectId)」门随 outbox 改道拆除，无项目锚媒体同样有

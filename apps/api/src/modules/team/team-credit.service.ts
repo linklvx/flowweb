@@ -247,10 +247,10 @@ export class TeamCreditService {
     });
     if (claimed.count === 0) return false;
     // C1-1 红①：终态迁移同事务重写 input 保留窗（expiresAt=now+30d——删除恒在终态后 30d）。
-    // 时钟纪律：now() 按 UTC 墙钟折算（AT TIME ZONE 'UTC'）——Prisma 写入的 timestamp 列=UTC 墙钟，
-    // 裸 now() 受会话时区（Asia/Shanghai +08）影响会使保留窗平移 8h（对拍点=transitionRequestTerminal 同款）。
+    // 时间写法（C1 rebaseline 终态）：DateTime 列=timestamptz(3)——裸 now() 即 timestamptz 瞬时值，
+    // 会话时区无关（naive 列时代的补偿式时区转换已随 C1 拆除；对拍点=transitionRequestTerminal 同款）。
     await ltx.$executeRaw`
-      UPDATE "ExecutionInput" SET "expiresAt" = (now() AT TIME ZONE 'UTC') + (${EXEC_INPUT_RETENTION_AFTER_FINAL_DAYS} * interval '1 day')
+      UPDATE "ExecutionInput" SET "expiresAt" = now() + (${EXEC_INPUT_RETENTION_AFTER_FINAL_DAYS} * interval '1 day')
       WHERE "requestId" = ${executionRequestId}::text`;
     const req = await ltx.executionRequest.findUniqueOrThrow({ where: { id: executionRequestId } });
     await this.ledger.lockBalance(ltx, req.teamId);   // 锁序①：先于 items 复读（I1 锁内复读）

@@ -616,13 +616,14 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
       expect(prisma.generationIntent.updateMany).not.toHaveBeenCalled();
     });
 
-    it('heartbeatAt 写值为 (now() AT TIME ZONE \'utc\')——Prisma naive UTC 对齐纪律（会话 TZ≠UTC 时裸 now() 恒偏移）', async () => {
+    it('heartbeatAt 写值为裸 now()——timestamptz 列（C1 rebaseline 终态）会话时区无关；补偿式时区转换已拆除', async () => {
       prisma.$queryRaw.mockResolvedValueOnce([{ id: 'gi-1' }]);
 
       await service.tickFence('gi-1', 1n);
 
       const sql = String(prisma.$queryRaw.mock.calls[0][0]);
-      expect(sql).toContain("now() AT TIME ZONE 'utc'");
+      expect(sql).toContain('now()');
+      expect(sql).not.toContain('AT TIME ZONE');
     });
   });
 });

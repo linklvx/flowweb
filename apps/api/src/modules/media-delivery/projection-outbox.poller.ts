@@ -197,7 +197,8 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
   /** 两段式事务 claim（MaterializeJob.claim 同形态）：SELECT FOR UPDATE SKIP LOCKED（并发双 poller
    *  恰一）→同事务置 projecting+leaseUntil+runId。候选=pending ∧ nextAttemptAt 到期 ∧ lease
    *  过期/NULL；**projecting∧lease 过期同收**（崩溃残留行自愈——不收则永滞 projecting）。
-   *  时区纪律（materialize claim 头注同源）：Prisma 写 naive=UTC 墙钟——一律 (now() AT TIME ZONE 'utc')。 */
+   *  时区纪律（C1 rebaseline 终态）：DateTime 列=timestamptz(3)——裸 now() 直接比较=瞬时比较，
+   *  会话时区无关（naive 列时代的补偿式时区转换已随 C1 拆除）。 */
   async claim(): Promise<ArtifactProjection[]> {
     const runId = randomUUID();
     const leaseUntil = new Date(Date.now() + PROJECTION_LEASE_MS);
@@ -205,8 +206,8 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
       const candidates = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
         SELECT "id" FROM "ArtifactProjection"
         WHERE "state" IN ('pending', 'projecting')
-          AND "nextAttemptAt" <= (now() AT TIME ZONE 'utc')
-          AND ("leaseUntil" IS NULL OR "leaseUntil" < (now() AT TIME ZONE 'utc'))
+          AND "nextAttemptAt" <= now()
+          AND ("leaseUntil" IS NULL OR "leaseUntil" < now())
         ORDER BY "nextAttemptAt", "createdAt"
         LIMIT ${PROJECTION_BATCH}
         FOR UPDATE SKIP LOCKED`);
@@ -477,11 +478,11 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
   async requeueDeadOnLoad(): Promise<number> {
     const r = await this.prisma.$executeRaw`
       UPDATE "ArtifactProjection" SET state = 'pending', attempts = 0, "leaseUntil" = NULL,
-        "runId" = NULL, "nextAttemptAt" = (now() AT TIME ZONE 'utc'), "lastError" = NULL
+        "runId" = NULL, "nextAttemptAt" = now(), "lastError" = NULL
       WHERE "id" IN (
         SELECT "id" FROM "ArtifactProjection"
         WHERE "state" = 'dead'
-          AND "createdAt" > (now() AT TIME ZONE 'utc') - make_interval(days => (${PROJECTION_DEAD_REQUEUE_WINDOW_MS / 86_400_000})::int)
+          AND "createdAt" > now() - make_interval(days => (${PROJECTION_DEAD_REQUEUE_WINDOW_MS / 86_400_000})::int)
         ORDER BY "createdAt"
         LIMIT ${PROJECTION_DEAD_REQUEUE_LIMIT}
       )`;

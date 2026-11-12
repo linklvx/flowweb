@@ -277,10 +277,10 @@ function stageQuarantineSpool(ctx) {
 async function stageBumpHistory() {
   const client = await openClient();
   try {
-    // T31-P1 根修：epochStartedAt 列=timestamp without time zone——写入须 UTC 墙钟（now() AT TIME ZONE 'utc'）。
-    // 裸 now() 按会话时区（生产 Asia/Shanghai）转墙钟存储，Prisma 读侧按 UTC 解释 ⇒ +8h 漂移 ⇒
-    // 忘 bump 场景时间戳栅栏（lastWriteAt>epoch 触发 recoverySuspect）对 epoch 后 8h 内段失效（复活面）。
-    const r = await client.query(`UPDATE "SystemHistory" SET "historyId" = gen_random_uuid()::text, "epochStartedAt" = now() AT TIME ZONE 'utc', "updatedAt" = now() AT TIME ZONE 'utc' WHERE id = 1 RETURNING "historyId", "epochStartedAt"`);
+    // C1 rebaseline 后：SystemHistory 全列=timestamptz(3)——裸 now() 即瞬时值，会话时区无关。
+    // （T31-P1 史实：C1 前 epochStartedAt=timestamp without time zone，写入需客户端折算 UTC 墙钟；
+    //  补偿式时区转换已随 C1 终态拆除——裸 now() 当时会按会话时区墙钟存储致 +8h 漂移/栅栏失效。）
+    const r = await client.query(`UPDATE "SystemHistory" SET "historyId" = gen_random_uuid()::text, "epochStartedAt" = now(), "updatedAt" = now() WHERE id = 1 RETURNING "historyId", "epochStartedAt"`);
     if (r.rows.length !== 1) throw new Error('SystemHistory id=1 行缺失（migrate 引导行未建立——T7 迁移 INSERT 缺席，人工核查迁移树）');
     const newId = r.rows[0].historyId;
     console.log(`SystemHistory bump：historyId=${newId} epochStartedAt=${r.rows[0].epochStartedAt.toISOString()}（新纪元单一语义——旧 spool/WAL 段全失效，客户端 IDB 五元自燃〔偏离 38⑳：清本地缓存唯此口径〕）`);

@@ -168,7 +168,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
       LEFT JOIN "ArtifactProjection" ap ON ap."artifactId" = na.id AND ap."artifactRev" = na.rev
       WHERE na."sourceIntentRowId" IS NOT NULL AND na."sourceExecSeq" IS NOT NULL
         AND ap.id IS NULL
-        AND na."updatedAt" > ((now() AT TIME ZONE 'utc') - (${PROJECTION_BACKFILL_MAX_AGE_MS} * interval '1 millisecond'))
+        AND na."updatedAt" > (now() - (${PROJECTION_BACKFILL_MAX_AGE_MS} * interval '1 millisecond'))
       ORDER BY na."updatedAt"
       LIMIT 50`;
     for (const r of rows) {
@@ -193,7 +193,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
       JOIN "GenerationIntent" gi ON gi."id" = na."sourceIntentRowId"
       WHERE ap."state" = 'orphaned' AND gi."status" = 'SUCCEEDED'
         AND na."sourceIntentRowId" IS NOT NULL AND na."sourceExecSeq" IS NOT NULL
-        AND na."updatedAt" > ((now() AT TIME ZONE 'utc') - (${PROJECTION_BACKFILL_MAX_AGE_MS} * interval '1 millisecond'))
+        AND na."updatedAt" > (now() - (${PROJECTION_BACKFILL_MAX_AGE_MS} * interval '1 millisecond'))
       ORDER BY na."updatedAt"
       LIMIT 20`;
     for (const r of rows) {
@@ -526,10 +526,10 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
       DELETE FROM "GenerationIntent" gi
       WHERE gi.status IN ('SUCCEEDED', 'FAILED', 'VOIDED')
         AND gi."reservedCredits" = 0
-        AND gi."completedAt" < ((now() AT TIME ZONE 'utc') - (${RETENTION_MS} * interval '1 millisecond'))
+        AND gi."completedAt" < (now() - (${RETENTION_MS} * interval '1 millisecond'))
         AND (
           gi."resultText" IS NULL
-          OR gi."resultText" IS NOT NULL AND gi."completedAt" < ((now() AT TIME ZONE 'utc') - (${TEXT_RETENTION_MS} * interval '1 millisecond'))
+          OR gi."resultText" IS NOT NULL AND gi."completedAt" < (now() - (${TEXT_RETENTION_MS} * interval '1 millisecond'))
         )
         AND NOT EXISTS (SELECT 1 FROM "NodeArtifact" na WHERE na."sourceIntentRowId" = gi.id)`;
   }

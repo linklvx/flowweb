@@ -148,8 +148,9 @@ async function systemHistory() {
 /** restore 契约收尾（spec §4.4/T13）：bump=单事务更新 SystemHistory（提交后才允许启动）。 */
 async function bumpHistoryId() {
   return withPg(async (client) => {
-    // T31-P1 根修：epoch 写入=UTC 墙钟（timestamp 无时区列——裸 now() 会话时区漂移致时间戳栅栏 8h 窗失效）
-    const r = await client.query(`UPDATE "SystemHistory" SET "historyId" = gen_random_uuid()::text, "epochStartedAt" = now() AT TIME ZONE 'utc', "updatedAt" = now() AT TIME ZONE 'utc' WHERE id = 1 RETURNING "historyId"`);
+    // C1 rebaseline 后：SystemHistory 全列=timestamptz(3)——裸 now() 即瞬时值，会话时区无关
+    //（T31-P1 的补偿式时区转换=naive 列时代形态，已随 C1 终态拆除）。
+    const r = await client.query(`UPDATE "SystemHistory" SET "historyId" = gen_random_uuid()::text, "epochStartedAt" = now(), "updatedAt" = now() WHERE id = 1 RETURNING "historyId"`);
     if (r.rows.length !== 1) throw new Error('SystemHistory id=1 行缺失（恢复不完整）');
     return r.rows[0].historyId;
   });
@@ -850,7 +851,7 @@ async function modeRestoreFence() {
       return '时间戳栅栏拦截：recoverySuspect 零重放+boot fail-closed（suspect 段内容不上线——忘 bump 拦截）';
     });
     await timed('rf1-remediate-recover', async () => {
-      await bumpHistoryId();                                          // 处置①：bump（收尾契约——T31-P1 根修后 UTC 墙钟）
+      await bumpHistoryId();                                          // 处置①：bump（收尾契约——C1 后 SystemHistory 列 tsz，裸 now() 会话时区无关）
       rmSync(path.join(spoolDir(), 'restore.lock'), { force: true }); // 处置②：清 marker（恢复流人工裁定等价物）
       // 处置后 boot 双合法终态：a) ready（I2 形态——段链可证续跑）b) blocked（真库 pgSeq>0 形态：
       // bump 后段头 historyId 不匹配→段隔离→I3 violation 证据保全——restore-bump 模式同终态，

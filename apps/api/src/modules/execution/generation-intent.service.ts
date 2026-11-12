@@ -306,11 +306,11 @@ export class GenerationIntentService {
    *  两次 DB 往返；collab-lease.service 同款 RETURNING 判 rows 形态）。0 命中=行灭失/终态/换代三态
    *  合并 abort——与旧形态逐态判读等价（where 同谓词 RUNNING+execSeq：RUNNING∧同代必被 UPDATE 命中，
    *  不存在「读回 RUNNING 同代而写 0 命中」分叉）；touchHeartbeat 随合并退役（生产消费点唯一=本处）。
-   *  heartbeatAt 写值纪律：Prisma DateTime 落 PG naive timestamp=UTC 墙钟——(now() AT TIME ZONE 'utc')
-   *  对齐（media-probe.poller 同款；会话 TZ≠UTC 时裸 now() 恒偏移——heartbeat/deadline 判据漂移）。 */
+   *  heartbeatAt 写值纪律（C1 rebaseline 终态）：DateTime 列=timestamptz(3)——裸 now() 即 timestamptz
+   *  瞬时值，会话时区无关（naive 列时代的补偿式时区转换已随 C1 拆除）。 */
   async tickFence(id: string, execSeq: bigint): Promise<'abort' | void> {
     const rows = await this.prisma.$queryRaw<{ id: string }[]>`
-      UPDATE "GenerationIntent" SET "heartbeatAt" = (now() AT TIME ZONE 'utc')
+      UPDATE "GenerationIntent" SET "heartbeatAt" = now()
       WHERE "id" = ${id} AND "status" = 'RUNNING' AND "execSeq" = ${execSeq}
       RETURNING "id"`;
     if (rows.length === 0) return 'abort';

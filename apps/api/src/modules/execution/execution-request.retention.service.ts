@@ -14,9 +14,9 @@
 //    过滤）；计数+告警**不删**（poller 消费面）。
 // scope ACTIVE 过滤（R15/C1 两删面）：join CanvasProject.lifecycleState='ACTIVE'+Team.status='ACTIVE'
 // ——DELETING/DISBANDING 零触碰（擦除中项目行集与 retention 不相交；stuck 只读面同判防擦除期噪声）。
-// 时间比较纪律：raw SQL 对 Prisma 写入的 timestamp 列（=UTC 墙钟）一律用 `(now() AT TIME ZONE 'UTC')`
-// ——裸 now()/timestamptz 参数在会话时区（Asia/Shanghai +08）换算会使窗口平移 8h（红② 夹具实测：
-// 未来 1h 的行被 `<now()` 命中——红先行拦截；typed Prisma 查询两端同源无此洞）。
+// 时间比较纪律（C1 rebaseline 终态）：DateTime 列=timestamptz(3)——raw SQL 裸 now() 与列同族直接比较
+// =瞬时语义，会话时区无关（naive 列时代的补偿式时区转换已随 C1 拆除；彼时裸 now() 会按会话时区
+// Asia/Shanghai +08 使窗口平移 8h）。typed Prisma 查询两端同源。
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -50,7 +50,7 @@ export class ExecutionRequestRetentionService {
       SELECT r."id" FROM "ExecutionRequest" r
       JOIN "CanvasProject" p ON p."id" = r."projectId" AND p."lifecycleState" = 'ACTIVE'
       JOIN "Team" t ON t."id" = r."teamId" AND t."status" = 'ACTIVE'
-      WHERE r."state" = 'ADMITTED' AND r."expiresAt" < (now() AT TIME ZONE 'UTC')
+      WHERE r."state" = 'ADMITTED' AND r."expiresAt" < now()
       ORDER BY r."expiresAt" ASC
       LIMIT ${RETENTION_REQUEST_CLAIM_BATCH}
       FOR UPDATE OF r SKIP LOCKED`;
@@ -86,7 +86,7 @@ export class ExecutionRequestRetentionService {
           JOIN "ExecutionRequest" r ON r."id" = i."requestId"
           JOIN "CanvasProject" p ON p."id" = r."projectId" AND p."lifecycleState" = 'ACTIVE'
           JOIN "Team" t ON t."id" = r."teamId" AND t."status" = 'ACTIVE'
-          WHERE i."expiresAt" < (now() AT TIME ZONE 'UTC') AND r."state" IN ('COMPLETED', 'FAILED', 'VOIDED')${scope}
+          WHERE i."expiresAt" < now() AND r."state" IN ('COMPLETED', 'FAILED', 'VOIDED')${scope}
           ORDER BY i."expiresAt" ASC
           LIMIT ${RETENTION_INPUT_DELETE_BATCH}
         )
@@ -113,13 +113,13 @@ export class ExecutionRequestRetentionService {
       SELECT COUNT(*)::int AS n FROM "ExecutionRequest" r
       JOIN "CanvasProject" p ON p."id" = r."projectId" AND p."lifecycleState" = 'ACTIVE'
       JOIN "Team" t ON t."id" = r."teamId" AND t."status" = 'ACTIVE'
-      WHERE r."state" = 'ADMITTED' AND r."expiresAt" < (now() AT TIME ZONE 'UTC')`;
+      WHERE r."state" = 'ADMITTED' AND r."expiresAt" < now()`;
     const executingRows = await tx.$queryRaw<{ n: number }[]>`
       SELECT COUNT(DISTINCT r."id")::int AS n FROM "ExecutionRequest" r
       JOIN "GenerationIntent" g ON g."executionRequestId" = r."id" AND g."status" = 'RUNNING'
       JOIN "CanvasProject" p ON p."id" = r."projectId" AND p."lifecycleState" = 'ACTIVE'
       JOIN "Team" t ON t."id" = r."teamId" AND t."status" = 'ACTIVE'
-      WHERE r."state" = 'EXECUTING' AND g."deadlineAt" < (now() AT TIME ZONE 'UTC')`;
+      WHERE r."state" = 'EXECUTING' AND g."deadlineAt" < now()`;
     const orphanRows = await tx.$queryRaw<{ n: number }[]>`
       SELECT COUNT(*)::int AS n FROM "ExecutionRequest" r
       JOIN "CanvasProject" p ON p."id" = r."projectId" AND p."lifecycleState" = 'ACTIVE'
@@ -141,7 +141,7 @@ export class ExecutionRequestRetentionService {
       SELECT COUNT(*)::int AS n FROM "ExecutionRequest" r
       JOIN "CanvasProject" p ON p."id" = r."projectId" AND p."lifecycleState" = 'ACTIVE'
       JOIN "Team" t ON t."id" = r."teamId" AND t."status" = 'ACTIVE'
-      WHERE r."state" = 'ADMITTED' AND r."expiresAt" < (now() AT TIME ZONE 'UTC')`;
+      WHERE r."state" = 'ADMITTED' AND r."expiresAt" < now()`;
     return Number(rows[0]?.n ?? 0);
   }
 
@@ -156,7 +156,7 @@ export class ExecutionRequestRetentionService {
       JOIN "ExecutionRequest" r ON r."id" = i."requestId"
       JOIN "CanvasProject" p ON p."id" = r."projectId" AND p."lifecycleState" = 'ACTIVE'
       JOIN "Team" t ON t."id" = r."teamId" AND t."status" = 'ACTIVE'
-      WHERE i."expiresAt" < (now() AT TIME ZONE 'UTC') AND r."state" IN ('COMPLETED', 'FAILED', 'VOIDED')${scope}`;
+      WHERE i."expiresAt" < now() AND r."state" IN ('COMPLETED', 'FAILED', 'VOIDED')${scope}`;
     return Number(rows[0]?.n ?? 0);
   }
 }

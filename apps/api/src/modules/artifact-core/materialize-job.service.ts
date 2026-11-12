@@ -187,14 +187,14 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
   async claim(): Promise<Array<Media & { materializeRunId: string }>> {
     const leaseUntil = new Date(Date.now() + MATERIALIZE_LEASE_MS);
     return this.prisma.$transaction(async (tx) => {
-      // 时区纪律（probe claim 头注）：Prisma 模型 API 写 naive=UTC 墙钟，裸比 now() 会用会话 TZ
-      //（Asia/Shanghai=+8h）恒判已过期——一律 (now() AT TIME ZONE 'utc') 对齐。
+      // 时区纪律（C1 rebaseline 终态）：DateTime 列=timestamptz(3)，裸 now() 亦为 timestamptz——
+      // 直接比较=瞬时比较，会话时区无关（naive 列时代需补偿式时区转换，已随 C1 拆除）。
       const candidates = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
         SELECT "id" FROM "Media"
         WHERE "status" = 'processing' AND "deletedAt" IS NULL
           AND "type" = 'generated' AND "mimeType" LIKE 'video/%'
-          AND ("nextMaterializeAt" IS NULL OR "nextMaterializeAt" <= (now() AT TIME ZONE 'utc'))
-          AND ("processingLeaseUntil" IS NULL OR "processingLeaseUntil" < (now() AT TIME ZONE 'utc'))
+          AND ("nextMaterializeAt" IS NULL OR "nextMaterializeAt" <= now())
+          AND ("processingLeaseUntil" IS NULL OR "processingLeaseUntil" < now())
         ORDER BY "nextMaterializeAt" NULLS FIRST, "createdAt" ASC
         LIMIT ${MATERIALIZE_BATCH}
         FOR UPDATE SKIP LOCKED`);
