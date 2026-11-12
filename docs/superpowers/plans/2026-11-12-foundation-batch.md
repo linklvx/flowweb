@@ -208,7 +208,7 @@ return writeBinding();
 
 ### Task C1-2：三向 allowlist 对象门
 
-**Files:** Create `scripts/check-rebaseline-delta.mjs`：对比重放库 vs `schema-before-v2.sql`（baseline=pre-batch）——old-only 命中 removed（MediaFactOutbox 表+索引列/MediaFactState enum/**MediaBinding_mediaId_fkey**）/new-only 命中 added（**MediaFact/CanvasDoc 两列/Media.deletionState/set_updated_at 函数+触发器/MediaBinding_projectId_fkey+索引/ProjectionBackfillState/DeletionBarrier/oracle 双表——只列 DB 对象，Prisma 反向关系不入 pg_dump allowlist**，第七轮 P1-5）/列类型 delta 由列级 census 派生（不 hardcode）；**changed 域**（FK onDelete/约束 body 变化）；函数/触发器 body 逐字；allowlist JSON 生成一次+人工审阅+入库，gate 只读。
+**Files:** Create `scripts/check-rebaseline-delta.mjs`：对比重放库 vs `schema-before-v2.sql`（baseline=pre-batch）——old-only 命中 removed（MediaFactOutbox 表+索引列/MediaFactState enum；**MediaBinding_mediaId_fkey 不在 removed——v5.1 裁定保留 mediaId FK，C1-1 已落**）/new-only 命中 added（**MediaFact/CanvasDoc 两列/Media.deletionState/set_updated_at 函数+触发器/MediaBinding_projectId_fkey+索引/ProjectionBackfillState/DeletionBarrier/oracle 双表——只列 DB 对象，Prisma 反向关系不入 pg_dump allowlist**，第七轮 P1-5）/列类型 delta 由列级 census 派生（不 hardcode）；**changed 域**（FK onDelete/约束 body 变化）；函数/触发器 body 逐字；allowlist JSON 生成一次+人工审阅+入库，gate 只读。
 
 - [ ] **Step 1：门自测负控**（缺 ledger_guard→红/多一列 naive→红/少 removed 条目→红/**多一个非预期对象→红**）→verify 链注册→Commit。
 
