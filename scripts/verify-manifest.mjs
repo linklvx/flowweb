@@ -64,9 +64,15 @@ export const VERIFY_STEPS = [
   { id: 'check-media-binding-writers', cmd: 'node scripts/check-media-binding-writers.mjs', db: false },
   // C1-2 授权插一步：check-rebaseline-delta（三向 allowlist 对象门——spec 2026-11-11 foundation-batch
   // §3.3-3/§4「三向 allowlist 对象门（C1 一次性）」；每次真实重放 schema-before-v2.sql 与新 init 两临时库，
-  // 八组对象 delta 与入库 allowlist 双向闭合；db:true 真 PG 重放依赖，fast 外惯例同款邻位）=33 步。
+  // 八组对象 delta 与入库 allowlist 双向闭合；db:true 真 PG 重放依赖，fast 外惯例同款邻位）。
   { id: 'check-rebaseline-delta', cmd: 'node scripts/check-rebaseline-delta.mjs', db: true },
-  { id: 'scripts-node-test', cmd: 'node --test scripts/check-collab-census.test.mjs scripts/check-collab-health.test.mjs scripts/check-collab-module-size.test.mjs scripts/check-collab-test-facade.test.mjs scripts/check-ecosystem.test.mjs scripts/check-exact-pins.test.mjs scripts/check-gate-evidence.test.mjs scripts/check-ledger-single-writer.test.mjs scripts/check-media-binding-writers.test.mjs scripts/check-migration-additive.test.mjs scripts/check-migration-immutability.test.mjs scripts/check-plan-anchors.test.mjs scripts/check-plan-census.test.mjs scripts/check-rebaseline-delta.test.mjs scripts/check-spec-consistency.test.mjs scripts/collab-renumber-layer.test.mjs scripts/collab-rebuild-gen.test.mjs scripts/deploy-sh-pgrestore.test.mjs scripts/dev-reset-canvas.test.mjs scripts/deploy-guard.test.mjs scripts/drill-fault.test.mjs scripts/env-file.test.mjs scripts/load-bench.test.mjs scripts/verify-chain.test.mjs apps/api/scripts/collab-soak-metrics.test.mjs apps/api/scripts/provider-late-reconnect-guard.test.mjs', db: false },
+  // C1-4 授权插两步：schema 门（DateTime 必带 @db.Timestamptz(3)）+raw SQL 时间语义门（无时区
+  // timestamp/补偿式 AT TIME ZONE/无显式时区日历函数；extract(epoch) 豁免）——spec 2026-11-11
+  // foundation-batch §3.3-5/§4「三门禁」中的两个静态门，纯文本扫描（无 DB 依赖），fast 外惯例同款
+  // 邻位（第三门=双时区集成测试，随 int 池（test:int）执行，不入 verify 链）=35 步。
+  { id: 'check-schema-timestamptz', cmd: 'node scripts/check-schema-timestamptz.mjs', db: false },
+  { id: 'check-raw-sql-time', cmd: 'node scripts/check-raw-sql-time.mjs', db: false },
+  { id: 'scripts-node-test', cmd: 'node --test scripts/check-collab-census.test.mjs scripts/check-collab-health.test.mjs scripts/check-collab-module-size.test.mjs scripts/check-collab-test-facade.test.mjs scripts/check-ecosystem.test.mjs scripts/check-exact-pins.test.mjs scripts/check-gate-evidence.test.mjs scripts/check-ledger-single-writer.test.mjs scripts/check-media-binding-writers.test.mjs scripts/check-migration-additive.test.mjs scripts/check-migration-immutability.test.mjs scripts/check-plan-anchors.test.mjs scripts/check-plan-census.test.mjs scripts/check-raw-sql-time.test.mjs scripts/check-rebaseline-delta.test.mjs scripts/check-schema-timestamptz.test.mjs scripts/check-spec-consistency.test.mjs scripts/collab-renumber-layer.test.mjs scripts/collab-rebuild-gen.test.mjs scripts/deploy-sh-pgrestore.test.mjs scripts/dev-reset-canvas.test.mjs scripts/deploy-guard.test.mjs scripts/drill-fault.test.mjs scripts/env-file.test.mjs scripts/load-bench.test.mjs scripts/verify-chain.test.mjs apps/api/scripts/collab-soak-metrics.test.mjs apps/api/scripts/provider-late-reconnect-guard.test.mjs', db: false },
   // Y1c T20 出口前置根修：glob 对齐实际布局 "{src,test}/**/*.ts"→"src/**/*.ts"——apps/api 无 test/
   // 目录（api 测试=src/**/*.spec.ts 同仓共置），原 glob 模式不匹配即步红（ESLint fatal——任何环境
   // 必红=门自身预置缺陷，非代码回归）。同批同修 apps/api package.json lint 脚本同款 glob。

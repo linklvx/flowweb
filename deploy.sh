@@ -8,6 +8,8 @@
 #   ./deploy.sh ffprobe  服务器装同源 ffprobe/ffmpeg 8.1.x（Y1a T7/E4——人工触发，不进部署流，幂等）
 #
 # 注意：deploy.sh 不会覆盖服务器上的 .env 文件，环境变量需在服务器上手动管理。
+# C1-4：服务器 DATABASE_URL 必须带连接级时区参数 ?options=-c%20timezone%3DUTC（生产 timezone=UTC——
+# 依据/校验命令见 docs/superpowers/deployment-db-baseline.md「连接时区纪律」；本地 dev 不强改）。
 # 发布门禁（0 号动作 E69①）：full/api 模式部署前本地跑 pnpm verify + int 单源链 + additive + gate-collab，
 # 收据 .preflight-<SHA>.ok 同 SHA 幂等复用；任一失败即中止（set -e）。
 

@@ -30,7 +30,10 @@ const ids = VERIFY_STEPS.map((s) => s.id);
 //   C3a-7 授权插一步：check-media-binding-writers 紧随 check-plan-census〔MediaBinding 静态单写者
 //   门禁——spec 2026-11-11-foundation-batch §3.2-4/§4，fast 外惯例同款邻位〕=32 步；
 //   C1-2 授权插一步：check-rebaseline-delta 紧随 check-media-binding-writers〔三向 allowlist 对象门
-//   ——spec 2026-11-11-foundation-batch §3.3-3/§4，db:true 真重放依赖，fast 外惯例同款邻位〕=33 步）
+//   ——spec 2026-11-11-foundation-batch §3.3-3/§4，db:true 真重放依赖，fast 外惯例同款邻位〕=33 步；
+//   C1-4 授权插两步：check-schema-timestamptz + check-raw-sql-time 紧随 check-rebaseline-delta
+//   〔spec §3.3-5 三门禁中的两个静态门——schema DateTime 必带 Timestamptz(3)+raw SQL 时间语义
+//   （extract(epoch) 豁免）；第三门=双时区 int spec，随 test:int 池〕=35 步）
 const BASELINE_IDS = [
   'doc-gate', 'verify-indexes', 'check-migration-additive', 'check-migration-immutability', 'check-migrate-diff',
   'check-fresh-replay', 'check-pricing-coverage', 'check-ledger-single-writer', 'check-nginx-budget', 'shared-build',
@@ -38,10 +41,10 @@ const BASELINE_IDS = [
   'api-nest-build', 'check-no-testutils-in-dist', 'web-test', 'api-test', 'api-test-heavy', 'bench-load-smoke',
   'web-lint', 'check-ecosystem', 'check-spec-consistency', 'check-collab-test-facade',
   'check-collab-module-size', 'check-exact-pins', 'check-plan-census', 'check-media-binding-writers',
-  'check-rebaseline-delta', 'scripts-node-test', 'api-eslint',
+  'check-rebaseline-delta', 'check-schema-timestamptz', 'check-raw-sql-time', 'scripts-node-test', 'api-eslint',
 ];
 
-test('③ full 的 id 序列逐字等于引入时的 33 步基线常量（R4a\' +api-test-heavy；Y1a T0 +check-exact-pins；Y1a T3 +check-plan-census；Y1c T5c census 移位 fast；C3a-7 +check-media-binding-writers；C1-2 +check-rebaseline-delta）', () => {
+test('③ full 的 id 序列逐字等于引入时的 35 步基线常量（R4a\' +api-test-heavy；Y1a T0 +check-exact-pins；Y1a T3 +check-plan-census；Y1c T5c census 移位 fast；C3a-7 +check-media-binding-writers；C1-2 +check-rebaseline-delta；C1-4 +check-schema-timestamptz/+check-raw-sql-time）', () => {
   assert.deepEqual(ids, BASELINE_IDS);
 });
 

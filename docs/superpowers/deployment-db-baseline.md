@@ -18,6 +18,22 @@ pnpm exec tsx prisma/seed.ts      # 开发数据（定价真源进迁移后此�
 - `migrate deploy` 不需要 shadow database 权限，应用 DB 用户即可执行
 - fresh 库无存量数据，无需任何数据回填（schema 已含正确默认值）
 
+### 连接时区纪律（C1-4——生产 timezone=UTC）
+
+生产 `apps/api/.env` 的 `DATABASE_URL` 必须带连接级时区参数（显式 UTC，不依赖服务器/角色默认时区）：
+
+```bash
+DATABASE_URL=postgresql://user:password@host:5432/flowweb?options=-c%20timezone%3DUTC
+```
+
+- 生效面=Prisma 连接池每条连接（实测 `SHOW timezone` → `UTC`）；服务器 .env 由人工维护（deploy.sh 不覆盖），
+  本地 dev 无需设置（不强制改本地会话时区——C1-4 双时区 spec 显式注入两客户端自证语义一致）。
+- 校验（连接串直连同一库）：`psql "$DATABASE_URL" -c 'SHOW timezone;'`——应为 `UTC`
+  （非 UTC=该连接串未带 options，回滚到会话默认时区）。
+- 备份命令已剥 query 参数（deploy.sh cutover ② `sed "s/?.*$//"`），`options` 不影响 pg_dump。
+- 语义依据：C1 终态全 DateTime=timestamptz(3)，claim/retention 谓词均为瞬时比较（会话时区无关）——
+  显式 UTC 是运维可预期性钉死，不是正确性前提（正确性由双时区集成测试 + raw SQL 静态门保证）。
+
 ## 二、本地库重建（destructive——仅开发环境）
 
 ```bash
