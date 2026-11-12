@@ -121,7 +121,7 @@ maybe('C3a-6：水位不变量闭环——rebuild CAS 四条件+loadForHydration
   });
 
   // ── 族①：backfill 选中条件（dirty ∨ lag 的项目集=重建候选——C3a-8 BackfillRunner 枚举消费本谓词）──
-  it('族①：候选集=dirty ∨ mediaBindingSeq<pgSeq（SQL 枚举==谓词过滤；干净已覆盖项目不在列）', async () => {
+  it('族①：候选集=dirty ∨ mediaBindingSeq<pgSeq（谓词≡过滤等价——JS findMany 过滤形态非 SQL WHERE〔C3a-6 评审遗留改名〕；干净已覆盖项目不在列）', async () => {
     // 四形态布景：a=纯 dirty / b=纯 lag / c=dirty∧lag / d=干净已覆盖
     const shapes: Record<string, { pgSeq: bigint; mediaBindingSeq: bigint; dirty: boolean }> = {
       [SEL_PIDS[0]]: { pgSeq: 5n, mediaBindingSeq: 5n, dirty: true },

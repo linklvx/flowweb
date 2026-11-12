@@ -594,16 +594,11 @@ export class ArtifactCommitService {
 
     if (cas.won) {
       if (params.media) {
-        // Media 状态提升（processing→completed 补 key/sha/size/sniff）+binding current-state upsert
+        // Media 状态提升（processing→completed 补 key/sha/size/sniff）
         await this.registration.completeRegisteredInTx(tx, params.media);
       }
-      if (params.media || videoMedia) {
-        const boundId = artifactMediaId!;
-        await this.registration.bindInTx(tx, {
-          mediaId: boundId, projectId: params.projectId, nodeId: params.nodeId, teamId: params.teamId,
-          role: 'primary', targetField: targetFieldOfKind(params.kind), targetItemId: '',
-        });
-      }
+      // C3a-7（spec §3.2-4）：finalize 零 MediaBinding 写——bindInTx 退役（单写者收口：binding 由
+      // 客户端 doc 帧→appendBatch 帧级投影出现；本事务只写 Media/NodeArtifact/intent/投影）。
       // video 不提升 Media（processing 维持——materialize 异步物化；superseded 亦然：产物入素材库，
       // MaterializeJob 按 claim 条件〔status=processing∧video mime〕照常接管）。
       await tx.artifactProjection.createMany({

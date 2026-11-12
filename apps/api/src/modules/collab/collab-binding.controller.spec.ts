@@ -1,39 +1,38 @@
 // apps/api/src/modules/collab/collab-binding.controller.spec.ts
-// Y1c T25b 四读径③（plan :337 登记——T22 残留面承接）：复制/粘贴 typed BindMedia/CloneBinding
-// 命令端点。★红形态=「shared 契约在位零 api/web 实现」（runtime-projection.ts:221-245 契约零消费）
-// ——端点不存在（import 红）→实装后绿。语义锚（T5c/T22 卡原文+COPY_PASTE_COMMAND_CONTRACT）：
-//   - BindMedia=源 nodeId/mediaId 作命令参数（服务端校验权限/归属后写 PG binding+发 feed 经投影
-//     poller 交付链——与 replaceMedia 同 PG 权威面）；expectedRev CAS（F2 同门）；
-//   - CloneBinding=绑定格位克隆（MediaBinding 行 role/targetField/targetItemId 槽位随行），
-//     NodeArtifact 不写（产物引用清空——lifecycle：复制≠产物继承）；
-//   - 跨团队 media ACL：源 media 团队≠目标项目团队→403 拒（collab-media replace 先例同口径）。
+// C3a-7（plan v3 Task C3a-7——spec 2026-11-11-foundation-batch-design.md §3.2-4 单写者+命令面两改）：
+// BindMedia=校验+NodeArtifact/Projection 写（**零 MediaBinding 读写**——绑定经投影出现，客户端 doc 帧
+// 自足）；CloneBinding 命令已删（第五轮 P1：web 生产零调用——type 非法 400）。
+//   - 源配对=pairArtifact 唯一腿（NodeArtifact 行）+doc 源节点兜底（窄端口 MediaRefsReadPort——
+//     分档映射写死：源节点不存在→400 SOURCE_NODE_MISSING；源 media 不在源节点→400 SOURCE_MEDIA_MISMATCH；
+//     跨队→403；doc 不可读/lease 失守→503 SOURCE_DOC_UNREADABLE）；
+//   - T25b 语义锚承前（expectedRev CAS F2 同门/跨团队 media ACL spec §5）。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
-import { ForbiddenException, NotFoundException, HttpStatus } from '@nestjs/common';
+import { ForbiddenException, NotFoundException, HttpStatus, ServiceUnavailableException } from '@nestjs/common';
 import { CollabBindingController } from './collab-binding.controller';
+import { MEDIA_REFS_READ_PORT, type MediaRefsReadPort } from './media-refs-read.port';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { NodeArtifactService } from '../artifact-core/node-artifact.service';
-import { MediaRegistrationService } from '../artifact-core/media-registration.service';
+import type { MediaRef } from '@flowweb/shared';
 
 const prisma: any = {};
 const perm = { assertEditorWithTeam: vi.fn() };
 const nodeArtifacts = { casUpsert: vi.fn() };
-const registration = { bindInTx: vi.fn() };
+const port: MediaRefsReadPort = { readNodeRefs: vi.fn() };
 
 function txOf<T>(impl: T): { $transaction: (fn: (tx: T) => Promise<unknown>) => Promise<unknown> } {
   return { $transaction: (fn: (tx: T) => Promise<unknown>) => fn(impl) };
 }
 const tx = {
   artifactProjection: { updateMany: vi.fn(), createMany: vi.fn() },
-  mediaBinding: { findFirst: vi.fn(), findMany: vi.fn() },
-  nodeArtifact: { findFirst: vi.fn() },
-  media: { findFirst: vi.fn(), findMany: vi.fn() },
+  mediaBinding: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), upsert: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },   // 零读写断言面（任意操作被调=红）
 };
 prisma.$transaction = (fn: (t: typeof tx) => Promise<unknown>) => fn(tx);
 
 const req = () => ({ user: { id: 'u1' } }) as any;
 const BIND_BODY = { type: 'BindMedia', sourceNodeId: 'n-src', mediaId: 'm1', targetNodeId: 'n-tgt', expectedRev: 0 };
+const ref = (mediaId: string): MediaRef => ({ nodeId: 'n-src', mediaId, role: 'primary', targetField: 'fileId', targetItemId: '' });
 
 async function make() {
   const moduleRef = await Test.createTestingModule({
@@ -42,7 +41,7 @@ async function make() {
       { provide: PrismaService, useValue: prisma },
       { provide: ProjectPermissionService, useValue: perm },
       { provide: NodeArtifactService, useValue: nodeArtifacts },
-      { provide: MediaRegistrationService, useValue: registration },
+      { provide: MEDIA_REFS_READ_PORT, useValue: port },
     ],
   }).compile();
   return moduleRef.get(CollabBindingController);
@@ -51,57 +50,83 @@ async function make() {
 beforeEach(() => {
   vi.clearAllMocks();
   perm.assertEditorWithTeam.mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' });
-  prisma.media = { findFirst: vi.fn(), findMany: vi.fn() };
-  prisma.mediaBinding = { findFirst: vi.fn(), findMany: vi.fn() };
+  prisma.media = { findFirst: vi.fn().mockResolvedValue({ teamId: 't1' }) };
   prisma.nodeArtifact = { findFirst: vi.fn() };
+  nodeArtifacts.casUpsert.mockResolvedValue({ won: true, rev: 1, artifactId: 'a1' });
 });
 
-describe('T25b 四读径③：BindMedia typed 命令', () => {
-  it('源 media 绑到目标槽位（CAS+投影 pending+binding upsert——replace 同 PG 权威面）+归属校验（源节点配对）', async () => {
+describe('C3a-7：BindMedia——校验+NodeArtifact/Projection 写（零 MediaBinding 读写）', () => {
+  it('pairArtifact 腿命中：CAS+投影 pending 落地+零 binding 面（端口不被调+tx.mediaBinding 零操作）', async () => {
     const c = await make();
-    prisma.media.findFirst.mockResolvedValue({ teamId: 't1' });
-    tx.mediaBinding.findFirst.mockResolvedValue({ id: 'b1' });   // 源配对（MediaBinding 面）
-    nodeArtifacts.casUpsert.mockResolvedValue({ won: true, rev: 1, artifactId: 'a1' });
+    prisma.nodeArtifact.findFirst.mockResolvedValue({ id: 'na1' });   // 源配对唯一腿（NodeArtifact 面）
     const out = await c.command('p1', BIND_BODY, req());
     expect(out).toEqual({ type: 'BindMedia', rev: 1, mediaId: 'm1' });
     expect(nodeArtifacts.casUpsert).toHaveBeenCalledWith(tx, expect.objectContaining({
       projectId: 'p1', nodeId: 'n-tgt', teamId: 't1', targetField: 'fileId', expectedRev: 0, mediaId: 'm1',
     }));
     expect(tx.artifactProjection.createMany).toHaveBeenCalled();   // 投影 pending（feed 经 poller deliverArtifact 链）
-    expect(registration.bindInTx).toHaveBeenCalledWith(tx, expect.objectContaining({
-      mediaId: 'm1', projectId: 'p1', nodeId: 'n-tgt', teamId: 't1',
-    }));
+    expect(port.readNodeRefs).not.toHaveBeenCalled();   // pairArtifact 命中=doc 兜底不触发
+    for (const op of Object.values(tx.mediaBinding)) expect(op).not.toHaveBeenCalled();   // ★零 binding 读写
   });
 
-  it('★跨团队 media ACL：源 media 团队≠目标项目团队→403 拒（spec §5 媒体权限——源团队私有媒体不随粘贴外泄）', async () => {
+  it('doc 兜底腿：pairArtifact 缺→端口读源节点 refs 命中 mediaId→放行（活 doc 读=命令面即时校验）', async () => {
     const c = await make();
-    prisma.media.findFirst.mockResolvedValue({ teamId: 't-other' });   // 他队 media
+    prisma.nodeArtifact.findFirst.mockResolvedValue(null);
+    (port.readNodeRefs as ReturnType<typeof vi.fn>).mockResolvedValue([ref('m1'), ref('m2')]);
+    const out = await c.command('p1', BIND_BODY, req());
+    expect(out).toEqual({ type: 'BindMedia', rev: 1, mediaId: 'm1' });
+    expect(port.readNodeRefs).toHaveBeenCalledWith('p1', 'n-src');
+  });
+
+  it('★分档①：源节点不在 doc（端口 null）→400 SOURCE_NODE_MISSING', async () => {
+    const c = await make();
+    prisma.nodeArtifact.findFirst.mockResolvedValue(null);
+    (port.readNodeRefs as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    await expect(c.command('p1', BIND_BODY, req())).rejects.toMatchObject({ errorCode: 'SOURCE_NODE_MISSING', status: 400 });
+    expect(nodeArtifacts.casUpsert).not.toHaveBeenCalled();
+  });
+
+  it('★分档②：源 media 不在源节点 refs→400 SOURCE_MEDIA_MISMATCH（任意 mediaId 冒配源 nodeId 拒）', async () => {
+    const c = await make();
+    prisma.nodeArtifact.findFirst.mockResolvedValue(null);
+    (port.readNodeRefs as ReturnType<typeof vi.fn>).mockResolvedValue([ref('m-other')]);
+    await expect(c.command('p1', BIND_BODY, req())).rejects.toMatchObject({ errorCode: 'SOURCE_MEDIA_MISMATCH', status: 400 });
+    expect(nodeArtifacts.casUpsert).not.toHaveBeenCalled();
+  });
+
+  it('★分档③：跨团队 media ACL——源 media 团队≠目标项目团队→403 拒（spec §5 媒体权限）', async () => {
+    const c = await make();
+    prisma.media.findFirst.mockResolvedValue({ teamId: 't-other' });
     await expect(c.command('p1', BIND_BODY, req())).rejects.toThrow(ForbiddenException);
     expect(nodeArtifacts.casUpsert).not.toHaveBeenCalled();
   });
 
-  it('media 不存在/软删→404；源配对缺失（任意 mediaId 冒配源 nodeId）→400 SOURCE_MEDIA_MISMATCH', async () => {
+  it('★分档④：doc 不可读/lease 失守（端口 ServiceUnavailableException）→503 SOURCE_DOC_UNREADABLE', async () => {
+    const c = await make();
+    prisma.nodeArtifact.findFirst.mockResolvedValue(null);
+    (port.readNodeRefs as ReturnType<typeof vi.fn>).mockRejectedValue(new ServiceUnavailableException('collab not serving (lease not held)'));
+    await expect(c.command('p1', BIND_BODY, req())).rejects.toMatchObject({ errorCode: 'SOURCE_DOC_UNREADABLE', status: HttpStatus.SERVICE_UNAVAILABLE });
+    expect(nodeArtifacts.casUpsert).not.toHaveBeenCalled();
+  });
+
+  it('media 不存在/软删→404', async () => {
     const c = await make();
     prisma.media.findFirst.mockResolvedValue(null);
     await expect(c.command('p1', BIND_BODY, req())).rejects.toThrow(NotFoundException);
-    prisma.media.findFirst.mockResolvedValue({ teamId: 't1' });
-    tx.mediaBinding.findFirst.mockResolvedValue(null);
-    tx.nodeArtifact.findFirst.mockResolvedValue(null);   // MediaBinding+NodeArtifact 两面均无配对
-    await expect(c.command('p1', BIND_BODY, req())).rejects.toMatchObject({ errorCode: 'SOURCE_MEDIA_MISMATCH', status: 400 });
   });
 
   it('CAS 0 行=superseded→409 ARTIFACT_REV_CONFLICT（F2 同门——禁静默覆盖并发生成）', async () => {
     const c = await make();
-    prisma.media.findFirst.mockResolvedValue({ teamId: 't1' });
-    tx.mediaBinding.findFirst.mockResolvedValue({ id: 'b1' });
+    prisma.nodeArtifact.findFirst.mockResolvedValue({ id: 'na1' });
     nodeArtifacts.casUpsert.mockResolvedValue({ won: false, rev: 3 });
     await expect(c.command('p1', BIND_BODY, req())).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
   });
 
-  it('坏 body（type 异/字段缺/expectedRev 非法）→400', async () => {
+  it('坏 body（type 异/字段缺/expectedRev 非法）→400；★CloneBinding 已删（type=CloneBinding→400 BINDING_COMMAND_BAD_BODY）', async () => {
     const c = await make();
     for (const bad of [
       {}, { type: 'Nope' },
+      { type: 'CloneBinding', sourceNodeId: 'n-src', targetNodeId: 'n-tgt' },   // ★命令删除锚（C3a-7）
       { ...BIND_BODY, mediaId: '' },
       { ...BIND_BODY, expectedRev: -1 },
       { ...BIND_BODY, expectedRev: 1.5 },
@@ -114,46 +139,5 @@ describe('T25b 四读径③：BindMedia typed 命令', () => {
     const c = await make();
     perm.assertEditorWithTeam.mockRejectedValue(new ForbiddenException());
     await expect(c.command('p1', BIND_BODY, req())).rejects.toThrow(ForbiddenException);
-  });
-});
-
-describe('T25b 四读径③：CloneBinding typed 命令（绑定格位保留+产物引用清空）', () => {
-  it('源 MediaBinding 行逐槽克隆到目标（role/targetField/targetItemId 格位保留）+NodeArtifact 零写（复制≠产物继承）', async () => {
-    const c = await make();
-    tx.mediaBinding.findMany.mockResolvedValue([
-      { mediaId: 'm1', role: 'primary', targetField: 'fileId', targetItemId: '' },
-      { mediaId: 'm2', role: 'primary', targetField: 'images', targetItemId: 'cell-2' },
-    ]);
-    prisma.media.findMany.mockResolvedValue([{ id: 'm1', teamId: 't1' }, { id: 'm2', teamId: 't1' }]);
-    const out = await c.command('p1', { type: 'CloneBinding', sourceNodeId: 'n-src', targetNodeId: 'n-tgt' }, req());
-    expect(out).toEqual({ type: 'CloneBinding', cloned: 2, skippedDeleted: 0 });
-    expect(registration.bindInTx).toHaveBeenCalledTimes(2);
-    expect(registration.bindInTx).toHaveBeenCalledWith(tx, expect.objectContaining({
-      mediaId: 'm2', projectId: 'p1', nodeId: 'n-tgt', teamId: 't1', role: 'primary', targetField: 'images', targetItemId: 'cell-2',
-    }));
-    expect(nodeArtifacts.casUpsert).not.toHaveBeenCalled();   // ★产物引用清空（NodeArtifact 不挂旧产物）
-  });
-
-  it('★跨团队任一绑定 media→整命令 403 拒（fail-closed 原子——部分克隆=静默丢绑定面）', async () => {
-    const c = await make();
-    tx.mediaBinding.findMany.mockResolvedValue([{ mediaId: 'm1', role: 'primary', targetField: 'fileId', targetItemId: '' }]);
-    prisma.media.findMany.mockResolvedValue([{ id: 'm1', teamId: 't-other' }]);
-    await expect(c.command('p1', { type: 'CloneBinding', sourceNodeId: 'n-src', targetNodeId: 'n-tgt' }, req())).rejects.toThrow(ForbiddenException);
-    expect(registration.bindInTx).not.toHaveBeenCalled();
-  });
-
-  it('软删 media 槽位跳过计数（skippedDeleted——引用已死不 FK 违例）+零绑定源=cloned 0 幂等 no-op', async () => {
-    const c = await make();
-    tx.mediaBinding.findMany.mockResolvedValue([
-      { mediaId: 'm1', role: 'primary', targetField: 'fileId', targetItemId: '' },
-      { mediaId: 'm-gone', role: 'primary', targetField: 'images', targetItemId: 'c1' },
-    ]);
-    prisma.media.findMany.mockResolvedValue([{ id: 'm1', teamId: 't1' }]);   // m-gone 软删缺席
-    const out = await c.command('p1', { type: 'CloneBinding', sourceNodeId: 'n-src', targetNodeId: 'n-tgt' }, req());
-    expect(out).toEqual({ type: 'CloneBinding', cloned: 1, skippedDeleted: 1 });
-    expect(registration.bindInTx).toHaveBeenCalledTimes(1);
-    tx.mediaBinding.findMany.mockResolvedValue([]);
-    const out2 = await c.command('p1', { type: 'CloneBinding', sourceNodeId: 'n-src', targetNodeId: 'n-tgt' }, req());
-    expect(out2).toEqual({ type: 'CloneBinding', cloned: 0, skippedDeleted: 0 });
   });
 });

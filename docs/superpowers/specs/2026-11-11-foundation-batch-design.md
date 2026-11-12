@@ -107,6 +107,7 @@ verify FULL+四卡双评审 ✅+三向 allowlist 对象门/三门禁/单写者�
 |---|---|---|
 | 销案（v5） | v4「AT TIME ZONE naive 过渡」（Date 参数绑定替代）；v4「CloneBinding 改 doc 命令」（直接删除命令替代）；v4「DELETING 投影跳过」（照写+中止语义）；v4「恰好 165 转换」（列级 census 派生）；v4「BEFORE INSERT OR UPDATE」（UPDATE 始终+INSERT 仅 NULL） | v5 修订记录 |
 | 销案（v5.3/C2-5） | §3.1-5 `media_fact_version_lag{factType}` 推翻——factVersion 跨 factType 全局递增，natural 行恒假滞后（永久假 lag 反模式）；落 `media_fact_age_seconds{factType}`+`media_fact_unfinished_state_age_seconds`（status≠completed 且未软删）+`media_fact_read_total{result}`（ebffd948；runbook §14.2） | 第七轮/plan v3 |
+| 销案（C3a-6） | §3.2-4「锁内 rebuild」措辞张力销案——按 §0/§3.2-3 操作性条款（锁外读 pgSeq 快照+分页写+短事务四条件 CAS）落地（census ㉞ lockProject 恰 2 调用点佐证 rebuild 不在锁内族；第七轮操作性条款优先；efbbfcac；binding-rebuild.service 头注登记含 stale-tail 清理与并发 append 瞬时交错残留面） | C3a 双评审 |
 | 销案（C2-2 实现） | §3.1-2「INSERT..SELECT..WHERE EXISTS(Media) 防 FK 竞态」形态——双函数终态下每路径写 fact 前已同事务锁/验证 Media 行（updateMany CAS / bump UPDATE..RETURNING rows!==1 即 throw），FK 竞态被行锁序结构性关闭；EXISTS 形态销案（行锁等价达成，C2-2 双评审裁定） | C2 双评审 |
 | 登记 | loopback 退役单独立项（前置=oracle 跑满保留期+coverage 证据）；复核窗拆除单独立项 | C3b 后 |
 | 登记 | 跨 team 复制/项目转移（个人→团队媒体重新归属流程——产品缺口，安全默认=跨 team 拒绝已在位） | Y2/产品 |

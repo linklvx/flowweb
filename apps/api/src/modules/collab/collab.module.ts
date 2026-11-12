@@ -24,7 +24,8 @@ import { CollabDocController } from './collab-doc.controller';
 import { CollabReadController } from './collab-read.controller';
 import { CollabWriteController } from './collab-write.controller';
 import { CollabMediaController } from './collab-media.controller';   // Y1a T11：replaceMedia/clearMedia 命令（用户写 fileId 必经命令——PG NodeArtifact CAS）
-import { CollabBindingController } from './collab-binding.controller';   // T25b 四读径③：BindMedia/CloneBinding typed 命令（复制/粘贴——同 NodeArtifactService/MediaRegistrationService 消费面）
+import { CollabBindingController } from './collab-binding.controller';   // T25b 四读径③：BindMedia typed 命令（C3a-7：CloneBinding 删+零 MediaBinding 读写——校验+NodeArtifact/Projection 面）
+import { CollabMediaRefsReadAdapter, MEDIA_REFS_READ_PORT } from './media-refs-read.port';   // C3a-7：BindMedia doc 源节点兜底窄端口（CollabDocumentService 适配——controller 注入端口防 DI 环）
 import { CollabRecoveryAcceptController } from './collab-recovery-accept.controller';
 import { CollabCanvasReadController } from './collab-canvas-read.controller';   // T25b 微批 C-1：用户面画布读（assertEditor 门+标准 envelope）   // T25b B5：server-restored 管理员裁定接受（OWNER/ADMIN 门）
 import { CollabMaintenanceService } from './collab-maintenance.service';   // Y1c T27：维护窗口+世代切换状态机（单换代入口——freeze 4413/行级关闸/SWITCHING 事务后 close）
@@ -42,11 +43,11 @@ import { SessionService } from '../../auth/session.service';
 import { TeamModule } from '../team/team.module';
 import { CanvasModule } from '../canvas/canvas.module';   // Y0b-4 T9：CanvasService（export-fresh 副本创建）——单向依赖无环
 import { WorkerPresenceModule } from '../worker-presence/worker-presence.module';   // Y0c T29-II（Z130②）：CollabReadyService workers 维度供数
-import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   // Y1a T11：CollabMediaController 消费 NodeArtifactService/MediaRegistrationService（CAS+bindInTx）
+import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   // Y1a T11：CollabMediaController 消费 NodeArtifactService（CAS——C3a-7：bindInTx 退役，MediaRegistrationService 不再入命令面）
 
 @Module({
   imports: [TeamModule, CanvasModule, WorkerPresenceModule, ArtifactCoreModule],
-  controllers: [CollabReadyController, CollabDocController, CollabReadController, CollabWriteController, TelemetryController, CollabMediaController, RuntimeFeedController, CollabRecoveryImportController, CollabBindingController, CollabRecoveryAcceptController, CollabCanvasReadController, CollabMaintenanceController],   // Y1c T27：维护控制面（admin guard+幂等键）   // T25b 微批 C-1：用户面画布读端点（B 场景裁定 current 侧真值——worker 通道不动）   // T25b B5：server-restored 管理员接受面   // T25b 四读径③：复制/粘贴 typed BindMedia/CloneBinding 命令端点   // Y1c T25：recovery import 端点   // Y1c T22：runtime-feed 游标端点（GET snapshot/events——HTTP 唯一交付）   // Y0a-3 T7（Z14）：providers 不注册路由——HTTP 面必须 controllers；Y0b-4 T8：shrink 端点；Y0b-5 T1：遥测端点；Y0c T26：worker 读端点（偏离 29）/T27：worker 写端点；Y1a T11：媒体命令端点
+  controllers: [CollabReadyController, CollabDocController, CollabReadController, CollabWriteController, TelemetryController, CollabMediaController, RuntimeFeedController, CollabRecoveryImportController, CollabBindingController, CollabRecoveryAcceptController, CollabCanvasReadController, CollabMaintenanceController],   // Y1c T27：维护控制面（admin guard+幂等键）   // T25b 微批 C-1：用户面画布读端点（B 场景裁定 current 侧真值——worker 通道不动）   // T25b B5：server-restored 管理员接受面   // T25b 四读径③：复制/粘贴 typed BindMedia 命令端点（C3a-7：CloneBinding 删）   // Y1c T25：recovery import 端点   // Y1c T22：runtime-feed 游标端点（GET snapshot/events——HTTP 唯一交付）   // Y0a-3 T7（Z14）：providers 不注册路由——HTTP 面必须 controllers；Y0b-4 T8：shrink 端点；Y0b-5 T1：遥测端点；Y0c T26：worker 读端点（偏离 29）/T27：worker 写端点；Y1a T11：媒体命令端点
   providers: [
     // T34（Z45③）：三 token useValue→useFactory——useValue 实参在模块加载期求值（dotenv→validateEnv
     // 写回之前=Z79 违规面），useFactory 在 DI 解析期（NestFactory.create，恒在 main.ts validateEnv 后）
@@ -78,6 +79,8 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
     CollabShrinkService,   // Y0b-4 T8：REST shrink（Q-G 影子预演/TOCTOU 同步段/信号量/thaw）
     CollabMaintenanceService,   // Y1c T27：维护状态机（vacuum 委托单换代入口+REST 控制面载体——gateway 尾参/shrink @Optional 双消费）
     BindingRebuildService,   // C3a-6：binding 全量 rebuild（gateway 尾参注入——单例与 gateway 同 prisma/repo 实例面）
+    CollabMediaRefsReadAdapter,   // C3a-7：BindMedia doc 源节点兜底端口适配（读活 doc——命令面即时校验允许）
+    { provide: MEDIA_REFS_READ_PORT, useExisting: CollabMediaRefsReadAdapter },   // C3a-7：端口令牌→适配器（测试 useValue 注入 mock）
     TelemetryService,   // Y0b-5 T1：sendBeacon 遥测批次 ingest（一律 204——计数族在 store.metrics）
     AuditService,   // T5 递延至此——drain 审计消费（team/subscription module 直注册同款先例）
     { provide: REDIS_CLIENT, useFactory: () => createManagedRedis(process.env.REDIS_URL, {

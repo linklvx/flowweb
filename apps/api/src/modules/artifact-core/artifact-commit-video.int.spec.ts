@@ -100,7 +100,7 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
     await prisma.$disconnect();
   });
 
-  it('video finalize 三件套：finalize 单事务建 Media(processing)+NodeArtifact materializing+settle/complete+投影 fileId 交付 mediaId', async () => {
+  it('video finalize 三件套：finalize 单事务建 Media(processing)+NodeArtifact materializing+settle/complete+投影 fileId 交付 mediaId+★零 MediaBinding 写（C3a-7）', async () => {
     const c = await claimIntent({ jobId: 't12vf-happy' });
     await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
     const sourceUrl = `https://provider.example.com/v-${randomUUID().slice(0, 8)}.mp4`;
@@ -137,11 +137,11 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
     expect(art!.mediaId).toBe(out.mediaId);
     expect(art!.source).toBe('generated');
     expect(art!.sourceIntentRowId).toBe(c.intent.id);
-    // binding current-state
+    // ★C3a-7：finalize 零 MediaBinding 写（spec §3.2-4——bindInTx 退役；binding 由 doc 帧投影出现）
     const binding = await prisma.mediaBinding.findUnique({
       where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: c.intent.nodeId, role: 'primary', targetField: 'fileId', targetItemId: '' } },
     });
-    expect(binding!.mediaId).toBe(out.mediaId);
+    expect(binding).toBeNull();
     // ── 件三：settle/complete+投影 fileId 交付 mediaId（T10 过渡模式：投影行 pending）──
     const intent = await prisma.generationIntent.findUnique({ where: { id: c.intent.id } });
     expect(intent!.status).toBe('SUCCEEDED');

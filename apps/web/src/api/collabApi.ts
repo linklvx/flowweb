@@ -227,15 +227,14 @@ export function fetchServerCanvas(projectId: string): Promise<import('@flowweb/s
   return apiFetch<import('@flowweb/shared').CanvasReadModel>(`/projects/${projectId}/collab/canvas`);
 }
 
-// ════ Y1c T25b 四读径③：复制/粘贴 typed BindMedia/CloneBinding 命令（shared 契约 typed body）════
+// ════ Y1c T25b 四读径③：复制/粘贴 typed BindMedia 命令（shared 契约 typed body；C3a-7：CloneBinding
+// 命令删除——copy/paste=客户端 doc 帧自足，绑定经投影收敛）════
 
-export type BindingCommandResult =
-  | { type: 'BindMedia'; rev: number; mediaId: string }
-  | { type: 'CloneBinding'; cloned: number; skippedDeleted: number };
+export type BindingCommandResult = { type: 'BindMedia'; rev: number; mediaId: string };
 
-/** BindMedia：源节点媒体绑到目标节点（源 nodeId/mediaId 作命令参数——服务端 ACL/归属校验+PG
- *  binding+NodeArtifact CAS；expectedRev CAS 冲突 throw MediaRevConflictError〔F2 同门——粘贴档
- *  禁静默覆盖并发生成〕）。 */
+/** BindMedia：源节点媒体绑到目标节点（源 nodeId/mediaId 作命令参数——服务端 ACL/源配对校验+PG
+ *  NodeArtifact CAS；expectedRev CAS 冲突 throw MediaRevConflictError〔F2 同门——粘贴档
+ *  禁静默覆盖并发生成〕）。C3a-7：命令零 MediaBinding 读写——绑定经投影出现。 */
 export function bindMedia(projectId: string, command: import('@flowweb/shared').BindMediaCommand): Promise<BindingCommandResult> {
   return apiFetch<BindingCommandResult>(`/projects/${projectId}/collab/bindings`, {
     method: 'POST',
@@ -246,14 +245,5 @@ export function bindMedia(projectId: string, command: import('@flowweb/shared').
       throw new MediaRevConflictError('槽位已换代', { status: 409, errorCode: 'ARTIFACT_REV_CONFLICT', body: undefined });
     }
     throw e;
-  });
-}
-
-/** CloneBinding：源节点绑定格位克隆到目标节点（MediaBinding 槽位随行；NodeArtifact 零写=产物
- *  引用清空由目标节点重新产生）。 */
-export function cloneBinding(projectId: string, command: import('@flowweb/shared').CloneBindingCommand): Promise<BindingCommandResult> {
-  return apiFetch<BindingCommandResult>(`/projects/${projectId}/collab/bindings`, {
-    method: 'POST',
-    body: JSON.stringify(command),
   });
 }

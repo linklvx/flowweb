@@ -20,7 +20,6 @@ import { fillDoc,
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { NodeArtifactService } from '../artifact-core/node-artifact.service';
-import { MediaRegistrationService } from '../artifact-core/media-registration.service';
 import { CollabMediaController } from './collab-media.controller';
 import { toDocLike } from './doc-like.util';
 import { deleteTeamsWithPass } from '../../test-utils/intent-fixture';
@@ -31,7 +30,6 @@ const hasDb = !!process.env.DATABASE_URL;
 const prisma = new PrismaClient();
 const perm = new ProjectPermissionService(prisma as unknown as PrismaService);
 const nodeArtifacts = new NodeArtifactService();
-const registration = new MediaRegistrationService(prisma as unknown as PrismaService, {} as never);
 
 let controller: CollabMediaController;
 let doc: Y.Doc;
@@ -93,7 +91,6 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
       perm,
       prisma as unknown as PrismaService,
       nodeArtifacts,
-      registration,
     );
   });
 
@@ -124,7 +121,7 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
   });
 
   describe('POST replace（变换保存/手工换图路径）', () => {
-    it('CAS 胜：rev+1+source=replace+state=stored+新 pending 投影+旧 pending 投影 superseded+binding upsert——T15：零 doc 直写（交付归投影 poller）', async () => {
+    it('CAS 胜：rev+1+source=replace+state=stored+新 pending 投影+旧 pending 投影 superseded+★零 MediaBinding 写（C3a-7——bindInTx 退役，绑定经投影出现）——T15：零 doc 直写（交付归投影 poller）', async () => {
       await seedSlot(NODE, 1, MEDIA_OLD);
       // 旧代 pending 投影（T10 finalize 形态）——胜者命令后必须 superseded
       const artifactId = (await slotRow(NODE))!.id;
@@ -147,11 +144,9 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
         [1, 'superseded', MEDIA_OLD],
         [2, 'pending', MEDIA_NEW],
       ]);
-      // binding current-state upsert（键 [projectId,nodeId,role,targetField,targetItemId]）
-      const binding = await prisma.mediaBinding.findUnique({
-        where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: NODE, role: 'primary', targetField: 'fileId', targetItemId: '' } },
-      });
-      expect(binding?.mediaId).toBe(MEDIA_NEW);
+      // ★C3a-7：replace 零 MediaBinding 写（spec §3.2-4——replaceMedia 只写 NodeArtifact/Projection；
+      // binding 由客户端 doc 帧→appendBatch 投影出现）
+      expect(await prisma.mediaBinding.findFirst({ where: { projectId: PID, nodeId: NODE } })).toBeNull();
       // T15 收口：命令零 doc 直写（doc data 不被命令触碰——pending 投影行驱动 poller 异步收敛；
       // poll 驱动的 doc 终态断言归 projection-outbox.poller.int.spec 真双端面）
       const data = (doc.getMap('nodes').get(NODE) as Y.Map<any>).get('data') as Y.Map<any>;

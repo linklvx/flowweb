@@ -11,7 +11,7 @@ import type { CanvasReadModel } from '../canvas/doc-codec';
 import {
   RuntimeProjection, RuntimeNodeProjectionEntry, RuntimeProjectionUpdate, mergeRuntimeProjection,
   composeRenderModel, isActiveTombstone,
-  formatPublicSnapshotCacheKey, BindMediaCommand, CloneBindingCommand, FOUR_READ_PATHS,
+  formatPublicSnapshotCacheKey, BindMediaCommand, FOUR_READ_PATHS,
   COPY_PASTE_COMMAND_CONTRACT,
   RUNTIME_STORE_TTL_DAYS, RUNTIME_STORE_TTL_MS, RuntimeStoreFreshness,
   resolveRuntimeStoreFreshness, formatRuntimeStaleLabel, RUNTIME_STORE_UI_CONTRACT,
@@ -224,13 +224,11 @@ describe('Y1c T5c 契约冻结：四读径契约（doc 无服务端字段后的�
     expect(FOUR_READ_PATHS.userExport).toContain('serializeCanvas');
     expect(FOUR_READ_PATHS.userExport).toContain('不作用户导出');
   });
-  it('③复制/粘贴=typed BindMedia/CloneBinding 命令：源 nodeId/mediaId 作命令参数（非 doc 字段）', () => {
+  it('③复制/粘贴=typed BindMedia 命令：源 nodeId/mediaId 作命令参数（非 doc 字段；C3a-7：CloneBinding 命令删除）', () => {
     // T25b：BindMedia+expectedRev（CAS 纪律——replaceMedia/clearMedia 同门 F2 论证登记）
     const bind: BindMediaCommand = { type: 'BindMedia', sourceNodeId: 'n1', mediaId: 'm1', targetNodeId: 'n9', expectedRev: 0 };
-    const clone: CloneBindingCommand = { type: 'CloneBinding', sourceNodeId: 'n1', targetNodeId: 'n9' };
     expect(bind.type).toBe('BindMedia');
     expect(Object.keys(bind).sort()).toEqual(['expectedRev', 'mediaId', 'sourceNodeId', 'targetNodeId', 'type']);
-    expect(Object.keys(clone).sort()).toEqual(['sourceNodeId', 'targetNodeId', 'type']);
     expect(COPY_PASTE_COMMAND_CONTRACT.paramsNotDocFields).toContain('命令参数');
     expect(COPY_PASTE_COMMAND_CONTRACT.clearedIds).toContain('mediaId');
     expect(COPY_PASTE_COMMAND_CONTRACT.clearedIds).toContain('fileId');

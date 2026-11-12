@@ -19,6 +19,13 @@
 // 「持续 dirty」可观测（记录性注释——spec §3.2-7 指标清单无 binding_dirty 项）：分诊面=本文件
 // cas-miss WARN 日志+needsBindingRebuild 选中谓词（恒在候选集）；gap_seq/watermark_lag 指标归
 // C3a-8 落（§3.2-3 观测面），不在本卡重复发明。
+//
+// 【spec 措辞张力销案（C3a-6 评审遗留——本实现按操作性条款落地）】①spec §3.2-4「binding 权威写=
+// appendBatch inTx 投影+**锁内** rebuild」与 §0/§3.2-3「**锁外**读 pgSeq 快照+分页写+短事务 CAS」
+// 张力：按后者（操作性条款——第七轮裁定优先）落地为锁外分页写+四条件 CAS 协议；census ㉞ lockProject
+// 恰 2 调用点（erasure 批/维护写）佐证 rebuild 不在锁内族。②stale-tail 清理（本文件尾腿）与并发
+// append 的瞬时交错残留面：新节点 witness 行可能被暂删（append 未及落）→ dirty 由 append 侧置位/
+// 水位不推兜底+下轮 rebuild 重建；并发窗口的最终保护=media-gc doc 扫描护栏（binding 非唯一证人）。
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as Y from 'yjs';

@@ -200,8 +200,9 @@ export const FOUR_READ_PATHS = {
   publicSnapshot: '公开快照=toPublicReadModel(renderModel,policy)——发布时服务端 PG projection join+缓存键加 projectionSeq/feedSeq（旧快照键会拼旧文档+新图片）',
   /** ②用户导出/备份：render model（serializeCanvas 仅 doc 备份不作用户导出——语义快照无投影）。 */
   userExport: '用户导出/备份=render model（serializeCanvas 仅 doc 备份不作用户导出）',
-  /** ③复制/粘贴/duplicate：typed 命令（见 COPY_PASTE_COMMAND_CONTRACT）。 */
-  copyPaste: '复制/粘贴/duplicate=typed BindMedia/CloneBinding 命令（源 nodeId/mediaId 作命令参数非 doc 字段）',
+  /** ③复制/粘贴/duplicate：typed 命令（见 COPY_PASTE_COMMAND_CONTRACT；C3a-7：CloneBinding 命令删除——
+   *   copy/paste=客户端 doc 帧自足，绑定经投影收敛，服务端只留 BindMedia 校验面）。 */
+  copyPaste: '复制/粘贴/duplicate=typed BindMedia 命令（源 nodeId/mediaId 作命令参数非 doc 字段——C3a-7 单写者收口）',
   /** ④video-work clone：服务端用 render model 复制（不读 doc 猜 fileId）。 */
   videoWorkClone: 'video-work clone=服务端用 render model 复制（不读 doc 猜 fileId）',
 } as const;
@@ -219,14 +220,15 @@ export function formatPublicSnapshotCacheKey(k: PublicSnapshotCacheKeyInput): st
 }
 
 /** ③复制/粘贴 typed 命令：BindMedia=源节点媒体绑到目标节点（源 nodeId/mediaId 作**命令参数**——
- *  非 doc 字段）；CloneBinding=源节点绑定关系克隆到目标节点。服务端校验权限/归属后写 PG binding
- *  +发 feed（T22/T25 实装——**T25b 承接实装**）。
+ *  非 doc 字段）。C3a-7（spec 2026-11-11-foundation-batch §3.2-4 单写者收口）：BindMedia=校验
+ *  （源配对 pairArtifact 唯一腿+doc 源节点兜底窄端口）+NodeArtifact CAS/投影 pending——**零
+ *  MediaBinding 读写**（绑定经 appendBatch 帧级投影出现，客户端 doc 帧自足）；CloneBindingCommand
+ *  已删（web 生产零调用实证——copy/paste=客户端 doc 帧自足；若产品确需服务端克隆→Y2 doc 命令
+ *  执行器立项）。
  *  T25b 字段扩展登记（plan :337「若字段不足按需扩并论证」）：BindMediaCommand+expectedRev——
  *  论证=NodeArtifact 槽位 CAS 纪律（replaceMedia/clearMedia 同门 F2：静默复读槽位换 rev 重试已
  *  退役——盲写覆盖并发生成违反「冲突后保留先提交者」协作语义；粘贴目标槽位与手工替换共享同一
- *  rev 权威面，禁第二套宽松写径）。CloneBindingCommand 零扩——绑定格位克隆不触 NodeArtifact
- *  （产物引用清空=COPY_PASTE_COMMAND_CONTRACT.lifecycle：lifecycleSeq 新生成、不挂旧产物），
- *  MediaBinding current-state upsert 无 rev 面。 */
+ *  rev 权威面，禁第二套宽松写径）。 */
 export interface BindMediaCommand {
   type: 'BindMedia';
   sourceNodeId: string;
@@ -234,12 +236,6 @@ export interface BindMediaCommand {
   targetNodeId: string;
   /** 目标槽位期望 rev（CAS——0=新槽 INSERT；并发换代 409 ARTIFACT_REV_CONFLICT 由调用方用户裁定） */
   expectedRev: number;
-}
-
-export interface CloneBindingCommand {
-  type: 'CloneBinding';
-  sourceNodeId: string;
-  targetNodeId: string;
 }
 
 /** 复制/粘贴纪律（§6.4 ③行）：复制只复制用户域字段；产物身份族一律清空重产生；cells 格位保留但

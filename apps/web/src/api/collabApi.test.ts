@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   shrink, exportFresh, vacuum, getMediaSlot, postMediaCommand,
   replaceNodeMedia, clearNodeMedia, MediaRevConflictError,
-  bindMedia, cloneBinding, fetchServerCanvas, importDraftEnvelope,
+  bindMedia, fetchServerCanvas, importDraftEnvelope,
 } from './collabApi';
 
 const okEnvelope = (data: unknown) => ({ ok: true, json: async () => ({ code: 0, data, message: 'ok' }) });
@@ -154,8 +154,8 @@ describe('collabApi（T11 媒体命令）', () => {
   });
 });
 
-// ══ T25b 四读径③：BindMedia/CloneBinding typed 命令（复制/粘贴——shared 契约 typed body）══
-describe('collabApi（T25b 四读径③：BindMedia/CloneBinding）', () => {
+// ══ T25b 四读径③：BindMedia typed 命令（复制/粘贴——shared 契约 typed body；C3a-7：CloneBinding 命令删除）══
+describe('collabApi（T25b 四读径③：BindMedia）', () => {
   const err409 = () => ({
     ok: false, status: 409, statusText: 'Conflict',
     clone: () => ({ json: async () => ({ code: -1, message: '槽位已换代', errorCode: 'ARTIFACT_REV_CONFLICT' }) }),
@@ -197,13 +197,5 @@ describe('collabApi（T25b 四读径③：BindMedia/CloneBinding）', () => {
     const body = JSON.parse((global.fetch as any).mock.calls[0][1].body);
     expect(body.deletionNodeIds).toEqual(['n3']);   // T25b I-3：删除确认 typed 随 body
     expect(body.conflictChoices).toEqual({ n1: 'replace' });
-  });
-
-  it('cloneBinding：POST 同端点 typed body（CloneBindingCommand）', async () => {
-    (global.fetch as any).mockResolvedValue(okEnvelope({ type: 'CloneBinding', cloned: 2, skippedDeleted: 1 }));
-    const r = await cloneBinding('p1', { type: 'CloneBinding', sourceNodeId: 'n-src', targetNodeId: 'n-tgt' });
-    expect((global.fetch as any).mock.calls[0][0]).toBe('/api/projects/p1/collab/bindings');
-    expect(JSON.parse((global.fetch as any).mock.calls[0][1].body)).toEqual({ type: 'CloneBinding', sourceNodeId: 'n-src', targetNodeId: 'n-tgt' });
-    expect(r).toEqual({ type: 'CloneBinding', cloned: 2, skippedDeleted: 1 });
   });
 });

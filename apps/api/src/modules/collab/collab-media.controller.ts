@@ -2,7 +2,8 @@
 // replaceMedia/clearMedia 显式命令——用户写 fileId 必经本命令（PG NodeArtifact.rev CAS 权威；
 // 0 行=superseded → 409 ARTIFACT_REV_CONFLICT；服务端特权写收敛为 deliverArtifact/replaceMedia/
 // clearMedia 三 op）。成功=NodeArtifact CAS（rev+1、source='replace'）+新 ArtifactProjection pending
-// （[artifactId,artifactRev]）+旧非终态投影 superseded+（replace）MediaBinding current-state upsert；
+// （[artifactId,artifactRev]）+旧非终态投影 superseded（C3a-7：零 MediaBinding 写——bindInTx 退役，
+// 目标槽 binding 由客户端 doc 帧→appendBatch 帧级投影出现）；
 // 随后 doc 过渡期直写（T15 投影 poller 未建前用 T10 同款 writeBatch 保交付；投影行照插——poller
 // 上线后内容等值 fast path 收敛）。
 // 端点面：GET /api/projects/:id/collab/nodes/:nodeId/media=槽位状态 {targetField,rev,mediaId}
@@ -18,7 +19,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { NodeArtifactService } from '../artifact-core/node-artifact.service';
-import { MediaRegistrationService } from '../artifact-core/media-registration.service';
 
 /** expectedRev 上界（Minor#2）：无槽位行走 INSERT rev=expectedRev+1——上界 2^31-2 使新 rev 恰容
  *  PG int4 max（2^31-1）；超出=确定 400 归 BAD_BODY（防 22003 溢出→500 噪声）。 */
@@ -49,7 +49,6 @@ export class CollabMediaController {
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(NodeArtifactService) private readonly nodeArtifacts: NodeArtifactService,
-    @Inject(MediaRegistrationService) private readonly registration: MediaRegistrationService,
   ) {}
 
   /** 槽位状态（primary/fileId 槽单源——四客户端写路径全为 imageGen fileId 面）。 */
@@ -108,7 +107,7 @@ export class CollabMediaController {
       if (media.teamId !== teamId) throw new ForbiddenException('跨团队媒体引用被拒');
     }
 
-    // ── PG 单事务：CAS（0 行=superseded→409）+旧非终态投影 superseded+新 pending 投影+binding upsert ──
+    // ── PG 单事务：CAS（0 行=superseded→409）+旧非终态投影 superseded+新 pending 投影 ──
     const cas = await this.prisma.$transaction(async (tx) => {
       const cas = await this.nodeArtifacts.casUpsert(tx, {
         projectId, nodeId, teamId, targetField: 'fileId',
@@ -136,12 +135,8 @@ export class CollabMediaController {
         }],
         skipDuplicates: true,   // [artifactId,artifactRev] 唯一
       });
-      if (isReplace) {
-        await this.registration.bindInTx(tx, {
-          mediaId: mediaId as string, projectId, nodeId, teamId,
-          role: 'primary', targetField: 'fileId', targetItemId: '',
-        });
-      }
+      // C3a-7（spec §3.2-4）：replaceMedia 只写 NodeArtifact/Projection——零 MediaBinding 写
+      //（bindInTx 退役；目标槽 binding 由客户端 doc 帧→appendBatch 帧级投影出现）。
       return cas;
     });
 

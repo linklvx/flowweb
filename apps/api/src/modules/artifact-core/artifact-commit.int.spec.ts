@@ -117,7 +117,7 @@ const restoreBalance = async () => {
     await prisma.$disconnect();
   });
 
-  it('image 同步链 happy：stage→下载→sha/sniff→上传→finalize 单事务——Media completed（content-addressed key）+NodeArtifact stored rev=1+binding+投影 pending+settle', async () => {
+  it('image 同步链 happy：stage→下载→sha/sniff→上传→finalize 单事务——Media completed（content-addressed key）+NodeArtifact stored rev=1+★零 MediaBinding 写（C3a-7）+投影 pending+settle', async () => {
     const c = await claimIntent({ jobId: 't10ac-happy' });
     await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
     const out = await commitFor(c);
@@ -137,11 +137,12 @@ const restoreBalance = async () => {
     expect(art!.mediaId).toBe(out.mediaId);
     expect(art!.sourceIntentRowId).toBe(c.intent.id);
     expect(art!.sourceExecSeq).toBe(c.intent.execSeq);
-    // binding current-state + 投影 pending
+    // ★C3a-7：finalize 零 MediaBinding 写（spec §3.2-4——bindInTx 退役；binding 由 doc 帧投影出现）
     const binding = await prisma.mediaBinding.findUnique({
       where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: c.intent.nodeId, role: 'primary', targetField: 'fileId', targetItemId: '' } },
     });
-    expect(binding!.mediaId).toBe(out.mediaId);
+    expect(binding).toBeNull();
+    // 投影 pending
     const proj = await prisma.artifactProjection.findUnique({ where: { artifactId_artifactRev: { artifactId: art!.id, artifactRev: 1 } } });
     expect(proj!.state).toBe('pending');
     expect(proj!.mediaId).toBe(out.mediaId);

@@ -26,17 +26,19 @@ const ids = VERIFY_STEPS.map((s) => s.id);
 //   一致/DocNodeRecord 零残留/execSeq 裸比较禁令，fast 外惯例同款邻位〕=30 步；
 //   Y1c T5c 授权移位：check-collab-census 自 check-spec-consistency 邻位前移至 api-tsc-scripts 后
 //   〔census 静态门进 verify fast——plan T5c 配套节六组新检查；步骤总数 30 不变、fast 15→16——
-//   原「check-collab-test-facade 紧随 check-collab-census」邻位随移位解除，façade 门独立执法不变〕）
+//   原「check-collab-test-facade 紧随 check-collab-census」邻位随移位解除，façade 门独立执法不变〕；
+//   C3a-7 授权插一步：check-media-binding-writers 紧随 check-plan-census〔MediaBinding 静态单写者
+//   门禁——spec 2026-11-11-foundation-batch §3.2-4/§4，fast 外惯例同款邻位〕=32 步）
 const BASELINE_IDS = [
   'doc-gate', 'verify-indexes', 'check-migration-additive', 'check-migration-immutability', 'check-migrate-diff',
   'check-fresh-replay', 'check-pricing-coverage', 'check-ledger-single-writer', 'check-nginx-budget', 'shared-build',
   'shared-typecheck', 'shared-test', 'web-tsc', 'api-tsc', 'api-tsc-scripts', 'check-collab-census',
   'api-nest-build', 'check-no-testutils-in-dist', 'web-test', 'api-test', 'api-test-heavy', 'bench-load-smoke',
   'web-lint', 'check-ecosystem', 'check-spec-consistency', 'check-collab-test-facade',
-  'check-collab-module-size', 'check-exact-pins', 'check-plan-census', 'scripts-node-test', 'api-eslint',
+  'check-collab-module-size', 'check-exact-pins', 'check-plan-census', 'check-media-binding-writers', 'scripts-node-test', 'api-eslint',
 ];
 
-test('③ full 的 id 序列逐字等于引入时的 30 步基线常量（R4a\' +api-test-heavy；Y1a T0 +check-exact-pins；Y1a T3 +check-plan-census；Y1c T5c census 移位 fast）', () => {
+test('③ full 的 id 序列逐字等于引入时的 30 步基线常量（R4a\' +api-test-heavy；Y1a T0 +check-exact-pins；Y1a T3 +check-plan-census；Y1c T5c census 移位 fast；C3a-7 +check-media-binding-writers）', () => {
   assert.deepEqual(ids, BASELINE_IDS);
 });
 

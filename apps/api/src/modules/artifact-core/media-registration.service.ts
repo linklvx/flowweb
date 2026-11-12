@@ -1,15 +1,15 @@
 // Y1b T4（v11 裁决③）→Y1a T10 迁入 artifact-core（shared module 双 role：API+worker 均可装配）：
-// MediaRegistrationService=唯一 Media 写入点——四形态：prepareUploadInTx/confirmInTx/bindInTx
+// MediaRegistrationService=唯一 Media 写入点——四形态：prepareUploadInTx/confirmInTx
 // （upload/confirm 两形态共用 sniff/MIME/probeState 初始化）+registerInTx/completeRegisteredInTx
 // （生成产物形态——T10：stage durable Media(processing)+finalize 状态提升；资金路径 media.create
-// 禁第二处，一律经本服务）。
+// 禁第二处，一律经本服务）。C3a-7：bindInTx 已删（MediaBinding 写面单写者化归 projector/rebuild）。
 // 纪律：InTx 方法族只写 DB——事务内禁外部 IO（v10.1-②：外部 IO 在 orchestrator 层、事务之前）；
 // registerInTx 禁调 assertOnConfirm（v12 裁决④：storage-quota 超限删对象+删行——事务内副作用不可
 // 回滚；资金 quota=软限，finalize 不因 quota 回滚）。
 import {
   Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit, ConflictException, Optional,
 } from '@nestjs/common';
-import { Prisma, Media, ProbeState, MediaBinding } from '@prisma/client';
+import { Prisma, Media, ProbeState } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
@@ -190,36 +190,9 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
     });
   }
 
-  /** MediaBinding 槽位 current-state upsert（v14.2 裁决㉜/Z18''：同槽位换 media 即改行——
-   *  create-only 已废止：永不删行则当前槽位是哪个 media 只能靠 createdAt 猜、GC 被历史行拖住。
-   *  键 [projectId,nodeId,role,targetField,targetItemId]；模型 createdAt only 故 update 仅 mediaId。） */
-  async bindInTx(
-    tx: Prisma.TransactionClient,
-    params: {
-      mediaId: string; projectId: string; nodeId: string; teamId: string;
-      role?: string; targetField?: string; targetItemId?: string;
-    },
-  ): Promise<MediaBinding> {
-    const data = {
-      mediaId: params.mediaId,
-      projectId: params.projectId,
-      nodeId: params.nodeId,
-      teamId: params.teamId,
-      role: params.role ?? 'primary',
-      targetField: params.targetField ?? 'fileId',
-      targetItemId: params.targetItemId ?? '', // 非空 sentinel（PG NULL 不去重根修）
-    };
-    return tx.mediaBinding.upsert({
-      where: {
-        projectId_nodeId_role_targetField_targetItemId: {
-          projectId: data.projectId, nodeId: data.nodeId, role: data.role,
-          targetField: data.targetField, targetItemId: data.targetItemId,
-        },
-      },
-      create: data,
-      update: { mediaId: data.mediaId }, // current-state：同槽位换 media 改行（v14.2 废止 create-only）
-    });
-  }
+  // ── C3a-7（spec 2026-11-11-foundation-batch §3.2-4 单写者收口）：bindInTx（MediaBinding 槽位
+  //    current-state upsert）方法本体删除——MediaBinding 权威写=appendBatch 帧级投影+全量 rebuild
+  //    （scripts/check-media-binding-writers.mjs 静态门禁；本文件不在白名单）。 ──
 
   // ── T10：生成产物形态（register=stage durable；completeRegistered=finalize 状态提升） ──
 
