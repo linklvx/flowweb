@@ -1608,7 +1608,10 @@ export class CollabProjectActorService {
           await projectBindings(tx, pid, teamId, batchDelta);
           await tx.$executeRaw`RELEASE SAVEPOINT media_binding_projection`;
           return { bindingCovered: true };
-        } catch {
+        } catch (err) {
+          // C3a-6 评审承接：投影失败原因可查（BindingProjectionFailedError 含 cause——dirty 的分诊面；
+          // 与帧提交解耦：ROLLBACK/置 dirty 后仅留痕，禁 rethrow 连坐帧）
+          this.host.logger.error(`binding projection failed for ${pid}（帧照常提交+置 dirty——C3a-6 rebuild 收敛）: ${(err as Error).message}`);
           await tx.$executeRaw`ROLLBACK TO SAVEPOINT media_binding_projection`;
           await tx.canvasDoc.updateMany({ where: { projectId: pid }, data: { bindingsDirty: true } });
           return { bindingCovered: false };

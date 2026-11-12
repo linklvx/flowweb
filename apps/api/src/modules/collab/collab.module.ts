@@ -28,6 +28,7 @@ import { CollabBindingController } from './collab-binding.controller';   // T25b
 import { CollabRecoveryAcceptController } from './collab-recovery-accept.controller';
 import { CollabCanvasReadController } from './collab-canvas-read.controller';   // T25b 微批 C-1：用户面画布读（assertEditor 门+标准 envelope）   // T25b B5：server-restored 管理员裁定接受（OWNER/ADMIN 门）
 import { CollabMaintenanceService } from './collab-maintenance.service';   // Y1c T27：维护窗口+世代切换状态机（单换代入口——freeze 4413/行级关闸/SWITCHING 事务后 close）
+import { BindingRebuildService } from './binding-rebuild.service';   // C3a-6：MediaBinding 全量 rebuild（唯一清 dirty+推 mediaBindingSeq——装载缝 boot 判定直接调）
 import { CollabMaintenanceController } from './collab-maintenance.controller';   // Y1c T27：REST 控制面（admin guard+幂等键）
 import { CollabShrinkService } from './collab-shrink.service';
 import { CollabCompactPoller } from './collab-compact.poller';   // Y1c T12：dev role=all compact 轮询面装配（硬输入 #4）
@@ -76,6 +77,7 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
     CollabReadyService,   // Y0a-3 T7：/api/ready 组装（G-4 九档+1s 单飞）
     CollabShrinkService,   // Y0b-4 T8：REST shrink（Q-G 影子预演/TOCTOU 同步段/信号量/thaw）
     CollabMaintenanceService,   // Y1c T27：维护状态机（vacuum 委托单换代入口+REST 控制面载体——gateway 尾参/shrink @Optional 双消费）
+    BindingRebuildService,   // C3a-6：binding 全量 rebuild（gateway 尾参注入——单例与 gateway 同 prisma/repo 实例面）
     TelemetryService,   // Y0b-5 T1：sendBeacon 遥测批次 ingest（一律 204——计数族在 store.metrics）
     AuditService,   // T5 递延至此——drain 审计消费（team/subscription module 直注册同款先例）
     { provide: REDIS_CLIENT, useFactory: () => createManagedRedis(process.env.REDIS_URL, {

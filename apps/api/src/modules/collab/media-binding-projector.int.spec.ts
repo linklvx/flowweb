@@ -90,7 +90,7 @@ maybe('C3a-5：MediaBindingProjector 四族（真 PG）', () => {
     expect(rs[0].id).toBe(idBefore);   // 未变更槽零 churn（非 delete+reinsert）
   });
 
-  it('①b：槽位值变（同 node 同 targetField 换 mediaId）→旧行条件删+新行写（槽内恰一行指新 mediaId）', async () => {
+  it('①b：槽位值变（同槽 in-place 替换 mediaId——ON CONFLICT DO UPDATE）→槽内恰一行指新 mediaId', async () => {
     await project(prisma, delta({ a: [ref('a', M.fresh1)] }));
     await project(prisma, delta({ a: [ref('a', M.fresh2)] }));   // 同槽换 mediaId
     const rs = await rowsOf(prisma);
@@ -126,7 +126,8 @@ maybe('C3a-5：MediaBindingProjector 四族（真 PG）', () => {
 
   it('②b：deletedAt≠null ∧ ACTIVE→跳过+该槽现存行清（只清该槽——不删该 media 其他 node 槽）', async () => {
     await prisma.mediaBinding.deleteMany({ where: { projectId: PID, nodeId: { in: ['sa', 'sz'] } } });
-    // 先以软删 media 两槽落行（此时仍 ACTIVE 未软删？——软删在 beforeAll 已置；改以 fresh 落行后直改 media 形态）
+    // 布景：sa/sz 两槽先以 ACTIVE 态 fresh1 落行（beforeAll 软删的是 M.softdel——fresh1 此刻仍 ACTIVE），
+    // 随后直改 fresh1 为软删再重投 sa 槽（doc 仍引用）——②b 的「现存行被清」断言才有可清之行
     await project(prisma, delta({ sa: [ref('sa', M.fresh1)], sz: [ref('sz', M.fresh1)] }));
     expect(await prisma.mediaBinding.count({ where: { projectId: PID, nodeId: { in: ['sa', 'sz'] } } })).toBe(2);
     // 把 fresh1 软删后重投 sa 槽（doc 仍引用）→sa 槽清、sz 槽（不在本 delta）留存
@@ -137,8 +138,12 @@ maybe('C3a-5：MediaBindingProjector 四族（真 PG）', () => {
     await prisma.media.update({ where: { id: M.fresh1 }, data: { deletedAt: null } });   // 还原（后续族用）
   });
 
-  it('②c：media 不存在→skip（不写不抛）；跨队→skip（不写不抛）', async () => {
+  it('②c：media 不存在→skip+该槽现存行清；跨队→skip+该槽现存行清（②b 同一清行语义——统一锁定）', async () => {
     await prisma.mediaBinding.deleteMany({ where: { projectId: PID, nodeId: { in: ['ma', 'xa'] } } });
+    // 预置行（missing/cross-team 的清行锚——空槽布景只证「不写」不证「清」）：先以合法 media（fresh3）落两槽
+    await project(prisma, delta({ ma: [ref('ma', M.fresh3)], xa: [ref('xa', M.fresh3)] }));
+    expect(await prisma.mediaBinding.count({ where: { projectId: PID, nodeId: { in: ['ma', 'xa'] } } })).toBe(2);
+    // 重投为不存在 media/跨队 media（doc 仍引用）→两槽现存行清（skip 槽位删现存行——与②b 软删同语义）
     await project(prisma, delta({
       ma: [ref('ma', 'c3a5-media-nonexistent-uuid')],
       xa: [ref('xa', M.cross)],

@@ -16,6 +16,7 @@ import { CollabSessionGuardService } from './collab-session-guard.service';
 import { CollabProjectActorService } from './collab-project-actor.service';   // Y1c T9：spool-first 写管线核心（偏离 38③）
 import { CollabFrameGateService } from './collab-frame-gate.service';   // Y1c T9：guardSyncFrame 收编重写（偏离 38①③）
 import { CollabMaintenanceService } from './collab-maintenance.service';   // Y1c T27：维护窗口+世代切换状态机（单换代入口）
+import { BindingRebuildService, needsBindingRebuild } from './binding-rebuild.service';   // C3a-6：水位不变量闭环（装载缝 boot 判定→直接 rebuild）
 import { VACUUM_QUIESCE_POLL_MS, VACUUM_THAW_SETTLE_MS } from './collab-doc-registry.service';   // Y1c T27：维护 thaw settle 段（beginVacuumEra ⓪ 同参）
 import { requireSystemHistory } from './canvas-doc-head';   // Y1c T9（T8 接线）：真 historyId 自 SystemHistory（复用读面禁重抄——Controller 裁定 2）
 import { createCollabServer } from './collab-server.factory';   // B3 手段①：Server 构造 options 块单源工厂（canvas-doc.factory 同址先例）
@@ -123,6 +124,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** Y1c T27：维护状态机（9 主段+2 终态——单换代入口；freeze 4413/行级关闸/SWITCHING 事务后 close）。
    *  DI 注入单例；直构缺省 null=无维护面（测试形态——maintenanceFreezeOf 缺省 undefined 同界）。 */
   private readonly maintenanceService: CollabMaintenanceService | null;
+  /** C3a-6：MediaBinding 全量 rebuild（唯一清 dirty+推 mediaBindingSeq 的面——装载缝 boot 判定
+   *  直接调，fire-and-forget 不阻装载；C3a-8 BackfillRunner 队列化后扩消费面）。 */
+  private readonly bindingRebuild: BindingRebuildService;
   /** Y0b-5 T16：PG 熔断器（准入+store 短路——spec §5.9 E57；直构测试不注入时自建） */
   private readonly pgBreaker: CollabPgBreakerService;
   /** SV7/W 状态机（单枚举消灭布尔组合态）：ready reason 与三入口门 1:1 派生（P6）。
@@ -299,6 +303,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     @Optional() frameGate?: CollabFrameGateService,
     // Y1c T27：维护状态机尾参注入（DI 单例；直构缺省 undefined=无维护面〔测试形态〕）。
     @Optional() maintenance?: CollabMaintenanceService,
+    // C3a-6：binding rebuild 尾参注入（DI 单例；直构缺省自建 prisma/repo 同实例——W3a 尾参先例同款）。
+    @Optional() bindingRebuild?: BindingRebuildService,
   ) {
     // W3b：sessionSvc 所有权迁 SG（原 this.sessionSvc 字段退役——局部构造后直通 SG 构造器；gateway
     // 不再直持〔authenticateInner/recheckConnection 消费面随域迁 SG〕）。批3-3：手写 findUnique 收口语义不变。
@@ -347,6 +353,16 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       },
       onDocLoadedAndReplayed: (pid, document) => {
         this.projectActor.noteDocIndexRebuild(pid, document as unknown as import('yjs').Doc);   // Y1c T24 收口 I-1：索引重建挂**装载重放完成后**（原挂 prefix 缝=重放前对空 doc 执行+重放零 effects=装载后索引恒缺——DENY/NORMALIZE 索引消费面失真根修）
+      },
+      // C3a-6（spec §3.2-3 恢复四路 boot/residency 腿）：`replayed>0 ∨ mediaBindingSeq<pgSeq ∨
+      // dirty` 三或→直接调 rebuild（单项目最小形态——C3a-8 BackfillRunner 队列化；fire-and-forget
+      // 不阻装载，in-flight 去重在 service；懒建档行缺=null 折干净不触发）
+      onBindingBootCheck: (pid, ctx) => {
+        if (ctx.pgSeq == null || ctx.mediaBindingSeq == null || ctx.bindingsDirty == null) return;
+        if (!needsBindingRebuild({ replayed: ctx.replayed, mediaBindingSeq: ctx.mediaBindingSeq, pgSeq: ctx.pgSeq, bindingsDirty: ctx.bindingsDirty })) return;
+        void this.bindingRebuild.rebuildProjectBindings(pid).catch((err) => {
+          this.logger.error(`binding rebuild (boot 判定触发) failed for ${pid}: ${(err as Error).message}——dirty 保持，下轮装载/BackfillRunner 重试`);
+        });
       },
     });
     this.persistence.bindHost({
@@ -402,6 +418,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     });
     // Y1c T27：维护状态机 host 接线（DR/SG 能力 1 行转发族——thaw 段=beginVacuumEra ⓪ 同语义内联）
     this.maintenanceService = maintenance ?? null;
+    // C3a-6：rebuild 尾参注入（DI 单例或 prisma/repo 同实例自建——persistence/actor 尾参先例同款）
+    this.bindingRebuild = bindingRebuild ?? new BindingRebuildService(prisma, repo);
     if (this.maintenanceService) {
       this.maintenanceService.bindHost({
         logger: this.logger,

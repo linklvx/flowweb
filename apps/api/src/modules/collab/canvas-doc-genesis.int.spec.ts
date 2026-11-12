@@ -18,6 +18,8 @@ const maybe = hasDb ? describe : describe.skip;
 const PID_A = 'y1c-t7-genesis-int-a';
 const PID_B = 'y1c-t7-genesis-int-b';
 const PID_C = 'y1c-t7-genesis-int-c';
+const PID_D = 'c3a6-genesis-int-d';
+const PID_E = 'c3a6-genesis-int-e';
 
 const sha256hex = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 
@@ -28,11 +30,15 @@ maybe('Y1c T7 genesis 建头 helper（真 PG）', () => {
     await ensureProjectFixture(prisma, PID_A);
     await ensureProjectFixture(prisma, PID_B);
     await ensureProjectFixture(prisma, PID_C);
+    await ensureProjectFixture(prisma, PID_D);
+    await ensureProjectFixture(prisma, PID_E);
   });
   afterAll(async () => {
     await cleanupProjectFixture(prisma, PID_A);
     await cleanupProjectFixture(prisma, PID_B);
     await cleanupProjectFixture(prisma, PID_C);
+    await cleanupProjectFixture(prisma, PID_D);
+    await cleanupProjectFixture(prisma, PID_E);
     await prisma.$disconnect();
   });
 
@@ -118,6 +124,38 @@ maybe('Y1c T7 genesis 建头 helper（真 PG）', () => {
     const r = await readCanvasDocHead(prisma, PID_C);
     expect(r.status).toBe('found');
     if (r.status === 'found') expect(r.row.pgSeq).toBe(0n);   // 零值=合法 found 态（≠missing）
+  });
+
+  /** 种子字节：含媒体引用（node data.fileId=mediaId——collectMediaRefs 扫描域）。 */
+  function seedBytesWithMediaRef(): Buffer {
+    const doc = createCanvasDoc();
+    const node = new Y.Map<unknown>();
+    const data = new Y.Map<unknown>();
+    data.set('fileId', 'c3a6-genesis-media-1');
+    node.set('type', 'image');
+    node.set('data', data);
+    (doc.getMap('nodes') as Y.Map<unknown>).set('gn', node);
+    const bytes = Buffer.from(Y.encodeStateAsUpdate(doc));
+    doc.destroy();
+    return bytes;
+  }
+
+  // C3a-6（spec §0 水位不变量/§3.2-3「genesis 同事务置 dirty——种子 doc 含引用时修 0==0 假覆盖」）：
+  // 种子字节唯去处=Snapshot(g,0,0)（不流经 appendBatch 投影面）——含引用种子若非 dirty 则
+  // mediaBindingSeq=0==pgSeq=0 假覆盖（binding 永不物化且 boot 不选中）。
+  it('C3a-6：种子含 fileId 引用→头行同事务 bindingsDirty=true；无引用种子=false；幂等重入不抹 dirty', async () => {
+    await prisma.$transaction(async (tx) => { await ensureCanvasDocHead(tx, PID_D, seedBytesWithMediaRef()); });
+    let row = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID_D } });
+    expect(row.bindingsDirty).toBe(true);   // 红：现 create 走 @default(false)——0==0 假覆盖敞开
+    expect(row.mediaBindingSeq).toBe(0n);   // 水位 0=pgSeq 0——dirty 使 boot 判定选中（needsBindingRebuild 0/0/dirty）
+    // 幂等重入（upsert update={}）不抹已置 dirty
+    await prisma.$transaction(async (tx) => { await ensureCanvasDocHead(tx, PID_D, seedBytes(false)); });
+    row = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID_D } });
+    expect(row.bindingsDirty).toBe(true);
+    // 无引用种子（spec 条件形态——「种子 doc 含引用时」）→ 默认 false（零引用=零覆盖义务）
+    await prisma.$transaction(async (tx) => { await ensureCanvasDocHead(tx, PID_E, seedBytes(true)); });   // 有节点（textInput）无媒体键
+    row = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID_E } });
+    expect(row.bindingsDirty).toBe(false);
   });
 
   it('交错（并发双创建）：两项目并行 ensure → 两套完整头集，无重复无缺失', async () => {

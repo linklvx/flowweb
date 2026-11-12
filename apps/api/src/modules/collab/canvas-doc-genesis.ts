@@ -7,13 +7,29 @@
 // **禁双写**——Snapshot(g,0,0) 已是权威）；Snapshot/cursor 建行由 T9/T10 写管线与新换代
 // 状态机（§6.6 SWITCHING 事务）复用本形态。
 import { createHash } from 'node:crypto';
+import * as Y from 'yjs';
 import type { Prisma } from '@prisma/client';
-import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
+import { CANVAS_DOC_SCHEMA_VERSION, collectMediaIds } from '@flowweb/shared';
 import { requireSystemHistory } from './canvas-doc-head';
+import { createCanvasDoc } from './canvas-doc.factory';
+import { toDocLike } from './doc-like.util';
 
 /** 种子字节 SHA-256 hex（snapshot.stateHash 单源算法——Char(64)） */
 export function seedStateHash(seedState: Buffer): string {
   return createHash('sha256').update(seedState).digest('hex');
+}
+
+/** C3a-6（spec §0 水位不变量/§3.2-3）：种子 doc 是否含媒体引用（collectMediaIds 聚合单源——
+ *  帧级快照 collectMediaRefsForNode 同族扫描域）。零长 buffer=Y.applyUpdate 会抛（头注），折无引用。 */
+function seedContainsMediaRefs(seedState: Buffer): boolean {
+  if (seedState.length === 0) return false;
+  const doc = createCanvasDoc();
+  try {
+    Y.applyUpdate(doc, new Uint8Array(seedState));
+    return collectMediaIds(toDocLike(doc)).size > 0;
+  } finally {
+    doc.destroy();
+  }
 }
 
 /**
@@ -29,9 +45,14 @@ export async function ensureCanvasDocHead(tx: Prisma.TransactionClient, projectI
 
   // ② 头行：T11 纯新形态（零 doc 态列——快照权威=Snapshot；新列 vacuumEpoch/currentSnapshotRev/
   //    walCheckpointSeq/pgSeq 走 @default(0)；purgeBelowSeq/maintenanceId 可空默认 NULL）
+  //    C3a-6（spec §3.2-3「genesis 同事务置 dirty——种子 doc 含引用时」）：种子字节唯去处=
+  //    Snapshot(g,0,0)（不流经 appendBatch 投影面）——含引用种子置 dirty 修 0==0 假覆盖
+  //    （否则 mediaBindingSeq=0==pgSeq 非 dirty=「已覆盖」假象，binding 永不物化且 boot 不选中）；
+  //    无引用种子保持默认 false（零引用=零覆盖义务）。update={} 幂等重入不抹已置 dirty。
+  const seedHasMediaRefs = seedContainsMediaRefs(seedState);
   await tx.canvasDoc.upsert({
     where: { projectId },
-    create: { projectId },
+    create: { projectId, ...(seedHasMediaRefs ? { bindingsDirty: true } : {}) },
     update: {},
   });
 

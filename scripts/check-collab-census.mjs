@@ -911,6 +911,11 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-maintenance.service.ts': {
       applyUpdate: { n: 4, until: '片D' },                  // Y1c T27：EXPORTING/VERIFYING recordsOfHydration+REBUILDING canonical 重建——快照+增量尾装载重放（load 档语义同 repository compact scratch；㉜ 同批登记）
     },
+    // C3a-6（水位不变量闭环）：rebuild 服务经 gateway 入闭包——applyUpdate=loadForHydrationAt 定代
+    // 重放 doc@S 两点（load 档语义同 maintenance recordsOfHydration：PG 前缀重放非 inbound；㉜ 同批登记）。
+    'apps/api/src/modules/collab/binding-rebuild.service.ts': {
+      applyUpdate: { n: 2, until: '片D' },
+    },
   };
   // 纯函数白名单（Z43 允许面——离线 yjs 纯函数；闭包内逐文件逐符号列名，漂移/越界即红）：
   const WORKER_PUREFN_WHITELIST = {
@@ -1572,6 +1577,12 @@ if (isMain()) {
     // 快照 state 铺底+增量帙按序应用（readAt 坐标重放进 fresh doc——load 档语义：PG 前缀重放比对，
     // 非 inbound 非写回）
     'apps/api/src/modules/collab/collab-canary-verify.worker.ts': 2,
+    // C3a-6（水位不变量闭环）load 档两点：rebuild 定代重放 doc@S（loadForHydrationAt state 铺底+
+    // 增量尾按序应用——PG 前缀重放非 inbound 非写回 live；与 canary verify readAt 重放同语义）
+    'apps/api/src/modules/collab/binding-rebuild.service.ts': 2,
+    // C3a-6 genesis 种子含引用判定：seedState apply 进 scratch doc 扫 collectMediaIds（读侧判定
+    // ——非装载非写回；零长 buffer 守卫直返）
+    'apps/api/src/modules/collab/canvas-doc-genesis.ts': 1,
   };
   {
     const occurrences = {};
@@ -1581,7 +1592,7 @@ if (isMain()) {
     }
     const details = reconcileCountWhitelist(occurrences, APPLY_UPDATE_WHITELIST, 'Y.applyUpdate');
     const nWl = Object.values(APPLY_UPDATE_WHITELIST).reduce((a, b) => a + b, 0);
-    report('㉜', `Y.applyUpdate 消费面白名单（gate/load/import 三档语义——现行 ${nWl} 点/10 文件冻结〔T9 gate 档+T21 PG 前缀重建档已登记〕；违规明细 file:line）`, details.length === 0, details);
+    report('㉜', `Y.applyUpdate 消费面白名单（gate/load/import 三档语义——现行 ${nWl} 点/12 文件冻结〔T9 gate 档+T21 PG 前缀重建档+C3a-6 rebuild/genesis 档已登记〕；违规明细 file:line）`, details.length === 0, details);
   }
 
   // ㉝DirectConnection 检查（Controller 裁定 2——spec v5.4 §1.9 认错修正压倒 plan「零使用」字样）：

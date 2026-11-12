@@ -39,6 +39,10 @@ export interface HydrationRow {
   /** Y1c T19：公开快照缓存键轨 (pid,g,snapshotRev) 的 rev 维（CanvasDoc.currentSnapshotRev 随行——
    *  行缺失=null=懒建档）。 */
   currentSnapshotRev?: bigint | null;
+  /** C3a-6（spec §3.2-3 恢复四路 boot 腿）：binding 水位两列随行（loadDocument 装载缝 boot 判定
+   *  `replayed>0 ∨ mediaBindingSeq<pgSeq ∨ dirty` 消费——同一行读零额外 IO；行缺失=null=懒建档）。 */
+  mediaBindingSeq?: bigint | null;
+  bindingsDirty?: boolean | null;
 }
 
 /** C3-1（plan Task C3-1——doc-append-gap-alert）：append 审计违例行（SQL UNION 投影——列名随 SQL
@@ -450,6 +454,16 @@ export class CanvasDocUpdateRepository {
     return row[0] ?? null;
   }
 
+  /** C3a-6（spec §0 水位不变量）：rebuild 锚读面（锁外快照三元——rebuild CAS 四条件的期望侧；
+   *  行缺=null=未建档/已级联删除，调用方 no-op）。readWatermark 同族 PK 读（契约 1 装载单源
+   *  不动摇——本面零 state/增量尾，binding-rebuild.service 消费）。 */
+  async readRebuildAnchor(projectId: string): Promise<{ generation: number; pgSeq: bigint; mediaBindingSeq: bigint } | null> {
+    return this.prisma.canvasDoc.findUnique({
+      where: { projectId },
+      select: { generation: true, pgSeq: true, mediaBindingSeq: true },
+    });
+  }
+
   private static readonly PAGE_ROWS = 500;
 
   /** Y0a-1 装载读唯一入口（spec §4.3-1）：委托 readConsistent（契约 1"一个实现、两出口"——
@@ -489,7 +503,7 @@ export class CanvasDocUpdateRepository {
   ): Promise<HydrationRow> {
     return this.prisma.$transaction(
       async (tx) => {
-        const docRow = await tx.canvasDoc.findUnique({ where: { projectId }, select: { generation: true, schemaVersion: true, currentSnapshotRev: true, pgSeq: true } });
+        const docRow = await tx.canvasDoc.findUnique({ where: { projectId }, select: { generation: true, schemaVersion: true, currentSnapshotRev: true, pgSeq: true, mediaBindingSeq: true, bindingsDirty: true } });
         let state: Buffer | null = null;
         let stateSeq = 0n;
         if (docRow) {
@@ -519,7 +533,7 @@ export class CanvasDocUpdateRepository {
           cursor = page[page.length - 1].seq;
           if (page.length < CanvasDocUpdateRepository.PAGE_ROWS) break;
         }
-        return { state, updates, stateSeq, generation: docRow?.generation ?? 0, schemaVersion: docRow?.schemaVersion ?? null, pgSeq: docRow?.pgSeq ?? null, currentSnapshotRev: docRow?.currentSnapshotRev ?? null };
+        return { state, updates, stateSeq, generation: docRow?.generation ?? 0, schemaVersion: docRow?.schemaVersion ?? null, pgSeq: docRow?.pgSeq ?? null, currentSnapshotRev: docRow?.currentSnapshotRev ?? null, mediaBindingSeq: docRow?.mediaBindingSeq ?? null, bindingsDirty: docRow?.bindingsDirty ?? null };
       },
       { isolationLevel: 'RepeatableRead', timeout: opts?.timeoutMs ?? 8_000, maxWait: opts?.maxWaitMs ?? 2_000 },
     );
@@ -594,6 +608,41 @@ export class CanvasDocUpdateRepository {
           if (page.length < CanvasDocUpdateRepository.PAGE_ROWS) break;
         }
         return { state, stateSeq: snap?.stateSeq ?? 0n, updates };
+      },
+      { isolationLevel: 'RepeatableRead', timeout: 8_000, maxWait: 2_000 },
+    );
+  }
+
+  /** C3a-6（spec §0 水位不变量——第七轮 P0-5）：定代定水位装载（rebuild/漂移检测专用——**禁 live doc
+   *  消费**：固定 generation G+pgSeq 上界 S 的 PG 前缀真值；vacuum 换代 pgSeq 不重置但内容变——换代行
+   *  按代排除）。snapshot=代内 stateSeq<=S **最新**行（按坐标选取——非 readConsistent 的
+   *  currentSnapshotRev 指针形：S 之下任意历史坐标可复现）；updates=(stateSeq,S] 同代尾（分页）。
+   *  单 RR 事务（readConsistent 同族——快照与尾集一致快照读）；无快照行=折空全量重放（内容安全）。
+   *  raw SQL 规则：bigint 参数一律显式 ::bigint。 */
+  async loadForHydrationAt(
+    projectId: string,
+    at: { generation: number; pgSeq: bigint },
+  ): Promise<{ state: Buffer | null; stateSeq: bigint; updates: Buffer[] }> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const snap = await tx.$queryRaw<{ state: Buffer; stateSeq: bigint }[]>`
+          SELECT state, "stateSeq" FROM "CanvasDocSnapshot"
+          WHERE "projectId" = ${projectId}::text AND generation = ${at.generation}::int AND "stateSeq" <= ${at.pgSeq}::bigint
+          ORDER BY "stateSeq" DESC, "snapshotRev" DESC LIMIT 1`;
+        const updates: Buffer[] = [];
+        let cursor = snap[0]?.stateSeq ?? 0n;
+        for (;;) {
+          const page = await tx.$queryRaw<{ seq: bigint; update: Buffer }[]>`
+            SELECT seq, update FROM "CanvasDocUpdate"
+            WHERE "projectId" = ${projectId}::text AND generation = ${at.generation}::int
+              AND seq > ${cursor}::bigint AND seq <= ${at.pgSeq}::bigint
+            ORDER BY seq ASC LIMIT ${CanvasDocUpdateRepository.PAGE_ROWS}`;
+          if (page.length === 0) break;
+          for (const r of page) updates.push(r.update);
+          cursor = page[page.length - 1].seq;
+          if (page.length < CanvasDocUpdateRepository.PAGE_ROWS) break;
+        }
+        return { state: snap[0]?.state ?? null, stateSeq: snap[0]?.stateSeq ?? 0n, updates };
       },
       { isolationLevel: 'RepeatableRead', timeout: 8_000, maxWait: 2_000 },
     );

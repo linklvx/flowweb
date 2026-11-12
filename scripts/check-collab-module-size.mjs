@@ -23,7 +23,8 @@ export const SIZE_LIMITS = {
   'apps/api/src/modules/collab/collab-limits.ts': 55,   // CI 修复批 R4b' 新文件入锚（T10 实测 42+1.3 余量——spec 预登记 2 兑现）
   'apps/api/src/modules/collab/collab-outbound-budget.ts': 155,   // CI 修复批 R4b' 新文件入锚（T10 实测 119+1.3 余量——四档帧型+记账台账）
   'apps/api/src/modules/collab/collab-heartbeat.ts': 42,   // CI 修复批 R6' 新文件入锚（T10 实测 31+1.3 余量——v3 补：三新文件统一入锚）→T22 收口批补账 42（+2：T22 主体 enricher 钩〔latestFeedSeq 增补档缺省纯 heartbeat〕——批漏登锚的补账，净增面非膨胀）
-  'apps/api/src/modules/collab/media-binding-projector.ts': 147,   // C3a-5 新文件入锚（实测 113+1.3 余量——spec §4 module-size「MediaBindingProjector 新文件入锚」兑现）
+  'apps/api/src/modules/collab/media-binding-projector.ts': 147,   // C3a-5 新文件入锚（实测 112+1.3 余量——spec §4 module-size「MediaBindingProjector 新文件入锚」兑现）
+  'apps/api/src/modules/collab/binding-rebuild.service.ts': 192,   // C3a-6 新文件入锚（实测 147+1.3 余量——spec §4 module-size「新文件入锚」：水位不变量闭环 rebuild 服务）
 };
 
 /** Z96 计法（plan 钉死）：对齐 wc -l（尾换行文件两口径一致；无尾换行差 1——自测钉）。 */

@@ -140,6 +140,10 @@ export interface CollabDocRegistryHost {
   /** Y1c T24 收口 I-1：装载重放完成后缝（state/updates/spool 全量入 doc 后——ProjectDocIndex
    *  rebuild 的正确挂点：重放经 withReplaySuppressed 零 effects，挂 prefix 缝=对空 doc rebuild）。 */
   onDocLoadedAndReplayed?(projectId: string, document: Document): void;
+  /** C3a-6（spec §3.2-3 恢复四路 boot/residency 腿）：binding 重建触发判定缝——ctx=hydration 行
+   *  水位三元+装载期 spool 重放帧数（replayed）；gateway 侧 needsBindingRebuild 三或判定后直接调
+   *  rebuild（单项目最小形态——C3a-8 BackfillRunner 队列化）。行缺（懒建档）=null 折 no-op。 */
+  onBindingBootCheck?(projectId: string, ctx: { replayed: number; pgSeq: bigint | null; mediaBindingSeq: bigint | null; bindingsDirty: boolean | null }): void;
   /** WS connectionId 读面（loadDocument :1117 装载失败 Sentry 样本 consumption——台账 SG 域
    *  （connectionIds socketId 键），W3b 改接 sg 读面）。 */
   connectionIdOf(socketId: string): string | undefined;
@@ -418,7 +422,8 @@ export class CollabDocRegistryService {
         }
       }
       // Y0a-1：装载读唯一入口（契约 §4.3-1）+超时自愈（契约 §4.3-13·仅可重试类）
-      const { state, updates, generation, schemaVersion, pgSeq } = await this.repo.hydrateWithRecovery(projectId);
+      // C3a-6：随行读 binding 水位两列（boot 判定缝消费——同一行读零额外 IO）
+      const { state, updates, generation, schemaVersion, pgSeq, mediaBindingSeq, bindingsDirty } = await this.repo.hydrateWithRecovery(projectId);
       // T18 版本硬切（Y1b T2/Y1c，Z9''-v14）：meta 门 v2.1 整链退役——版本判据唯一承载=
       // CanvasDoc.schemaVersion PG 列（readConsistent 行值单源）。行值≠current ⇒ 拒载（旧 doc 档
       // 无迁移，禁垫片）；行缺失 null ⇒ 放行（懒建档——首 store 建行 @default(3)）。
@@ -477,6 +482,9 @@ export class CollabDocRegistryService {
       // ——原挂 noteDocLoadedPrefix 缝在 applyReplayed 之前=对空 doc 执行，且重放走 replay 抑制窗
       // 零 effects 增量，装载后索引恒缺装载前节点）
       this.host.onDocLoadedAndReplayed?.(projectId, document);
+      // C3a-6（spec §3.2-3 boot 腿）：replayed=装载期 spool 重放帧数（boot 回灌帙经 replayAll
+      // catch-up 形恒不覆盖）——判定面在 gateway（needsBindingRebuild 三或→直接 rebuild）
+      this.host.onBindingBootCheck?.(projectId, { replayed: spoolFrames.length, pgSeq: pgSeq ?? null, mediaBindingSeq: mediaBindingSeq ?? null, bindingsDirty: bindingsDirty ?? null });
       // T18（Z4''-v14）：order 病理装载档扫描（挂点选型见 collab-pathology.ts 头注——replay 完成
       // 后判；容忍不 500，计数+告警）。
       observeOrderPathologyOnLoad(this.host.logger, documentName, toReadModel(document).nodes);
