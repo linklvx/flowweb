@@ -39,7 +39,9 @@
 
 - removed：`MediaFactOutbox` 表 + 其索引（`MediaFactOutbox_pkey`/`MediaFactOutbox_state_nextAttemptAt_idx`/`MediaFactOutbox_mediaId_idx`/`MediaFactOutbox_mediaId_projectId_factType_factVersion_key`）、`MediaFactState` enum、**`MediaBinding_mediaId_fkey`（spec v5.2/v5.3 终态去 FK——`mediaId` 标量与 `MediaBinding_mediaId_idx` 保留）**。
 - added：`MediaBinding_projectId_fkey`（FK Cascade）——Prisma 反向关系 `CanvasProject.mediaBindings` 不入 pg_dump；`set_updated_at()` 函数 + 每 updatedAt 表触发器（pg_dump 对象清单六组不含函数/触发器，C1-2/C1-5 门单独消费）；`canvas_doc_binding_backfill_partial` 部分索引（C1-1 评估采纳——`projection-backfill.runner.ts` enumeratePage/countCandidates 谓词逐字对齐）。
-- changed：全部 naive `timestamp(3)` 列 → `timestamptz(3)`（161 列，列级 census 派生——存活 naive 列恰好全部转换，不 hardcode 数目）。
+- changed：**0**（类型转换归下方列类型 census 域、不计 changed；实测 FK onDelete/约束 body/函数/触发器 body 零变化）。
+- 列类型 census：161 列 naive `timestamp(3)` → `timestamptz(3)`（列级 census 派生——存活 naive 列恰好全部转换，不 hardcode 数目；outbox 删除的 4 个 naive 列单列，不入转换集）。
+- seed 行：schema-only 基线（`schema-before-v2.sql`）无法比对 seed 行（NodeType/AIModel/ModelResolution/ModelDuration/PricingRule/SystemHistory/CollabLease/CollabOpsGate 的计数与内容）——由 C1-6 reset 全链演练覆盖（或届时补 seed census 门），不入 C1-2 对象门。
 
 ## 实测 delta（`schema-after-v2.objects.json` vs 基线，2026-11-13 重生成）
 

@@ -227,6 +227,7 @@ return writeBinding();
 ### Task C1-6：卡收口
 
 - [ ] dev reset 全链演练+对象门绿+`pnpm verify`+双评审+runbook §16（bump 注释/回滚=旧备份+旧代码树/状态文件重置/skip_updated_at 通道/`--rebaseline` 运维注记）。
+- [ ] seed 行覆盖登记：schema-only 基线（`schema-before-v2.sql`）无法比对 seed 行（NodeType/AIModel/ModelResolution/ModelDuration/PricingRule/SystemHistory/CollabLease/CollabOpsGate 的计数与内容）——由本卡 reset 全链演练覆盖（或届时补 seed census 门）；不入 C1-2 对象门。
 
 ---
 

@@ -6,10 +6,11 @@
 //   before = `gate-evidence/schema-before-v2.sql`（pre-batch 旧链 24 迁移全量重放——C1-1 证据；
 //            重放结果先与 `schema-before-v2.objects.json` 五组逐行核对，基线证据漂移=结构性 exit 2）
 //   after  = `apps/api/prisma/migrations/20261112120000_c1_rebaseline_init/migration.sql`（新终态 init）
-// 七组对象：columns（键 table.column）/constraints/indexes/sequences/enums（schema-dump 六组复用）
-// + functions（键 name(args)，pg_get_functiondef 原文）与 triggers（键 table.tgname，pg_get_triggerdef
-// 原文）——schema-dump 六组不含函数/触发器，本脚本扩展查询（body 逐字比对）。
-// 过滤：`_prisma%` 表、所有权/注释/SET 噪声（schema-dump 既有口径；函数/触发器按 public 命名空间过滤）。
+// 七类对象（八组）：tables（pg_class relkind='r'——表存在性；空壳表残留可检出）/columns（键
+// table.column）/constraints/indexes/sequences/enums（schema-dump 六组复用）+ functions（键
+// name(args)，pg_get_functiondef 原文）与 triggers（键 table.tgname，pg_get_triggerdef 原文）——
+// schema-dump 六组不含表集合/函数/触发器，本脚本扩展查询（body 逐字比对）。
+// 过滤：`_prisma%` 表、所有权/注释/SET 噪声（schema-dump 既有口径；表/函数/触发器按 public 命名空间过滤）。
 //
 // 三向分类：removed=old-only / added=new-only / changed=同键不同定义（FK onDelete、约束 body、函数/
 // 触发器 body 逐字）。列类型 delta 不 hardcode：census=baseline 存活 naive 列（data_type=
@@ -17,17 +18,23 @@
 // （删列中的 naive 列单列 removedNaiveColumns）；缺失/错误目标类型=红。
 //
 // 两模式（写面/读面分离——防自证）：
-//   无 flag（gate，只读）：分类结果必须与 `scripts/rebaseline-delta-allowlist.json` **双向闭合**
+//   无 flag（gate，只读）：先校验 allowlist `baselineAnchors`（两基线证据文件 sha256——被改动即
+//     exit 2，不进入重放/判定）；再分类并与 `scripts/rebaseline-delta-allowlist.json` **双向闭合**
 //     （removed/added/changed 键集逐组相等——实测未登记→红；allowlist 多余条目→红；同类条目
 //     def/body 与 allowlist 记录逐字不等→红）+ census 期望转换集相等。任何未登记差异 exit 1。
-//   --update（生成/刷新，显式有意识动作）：按当前实测 delta 重写 allowlist（JSON 入库前人工审阅；
-//     git diff 可审阅）——gate 运行时绝不写盘。allowlist 生成一次+人工审阅+入库，gate 只读。
+//   --update（生成/刷新，显式有意识动作）：按当前实测 delta 重写 allowlist（含 baselineAnchors；
+//     JSON 入库前人工审阅；git diff 可审阅）——gate 运行时绝不写盘。allowlist 生成一次+人工审阅+入库。
+//
+// baselineAnchors 哈希域=入库内容（LF 归一化，git blob 域）：core.autocrlf=true 的 Windows 检出会
+// 材料化 CRLF——裸字节哈希对同一 git 内容在 Linux CI（LF 检出）产生假红（check-migration-immutability
+// 同款先例）；pg_dump `\restrict` token 不剥除（入库字节固定，token 只在同库重跑时变化）。
 //
 // 退出码：0=PASS；1=差异未登记 / allowlist 未闭合 / schema 期望不符；2=结构性错误（文件缺失/解析
 // 失败/临时库建删或重放失败/未知参数/基线证据漂移）。未知参数 fail-closed（对齐 C1-1 immutability）。
 // 队列：verify 链 [db] 步（manifest 单源）——每次 verify 真实重放两库，秒级。
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dump, Client } from './lib/schema-dump.mjs';
 
@@ -37,8 +44,8 @@ export const BASELINE_OBJECTS = path.join(ROOT, 'gate-evidence/schema-before-v2.
 export const INIT_SQL = path.join(ROOT, 'apps/api/prisma/migrations/20261112120000_c1_rebaseline_init/migration.sql');
 export const ALLOWLIST_FILE = path.join(ROOT, 'scripts/rebaseline-delta-allowlist.json');
 const BASELINE_GROUPS = ['columns', 'constraints', 'indexes', 'sequences', 'enums'];
-// 三向分类的七组（columns 走列分类器，其余六组走通用分类器）
-export const DELTA_GROUPS = ['columns', 'constraints', 'indexes', 'sequences', 'enums', 'functions', 'triggers'];
+// 三向分类的八组（columns 走列分类器，其余七组走通用分类器；tables=表存在性）
+export const DELTA_GROUPS = ['columns', 'constraints', 'indexes', 'sequences', 'enums', 'functions', 'triggers', 'tables'];
 const SCRATCH_DB = 'flowweb_rebaseline_delta';
 
 /** CLI 参数判定（纯函数）：仅 --update；未知旗标 fail-closed（main 捕获→exit 2）。 */
@@ -62,6 +69,7 @@ export function normalizeCensus(raw) {
     enums: Object.fromEntries(rows(raw.enums).map((r) => [r.typname, { values: r.values }])),
     functions: Object.fromEntries(rows(raw.functions).map((r) => [r.key, r.def])),
     triggers: Object.fromEntries(rows(raw.triggers).map((r) => [r.key, r.def])),
+    tables: Object.fromEntries(rows(raw.tables).map((name) => [name, null])),
     tsColumns: Object.fromEntries(rows(raw.tsColumns).map((r) => [r.key, { data_type: r.data_type, precision: r.precision }])),
   };
 }
@@ -75,6 +83,24 @@ function canonical(def) {
 }
 
 const byKey = (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+
+/** 内容 sha256：按**入库内容**（LF 归一化——git blob 域）计算。core.autocrlf=true 的 Windows 检出
+ *  会材料化 CRLF，裸字节哈希对同一 git 内容在 Linux CI（LF 检出）产生假红——沿用
+ *  check-migration-immutability 的 LF 归一化先例。不剥除 pg_dump `\restrict` token（入库字节固定）。 */
+export function contentSha256(filePath) {
+  return createHash('sha256').update(fs.readFileSync(filePath).toString('utf8').replace(/\r\n/g, '\n')).digest('hex');
+}
+
+/** 基线证据锚定（纯函数）：gate 重放前校验 allowlist baselineAnchors——基线 SQL 与 objects 快照
+ *  被同步篡改/漂移时不再自证通过。返回违反清单（空=通过）；缺失/不一致=结构性错误（main→exit 2）。 */
+export function checkBaselineAnchors(recorded, actual) {
+  const violations = [];
+  for (const key of ['sqlSha256', 'objectsSha256']) {
+    if (!recorded?.[key]) violations.push(`baselineAnchors.${key} 缺失（allowlist 须由 --update 生成/刷新）`);
+    else if (recorded[key] !== actual[key]) violations.push(`baselineAnchors.${key} 不一致（allowlist=${recorded[key]} 实际=${actual[key]}）——基线证据文件被改动`);
+  }
+  return violations;
+}
 
 /** 列类型 census（纯函数）：baseline naive 列 → 存活列必须 timestamptz(3)；删除的 naive 列单列。 */
 export function deriveColumnCensus(beforeTs, afterTs, afterColumnKeys) {
@@ -113,7 +139,7 @@ export function classifyColumns(before, after, conversionKeys) {
   return { removed, added, changed };
 }
 
-/** 通用分类（纯函数）：constraints/indexes/sequences/enums/functions/triggers 六组。 */
+/** 通用分类（纯函数）：constraints/indexes/sequences/enums/functions/triggers/tables 七组。 */
 export function classifyObjects(before, after, groups = DELTA_GROUPS.filter((g) => g !== 'columns')) {
   const removed = {};
   const added = {};
@@ -243,11 +269,13 @@ async function replayCensus(databaseUrl, sqlPath) {
     const triggers = (await c.query(`SELECT c.relname || '.' || t.tgname AS key, pg_get_triggerdef(t.oid) AS def
       FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
       WHERE NOT t.tgisinternal AND n.nspname='public' AND c.relname NOT LIKE '\\_prisma%' ORDER BY 1`)).rows;
+    const tables = (await c.query(`SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE c.relkind='r' AND n.nspname='public' AND c.relname NOT LIKE '\\_prisma%' ORDER BY 1`)).rows.map((r) => r.relname);
     const tsColumns = (await c.query(`SELECT table_name || '.' || column_name AS key, data_type,
         datetime_precision::int AS precision
       FROM information_schema.columns
       WHERE table_schema='public' AND table_name NOT LIKE '\\_prisma%' AND data_type LIKE 'timestamp%'`)).rows;
-    return normalizeCensus({ ...six, functions, triggers, tsColumns });
+    return normalizeCensus({ ...six, functions, triggers, tables, tsColumns });
   } finally {
     await c.end().catch(() => {});
     // 活连接已关；删库失败=结构性（残留会污染下次 verify——fail-closed 抛出）
@@ -281,6 +309,33 @@ async function main() {
     if (!fs.existsSync(f)) { console.error(`rebaseline-delta FAIL: 必需文件缺失: ${path.relative(ROOT, f)}`); process.exitCode = 2; return; }
   }
   const databaseUrl = resolveDatabaseUrl();
+  const baselineAnchors = {
+    sqlSha256: contentSha256(BASELINE_SQL),
+    objectsSha256: contentSha256(BASELINE_OBJECTS),
+  };
+
+  // gate：allowlist 与基线锚定必须在**重放前**通过（基线被同步篡改=结构性，不进入 delta 判定）
+  let allowlist = null;
+  if (!flags.update) {
+    if (!fs.existsSync(ALLOWLIST_FILE)) {
+      console.error(`rebaseline-delta FAIL: allowlist 缺失: ${path.relative(ROOT, ALLOWLIST_FILE)}——先跑 --update 生成并人工审阅（fail-closed）`);
+      process.exitCode = 2;
+      return;
+    }
+    try { allowlist = JSON.parse(fs.readFileSync(ALLOWLIST_FILE, 'utf8')); } catch (e) {
+      console.error(`rebaseline-delta FAIL: allowlist 解析失败: ${e.message}`);
+      process.exitCode = 2;
+      return;
+    }
+    const anchorViolations = checkBaselineAnchors(allowlist.baselineAnchors, baselineAnchors);
+    if (anchorViolations.length) {
+      console.error('rebaseline-delta FAIL: 基线证据锚定失败（结构性——拒绝重放）：');
+      for (const v of anchorViolations) console.error(`  - ${v}`);
+      console.error('rebaseline-delta: 基线 SQL / objects 快照被改动——恢复证据文件（git checkout）或人工审阅后 --update 刷新 allowlist');
+      process.exitCode = 2;
+      return;
+    }
+  }
 
   const before = await replayCensus(databaseUrl, BASELINE_SQL);
   assertBaselineSnapshot(before, BASELINE_OBJECTS);
@@ -299,31 +354,22 @@ async function main() {
       process.exitCode = 1;
       return;
     }
-    const allowlist = {
+    const next = {
       _comment: 'C1-2 三向 allowlist（spec §3.3-3）：由 scripts/check-rebaseline-delta.mjs --update 生成一次、人工审阅后入库；gate 只读（防自证）。',
       baseline: 'gate-evidence/schema-before-v2.sql',
       baselineObjects: 'gate-evidence/schema-before-v2.objects.json',
       init: 'apps/api/prisma/migrations/20261112120000_c1_rebaseline_init/migration.sql',
       adr: 'gate-evidence/schema-baseline-adr.md',
+      baselineAnchors,
       ...buildAllowlist(delta),
     };
-    fs.writeFileSync(ALLOWLIST_FILE, JSON.stringify(allowlist, null, 2) + '\n');
+    fs.writeFileSync(ALLOWLIST_FILE, JSON.stringify(next, null, 2) + '\n');
     console.log(`rebaseline-delta --update: allowlist 已生成 → ${path.relative(ROOT, ALLOWLIST_FILE)}（人工审阅后随卡入库；gate 绝不写盘）`);
+    console.log(`  baselineAnchors: sql=${baselineAnchors.sqlSha256.slice(0, 16)}… objects=${baselineAnchors.objectsSha256.slice(0, 16)}…（LF=入库内容口径）`);
     process.exitCode = 0;
     return;
   }
 
-  if (!fs.existsSync(ALLOWLIST_FILE)) {
-    console.error(`rebaseline-delta FAIL: allowlist 缺失: ${path.relative(ROOT, ALLOWLIST_FILE)}——先跑 --update 生成并人工审阅（fail-closed）`);
-    process.exitCode = 2;
-    return;
-  }
-  let allowlist;
-  try { allowlist = JSON.parse(fs.readFileSync(ALLOWLIST_FILE, 'utf8')); } catch (e) {
-    console.error(`rebaseline-delta FAIL: allowlist 解析失败: ${e.message}`);
-    process.exitCode = 2;
-    return;
-  }
   const result = evaluateGate(delta, allowlist);
   if (!result.ok) {
     console.error(`rebaseline-delta FAIL: ${result.violations.length} 项未登记差异/allowlist 未闭合：`);
@@ -332,7 +378,7 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  console.log(`rebaseline-delta OK: 七组三向 delta 与 allowlist 双向闭合（removed ${Object.values(delta.removed).flat().length} / added ${Object.values(delta.added).flat().length} / changed ${Object.values(delta.changed).flat().length}；census 转换 ${delta.columnTypeCensus.expectedConversions.length} 列）`);
+  console.log(`rebaseline-delta OK: 八组三向 delta 与 allowlist 双向闭合（removed ${Object.values(delta.removed).flat().length} / added ${Object.values(delta.added).flat().length} / changed ${Object.values(delta.changed).flat().length}；census 转换 ${delta.columnTypeCensus.expectedConversions.length} 列）`);
   process.exitCode = 0;
 }
 

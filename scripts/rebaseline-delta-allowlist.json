@@ -4,6 +4,10 @@
   "baselineObjects": "gate-evidence/schema-before-v2.objects.json",
   "init": "apps/api/prisma/migrations/20261112120000_c1_rebaseline_init/migration.sql",
   "adr": "gate-evidence/schema-baseline-adr.md",
+  "baselineAnchors": {
+    "sqlSha256": "78a98b75e7e9e4849d230d53b89d0653224b14140d3fcd1b4eda4b78c6383ae9",
+    "objectsSha256": "3bebf8fc8209c7916c23896d01ec1f6e8576e566825b02adc1b32b4f617da258"
+  },
   "removed": {
     "columns": [
       {
@@ -163,7 +167,13 @@
       }
     ],
     "functions": [],
-    "triggers": []
+    "triggers": [],
+    "tables": [
+      {
+        "key": "MediaFactOutbox",
+        "def": null
+      }
+    ]
   },
   "added": {
     "columns": [],
@@ -385,7 +395,8 @@
         "key": "subscription_banner.set_updated_at_subscription_banner",
         "def": "CREATE TRIGGER set_updated_at_subscription_banner BEFORE INSERT OR UPDATE ON public.subscription_banner FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
       }
-    ]
+    ],
+    "tables": []
   },
   "changed": {
     "columns": [],
@@ -394,7 +405,8 @@
     "sequences": [],
     "enums": [],
     "functions": [],
-    "triggers": []
+    "triggers": [],
+    "tables": []
   },
   "columnTypeCensus": {
     "expectedConversions": [

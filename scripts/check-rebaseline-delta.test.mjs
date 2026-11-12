@@ -4,14 +4,18 @@
 // gate 侧不自动写（--update 之外只读——parseArgs 只认 --update）。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   parseArgs, normalizeCensus, computeDelta, evaluateGate, buildAllowlist, DELTA_GROUPS,
+  checkBaselineAnchors, contentSha256,
 } from './check-rebaseline-delta.mjs';
 
 const def = (x) => JSON.parse(JSON.stringify(x));
 
-/** 归一化 census fixture：七组全给默认空，允许逐组覆写。 */
-function census({ columns = {}, constraints = {}, indexes = {}, sequences = {}, enums = {}, functions = {}, triggers = {}, tsColumns = {} } = {}) {
+/** 归一化 census fixture：八组全给默认空，允许逐组覆写。 */
+function census({ columns = {}, constraints = {}, indexes = {}, sequences = {}, enums = {}, functions = {}, triggers = {}, tsColumns = {}, tables = [] } = {}) {
   return normalizeCensus({
     columns: Object.entries(columns).map(([key, d]) => {
       const i = key.indexOf('.');
@@ -24,6 +28,7 @@ function census({ columns = {}, constraints = {}, indexes = {}, sequences = {}, 
     functions: Object.entries(functions).map(([key, d]) => ({ key, def: d })),
     triggers: Object.entries(triggers).map(([key, d]) => ({ key, def: d })),
     tsColumns: Object.entries(tsColumns).map(([key, d]) => ({ key, ...d })),
+    tables,
   });
 }
 
@@ -224,4 +229,51 @@ test('normalizeCensus：columns 键=table.column（def 三字段）；函数/触
   assert.equal(n.functions['f()'], 'CREATE FUNCTION ...');
   assert.equal(n.triggers['T.trg'], 'CREATE TRIGGER ...');
   assert.equal(n.sequences && typeof n.sequences, 'object');
+});
+
+test('负控⑤ tables 组：少 removed 表条目→红 / 多一个未登记表→红（行残留/空壳表可检出）', () => {
+  const before = census({ tables: ['LegacyOutbox'] });
+  const after = census({ tables: [] });
+  const d = computeDelta(before, after);
+  assert.deepEqual(d.removed.tables.map((e) => e.key), ['LegacyOutbox']);
+  const allowlist = buildAllowlist(d);
+  assert.deepEqual(allowlist.removed.tables.map((e) => e.key), ['LegacyOutbox']);
+
+  // 少 removed 表条目→红
+  const missing = JSON.parse(JSON.stringify(allowlist));
+  missing.removed.tables = [];
+  const r1 = evaluateGate(d, missing);
+  assert.equal(r1.ok, false);
+  assert.ok(r1.violations.some((v) => v.includes('未登记 removed.tables') && v.includes('LegacyOutbox')), r1.violations.join('\n'));
+
+  // after 多一个未登记表（新增表/空壳残留）→红
+  const r2 = evaluateGate(computeDelta(before, census({ tables: ['Ghost'] })), allowlist);
+  assert.equal(r2.ok, false);
+  assert.ok(r2.violations.some((v) => v.includes('未登记 added.tables') && v.includes('Ghost')), r2.violations.join('\n'));
+
+  // 空壳表残留（after 仍有该表、仅列/约束/索引被删）：removed.tables 期望未发生→allowlist 多余条目红
+  const r3 = evaluateGate(computeDelta(before, census({ tables: ['LegacyOutbox'] })), allowlist);
+  assert.equal(r3.ok, false);
+  assert.ok(r3.violations.some((v) => v.includes('allowlist 多余 removed.tables') && v.includes('LegacyOutbox')), r3.violations.join('\n'));
+});
+
+test('基线证据锚定：sha256 不一致/缺失→结构性错误（gate 重放前 exit 2 语义）', () => {
+  const recorded = { sqlSha256: 'a'.repeat(64), objectsSha256: 'b'.repeat(64) };
+  assert.deepEqual(checkBaselineAnchors(recorded, recorded), []);
+  const mismatch = checkBaselineAnchors(recorded, { sqlSha256: 'c'.repeat(64), objectsSha256: 'b'.repeat(64) });
+  assert.ok(mismatch.some((v) => v.includes('sqlSha256')), mismatch.join('\n'));
+  const missing = checkBaselineAnchors(undefined, recorded);
+  assert.ok(missing.some((v) => v.includes('缺失')), missing.join('\n'));
+});
+
+test('contentSha256：按入库内容 LF 口径（工作树 CRLF 材料化不产生跨平台假红）', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rebaseline-anchor-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const crlf = path.join(dir, 'crlf.txt');
+  const lf = path.join(dir, 'lf.txt');
+  fs.writeFileSync(crlf, 'a\r\nb\r\n');
+  fs.writeFileSync(lf, 'a\nb\n');
+  assert.equal(contentSha256(crlf), contentSha256(lf));
+  fs.writeFileSync(lf, 'a\nc\n');
+  assert.notEqual(contentSha256(crlf), contentSha256(lf));
 });
