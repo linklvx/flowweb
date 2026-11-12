@@ -41,17 +41,18 @@ profile=smoke 机器=win32/x64 20C/32G node v24.14.1
 EXIT=0
 
 ──── C3a-9 bench-smoke 基线对比摘要（2026-11-12；profile=smoke；机器=win32/x64 20C/32G node v24.14.1）────
-基线=gate-evidence/c4b-post-smoke.bench.json（2026-11-06）；实测=同目录 foundation-c3a-bench.json（工具原始输出=foundation-c3a-bench.bench.json）。
+基线=gate-evidence/c4b-post-smoke.bench.json（2026-11-06）；实测=同目录 foundation-c3a-bench.bench.json（工具原始输出；JSONL 分段=foundation-c3a-bench.jsonl）。
 构建=先手动 `pnpm --filter @flowweb/shared build` + `pnpm --filter @flowweb/api build` 成功，随后 T33_SKIP_BUILD=1 运行（Windows `spawnSync('pnpm')` 形态；verify 链 bench 步骤同用 --skip-build）。
 关键轴（p95，单位 ms）：
   applyReplay     基线 10   实测 10   （append/重放代理轴——不回归）
-  mixedFsync      基线 20   实测 5    （写放大代理轴——改善）
-  concurrency     基线 23   实测 26   （+3ms；p99 330ms 尾部离群，硬门未触发）
+  mixedFsync      基线 20   实测 5    （小载荷混合延迟轴——改善；非写放大指标）
+  concurrency     基线 23   实测 26   （+3ms；p99 基线 26/max 28 → 实测 330/max 341 尾部离群；该轴无硬门，未触发软 warn）
   walFsync        基线 20   实测 20   （p99 50 vs 基线 20——bench 软 warn band；硬门 walFsyncP95>20 未触发）
   coldLoad        基线 44   实测 77   （卡文未点名轴；硬门 3000ms 远未触及）
   saveBarrier     基线 33   实测 54   （硬门 2000ms 远未触及）
   projectionRead  基线 14   实测 6
   feedLag         基线 33   实测 43   （硬门 30s 远未触及）
+写放大轴：walFsync.fsyncPerSec 14.6 → 14.7（—）；walFsync.storeBytesDelta 55,189B → 54,953B（-0.4%——不回归）。
 resources：rssMax 226,414,592B → 234,987,520B（+3.8%）；cpuMax 1%；eventLoopLagMax 0；pgLockWaitMax 0；docPgLagSeqMax 0。
 invariants：9/9 pass（seededKeys/mixedConvergence/crossProjectIsolation/convergence/outboundBudget/backlogDrained/slowProjectIsolation/noSilentDrop/replaySuperset）。
 errors：http5xx=0 / unhandledExceptions=0 / unexpectedClose1011=0 / dataAssertionFailures=0 / timeouts=0。

@@ -722,12 +722,14 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 - `media_binding_write_total{source=append|rebuild}`：**仅净 upsert 行写**（source=append 帧级投影闭包 RELEASE 成功后 / rebuild 每页短事务提交后）；diff/尾删不计，回滚批次不计数。
 - `media_binding_skip_total{reason=missing|cross-team|soft-deleted}`：投影成功的槽位准入跳过（与 projector 预检序单源）；失败回滚批不计数。
 - `media_binding_projection_failed_total{reason=typed|unexpected|rebuild-page}`：投影失败（typed=`BindingProjectionFailedError` / unexpected=帧级闭包非 typed / rebuild-page=rebuild 分页事务失败）；帧照常提交由闭包承接（SAVEPOINT 回滚+置 dirty）。
-- `media_binding_gap_seq`：**首现 gap 序号**——实时帧批投影未覆盖（含 import 申报未覆盖批）且帧水位已推进时记该批 newPgSeq（仅 gauge=0 时写入=首现语义）；**任意项目 rebuild CAS 清 dirty 即归 0**（gap 闭合；全局 gauge=最后观测语义）。catch-up 形（replayAll，expectedPgSeq=null）不观测——其覆盖由 dirty+rebuild 承载。
+- `media_binding_gap_seq`：**首现 gap 序号**——实时帧批投影未覆盖（含 import 申报未覆盖批）且帧水位已推进时记该批 newPgSeq（仅 gauge=0 时写入=首现语义）；**任意项目 rebuild CAS 清 dirty 即归 0**（gap 闭合；全局 gauge=最后观测语义）。观测面=appendBatch **advanced 出口**（懒建档 uncovered 形态不写 gap——其 dirty 由建档 INSERT 兜底）。catch-up 形（replayAll，expectedPgSeq=null）不观测——其覆盖由 dirty+rebuild 承载。
 - `media_binding_watermark_lag`：pgSeq−mediaBindingSeq——appendBatch 落定/rebuild 清 dirty/backfill 候选三观测点更新；全局 gauge=最后观测项目，**任意项目 rebuild 成功即清零**。
 - `media_binding_backfill_remaining`：候选剩余数（`bindingsDirty=true ∨ mediaBindingSeq<pgSeq` 全表计数）；**有处理的 drain 末尾刷新**（processed>0——覆盖枚举+处理收尾拍与 enqueue 直排；空转零 COUNT 保留上次值）。
 - `binding_delta_bytes`：帧级 bindingDelta 序列化字节直方图（C3a-3；计入 applied 队列预算，帧无 touched=零观测）。
 
 **水位不变量（一句话）**：`mediaBindingSeq`=连续投影前缀（恒 ≤pgSeq）；`bindingsDirty=true` 期间任何增量成功不得推进；**唯一清 dirty+推水位面=全量 rebuild 的 CAS 四条件**（`mediaBindingSeq=expected ∧ pgSeq=S ∧ generation=G ∧ bindingsDirty=true`）——任一移动即 0 行失败、dirty 保持下轮重试（分页写覆盖竞态/换代窗同为该 CAS 门兜底）。
+
+**全局 gauge 判据纪律**：`media_binding_gap_seq` / `media_binding_watermark_lag` 是**最后观测全局 gauge**（任意项目 rebuild 成功即清零）——**不得以 gauge=0 判逐项目闭合**。逐项目闭合判据=`CanvasDoc.bindingsDirty=false ∧ mediaBindingSeq==pgSeq`，或 ProjectionBackfillState `state='DONE' ∧ verifiedSeq==该项目当前 pgSeq` 对齐。
 
 **ProjectionBackfillState 查询面**（持久完成状态行——跨进程 GC/erasure 可查；`state` 域 CHECK IN `PENDING|RUNNING|DONE|FAILED`，`backfillEpoch`=runner 实例启动生成的轮次标识）：
 
@@ -735,7 +737,7 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 |---|---|
 | projectId | 主键（独立状态行，非 FK；项目删除清行=erasure registry 批删承载） |
 | backfillEpoch | runner 启动轮次（UUID——同轮可追踪/断点续跑观测） |
-| state | RUNNING→DONE（cleared）/FAILED（失败/cas-miss；候选保持可续跑）；PENDING 无消费者 |
+| state | RUNNING→DONE（cleared）/FAILED（失败/cas-miss/no-doc〔行缺或并发清理〕；候选保持可续跑）；PENDING 无消费者 |
 | verifiedSeq | DONE 时=rebuild CAS 落定的 pgSeq；其余保留旧值/0 |
 | updatedAt | 最后写点（timestamptz） |
 
@@ -750,7 +752,7 @@ ORDER BY "updatedAt" DESC;
 
 候选口径与 runner 枚举同源（`"bindingsDirty" = true OR "mediaBindingSeq" < "pgSeq"`）；DONE 后项目退出候选集。非 ACTIVE（ERASING/删除中）项目=runner **bail-out**（不写 DONE、dirty 保留、固定 5min 复查；恢复 ACTIVE 后收敛）。
 
-**漂移处置**：`binding-reconcile.service` 只读检测（发现面=CanvasDoc 全表；仅 **clean 项目**——dirty/lag 跳过——按 `loadForHydrationAt` 定代重放 doc@pgSeq 对拍 DB 行，**禁活 doc**）→ `media_binding_drift_total{kind=missing|extra|mismatch}` → 漂移命中=置 dirty+`runner.enqueue`（**唯一修复路径=rebuild；reconcile 零 MediaBinding 写**）。建议全局告警阈值（先观测后定案，避免假阳性）：①`media_binding_gap_seq > 0` 持续（如 >5min）——投影覆盖中断在证，查 `projection_failed_total`/api 日志定位失败帧；②`media_binding_backfill_remaining > 0` 长时间不降（如 >10min 或持续增长）——runner 停摆/候选风暴，查 runner tick 日志+ProjectionBackfillState 非 DONE 行；③`media_binding_drift_total` 增速>0——binding 与 doc 真值漂移（写路径漏投影/命令面越权写信号），处置=置 dirty 后 runner rebuild，不手工改行。
+**漂移处置**：`binding-reconcile.service` 只读检测（发现面=CanvasDoc 全表；仅 **clean 项目**——dirty/lag 跳过——按 `loadForHydrationAt` 定代重放 doc@pgSeq 对拍 DB 行，**禁活 doc**）→ `media_binding_drift_total{kind=missing|extra|mismatch}` → 漂移命中=置 dirty+`runner.enqueue`（**唯一修复路径=rebuild；reconcile 零 MediaBinding 写**）。建议全局告警阈值（先观测后定案，避免假阳性）：①`media_binding_gap_seq > 0` 持续（如 >5min）——投影覆盖中断在证，查 `projection_failed_total`/api 日志定位失败帧（**import 未覆盖 gap 不增 projection_failed_total**——该档走 dirty 通道，定位看 import 申报/spool 回灌日志）；②`media_binding_backfill_remaining > 0` 长时间不降（如 >10min 或持续增长）——runner 停摆/候选风暴，查 runner tick 日志+ProjectionBackfillState 非 DONE 行；③`media_binding_drift_total` 增速>0——binding 与 doc 真值漂移（写路径漏投影/命令面越权写信号），处置=置 dirty 后 runner rebuild，不手工改行。
 
 **与 §14.2（MediaFact）分界**：§14.2 是 media 事实（state/natural 当前态）的读侧健康金丝雀；本节是 MediaBinding（doc 引用索引）的投影/回填/漂移观测——同挂 media 段分诊，修复路径互不交叉（facts=MediaFact 表；binding=rebuild 全量重算）。
 

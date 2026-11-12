@@ -73,10 +73,10 @@ export const mediaBindingWatermarkLag = new Gauge({
   registers: [register],
 });
 
-/** backfill 候选剩余数（`bindingsDirty ∨ mediaBindingSeq<pgSeq` 全表计数——每枚举拍更新）。 */
+/** backfill 候选剩余数（`bindingsDirty ∨ mediaBindingSeq<pgSeq` 全表计数——drain 末尾有处理时更新）。 */
 export const mediaBindingBackfillRemaining = new Gauge({
   name: 'media_binding_backfill_remaining',
-  help: 'ProjectionBackfill 候选剩余数（CanvasDoc 全表 bindingsDirty=true 或 mediaBindingSeq<pgSeq 计数——每枚举拍更新）',
+  help: 'ProjectionBackfill 候选剩余数（CanvasDoc 全表 bindingsDirty=true 或 mediaBindingSeq<pgSeq 计数——drain 末尾有处理时更新〔processed>0；空转保留上次值〕）',
   registers: [register],
 });
 

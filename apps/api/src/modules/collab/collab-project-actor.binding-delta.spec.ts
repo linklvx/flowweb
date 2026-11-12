@@ -105,7 +105,7 @@ describe('C3a-3：touched 保守收集+帧边界 bindingDelta（五族——spec
     ]);
   });
 
-  it('③node 内 set(\'data\',newMap) 整替换→touched（终态快照=替换后引用集）', () => {
+  it('③node 内 set(\'data\',newMap) 整替换→touched（终态快照=替换后引用集——标量槽+allImages 列表槽）', () => {
     const c = new FrameEffectsCollector();
     const doc = new Y.Doc();
     c.install(doc);
@@ -114,12 +114,17 @@ describe('C3a-3：touched 保守收集+帧边界 bindingDelta（五族——spec
     const f = frameOf((src) => {
       const d = new Y.Map<unknown>();
       d.set('referenceImage', 'media-c');
+      const allImages = new Y.Array<unknown>();
+      allImages.push([{ id: 'media-all-1' }, { id: 'media-all-2' }]);
+      d.set('allImages', allImages);
       nodeOf(src, 'n1').set('data', d);
     }, base);
     const { delta } = applyFrame(c, doc, 2n, f);
     expect(delta.has('n1')).toBe(true);
     expect(delta.get('n1')).toEqual([
       { nodeId: 'n1', mediaId: 'media-c', role: 'primary', targetField: 'referenceImage', targetItemId: '' },
+      { nodeId: 'n1', mediaId: 'media-all-1', role: 'primary', targetField: 'allImages', targetItemId: 'media-all-1' },
+      { nodeId: 'n1', mediaId: 'media-all-2', role: 'primary', targetField: 'allImages', targetItemId: 'media-all-2' },
     ]);
   });
 
