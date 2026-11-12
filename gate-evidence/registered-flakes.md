@@ -167,3 +167,8 @@
   onUpgrade socket 直写」满载 api 池轮红一例（改档部署 verify full [20/31]）；同码隔离跑 15/15 绿
   +同夜此前 verify FULL 多轮全绿；同族口径=真连 socket 时序窗满载放大（与 spool 族两例/Y7 coalesce
   同判——环境态非回归）；处置=复跑收口（禁调判据）。
+- 2026-11-13（C1-4 独立全链复核登记）：collab-rate-gate.spec 两例满载并行下红——「红门⑧-b（128KB
+  档真 refill——60KB 帧）pollUntil timeout 10s」与「bytes 桶持续超速率滴灌」30s 用例超时（verify
+  full [21/35] api-test-heavy；同窗有另一评审代理并发跑 int/DB 负载）。同文件隔离复跑 9/9 绿
+  （8.2s，05:42 本机）；同族口径=该 spec 的 ms 级 pollUntil/时序窗在满载态放大（依次承 2026-10-27
+  T24 行与 Y7 coalesce/soak 行）；处置=复跑收口，禁调阈值/不动判据。
