@@ -334,7 +334,7 @@ export class CollabPersistenceService {
       try {
         for (const chunk of this.splitPersistChunks(parts)) {
           const payload = chunk.length === 1 ? chunk[0] : Y.mergeUpdates(chunk);
-          await this.runMaintenanceChannel(projectId, payload);    // resolve=WAL fsync 落定（PG 行/confirm 归通道内部）
+          await this.runMaintenanceChannel(projectId, payload);    // resolve=PG 落定（维护帧 Q-M5；PG 行/confirm 归通道内部）
         }
       } catch (e2) {
         // sink 失败分档（旧链终态族语义承继——帧已 WAL 落定者由 spool 未 confirm 帧承载，队列留存
@@ -401,11 +401,14 @@ export class CollabPersistenceService {
         queue.splice(0, n);
       }
       this.leaveInFlight(projectId);                               // X2 落定点②：WAL fsync 成功
-      this.settleImportPending(projectId);                         // C3a-8 C1：import 内容全落 PG→清标记+入队 rebuild
       this.storeFailedDocs.delete(projectId);
       // 吸收的旧帧（merged 进本批 PG 行——内容已入 PG）显式 confirm：段回收判据=全部帧 confirmed
       // （合并产物帧+旧帧——缺此=旧帧永滞段、下轮 peek 再吸收=写放大循环；actor 只 confirm 本批新帧）
       if (stashIds.length) await this.spool.confirm(projectId, stashIds);
+      // C3a-8 C1 质量收口 I-1：settle **必须在 stash confirm 之后**——本批吸收旧 spool 帧时，confirm
+      // 前 settle 会被 spool 门挡住（帧未 confirm），confirm 后无二次 settle=标记滞留。confirm 后调用
+      // 对无 stash 路径等价（spool 状态未变）。
+      this.settleImportPending(projectId);                         // import 内容全落 PG（含吸收旧帧）→清标记+入队
       yjsStoreDrainTotal.inc({ result: 'appended' });
       // E71：store 成功路径 emit（doc 已落 PG——双层失效；监听器自兜底不抛）
       this.eventEmitter?.emit('canvas.doc-saved', { projectId });
@@ -514,7 +517,8 @@ export class CollabPersistenceService {
 
   /** Y1c T9：维护写独立 append 通道 sink（gateway 接线=actor.submitMaintenance——WAL 帧+PG 行+
    *  confirm 的单写者串行段；本服务不再直接 repo.append/spool.append〔PG 腿全部经 sink——新表
-   *  行 walSeq/generation 口径由 actor 统一〕）。resolve=WAL fsync 落定（Spooled 档）。 */
+   *  行 walSeq/generation 口径由 actor 统一〕）。**resolve=PG 落定**（actor 维护帧 Q-M5 承诺：
+   *  WAL fsync 后仍等待 appendBatch 提交；失败以 pgPending 拒绝交维护方退避梯/回灌）。 */
   private maintenanceSink: ((projectId: string, payload: Uint8Array, opts?: { bindingUncovered?: boolean }) => Promise<unknown>) | null = null;
   setMaintenanceSink(fn: (projectId: string, payload: Uint8Array, opts?: { bindingUncovered?: boolean }) => Promise<unknown>): void {
     this.maintenanceSink = fn;

@@ -52,7 +52,9 @@ maybe('C3a-8：MediaBinding 只读漂移检测（真 PG——零 MediaBinding �
   const repo = new CanvasDocUpdateRepository(prisma as never);
   const rebuild = new BindingRebuildService(prisma as never, repo as never);
   const enqueue = vi.fn();
-  const svc = new BindingReconcileService(prisma as never, repo as never, { enqueue } as never);
+  // I-2 收口：dirty 置位统一经 runner.markDirty（测试 fake 同式落 PG——断言 dirtyMarked 行为）
+  const markDirty = vi.fn(async (pid: string) => { await prisma.canvasDoc.updateMany({ where: { projectId: pid }, data: { bindingsDirty: true } }); });
+  const svc = new BindingReconcileService(prisma as never, repo as never, { enqueue, markDirty } as never);
 
   const rowsOf = () => prisma.mediaBinding.findMany({ where: { projectId: PID }, orderBy: { nodeId: 'asc' } });
   const docState = async (pid = PID) => prisma.canvasDoc.findUnique({ where: { projectId: pid }, select: { pgSeq: true, mediaBindingSeq: true, bindingsDirty: true } });
@@ -102,7 +104,8 @@ maybe('C3a-8：MediaBinding 只读漂移检测（真 PG——零 MediaBinding �
   });
 
   it('①missing 漂移：doc 引用缺行→drift_total{missing} 计数+置 dirty+enqueue；MediaBinding 行零变化（只读）', async () => {
-    await prisma.canvasDoc.update({ where: { projectId: PID }, data: { bindingsDirty: false } });
+    // I-2：漂移只在 clean 项目计入——先把锚置干净（dirty=false ∧ mediaBindingSeq==pgSeq=10）
+    await prisma.canvasDoc.update({ where: { projectId: PID }, data: { bindingsDirty: false, mediaBindingSeq: 10n } });
     const rowsBefore = await rowsOf();
     const delta = await metricDelta('media_binding_drift_total', 'missing', async () => {
       const s = await svc.reconcileProject(PID);
@@ -124,7 +127,7 @@ maybe('C3a-8：MediaBinding 只读漂移检测（真 PG——零 MediaBinding �
       { mediaId: M2, projectId: PID, nodeId: 'n1', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'fileId', targetItemId: '' },
       { mediaId: M2, projectId: PID, nodeId: 'ghost', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'fileId', targetItemId: '' },
     ] });
-    await prisma.canvasDoc.update({ where: { projectId: PID }, data: { bindingsDirty: false } });
+    await prisma.canvasDoc.update({ where: { projectId: PID }, data: { bindingsDirty: false, mediaBindingSeq: 10n } });
     const rowsBefore = await rowsOf();
     let summary: import('./binding-reconcile.service').ReconcileSummary | undefined;
     const dMismatch = await metricDelta('media_binding_drift_total', 'mismatch', async () => {
@@ -134,7 +137,8 @@ maybe('C3a-8：MediaBinding 只读漂移检测（真 PG——零 MediaBinding �
     expect(dMismatch).toBe(1);
     expect((await docState())?.bindingsDirty).toBe(true);
     expect(await rowsOf()).toEqual(rowsBefore);   // 只读：错行/多余行均未删改（修复归 rebuild）
-    // extra 计数独立断言（二次检测——dirty 已 true 不影响只读检测）
+    // extra 计数独立断言（二次检测——I-2：须先复位 clean（dirty 项目跳过））
+    await prisma.canvasDoc.update({ where: { projectId: PID }, data: { bindingsDirty: false, mediaBindingSeq: 10n } });
     const dExtra = await metricDelta('media_binding_drift_total', 'extra', async () => { await svc.reconcileProject(PID); });
     expect(dExtra).toBe(1);
   });
@@ -159,7 +163,8 @@ maybe('C3a-8：MediaBinding 只读漂移检测（真 PG——零 MediaBinding �
     expect(enqueue).not.toHaveBeenCalled();
   });
 
-  it('⑤发现面=CanvasDoc 全表（干净项目也入列——漂移可在「水位齐」项目）', async () => {
+  it('⑤发现面=CanvasDoc 全表（干净项目也入列——漂移可在「水位齐」项目；游标置 PID 前缀=防 dev 库 >64 行 flake）', async () => {
+    (svc as unknown as { discoverCursor: string | null }).discoverCursor = '0c3a8-reconcile-';
     const n = await svc.discover();
     expect(n).toBeGreaterThanOrEqual(2);
     const queue = (svc as unknown as { queue: Set<string> }).queue;

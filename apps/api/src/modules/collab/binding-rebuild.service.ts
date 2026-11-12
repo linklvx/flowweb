@@ -16,9 +16,9 @@
 // 消费方=gateway 装载缝 boot 判定（needsBindingRebuild 三或——spec §3.2-3 恢复四路 boot/residency
 // 腿：`replayed>0 ∨ mediaBindingSeq<pgSeq ∨ dirty`；C3a-8 BackfillRunner 枚举+reconcile 同消费）。
 //
-// 「持续 dirty」可观测（记录性注释——spec §3.2-7 指标清单无 binding_dirty 项）：分诊面=本文件
-// cas-miss WARN 日志+needsBindingRebuild 选中谓词（恒在候选集）；gap_seq/watermark_lag 指标归
-// C3a-8 落（§3.2-3 观测面），不在本卡重复发明。
+// 「持续 dirty」可观测（spec §3.2-7 指标清单无 binding_dirty 项）：分诊面=本文件 cas-miss WARN
+// 日志+needsBindingRebuild 选中谓词（恒在候选集）+ProjectionBackfillState 持久行；C3a-8 已落
+// gap_seq/watermark_lag 观测点（本文件 CAS 清 dirty 时归 0——§3.2-3 观测面）。
 //
 // 【spec 措辞张力销案（C3a-6 评审遗留——本实现按操作性条款落地）】①spec §3.2-4「binding 权威写=
 // appendBatch inTx 投影+**锁内** rebuild」与 §0/§3.2-3「**锁外**读 pgSeq 快照+分页写+短事务 CAS」
@@ -43,6 +43,24 @@ export class BindingRebuildAbortedError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = 'BindingRebuildAbortedError';
+  }
+}
+
+/** C3a-8 质量收口 Minor：**定代前缀引用采集单源**（快照铺底+增量尾应用）——rebuild 与只读
+ *  reconcile 共用（禁第二份重放实现；PG 定代前缀、禁活 doc）。 */
+export async function collectRefsAt(
+  repo: Pick<CanvasDocUpdateRepository, 'loadForHydrationAt'>,
+  projectId: string,
+  at: { generation: number; pgSeq: bigint },
+): Promise<MediaRef[]> {
+  const { state, updates } = await repo.loadForHydrationAt(projectId, at);
+  const doc = createCanvasDoc();
+  try {
+    if (state) Y.applyUpdate(doc, new Uint8Array(state));
+    for (const u of updates) Y.applyUpdate(doc, new Uint8Array(u));
+    return collectMediaRefs(toDocLike(doc));
+  } finally {
+    doc.destroy();
   }
 }
 
@@ -91,44 +109,37 @@ export class BindingRebuildService {
   async writeBindingsAt(projectId: string, anchor: RebuildAnchor): Promise<void> {
     // ② rebuild 开始即置 dirty（幂等；updateMany——行缺布景下 0 行不炸，C3a-4 闭包同判）
     await this.prisma.canvasDoc.updateMany({ where: { projectId }, data: { bindingsDirty: true } });
-    // ③ 定代重放 doc@S（固定 G——换代行排除）
-    const { state, updates } = await this.repo.loadForHydrationAt(projectId, { generation: anchor.generation, pgSeq: anchor.pgSeq });
-    const doc = createCanvasDoc();
-    try {
-      if (state) Y.applyUpdate(doc, new Uint8Array(state));
-      for (const u of updates) Y.applyUpdate(doc, new Uint8Array(u));
-      // ④ 全量 delta（doc 全节点——collectMediaRefs 聚合单源，帧级 collectMediaRefsForNode 同族）
-      const delta = new Map<string, MediaRef[]>();
-      for (const r of collectMediaRefs(toDocLike(doc))) {
-        const list = delta.get(r.nodeId);
-        if (list) list.push(r);
-        else delta.set(r.nodeId, [r]);
+    // ③ 定代重放 doc@S（固定 G——换代行排除）+④ 全量 delta（doc 全节点——collectMediaRefs 聚合
+    // 单源；C3a-8 质量收口：重放采集与 reconcile 共用 collectRefsAt 单源）
+    const refs = await collectRefsAt(this.repo, projectId, { generation: anchor.generation, pgSeq: anchor.pgSeq });
+    const delta = new Map<string, MediaRef[]>();
+    for (const r of refs) {
+      const list = delta.get(r.nodeId);
+      if (list) list.push(r);
+      else delta.set(r.nodeId, [r]);
+    }
+    const teamId = (await this.prisma.canvasProject.findUnique({ where: { id: projectId }, select: { teamId: true } }))?.teamId;
+    // C3a-8 修复批 I2：项目行缺失/被读过滤（非 ACTIVE）——**throw 禁 return**（return 会使 CAS
+    // 清 dirty+推水位=假覆盖；回滚由调用方/runner 退避处理）。
+    if (teamId == null) throw new BindingRebuildAbortedError(`CanvasProject 行缺失或不可读（${projectId}）——rebuild 中止（禁 CAS）`);
+    // ⑤ 分页短事务写（每页原子：desired upsert+非 desired 槽删——projector diff 语义）
+    const entries = [...delta.entries()];
+    for (let i = 0; i < entries.length; i += REBUILD_PAGE_NODES) {
+      const chunk = new Map(entries.slice(i, i + REBUILD_PAGE_NODES));
+      try {
+        const stats = await this.prisma.$transaction((tx) => projectBindings(tx, projectId, teamId, chunk), { timeout: 5_000, maxWait: 1_000 });
+        recordMediaBindingProjection('rebuild', stats);   // C3a-8：页事务提交成功后计数（回滚不计数）
+      } catch (err) {
+        mediaBindingProjectionFailedTotal.inc({ reason: 'rebuild-page' });
+        throw err;
       }
-      const teamId = (await this.prisma.canvasProject.findUnique({ where: { id: projectId }, select: { teamId: true } }))?.teamId;
-      // C3a-8 修复批 I2：项目行缺失/被读过滤（非 ACTIVE）——**throw 禁 return**（return 会使 CAS
-      // 清 dirty+推水位=假覆盖；回滚由调用方/runner 退避处理）。
-      if (teamId == null) throw new BindingRebuildAbortedError(`CanvasProject 行缺失或不可读（${projectId}）——rebuild 中止（禁 CAS）`);
-      // ⑤ 分页短事务写（每页原子：desired upsert+非 desired 槽删——projector diff 语义）
-      const entries = [...delta.entries()];
-      for (let i = 0; i < entries.length; i += REBUILD_PAGE_NODES) {
-        const chunk = new Map(entries.slice(i, i + REBUILD_PAGE_NODES));
-        try {
-          const stats = await this.prisma.$transaction((tx) => projectBindings(tx, projectId, teamId, chunk), { timeout: 5_000, maxWait: 1_000 });
-          recordMediaBindingProjection('rebuild', stats);   // C3a-8：页事务提交成功后计数（回滚不计数）
-        } catch (err) {
-          mediaBindingProjectionFailedTotal.inc({ reason: 'rebuild-page' });
-          throw err;
-        }
-      }
-      // 全量替换尾腿：doc 外节点的现存行清（stale 行——不在 delta 域=增量投影永不触达）
-      const existingNodeIds = await this.prisma.$queryRaw<{ nodeId: string }[]>`
-        SELECT DISTINCT "nodeId" FROM "MediaBinding" WHERE "projectId" = ${projectId}::text`;
-      const stale = existingNodeIds.map((r) => r.nodeId).filter((id) => !delta.has(id));
-      if (stale.length > 0) {
-        await this.prisma.$executeRaw`DELETE FROM "MediaBinding" WHERE "projectId" = ${projectId}::text AND "nodeId" = ANY(${stale}::text[])`;
-      }
-    } finally {
-      doc.destroy();
+    }
+    // 全量替换尾腿：doc 外节点的现存行清（stale 行——不在 delta 域=增量投影永不触达）
+    const existingNodeIds = await this.prisma.$queryRaw<{ nodeId: string }[]>`
+      SELECT DISTINCT "nodeId" FROM "MediaBinding" WHERE "projectId" = ${projectId}::text`;
+    const stale = existingNodeIds.map((r) => r.nodeId).filter((id) => !delta.has(id));
+    if (stale.length > 0) {
+      await this.prisma.$executeRaw`DELETE FROM "MediaBinding" WHERE "projectId" = ${projectId}::text AND "nodeId" = ANY(${stale}::text[])`;
     }
   }
 

@@ -188,6 +188,7 @@ return writeBinding();
 ### Task C3a-9：卡收口
 
 - [ ] 红测全族（spec §3.2.8）+对拍契约 **`binding@mediaBindingSeq == oracle(doc@pgSeq)`**（独立测试递归实现）+`pnpm bench:load:smoke`（append p95/写放大/delta 预算不回归——超限停卡上报）+`pnpm verify`+双评审。
+- [ ] runbook §14.3 落档（spec §4「§14 media 段分诊随卡」）：7 指标语义/gap_seq 首现与清零/ProjectionBackfillState 查询/漂移处置=置 dirty+runner rebuild（C3a-8 质量评审 I-6 移交——本卡无此条则运维分诊无主）。
 
 ---
 

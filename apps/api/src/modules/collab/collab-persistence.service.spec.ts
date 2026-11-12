@@ -236,6 +236,34 @@ describe('CollabPersistenceService 独立实例化全链（RC2——不启 WS Se
     expect(updateMany.mock.calls[0][0]).toMatchObject({ where: { projectId: PID }, data: { bindingsDirty: true } });
   });
 
+  it('质量收口 I-1：吸收旧 spool 帧批成功——settle 在 stash confirm 之后（marker 清+enqueue 恰一次）', async () => {
+    const doc = new Y.Doc();
+    svc.observeDocument(doc, PID, NAME);
+    // import 写 + PG 段失败：帧入 spool（队列已清空、marker 保持）
+    const imp = new Y.Doc();
+    imp.getMap('nodes').set('n-imp', { fileId: 'm1' });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(imp), 'import');
+    repo.appendBatch.mockRejectedValueOnce(Object.assign(new Error('injected pg down'), { pgPending: true }));
+    expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(false);
+    expect(spool.hasFrames(PID)).toBe(true);
+    (svc as unknown as { cancelPersistRetry(n: string): void }).cancelPersistRetry(NAME);
+    // 队列空 + spool 有旧帧 → 本批仅吸收旧帧；settle 必须在 stash confirm 之后（否则被 spool 门挡住滞留）
+    const sink = vi.fn(async (_pid: string, _payload: Uint8Array, _opts?: { bindingUncovered?: boolean }) => {});
+    svc.setMaintenanceSink(sink as never);
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(true);
+    expect(spool.hasFrames(PID)).toBe(false);   // 旧帧已 confirm
+    expect(enqueue).toHaveBeenCalledTimes(1);   // settle 在 confirm 后完成（修前 0——marker 滞留）
+    // marker 已清：后续普通维护写不再申报未覆盖
+    const plain = new Y.Doc();
+    plain.getMap('nodes').set('n-plain', { v: 1 });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(plain), SERVER_TRANSACT_ORIGIN);
+    expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(true);
+    expect(sink).toHaveBeenCalledTimes(2);
+    expect(sink.mock.calls[1][2]).toBeUndefined();
+  });
+
   it('C1 恢复链 #2：replayAll 回灌落定（spool 清空）后清 importPending——后续维护写不再申报未覆盖', async () => {
     const doc = new Y.Doc();
     svc.observeDocument(doc, PID, NAME);

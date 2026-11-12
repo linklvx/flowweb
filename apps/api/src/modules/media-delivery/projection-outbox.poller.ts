@@ -122,8 +122,9 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
     @Inject(CollabLeaseService) private readonly lease: CollabLeaseService,
     @Inject(CollabDocumentService) private readonly docs: CollabDocumentService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
-    /** T16 交接面：projected/orphaned 后 post-apply 触发该 project 的 MediaBinding 惰性 reconcile
-     *  （requestReconcile 仅入队 fire-and-forget——零阻塞投影循环；spec :25 裁决③「poller mark 后 lazy」）。 */
+    /** T16 交接面/C3a-8：projected/orphaned 后 post-apply 触发该 project 的 MediaBinding **只读漂移
+     *  检测**（requestReconcile 仅入队 fire-and-forget——零阻塞投影循环；漂移处置=置 dirty+runner
+     *  rebuild，本服务零 MediaBinding 写；spec :25 裁决③「poller mark 后 lazy」）。 */
     @Inject(BindingReconcileService) private readonly reconciler: BindingReconcileService,
   ) {}
 
@@ -290,7 +291,8 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
             await this.mark(s.row, { state: 'orphaned', lastError: `node-deleted:${unwrittenReason}` });
             inc('orphaned');
             await this.refundOrphaned(s.artifact);
-            // T16：node 删除=MediaBinding stale 清扫的权威观察点——触发该 project reconcile（删行）。
+            // T16/C3a-8：node 删除=doc 现值变化的权威观察点——触发该 project reconcile（只读漂移
+            // 检测；漂移处置=置 dirty+runner rebuild——本服务零 MediaBinding 写）。
             this.reconciler.requestReconcile(projectId);
             continue;
           }

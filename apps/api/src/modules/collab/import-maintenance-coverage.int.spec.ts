@@ -12,7 +12,7 @@
 //   ②无头行（懒建档）：flush 后行在 ∧ dirty=true ∧ mediaBindingSeq=0 → rebuild 收敛；
 //   ③直接 actor.submitMaintenance(pid, diff, {bindingUncovered:true})（sink 签名透传面）→ 同上未覆盖态；
 //   ④普通维护写（非 import）不改变覆盖语义（covered=true→水位推进、dirty 保持 false）——负控。
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { Logger } from '@nestjs/common';
 import * as Y from 'yjs';
@@ -76,6 +76,8 @@ maybe('C3a-8 修复批 C1：import 维护批次申报未覆盖（真 PG+真 acto
   let dir: string;
   let cleanupDir: () => Promise<void>;
   let spool: CollabSpoolService;
+  /** 质量收口 Minor：per-test persistence 实例台账（afterEach 取消维护 timer——防跨测泄漏）。 */
+  const activeSvcs: CollabPersistenceService[] = [];
 
   const hostOf = (doc: Y.Doc, name: string): CollabPersistenceHost => ({
     logger: new Logger('c3a8-c1'),
@@ -112,6 +114,7 @@ type MaintSubmit = (projectId: string, payload: Uint8Array, opts?: { bindingUnco
 
   function makePersistence(doc: Y.Doc, name: string, actor: CollabProjectActorService, enqueue: ReturnType<typeof vi.fn>) {
     const svc = new CollabPersistenceService(repo as never, spool as never);
+    activeSvcs.push(svc);
     svc.bindHost(hostOf(doc, name));
     // sink 透传第三参（修后签名扩展；本 cast 使红测在修前亦可编译运行=行为红非类型红）
     const submit: MaintSubmit = (pid, payload, opts) =>
@@ -144,6 +147,10 @@ type MaintSubmit = (projectId: string, payload: Uint8Array, opts?: { bindingUnco
       data: { id: M, userId: FIXTURE_USER, teamId: FIXTURE_TEAM, key: `c3a8/${M}`, originalName: 'm.png', mimeType: 'image/png', size: 1n, type: 'uploaded' },
     });
     ({ dir, cleanup: cleanupDir } = await makeSpoolDir('c3a8-c1-'));
+  });
+
+  afterEach(() => {
+    for (const s of activeSvcs.splice(0)) s.cancelAllRetries();
   });
 
   beforeEach(async () => {

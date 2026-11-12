@@ -81,7 +81,7 @@ maybe('C3a-5：MediaBindingProjector 四族（真 PG）', () => {
   it('①a：upsert 槽位——新槽写行+同槽重投幂等（零 churn：行数/槽键/mediaId 不变）；统计 written=净写行数', async () => {
     await prisma.mediaBinding.deleteMany({ where: { projectId: PID, nodeId: 'a' } });
     const s1 = await project(prisma, delta({ a: [ref('a', M.fresh1)] }));
-    expect(s1).toEqual({ written: 1, deleted: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } });
+    expect(s1).toEqual({ written: 1, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } });
     let rs = await rowsOf(prisma);
     expect(slotKeys(rs)).toEqual([`a|primary|fileId|=>${M.fresh1}`]);
     const idBefore = rs[0].id;

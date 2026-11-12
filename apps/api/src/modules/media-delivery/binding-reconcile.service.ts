@@ -22,15 +22,14 @@
 // 项目行缺失（readRebuildAnchor=null）=跳过：其 binding 行由项目 FK Cascade/erasure 清理，不产生漂移。
 import { Inject, Injectable, Logger, OnModuleInit, OnApplicationShutdown } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { collectMediaRefs, type MediaRef } from '@flowweb/shared';
-import * as Y from 'yjs';
+import type { MediaRef } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CanvasDocUpdateRepository } from '../collab/canvas-doc-update.repository';
 import { ProjectionBackfillRunner } from '../collab/projection-backfill.runner';
-import { createCanvasDoc } from '../collab/canvas-doc.factory';
-import { toDocLike } from '../collab/doc-like.util';
+import { collectRefsAt } from '../collab/binding-rebuild.service';
 import { admitMediaRef, mediaBindingSlotKey } from '../collab/media-binding-projector';
 import { mediaBindingDriftTotal } from '../collab/media-binding.metrics';
+import { mediaBindingReconcileOutcomeTotal } from './binding-reconcile.metrics';
 
 // ── reconcile 参数（同族纪律：常数不进 env——热循环红线非立即重投） ──
 /** 触发队列排水周期（post-apply 请求的收敛延迟上界）。 */
@@ -45,8 +44,11 @@ export const RECONCILE_DISCOVER_PAGE = 64;
 /** 单轮只读 reconcile 摘要（测试/观测面——漂移形态，写面计数已退役）。 */
 export interface ReconcileSummary {
   projectId: string;
-  /** 检测可执行（false=项目行/文档行缺失或扫描失败——本轮跳过）。 */
+  /** 检测可执行（false=项目行/文档行缺失、候选跳过或扫描失败——本轮跳过）。 */
   ok: boolean;
+  /** C3a-8 质量收口 I-2：候选跳过原因（dirty=rebuild 在途/lag=水位未齐——已由 rebuild 队列覆盖，
+   *  禁全量重放+假 drift 噪声；drift 只在 clean 项目计入）。 */
+  skipped: 'dirty' | 'lag' | null;
   /** doc@pgSeq 引用条目数（准入前）。 */
   scanned: number;
   /** 漂移分类计数（missing=doc 引用缺行/extra=行无引用/mismatch=同槽异 mediaId）。 */
@@ -110,11 +112,13 @@ export class BindingReconcileService implements OnModuleInit, OnApplicationShutd
       for (const projectId of this.queue) {
         if (processed >= RECONCILE_DRAIN_BUDGET || this.destroyed) break;
         this.queue.delete(projectId);
-        const s = await this.reconcileProject(projectId).catch((e) => {
+        // I-2：预算按**尝试数**计（失败/跳过也 +1——防 PG 抖动风暴把整轮预算耗在异常重扫）；
+        // 扫描异常在 reconcileProject 内计数 scan-failed。
+        await this.reconcileProject(projectId).catch((e) => {
           this.logger.warn(`reconcile project=${projectId} 失败（下轮触发重扫）: ${(e as Error).message}`);
           return null;
         });
-        if (s) processed += 1;
+        processed += 1;
       }
       return processed;
     } finally {
@@ -141,26 +145,31 @@ export class BindingReconcileService implements OnModuleInit, OnApplicationShutd
   /** 单 project 只读漂移检测（幂等重入——desired=doc@pgSeq 现值 vs DB 面。漂移→dirty+入队）。 */
   async reconcileProject(projectId: string): Promise<ReconcileSummary> {
     const summary: ReconcileSummary = {
-      projectId, ok: false, scanned: 0, drift: { missing: 0, extra: 0, mismatch: 0 }, dirtyMarked: false,
+      projectId, ok: false, skipped: null, scanned: 0, drift: { missing: 0, extra: 0, mismatch: 0 }, dirtyMarked: false,
     };
-    // ① anchor（行缺=跳过——清理归 erasure/FK cascade）
+    // ① anchor（行缺=跳过——清理归 erasure/FK cascade）；I-2：dirty/lag 项目=rebuild 已在途/待跑，
+    // 直接跳过（避免全量定代重放与假 drift 噪声；drift 只在 clean 项目计入）。
     const anchor = await this.repo.readRebuildAnchor(projectId);
     if (!anchor) return summary;
+    if (anchor.bindingsDirty || anchor.pgSeq > anchor.mediaBindingSeq) {
+      summary.skipped = anchor.bindingsDirty ? 'dirty' : 'lag';
+      return summary;
+    }
     const project = await this.prisma.canvasProject.findUnique({ where: { id: projectId }, select: { teamId: true } });
     if (!project) return summary;
-    // ② 定代前缀重放 doc@pgSeq（禁活 doc）
-    const doc = createCanvasDoc();
+    // ② 定代前缀重放 doc@pgSeq（禁活 doc；单源=collectRefsAt 与 rebuild 共用）
     let refs: MediaRef[];
     try {
-      const { state, updates } = await this.repo.loadForHydrationAt(projectId, { generation: anchor.generation, pgSeq: anchor.pgSeq });
-      if (state) Y.applyUpdate(doc, new Uint8Array(state));
-      for (const u of updates) Y.applyUpdate(doc, new Uint8Array(u));
-      refs = collectMediaRefs(toDocLike(doc));
-      summary.scanned = refs.length;
-      summary.ok = true;
-    } finally {
-      doc.destroy();
+      refs = await collectRefsAt(this.repo, projectId, { generation: anchor.generation, pgSeq: anchor.pgSeq });
+    } catch (e) {
+      // 扫描异常=本轮跳过（counted scan-failed——media_binding_reconcile_outcome_total 复用；
+      // 头注：其余 label 已随写面退役）
+      mediaBindingReconcileOutcomeTotal.inc({ outcome: 'scan-failed' });
+      this.logger.warn(`reconcile 扫描失败 project=${projectId}（本轮跳过）: ${(e as Error).message}`);
+      return summary;
     }
+    summary.scanned = refs.length;
+    summary.ok = true;
     // ③ 准入过滤（projector 同款）→desired 槽集
     const mediaIds = [...new Set(refs.map((r) => r.mediaId))];
     const mediaRows = mediaIds.length > 0
@@ -193,7 +202,8 @@ export class BindingReconcileService implements OnModuleInit, OnApplicationShutd
     if (summary.drift.missing > 0) mediaBindingDriftTotal.inc({ kind: 'missing' }, summary.drift.missing);
     if (summary.drift.extra > 0) mediaBindingDriftTotal.inc({ kind: 'extra' }, summary.drift.extra);
     if (summary.drift.mismatch > 0) mediaBindingDriftTotal.inc({ kind: 'mismatch' }, summary.drift.mismatch);
-    await this.prisma.canvasDoc.updateMany({ where: { projectId }, data: { bindingsDirty: true } });
+    // 单一写面：dirty 置位统一经 runner.markDirty（rebuild 内联/import 前置/reconcile 漂移同语义注释）
+    await this.backfill.markDirty(projectId);
     this.backfill.enqueue(projectId);
     summary.dirtyMarked = true;
     this.logger.warn(`binding drift for ${projectId}（missing=${summary.drift.missing} extra=${summary.drift.extra} mismatch=${summary.drift.mismatch}——置 dirty+入队 rebuild，本服务零写）`);

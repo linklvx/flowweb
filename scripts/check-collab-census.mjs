@@ -1583,9 +1583,6 @@ if (isMain()) {
     // C3a-6 genesis 种子含引用判定：seedState apply 进 scratch doc 扫 collectMediaIds（读侧判定
     // ——非装载非写回；零长 buffer 守卫直返）
     'apps/api/src/modules/collab/canvas-doc-genesis.ts': 1,
-    // C3a-8（reconcile 只读漂移检测）load 档两点：定代重放 doc@pgSeq（loadForHydrationAt state 铺底+
-    // 增量尾按序应用——PG 前缀重放，**禁活 doc**；非 inbound 非写回；与 binding-rebuild 同语义）
-    'apps/api/src/modules/media-delivery/binding-reconcile.service.ts': 2,
   };
   {
     const occurrences = {};
@@ -1595,7 +1592,7 @@ if (isMain()) {
     }
     const details = reconcileCountWhitelist(occurrences, APPLY_UPDATE_WHITELIST, 'Y.applyUpdate');
     const nWl = Object.values(APPLY_UPDATE_WHITELIST).reduce((a, b) => a + b, 0);
-    report('㉜', `Y.applyUpdate 消费面白名单（gate/load/import 三档语义——现行 ${nWl} 点/13 文件冻结〔T9 gate 档+T21 PG 前缀重建档+C3a-6 rebuild/genesis 档+C3a-8 reconcile 只读检测档已登记〕；违规明细 file:line）`, details.length === 0, details);
+    report('㉜', `Y.applyUpdate 消费面白名单（gate/load/import 三档语义——现行 ${nWl} 点/12 文件冻结〔T9 gate 档+T21 PG 前缀重建档+C3a-6 rebuild/genesis 档；C3a-8 质量收口：reconcile 重放采集内联迁入 binding-rebuild collectRefsAt 单源——reconcile 文件零 applyUpdate〕；违规明细 file:line）`, details.length === 0, details);
   }
 
   // ㉝DirectConnection 检查（Controller 裁定 2——spec v5.4 §1.9 认错修正压倒 plan「零使用」字样）：

@@ -13,7 +13,7 @@ import * as Y from 'yjs';
 import { CollabSpoolService } from './collab-spool.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { BindingRebuildService } from './binding-rebuild.service';
-import { ProjectionBackfillRunner, BACKFILL_PROJECTS_PER_TICK } from './projection-backfill.runner';
+import { ProjectionBackfillRunner, BACKFILL_PROJECTS_PER_TICK, BACKFILL_BACKOFF_BASE_MS, BACKFILL_BAILOUT_RECHECK_MS } from './projection-backfill.runner';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow, FIXTURE_TEAM, FIXTURE_USER } from '../../test-utils/db-fixtures';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -23,6 +23,7 @@ const maybe = hasDb ? describe : describe.skip;
 const PID = '0c3a8-backfill-replay';
 const PID_BOOT = '0c3a8-boot-leg';
 const PID_I2 = '0c3a8-i2-bailout';
+const PID_BACKOFF = '0c3a8-i4-backoff';
 const M1 = 'c3a8-bf-media-1';
 const BF_PIDS = Array.from({ length: 100 }, (_, i) => `0c3a8-bf-${String(i).padStart(3, '0')}`);
 
@@ -47,21 +48,31 @@ maybe('C3a-8：ProjectionBackfillRunner（真 PG——恢复 replay 腿+100 项�
     await ensureProjectFixture(prisma, PID);
     await ensureProjectFixture(prisma, PID_BOOT);
     await ensureProjectFixture(prisma, PID_I2);
+    await ensureProjectFixture(prisma, PID_BACKOFF);
     await prisma.media.deleteMany({ where: { id: M1 } });
     await prisma.media.create({
       data: { id: M1, userId: FIXTURE_USER, teamId: FIXTURE_TEAM, key: `c3a8/${M1}`, originalName: 'm.png', mimeType: 'image/png', size: 1n, type: 'uploaded' },
     });
-    await prisma.projectionBackfillState.deleteMany({ where: { projectId: { in: [PID, PID_BOOT, PID_I2, ...BF_PIDS] } } });
+    // 质量收口 Minor：造数前预删残留（前次失败运行的 BF 项目/行——createMany 幂等）
+    const allPids = [PID, PID_BOOT, PID_I2, PID_BACKOFF, ...BF_PIDS];
+    await prisma.projectionBackfillState.deleteMany({ where: { projectId: { in: allPids } } });
+    await prisma.mediaBinding.deleteMany({ where: { projectId: { in: allPids } } });
+    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: { in: allPids } } });
+    await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: { in: allPids } } });
+    await prisma.canvasDoc.deleteMany({ where: { projectId: { in: allPids } } });
+    await prisma.canvasProject.deleteMany({ where: { id: { in: BF_PIDS } } });
+    await prisma.collabOpsGate.deleteMany({ where: { projectId: { in: BF_PIDS } } });
   });
 
   beforeEach(async () => { await ensureLeaseFixture(prisma, repo); });
 
   afterAll(async () => {
-    await prisma.projectionBackfillState.deleteMany({ where: { projectId: { in: [PID, PID_BOOT, PID_I2, ...BF_PIDS] } } });
-    await prisma.mediaBinding.deleteMany({ where: { projectId: { in: [PID, PID_BOOT, PID_I2, ...BF_PIDS] } } });
-    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: { in: [PID, PID_BOOT, PID_I2, ...BF_PIDS] } } });
-    await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: { in: [PID, PID_BOOT, PID_I2, ...BF_PIDS] } } });
-    await prisma.canvasDoc.deleteMany({ where: { projectId: { in: [PID, PID_BOOT, PID_I2, ...BF_PIDS] } } });
+    const allPids = [PID, PID_BOOT, PID_I2, PID_BACKOFF, ...BF_PIDS];
+    await prisma.projectionBackfillState.deleteMany({ where: { projectId: { in: allPids } } });
+    await prisma.mediaBinding.deleteMany({ where: { projectId: { in: allPids } } });
+    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: { in: allPids } } });
+    await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: { in: allPids } } });
+    await prisma.canvasDoc.deleteMany({ where: { projectId: { in: allPids } } });
     await prisma.canvasProject.deleteMany({ where: { id: { in: BF_PIDS } } });
     await prisma.collabOpsGate.deleteMany({ where: { projectId: { in: BF_PIDS } } });
     await prisma.media.deleteMany({ where: { id: M1 } });
@@ -69,6 +80,7 @@ maybe('C3a-8：ProjectionBackfillRunner（真 PG——恢复 replay 腿+100 项�
     await cleanupProjectFixture(prisma, PID);
     await cleanupProjectFixture(prisma, PID_BOOT);
     await cleanupProjectFixture(prisma, PID_I2);
+    await cleanupProjectFixture(prisma, PID_BACKOFF);
     await prisma.$disconnect();
   });
 
@@ -141,16 +153,20 @@ maybe('C3a-8：ProjectionBackfillRunner（真 PG——恢复 replay 腿+100 项�
       rebuildProjectBindings: async (pid: string) => {
         inFlight += 1;
         maxInFlight = Math.max(maxInFlight, inFlight);
-        try { return await rebuild.rebuildProjectBindings(pid); } finally { inFlight -= 1; }
+        try {
+          await new Promise((r) => setTimeout(r, 3));   // I-7：放大并发窗（自证串行）
+          return await rebuild.rebuildProjectBindings(pid);
+        } finally { inFlight -= 1; }
       },
     };
     const pendingDirty = async () => prisma.canvasDoc.count({ where: { projectId: { in: BF_PIDS }, bindingsDirty: true } });
 
-    // 第一轮：恰一拍（上界断言）+ 断点（队列/游标丢弃=模拟崩溃重启）
+    // 第一轮：**并发两 tick**（I-7 自证——draining 守卫下并发排水恰一方执行；上界 ∧ 串行）
     const runner1 = new ProjectionBackfillRunner(prisma as never, spyRebuild as never);
-    const first = await runner1.tick();
-    expect(first.processed).toBeLessThanOrEqual(BACKFILL_PROJECTS_PER_TICK);
-    expect(first.processed).toBeGreaterThan(0);
+    const [first, secondTick] = await Promise.all([runner1.tick(), runner1.tick()]);
+    expect(first.processed + secondTick.processed).toBeGreaterThan(0);
+    expect(first.processed + secondTick.processed).toBeLessThanOrEqual(2 * BACKFILL_PROJECTS_PER_TICK);
+    expect(maxInFlight).toBe(1);   // 不惊群：并发两 tick 下重建仍单项目串行
     const doneAfterFirst = await prisma.projectionBackfillState.count({ where: { projectId: { in: BF_PIDS }, state: 'DONE' } });
     expect(doneAfterFirst).toBeGreaterThan(0);
     expect(doneAfterFirst).toBeLessThan(100);   // 断点成立（未跑完）
@@ -217,6 +233,67 @@ maybe('C3a-8：ProjectionBackfillRunner（真 PG——恢复 replay 腿+100 项�
     } finally {
       await prisma.$executeRaw`UPDATE "CanvasProject" SET "lifecycleState" = 'ACTIVE' WHERE "id" = ${PID_I2}::text`;
       await cleanup();
+    }
+  }, 60_000);
+
+  it('I-4（质量收口）：失败退避指数递增（±20%）→成功重置；非 ACTIVE 固定 5min 复查', async () => {
+    await prisma.$transaction([
+      prisma.mediaBinding.deleteMany({ where: { projectId: PID_BACKOFF } }),
+      prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID_BACKOFF } }),
+      prisma.canvasDocSnapshot.deleteMany({ where: { projectId: PID_BACKOFF } }),
+      prisma.canvasDoc.deleteMany({ where: { projectId: PID_BACKOFF } }),
+    ]);
+    await prisma.canvasDoc.create({
+      data: { projectId: PID_BACKOFF, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: true },
+    });
+    let fail = true;
+    const fake = {
+      snapshotAnchor: (pid: string) => rebuild.snapshotAnchor(pid),
+      rebuildProjectBindings: async (pid: string) => {
+        if (fail) throw new Error('boom');
+        return rebuild.rebuildProjectBindings(pid);
+      },
+    };
+    const r = new ProjectionBackfillRunner(prisma as never, fake as never);
+    const internals = r as unknown as { queue: Set<string>; notBefore: Map<string, number>; attempts: Map<string, number> };
+    const enqueueDirect = () => internals.queue.add(PID_BACKOFF);
+    // 失败 1：30s ±20%
+    enqueueDirect();
+    const t1 = Date.now();
+    await r.drain();
+    const nb1 = internals.notBefore.get(PID_BACKOFF)!;
+    expect(internals.attempts.get(PID_BACKOFF)).toBe(1);
+    expect(nb1 - t1).toBeGreaterThanOrEqual(Math.round(BACKFILL_BACKOFF_BASE_MS * 0.8) - 500);
+    expect(nb1 - t1).toBeLessThanOrEqual(Math.round(BACKFILL_BACKOFF_BASE_MS * 1.2) + 1_000);
+    // 失败 2：60s ±20%（递增）
+    internals.notBefore.delete(PID_BACKOFF);
+    enqueueDirect();
+    const t2 = Date.now();
+    await r.drain();
+    const nb2 = internals.notBefore.get(PID_BACKOFF)!;
+    expect(internals.attempts.get(PID_BACKOFF)).toBe(2);
+    expect(nb2 - t2).toBeGreaterThanOrEqual(Math.round(BACKFILL_BACKOFF_BASE_MS * 2 * 0.8) - 500);
+    expect(nb2 - t2).toBeLessThanOrEqual(Math.round(BACKFILL_BACKOFF_BASE_MS * 2 * 1.2) + 1_000);
+    expect(nb2 - t2).toBeGreaterThan(nb1 - t1);
+    // 成功重置（指数退避清零）
+    fail = false;
+    internals.notBefore.delete(PID_BACKOFF);
+    enqueueDirect();
+    await r.drain();
+    expect(internals.attempts.has(PID_BACKOFF)).toBe(false);
+    expect(internals.notBefore.has(PID_BACKOFF)).toBe(false);
+    // 非 ACTIVE（bailed）：固定 5min 复查（不增 attempts）
+    await prisma.$executeRaw`UPDATE "CanvasProject" SET "lifecycleState" = 'DELETING' WHERE "id" = ${PID_BACKOFF}::text`;
+    try {
+      enqueueDirect();
+      const t3 = Date.now();
+      await r.drain();
+      const nb3 = internals.notBefore.get(PID_BACKOFF)!;
+      expect(nb3 - t3).toBeGreaterThanOrEqual(BACKFILL_BAILOUT_RECHECK_MS - 500);
+      expect(nb3 - t3).toBeLessThanOrEqual(BACKFILL_BAILOUT_RECHECK_MS + 1_000);
+      expect(internals.attempts.has(PID_BACKOFF)).toBe(false);
+    } finally {
+      await prisma.$executeRaw`UPDATE "CanvasProject" SET "lifecycleState" = 'ACTIVE' WHERE "id" = ${PID_BACKOFF}::text`;
     }
   }, 60_000);
 

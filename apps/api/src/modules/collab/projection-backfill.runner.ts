@@ -32,8 +32,21 @@ export const BACKFILL_ENUM_PAGE = 32;
 export const BACKFILL_PROJECTS_PER_TICK = 8;
 /** 后台拍周期（enqueue 会额外触发即时排水——本周期=首次启动全表枚举+失败退避重试驱动）。 */
 export const BACKFILL_TICK_INTERVAL_MS = 5_000;
-/** 失败退避（cas-miss/异常/无行——项目保持候选，退避期内跳过；可续跑）。 */
-export const BACKFILL_RETRY_BACKOFF_MS = 30_000;
+/** 失败退避基数（指数：30s→60s→…cap 10min，±20% jitter——I-4 防惊群；成功/no-doc 重置）。 */
+export const BACKFILL_BACKOFF_BASE_MS = 30_000;
+/** 失败退避上限（cap 10min）。 */
+export const BACKFILL_BACKOFF_MAX_MS = 600_000;
+/** 非 ACTIVE（bailed）固定复查间隔（5min——擦除收口后自然离开候选）。 */
+export const BACKFILL_BAILOUT_RECHECK_MS = 300_000;
+
+/** I-4：失败退避纯函数（确定性可测）——attempts=该项目连续失败次数（0 起）；base×2^attempts
+ *  封顶 MAX，±20% jitter（rand 注入=测试确定性；生产 Math.random）。 */
+export function backfillBackoffMs(attempts: number, rand: () => number = Math.random): number {
+  const n = Number.isFinite(attempts) && attempts > 0 ? Math.floor(attempts) : 0;
+  const base = Math.min(BACKFILL_BACKOFF_BASE_MS * 2 ** Math.min(n, 16), BACKFILL_BACKOFF_MAX_MS);
+  const jitter = 0.8 + 0.4 * Math.min(1, Math.max(0, rand()));
+  return Math.round(base * jitter);
+}
 
 /** 持久状态行 state 值（schema 无 enum——代码内闭集，DB CHECK 四态约束同源）。 */
 export type ProjectionBackfillStateValue = 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED';
@@ -50,6 +63,8 @@ export class ProjectionBackfillRunner implements OnModuleInit, OnApplicationShut
   private readonly queue = new Set<string>();
   /** 失败退避（projectId→notBefore 毫秒时间戳）。 */
   private readonly notBefore = new Map<string, number>();
+  /** I-4：连续失败次数（指数退避输入；成功/no-doc 重置）。 */
+  private readonly attempts = new Map<string, number>();
   /** 枚举游标（null=从头；页尽回卷）。 */
   private cursor: string | null = null;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
@@ -102,10 +117,12 @@ export class ProjectionBackfillRunner implements OnModuleInit, OnApplicationShut
     await this.prisma.canvasDoc.updateMany({ where: { projectId }, data: { bindingsDirty: true } });
   }
 
-  /** 一拍：枚举一页候选入队 + 排水（每 tick 项目上界=限速；返回值=测试/日志面）。 */
+  /** 一拍：枚举一页候选入队 + 排水（每 tick 项目上界=限速；返回值=测试/日志面）。
+   *  I-3：backfill_remaining 仅在本拍有枚举或处理时刷新（空转保留上次值——禁每 tick 全表 COUNT）。 */
   async tick(): Promise<{ enumerated: number; processed: number }> {
     const enumerated = await this.enumeratePage();
     const processed = await this.drain();
+    if (enumerated === 0 && processed > 0) mediaBindingBackfillRemaining.set(await this.countCandidates());
     return { enumerated, processed };
   }
 
@@ -124,8 +141,17 @@ export class ProjectionBackfillRunner implements OnModuleInit, OnApplicationShut
           return 'failed' as const;
         });
         processed += 1;
-        if (outcome === 'done' || outcome === 'no-doc') this.notBefore.delete(projectId);
-        else this.notBefore.set(projectId, Date.now() + BACKFILL_RETRY_BACKOFF_MS);
+        const now = Date.now();
+        if (outcome === 'done' || outcome === 'no-doc') {
+          this.notBefore.delete(projectId);
+          this.attempts.delete(projectId);   // I-4：成功/no-doc 重置指数退避
+        } else if (outcome === 'bailed') {
+          this.notBefore.set(projectId, now + BACKFILL_BAILOUT_RECHECK_MS);   // 非 ACTIVE：固定 5min 复查
+        } else {
+          const a = this.attempts.get(projectId) ?? 0;
+          this.attempts.set(projectId, a + 1);
+          this.notBefore.set(projectId, now + backfillBackoffMs(a));   // 30s→60s→…cap 10min ±20%
+        }
       }
       return processed;
     } finally {
@@ -133,13 +159,13 @@ export class ProjectionBackfillRunner implements OnModuleInit, OnApplicationShut
     }
   }
 
-  /** 单项目回填（持久行 PENDING→RUNNING→DONE|FAILED；cleared 才 DONE+verifiedSeq=anchor.pgSeq）。
+  /** 单项目回填（持久行 RUNNING→DONE|FAILED；cleared 才 DONE+verifiedSeq=anchor.pgSeq）。
    *  C3a-8 修复批 I2：首步 raw 读 CanvasProject.lifecycleState（绕读过滤——非 ACTIVE 项目行对
    *  delegate 读不可见）——非 'ACTIVE'/行缺=**bail-out**（不写 DONE、dirty 保持、退避下轮再看；
-   *  ERASING 项目由擦除收口，禁以 teamId=null 假清 dirty）。 */
+   *  ERASING 项目由擦除收口，禁以 teamId=null 假清 dirty）。
+   *  质量收口 Minor：PENDING→RUNNING 两次 upsert 合并为单次 RUNNING（PENDING 无消费者）。 */
   async runProject(projectId: string): Promise<BackfillRunOutcome> {
     if ((await this.readLifecycleState(projectId)) !== 'ACTIVE') return 'bailed';
-    await this.setState(projectId, 'PENDING');
     await this.setState(projectId, 'RUNNING');
     const anchor = await this.rebuild.snapshotAnchor(projectId);
     if (anchor) mediaBindingWatermarkLag.set(Number(anchor.pgSeq - anchor.expectedBindingSeq));   // 观测点：候选 lag
@@ -167,10 +193,8 @@ export class ProjectionBackfillRunner implements OnModuleInit, OnApplicationShut
     return { backfillEpoch: row.backfillEpoch, state: row.state as ProjectionBackfillStateValue, verifiedSeq: row.verifiedSeq };
   }
 
-  /** 候选剩余数（`bindingsDirty ∨ mediaBindingSeq<pgSeq` 全表计数——backfill_remaining 同式）。 */
-  async remaining(): Promise<number> {
-    return this.countCandidates();
-  }
+  /** 候选剩余数读面已删除（质量收口 I-3：零消费——spec 指标由 backfill_remaining gauge 承载；
+   *  跨进程查询面=stateOf/持久行）。 */
 
   private async enumeratePage(): Promise<number> {
     const rows = await this.prisma.$queryRaw<{ projectId: string }[]>`
@@ -182,10 +206,10 @@ export class ProjectionBackfillRunner implements OnModuleInit, OnApplicationShut
       this.cursor = rows[rows.length - 1].projectId;
       if (rows.length < BACKFILL_ENUM_PAGE) this.cursor = null;   // 页尽回卷
       for (const r of rows) this.queue.add(r.projectId);
+      mediaBindingBackfillRemaining.set(await this.countCandidates());   // I-3：仅枚举到候选时刷新
     } else {
       this.cursor = null;
     }
-    mediaBindingBackfillRemaining.set(await this.countCandidates());
     return rows.length;
   }
 

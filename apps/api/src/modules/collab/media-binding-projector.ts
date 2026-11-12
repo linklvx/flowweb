@@ -45,10 +45,10 @@ interface SlotRow { nodeId: string; role: string; targetField: string; targetIte
 export type BindingSkipReason = 'missing' | 'cross-team' | 'soft-deleted';
 
 /** C3a-8：投影统计返回形（调用方**事务提交成功后**计数——rollback 不计数；written=净 upsert 行数/
- *  deleted=diff 删除行数/skipped=准入跳过槽位数）。 */
+ *  skipped=准入跳过槽位数）。质量收口 Minor：`deleted` 无生产消费（diff/尾删不属 write_total 语义）
+ *  ——移除，diff 删除行数保持内部实现细节。 */
 export interface ProjectionStats {
   written: number;
-  deleted: number;
   skipped: Record<BindingSkipReason, number>;
 }
 
@@ -69,7 +69,7 @@ export function admitMediaRef(
   return 'admitted';
 }
 
-const emptyStats = (): ProjectionStats => ({ written: 0, deleted: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } });
+const emptyStats = (): ProjectionStats => ({ written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } });
 
 /** MediaBinding 帧级投影（单事务内调用——调用方=actor 组合闭包〔C3a-5〕/rebuild〔C3a-6〕）。
  *  C3a-8：返回投影统计（调用方事务提交成功后才计数）。 */
@@ -136,5 +136,5 @@ async function project(tx: ProjectorTx, projectId: string, teamId: string, batch
       ) AS u(id, "mediaId", "nodeId", role, "targetField", "targetItemId")
       ON CONFLICT ("projectId", "nodeId", role, "targetField", "targetItemId") DO UPDATE SET "mediaId" = EXCLUDED."mediaId"`;
   }
-  return { written: upserts.length, deleted: deleteIds.length, skipped };
+  return { written: upserts.length, skipped };
 }

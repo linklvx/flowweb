@@ -473,11 +473,13 @@ export class CanvasDocUpdateRepository {
 
   /** C3a-6（spec §0 水位不变量）：rebuild 锚读面（锁外快照三元——rebuild CAS 四条件的期望侧；
    *  行缺=null=未建档/已级联删除，调用方 no-op）。readWatermark 同族 PK 读（契约 1 装载单源
-   *  不动摇——本面零 state/增量尾，binding-rebuild.service 消费）。 */
-  async readRebuildAnchor(projectId: string): Promise<{ generation: number; pgSeq: bigint; mediaBindingSeq: bigint } | null> {
+   *  不动摇——本面零 state/增量尾，binding-rebuild.service 消费）。
+   *  C3a-8 质量收口 I-2：随行 bindingsDirty（reconcile 候选跳过判定——`dirty ∨ lag` 项目已有
+   *  rebuild 在途，禁全量重放+假 drift 噪声；rebuild 侧零波及）。 */
+  async readRebuildAnchor(projectId: string): Promise<{ generation: number; pgSeq: bigint; mediaBindingSeq: bigint; bindingsDirty: boolean } | null> {
     return this.prisma.canvasDoc.findUnique({
       where: { projectId },
-      select: { generation: true, pgSeq: true, mediaBindingSeq: true },
+      select: { generation: true, pgSeq: true, mediaBindingSeq: true, bindingsDirty: true },
     });
   }
 

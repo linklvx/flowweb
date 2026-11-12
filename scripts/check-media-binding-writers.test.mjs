@@ -144,7 +144,7 @@ test('③ 测试文件豁免：spec/test-utils 的 delegate 写+raw 写=绿（�
   assert.deepEqual(scanFiles(mk([['apps/api/src/test-utils/db-fixtures.ts', src]])), []);
 });
 
-test('④ 白名单登记面：恰三文件（projector/rebuild/erasure——C3a-8 binding-reconcile 只读化后移除；4→3=评审裁定收缩方向）', () => {
+test('⑤ 白名单登记面：恰三文件（projector/rebuild/erasure——C3a-8 binding-reconcile 只读化后移除；4→3=评审裁定收缩方向）', () => {
   assert.equal(WRITER_ALLOWLIST.length, 3);
   assert.ok(WRITER_ALLOWLIST.every((rx) => rx instanceof RegExp));
   assert.ok(!WRITER_ALLOWLIST.some((rx) => rx.test(RELS.reconcile)), 'binding-reconcile 必须在白名单外（只读化）');
