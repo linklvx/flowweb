@@ -131,3 +131,16 @@
 - **验证链**：mv 出仓 → pnpm verify（1 failed=collab.gateway ② onLoadDocument 已知 flaky〔TD-26 ⑤族〕，隔离复跑 41/41 绿）→ rm → git status 干净
 - **后续义务**：full-stack-backup.md SOP 引用 backups/ 路径不变（新版本节点备份续写该处）；v3.10 恢复步骤见其 BACKUP.md
 | TD-15 双实证（断路+埋雷，b3eafad）→ 方案 B 收口：移除 6 处死调用（deleteNode 四分支 + useImageUpload）固化「画布删除不触文件清理」语义——Media 行是素材库/历史资产（软删为产品语义）、生成结果不随节点删除（TD-11 D1 扩展至 imageGen/trim）；mergeImageRefs 随调用方退役 → 删除语义现行承载：committed intent 显式携带删除答案（批 4b 四件套退役），见 plans/2026-09-30-collab-recovery-master-plan.md 批 4b 行 | 2026-08-22 | b3eafad / a25f286 |
+
+## 地基修复批登记（2026-11-13，C1-3 质量评审）
+
+### TD-29 C1-3 时间代码批的四处登记项（M7–M10）
+
+- **来源**：C1-3（地基修复批）质量评审逐条登记（2026-11-13，commit 59260b29 声明「登记卡外债」但未落盘，本条目补盘）
+- **现状**：
+  - M7：`object-manifest.service.ts:28` 的 `ORPHAN_MIN_AGE_MS` 未被使用，`:91/:104` SQL 硬编码 `interval '24 hours'`（C1-3 仅去时区包装，未增不一致）。
+  - M8：`media-binding-oracle-contract.int.spec.ts:182` 在 `NODE_ENV=development` 下因 Yjs dev-mode deepFreeze 对循环 plain 对象无限递归必炸栈（int 复跑须 `NODE_ENV=test` 或不导出 development）。
+  - M9：`node-artifact.service.ts:93/105`、`object-manifest.service.ts:100` 与脚本 bump 的显式 `updatedAt=now()` 与 `set_updated_at` 触发器同值冗余（无害，保留作 SQL 自文档）。
+  - M10：`dist-drill` 构建产物目录（gitignored）仍含 C1 前补偿式时间文本；drill 默认重建，仅 `T31_SKIP_BUILD=1` 时有旧码风险。
+- **修复方向**：M7 常量单源或删常量；M8 spec 加环境守卫或统一 int 运行 env；M9 维持现状（可选注释说明）；M10 一律 `T31_SKIP_BUILD=1` 前先重建或删旧产物。
+- **登记**：2026-11-13（C1-3 质量评审）
