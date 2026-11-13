@@ -1,5 +1,5 @@
 C1-6 卡收口：C1 rebaseline 后 dev reset 全链演练 + seed 行覆盖登记（plan C1-6 两条验收）
-日期：2026-11-12 · HEAD=e9f34b5c（fix(c1): C1-5 质量评审收口）· 机器=win32 本地（PG 16.13，会话时区 Asia/Shanghai）
+日期：2026-11-13（执行日；卡批批次日 2026-11-12） · HEAD=e9f34b5c（fix(c1): C1-5 质量评审收口）· 机器=win32 本地（PG 16.13，会话时区 Asia/Shanghai）
 回滚锚=tag pre-c1-rebaseline（=ab622d60，C1 前末位提交——runbook §16 C1 代际注记②）
 ──────────────────────────────────────────────────────────────────────────────
 【一】reset 全链演练（fresh——上一轮成功链后状态文件已删，本次=全新七阶段全链）
@@ -24,8 +24,10 @@ C1-6 卡收口：C1 rebaseline 后 dev reset 全链演练 + seed 行覆盖登记
 
   NodeType=8 · AIModel=6 · ModelResolution=7 · ModelDuration=3 · PricingRule=16 ·
   SystemHistory=1 · CollabLease=1 · CollabOpsGate_sentinel=1（gate='compact' AND "projectId"=''）
-  CollabOpsGate_total=1（=纯全局哨兵；int 测试会另插行——核对必须按 sentinel 过滤，
-  实现者上午轮 reset 后实测 total=3=1 哨兵+2 测试行，同库不同时点非矛盾）
+  CollabOpsGate_total=1（=纯全局哨兵；int 测试会另插行〔如 project-erasure.purge.c4c1 以非空
+  projectId 插 gate='compact' 行〕/c21 套件短暂删哨兵行——核对必须按 sentinel 过滤。
+  实现者上午轮 reset 后时点实测 total=3=1 哨兵+2 测试行，该时点数据已被本次 reset 抹除不可复验，
+  以本轮 fresh total=1 为准）
 
 【三】reset 后对象门/触发器门（同库同刻链上复跑；日志=.verify-logs/c1-6-{delta,trigger}-gate.log）
 
