@@ -34,7 +34,10 @@ const ids = VERIFY_STEPS.map((s) => s.id);
 //   C1-4 授权插两步：check-schema-timestamptz + check-raw-sql-time 紧随 check-media-binding-writers
 //   〔spec §3.3-5 三门禁中的两个静态门——schema DateTime 必带 Timestamptz(3)+raw SQL 时间语义
 //   （extract(epoch)/三参 date_trunc(tz) 放行）；第三门=双时区 int spec，随 test:int 池。
-//   M6（C1-4 质量评审）：两静态门前移——排在 db 门 check-rebaseline-delta 之前；总数 35 不变〕）
+//   M6（C1-4 质量评审）：两静态门前移——排在 db 门 check-rebaseline-delta 之前；总数 35 不变〕；
+//   C1-5 授权插一步：check-updated-at-triggers 紧随 check-rebaseline-delta〔updatedAt 触发器 coverage
+//   门——spec §3.3-2「每个 updatedAt 表必挂，新增表漏挂即红」；DB introspection 实测已挂且启用，
+//   db:true 真库依赖，fast 外惯例同款邻位〕=36 步）
 const BASELINE_IDS = [
   'doc-gate', 'verify-indexes', 'check-migration-additive', 'check-migration-immutability', 'check-migrate-diff',
   'check-fresh-replay', 'check-pricing-coverage', 'check-ledger-single-writer', 'check-nginx-budget', 'shared-build',
@@ -42,10 +45,11 @@ const BASELINE_IDS = [
   'api-nest-build', 'check-no-testutils-in-dist', 'web-test', 'api-test', 'api-test-heavy', 'bench-load-smoke',
   'web-lint', 'check-ecosystem', 'check-spec-consistency', 'check-collab-test-facade',
   'check-collab-module-size', 'check-exact-pins', 'check-plan-census', 'check-media-binding-writers',
-  'check-schema-timestamptz', 'check-raw-sql-time', 'check-rebaseline-delta', 'scripts-node-test', 'api-eslint',
+  'check-schema-timestamptz', 'check-raw-sql-time', 'check-rebaseline-delta', 'check-updated-at-triggers',
+  'scripts-node-test', 'api-eslint',
 ];
 
-test('③ full 的 id 序列逐字等于引入时的 35 步基线常量（R4a\' +api-test-heavy；Y1a T0 +check-exact-pins；Y1a T3 +check-plan-census；Y1c T5c census 移位 fast；C3a-7 +check-media-binding-writers；C1-2 +check-rebaseline-delta；C1-4 +check-schema-timestamptz/+check-raw-sql-time）', () => {
+test('③ full 的 id 序列逐字等于引入时的 36 步基线常量（R4a\' +api-test-heavy；Y1a T0 +check-exact-pins；Y1a T3 +check-plan-census；Y1c T5c census 移位 fast；C3a-7 +check-media-binding-writers；C1-2 +check-rebaseline-delta；C1-4 +check-schema-timestamptz/+check-raw-sql-time；C1-5 +check-updated-at-triggers）', () => {
   assert.deepEqual(ids, BASELINE_IDS);
 });
 
@@ -87,9 +91,9 @@ test('② nest build 与 check-no-testutils-in-dist 同档（fail-open 修复后
     'api-nest-build 与 check-no-testutils-in-dist 必须同在 fast 内或同在 fast 外');
 });
 
-test('db:true 恰为六步 DB 硬依赖（无 DATABASE_URL 即非零退出——口径"非零"：verify-indexes 是 throw exit 1；Y1c T33 +bench-load-smoke 真装置自拉 api 依赖 PG；C1-2 +check-rebaseline-delta 临时库重放）', () => {
+test('db:true 恰为七步 DB 硬依赖（无 DATABASE_URL 即非零退出——口径"非零"：verify-indexes 是 throw exit 1；Y1c T33 +bench-load-smoke 真装置自拉 api 依赖 PG；C1-2 +check-rebaseline-delta 临时库重放；C1-5 +check-updated-at-triggers 真库目录 introspection）', () => {
   assert.deepEqual(ids.filter((_, i) => VERIFY_STEPS[i].db),
-    ['verify-indexes', 'check-migrate-diff', 'check-fresh-replay', 'check-pricing-coverage', 'bench-load-smoke', 'check-rebaseline-delta']);
+    ['verify-indexes', 'check-migrate-diff', 'check-fresh-replay', 'check-pricing-coverage', 'bench-load-smoke', 'check-rebaseline-delta', 'check-updated-at-triggers']);
 });
 
 test('skip-db(full)===full.filter(s=>!s.db)——db 轴独立于前缀轴', () => {

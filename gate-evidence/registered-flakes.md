@@ -172,3 +172,8 @@
   full [21/35] api-test-heavy；同窗有另一评审代理并发跑 int/DB 负载）。同文件隔离复跑 9/9 绿
   （8.2s，05:42 本机）；同族口径=该 spec 的 ms 级 pollUntil/时序窗在满载态放大（依次承 2026-10-27
   T24 行与 Y7 coalesce/soak 行）；处置=复跑收口，禁调阈值/不动判据。
+- 2026-11-13（C1-5 出口 verify full 登记——t9-actor 族第三次复现）：collab-project-actor.spec
+  「per-connection 入站排队字节上限：2×ss2FrameGate 超限 → close 1009」verify full [20/36] api-test
+  单红，失败签名=**ENOTEMPTY: directory not empty, rmdir `%TEMP%\t9-actor-*`**（用例收尾目录清理竞态，
+  非断言面）——同族先例=2026-10-24 首登/2026-11-05 T33 复现条；文件隔离跑 23/23 绿（5.3s）定性环境态
+  非回归。处置=隔离重跑绿即过；C1-5 变更面（scripts/ gate+int spec+docs）与本 spec 零交叠。

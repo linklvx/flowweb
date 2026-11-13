@@ -224,6 +224,10 @@ return writeBinding();
 
 **Files:** Create `check-updated-at-triggers.mjs`（每 updatedAt 表必挂）；红测：UPDATE 自动 now/**UPDATE restore skip_updated_at=on 保留历史**（第六轮 P1-1：GUC 检查在 C1-1 函数首行）/INSERT 显式历史保留/appendBatch canary 窗命中；canary 容量评估登记卡评审；`pnpm verify`+Commit。
 
+- [x] **评估结论（C1-5 落地，2026-11-12）**：
+  - ①**coverage 门**：`scripts/check-updated-at-triggers.mjs`（db:true，verify 链 35→36 步）——DB introspection 实测 48 updatedAt 表/48 本族触发器（public 触发器 50=48+TeamBalance/TeamCreditTransaction 的 ledger_guard 2 个），每表恰 1 个 `set_updated_at_<表>`（BEFORE INSERT OR UPDATE FOR EACH ROW、tgtype=23、tgenabled='O'、无 UPDATE OF 列清单）；缺失/多挂/错名/错函数/错时机/禁用/多余→exit 1；零表（未迁移/错库）/DB 不可达→exit 2。负控=自测纯函数六族+真实 DB 事务内 DROP Trigger→红→ROLLBACK→绿（零持久变更）+scratch 库重放新 init 绿→DROP 红→恢复绿（`.verify-logs/c1-5-gate-redctl.log`）。
+  - ②**canary 容量**：无按时间无界增长（`CanaryPin` PK=projectId 每项目≤1 行；TTL 15min 由 poller 每 tick 恒清扫；erasure registry 批删 CanaryPin/CollabCanaryCursor）；吞吐打平点≈6.9k–9.2k 活跃项目（worker 8 pin/60s、单 pin 重放预算 10s、捕获 cadence≈19.2h/项目、稳态 due 率≪容量）；不实现配额/限流（无真实泄漏），超限由 `collab_canary_last_check_age>24h` P1 可观测。落档 `gate-evidence/c1-5-canary-capacity.md`。
+
 ### Task C1-6：卡收口
 
 - [ ] dev reset 全链演练+对象门绿+`pnpm verify`+双评审+runbook §16（bump 注释/回滚=旧备份+旧代码树/状态文件重置/skip_updated_at 通道/`--rebaseline` 运维注记）。
