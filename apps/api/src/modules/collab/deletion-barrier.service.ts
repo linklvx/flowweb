@@ -16,8 +16,10 @@
 //   ③flushThrough 至 appliedSeq==pgSeq（逐项目预算——appliedSeq 复读稳定+pgSeq===appliedSeq 双判）；
 //   ③' 陈旧 header 重扫（flush 落定移动 pgSeq 的项目——常态零项）→③'' ACQUIRING→ACTIVE（appendBatch
 //     面封）→④decision snapshot 五步序（C3b-3 decideTeamReferenceSnapshot——决策级校验链+CAS 复读）
-//     ——任一不满足整体 bail-out 释放；⑤删除（对象先删→行删）=调用方在 prepare↔release 持有窗内
-//     执行（删除事务内 isMediaReferenced recheck 归 C3b-4 消费面）；⑥释放（删行+解封+gauge）。
+//     ——任一不满足整体 bail-out 释放+**返回 verified 前全程预算复检**（③'-④ 段同受总预算辖制——
+//     P1-2：activate 时未过期≠返回时未过期，过期=围栏已漏）；⑤删除（对象先删→行删）=调用方在
+//     prepare↔release 持有窗内执行（删除事务内 isMediaReferenced recheck 归 C3b-4 消费面）；
+//     ⑥释放（删行+解封+gauge）。
 //
 // ═══ admission 三面（spec :77）═════════════════════════════════════════════════════════════════
 //   面 1 gateway：SG authenticate/guardMessageFrame 读 **进程内 seal**（叶子模块 deletion-barrier.seal
@@ -41,6 +43,8 @@
 //     项按此形态兑现）；
 //   · FAILED 态：CHECK 域成员但本卡不落 FAILED 终态行（bail-out 即删行——留 FAILED 行会挡后续 acquire
 //     的 INSERT 冲突臂）；域值保留给 C3b-4 状态机扩展。
+//   · RELEASING 态：无写者——释放=DELETE 行原位终态（单事务删行无两段式中间态需求）；域值预留
+//     C3b-4 状态机/复核窗（拆窗单独立项）扩展。
 //   · epoch 双实例面：本服务进程内 OracleWorkerService（直构——scanProject 原语，无 OnModuleInit
 //     timer）与 worker 进程实例 epoch 不同——与 C3b-3 头注同裁定（freshest-scannedAt 单源判定，
 //     交错窗保守 bail-out）。
@@ -78,6 +82,9 @@ export class DeletionBarrierService {
   /** 进程内 oracle 扫描原语（直构——scanProject/复用判定；无 OnModuleInit timer=worker 进程职责）。 */
   private readonly oracleScan: OracleWorkerService;
   private readonly mediaRef: MediaReferenceService;
+  /** P1-2 测试缝：④ snapshot 前注入（慢 snapshot 形态红测——oracleScan.scanScope 同族「公有可写缝」
+   *  体例；生产恒 undefined=零行为面）。 */
+  snapshotGate?: () => Promise<void>;
 
   // 显式 @Inject：vitest esbuild 不生成设计时类型元数据（media-reference 同模式）
   constructor(
@@ -144,14 +151,22 @@ export class DeletionBarrierService {
       }
       // ③'陈旧 header 重扫（flush 落定移动 pgSeq 的项目——常态零项）——ACTIVE 前完成=删除窗最小化
       for (const pid of pids) await this.oracleScan.scanProject(pid).catch((e) => this.logger.warn(`rescan ${pid}: ${(e as Error).message}`));
-      // ③''ACTIVATE：appendBatch 面封——决策宇宙冻结
+      // ③''ACTIVATE：appendBatch 面封——决策宇宙冻结（activate 自带 expiresAt>now 门——过期/被接管 0 行）
       if (!(await this.activate(teamId, acq.barrierId))) {
         return await this.bailOut(teamId, acq.barrierId, 'barrier-expired');
       }
       // ④decision snapshot 五步序（C3b-3——决策级校验链+扫描后 CAS 复读；任一不满足 bail-out）
+      if (this.snapshotGate) await this.snapshotGate();   // P1-2 测试缝：④ 前注入慢 snapshot 形态（生产恒 undefined）
       const snap = await this.mediaRef.decideTeamReferenceSnapshot(teamId, { excludeProjectId: opts.excludeProjectId });
       if (snap.outcome !== 'verified') {
         return await this.bailOut(teamId, acq.barrierId, snap.reason);
+      }
+      // C3b-4a spec 评审 P1-2（spec :79「超时整体 bail-out」全程性）：返回 verified 前全程预算复检——
+      // ③'重扫+④snapshot 段无 deadline 检查时，flush 快+大 team 快照慢可在 expiresAt 过后返回 verified
+      //（activate 时未过期≠返回时未过期）⇒ seal 惰性过期+appendBatch expiresAt 门放行=围栏已漏而调用
+      // 方以为持有。过期即整体释放 bail-out（与 activate 同 reason——「持有已失效」单一语义档）。
+      if (Date.now() >= acq.expiresAt.getTime()) {
+        return await this.bailOut(teamId, acq.barrierId, 'barrier-expired');
       }
       return { outcome: 'verified', barrierId: acq.barrierId, projects: snap.projects };
     } catch (err) {

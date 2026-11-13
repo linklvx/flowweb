@@ -29,8 +29,8 @@ export const SIZE_LIMITS = {
   'apps/api/src/modules/collab/oracle-worker.service.ts': 380,   // C3b-2 新文件入锚（实测 295+定档 380 余量——spec §4 module-size「PG oracle worker 新文件入锚」：候选无关 UUID 叶扫描+短事务纪律+coverage header 状态机 worker）
   'apps/api/src/modules/collab/media-reference.service.ts': 231,   // C3b-3 新文件入锚（实测 177+1.3 余量——spec §4 module-size「新文件入锚」：decision snapshot+isMediaReferenced 并集读面）
   'apps/api/src/modules/collab/media-referrer.registry.ts': 207,   // C3b-3 新文件入锚（实测 159+1.3 余量——spec §4 module-size「新文件入锚」：structured/objectKey referrer 单源 registry）
-  'apps/api/src/modules/collab/deletion-barrier.service.ts': 280,   // C3b-4a 新文件入锚（实测 213+1.3 余量——spec §4 module-size「新文件入锚」：DeletionBarrier 持久 fence+admission seal+六步序编排）
-  'apps/api/src/modules/collab/deletion-barrier.port.ts': 130,   // C3b-4a 新文件入锚（实测 95+1.3 余量——DeletionBarrierPort 跨进程端口面 Direct/Http 两形态）
+  'apps/api/src/modules/collab/deletion-barrier.service.ts': 280,   // C3b-4a 新文件入锚（P1-2 后实测 204+1.3 余量——spec §4 module-size「新文件入锚」：DeletionBarrier 持久 fence+六步序编排+全程预算复检）
+  'apps/api/src/modules/collab/deletion-barrier.port.ts': 130,   // C3b-4a 新文件入锚（P1-1 后实测 100+1.3 余量——DeletionBarrierPort 跨进程端口面 Direct/Http 两形态〔URL=/api/collab/doc/deletion-barrier〕）
   'apps/api/src/modules/collab/deletion-barrier.metrics.ts': 25,   // C3b-4a 新文件入锚（实测 15+1.3 余量——deletion_barrier_active_seconds gauge 单源）
   'apps/api/src/modules/collab/deletion-barrier.seal.ts': 55,   // C3b-4a 新文件入锚（实测 35+1.3 余量——admission seal 叶子注册表：独立文件根因=SG import 服务本体即环〔di-real-assembly 红〕）
 };

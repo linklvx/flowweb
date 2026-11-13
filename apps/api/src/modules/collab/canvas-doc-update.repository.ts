@@ -258,8 +258,11 @@ export class CanvasDocUpdateRepository {
         // 调用方形态：帧 WAL 照写〔BOI〕+拒后留队/退避梯重试，释放后落定零丢失）。team 解析=子查询
         // 单查 CanvasProject.teamId（plan C3b-1 勘正注记）；性能取舍：每 appendBatch 事务+1 索引探针
         // （DeletionBarrier teamId @id PK+CanvasProject @id）≈一次 PK 读——本事务已含 advisory+fence+
-        // INSERT 族多语句，边际可忽略；替代案（进程内标志短路）跨进程不可靠被否——worker 进程写路径
-        // 〔replayAll〕必须 DB 级可见。过期门=expiresAt>now（崩溃持有者零阻塞——acquire 原位接管）。
+        // INSERT 族多语句，边际可忽略。替代案（进程内 seal 标志短路）被否的论据〔C3b-4a spec 评审
+        // Minor-2 勘正：replayAll 回灌=gateway 启动/persistence reconciler 两入口均 **api 进程内**调用，
+        // 非「worker 进程跨进程可见性」〕：①标志读后 barrier 落库、事务续写的 check-后-acquire 竞窗
+        // 无事务级闭合；②三写路径各自重复接线=漏接面——DB 探针=与业务写同事务的原子收口**单点**。
+        // 过期门=expiresAt>now（崩溃持有者零阻塞——acquire 原位接管）。
         const barrier = await tx.$queryRaw<{ teamId: string }[]>`
           SELECT b."teamId" FROM "DeletionBarrier" b
           WHERE b.state = 'ACTIVE' AND b."expiresAt" > now()

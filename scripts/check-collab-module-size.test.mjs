@@ -88,10 +88,10 @@ test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑�
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/oracle-worker.service.ts'], 380);   // C3b-2 新文件入锚（实测 295+定档 380 余量）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/media-reference.service.ts'], 231);   // C3b-3 新文件入锚（实测 177+1.3 余量）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/media-referrer.registry.ts'], 207);   // C3b-3 新文件入锚（实测 159+1.3 余量）
-  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/deletion-barrier.service.ts'], 280);   // C3b-4a 新文件入锚（实测 213+1.3 余量）
-  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/deletion-barrier.port.ts'], 130);   // C3b-4a 新文件入锚（实测 95+1.3 余量）
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/deletion-barrier.service.ts'], 280);   // C3b-4a 新文件入锚（P1-2 后实测 204+1.3 余量）
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/deletion-barrier.port.ts'], 130);   // C3b-4a 新文件入锚（P1-1 后实测 100+1.3 余量）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/deletion-barrier.metrics.ts'], 25);   // C3b-4a 新文件入锚（实测 15+1.3 余量）
-  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/deletion-barrier.seal.ts'], 55);   // C3b-4a 新文件入锚（实测 35+1.3 余量——seal 叶子模块：SG import 本体即环的根修载体）
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/deletion-barrier.seal.ts'], 55);   // C3b-4a 新文件入锚（实测 39+1.3 余量——seal 叶子模块：SG import 本体即环的根修载体）
 });
 
 test('现状实测：十七文件全部限内（端到端触盘——真锚真文件，门禁 PASS 前提自证）', () => {

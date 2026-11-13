@@ -3,11 +3,14 @@
 // （DeletionBarrierPort+WORKER_WRITE_TOKEN 同族）」）：DeletionBarrier 跨进程端口面。
 // 两形态（CollabWritePort 同族体例）：
 //   · Direct（api 进程内——GC/测试形态）：直调 DeletionBarrierService（seal 与 DB 行同进程翻/清）；
-//   · Http（worker 进程——erasure 形态）：POST /api/collab/deletion-barrier（Bearer WORKER_WRITE_TOKEN
-//     传输层——非资金面无 scope 令牌需求，media-refs/purge-scope 同判）。
+//   · Http（worker 进程——erasure 形态）：POST /api/collab/doc/deletion-barrier（collab-write.controller
+//     @Controller('api/collab/doc') 前缀+@Post('deletion-barrier')——与 media-refs/purge-scope 同族
+//     同址；Bearer WORKER_WRITE_TOKEN 传输层——非资金面无 scope 令牌需求，media-refs/purge-scope 同判）。
 // 调用纪律：**prepare↔release 必须配对**（prepare 持有 fence 至 release——⑤删除本体在窗内执行；
 // 进程崩溃=expiresAt TTL 自愈+seal 惰性过期）；release 带 barrierId 守卫（stale release 零行）。
 // 消费面接线（GC/erasure 全面改走本面）归 C3b-5——本卡只建机制+最小编排入口。
+// spec 评审 P1-1：URL 与 controller 实际路由对拍锚在 deletion-barrier.port.spec.ts（fetchImpl 假体
+// 断言 URL/方法/载荷/token 头——路径漂移即红）。
 import { Injectable } from '@nestjs/common';
 import { DeletionBarrierService, type DeletionBarrierPrepareResult } from './deletion-barrier.service';
 
@@ -77,7 +80,9 @@ export class HttpDeletionBarrierPort extends DeletionBarrierPort {
   private async request(body: Record<string, unknown>): Promise<unknown> {
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (this.token) headers.authorization = `Bearer ${this.token}`;
-    const r = await this.doFetch(`${this.baseUrl}/api/collab/deletion-barrier`, {
+    // P1-1：controller=@Controller('api/collab/doc')+@Post('deletion-barrier')——URL 含 /doc 段
+    //（修前 /api/collab/deletion-barrier 必 404；port.spec 假体对拍锚定全字面）。
+    const r = await this.doFetch(`${this.baseUrl}/api/collab/doc/deletion-barrier`, {
       method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(this.requestTimeoutMs),
     });
     if (!(r.status >= 200 && r.status < 300)) throw new Error(`deletion-barrier endpoint ${r.status}`);

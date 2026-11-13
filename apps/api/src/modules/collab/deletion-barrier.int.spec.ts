@@ -314,9 +314,12 @@ maybe('C3b-4a：DeletionBarrier 持久 fence+admission 三面', () => {
       }
     }
     expect(await prisma.deletionBarrier.count({ where: { teamId: FIXTURE_TEAM } })).toBe(0);
-    // 观测：deletion_barrier_active_seconds 已注册且本次 bail-out 已置值（≥0）
+    // 观测：deletion_barrier_active_seconds 已注册且本次 bail-out 已置值（active 持有时长>0——
+    // spec 评审 Minor-4：存在性+置值双断言；release 单点 set(heldSeconds)，④ 的 acquire→bail-out 窗实测 >0）
     const gauge = register.getSingleMetric('deletion_barrier_active_seconds');
     expect(gauge).toBeTruthy();
+    const observed = await (gauge as unknown as { get(): Promise<{ values: { value: number }[] }> }).get();
+    expect(observed.values[0]?.value, 'gauge 已置值（heldSeconds>0——释放/bail-out 观测面）').toBeGreaterThan(0);
   }, 60_000);
 
   it('⑤flush 与锁解耦：acquire 不持 lockProject（ACQUIRING 期 appendBatch 照通）+ACQUIRING/ACTIVE 两态分义', async () => {
@@ -392,5 +395,50 @@ maybe('C3b-4a：DeletionBarrier 持久 fence+admission 三面', () => {
     });
     expect(((await releaseRes.json()) as { released: boolean }).released).toBe(true);
     expect(await prisma.deletionBarrier.count({ where: { teamId: FIXTURE_TEAM } })).toBe(0);
+  }, 60_000);
+
+  it('⑦(P1-2) 全程预算：④snapshot 段过 expiresAt → 返回 verified 前复检 bail-out barrier-expired（整体释放+解封）', async () => {
+    // 布景：flush 无在途帧（瞬时收敛）+activate 时未过期（600ms 预算内完成 ①-③''）+snapshotGate
+    // 钳制 700ms → ④ 段跑过 expiresAt——修前（无复检）返回 verified=围栏已漏（seal 惰性过期+
+    // appendBatch expiresAt 门放行）而调用方以为持有；修后复检 bail-out（spec :79 全程性）。
+    svc.snapshotGate = async () => { await new Promise((r) => setTimeout(r, 700)); };
+    try {
+      const res = await svc.prepare(FIXTURE_TEAM, { budgetMs: 600 });
+      expect(res).toEqual({ outcome: 'bail-out', reason: 'barrier-expired' });
+      expect(await prisma.deletionBarrier.count({ where: { teamId: FIXTURE_TEAM } })).toBe(0);   // 整体释放
+      expect(isDeletionBarrierSealed(PID_A)).toBe(false);   // 解封
+    } finally {
+      svc.snapshotGate = undefined;
+    }
+  }, 60_000);
+
+  it('⑧(P1-3) barrier ACTIVE 期 actor flush 撞拒：禁 selfIsolate（collabState 保持 serving）+帧留队+释放后落定', async () => {
+    const acq = await svc.acquire(FIXTURE_TEAM, { budgetMs: 30_000 });
+    expect(acq.ok).toBe(true);
+    if (!acq.ok) return;
+    try {
+      expect(await svc.activate(FIXTURE_TEAM, acq.barrierId)).toBe(true);
+      const before = (await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID_A }, select: { pgSeq: true } })).pgSeq;
+      // submit 照常 apply（admission 链无 barrier 面——帧入 appliedQueue）→flushApplied 撞 appendBatch
+      // 'deletion-barrier' 拒 → 修后分支：留队 pgPending（禁 selfIsolate——team 级 fence 窗瞬态拒≠
+      // 租约失守）；修前/变异 if(false)：落 fenced 分支→onFencedByWrite→selfIsolate('isolated')=红锚
+      const r = await gateway.projectActor.submit(PID_A, uniqueFrame(randomUUID()), { socketId: 'c3b4a-noisolate', readOnly: false, sendStateless: vi.fn() } as never, 'update');
+      await pollUntil(() => gateway.projectActor.appliedSeqOf(PID_A) === r.walSeq, 5_000);
+      await new Promise((res) => setTimeout(res, 500));   // flushApplied 撞拒退回窗口
+      expect(gateway.getCollabState(), 'P1-3 锚：deletion-barrier 拒≠fenced——禁 selfIsolate（变异 if(false)→isolated 即红）').toBe('serving');
+      expect((await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID_A }, select: { pgSeq: true } })).pgSeq).toBe(before);   // 帧未落（留队非弃置）
+    } finally {
+      await svc.release(FIXTURE_TEAM, acq.barrierId);
+    }
+    // 释放后经 flushThrough kick 落定（帧不丢——退避梯同族自愈；单次 2s clamp×6 重试环）
+    let kicked = await gateway.projectActor.flushThrough(PID_A, gateway.projectActor.appliedSeqOf(PID_A), { maxWaitMs: 2_000 });
+    for (let attempt = 1; !kicked.targetReached && attempt < 6; attempt++) {
+      await new Promise((res) => setTimeout(res, 100));
+      kicked = await gateway.projectActor.flushThrough(PID_A, gateway.projectActor.appliedSeqOf(PID_A), { maxWaitMs: 2_000 });
+    }
+    expect(kicked.targetReached, '释放后留队帧落定').toBe(true);
+    const after = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID_A }, select: { pgSeq: true } });
+    expect(after.pgSeq).toBeGreaterThan(0n);
+    await prisma.canvasDoc.updateMany({ where: { projectId: PID_A }, data: { mediaBindingSeq: after.pgSeq, bindingsDirty: false } });
   }, 60_000);
 });
