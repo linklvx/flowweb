@@ -1,0 +1,7 @@
+{"scenario":"cold-load","at":"2026-11-13T18:57:47.068Z","ok":true,"ms":28902,"axes":{"cold-load":null}}
+{"scenario":"mixed-payload","at":"2026-11-13T18:57:47.232Z","ok":true,"ms":156,"axes":{"mixed-payload":null}}
+{"scenario":"concurrency","at":"2026-11-13T18:58:08.320Z","ok":true,"ms":21083,"axes":{"concurrency":{"p50":13,"p95":24,"p99":43,"max":50,"count":324,"unit":"ms","conns":9,"windowMs":16149}}}
+{"scenario":"ss2-fanout","at":"2026-11-13T18:58:17.404Z","ok":true,"ms":9079,"axes":{"ss2-fanout":{"conns":3,"outboundBytes":1575417,"fanoutMs":22,"perConnSyncedMs":22,"outboundBudgetBytes":100663296,"budgetUtilization":0.016,"eventLoopLagMaxMs":0,"budgetCloseDelta":0,"slowConsumerDisconnectDelta":0}}}
+{"scenario":"backlog-isolation","at":"2026-11-13T18:58:28.195Z","ok":true,"ms":10783,"axes":{"backlog-isolation":null}}
+{"scenario":"sustained-disk","at":"2026-11-13T19:00:12.903Z","ok":true,"ms":104702,"axes":{"sustained-disk":null}}
+{"scenario":"recovery-rto","at":"2026-11-13T19:00:29.021Z","ok":true,"ms":16114,"axes":{"recovery-rto":null}}

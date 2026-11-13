@@ -1,0 +1,147 @@
+gate-evidence/foundation-exit.txt
+════════════════════════════════════════════════════════════════════
+地基修复批（foundation correctness batch）批末出口门 E-1 呈报包
+日期：2026-11-14｜分支：master｜认证 HEAD=4aef1d69（C3b-6 双评审折入后）
+════════════════════════════════════════════════════════════════════
+
+【定位】spec v5.3 §3.5 批级出口门——C2 MediaFact 当前态表 / C3a MediaBinding 帧级投影
+/ C1 时间语义终态 rebaseline / C3b PG oracle 证人+DeletionBarrier 四卡双评审（spec✅+
+quality✅）全闭后的批末出口门。**本包≠部署授权**——全环境 reset 部署窗=停等用户显式指令
+（runbook §16 人工序；spec §5 确认点⑤）。
+
+【四卡终态链】（68 commit，每卡双评审闭环）
+  C2 MediaFact（5f4aad6c..f15c26e3，8 commit）：tsz 当前态表+factType CHECK+FK Cascade→
+    5 写点改道双函数版本纪律（RETURNING 读回/bump 单源防双递增）→facts 端点归一合成
+    （Media.status 映射 pending→processing）→outbox 旧面退役→观测族+事实 canary。
+  C3a MediaBinding（9a10409e..ab622d60，17 commit）：collectMediaRefsForNode 单源→schema
+    additive（水位两列+deletionState+ProjectionBackfillState+既有项目全置 dirty）→actor
+    帧级快照→appendBatch 组合闭包+两 UPDATE 解耦+SAVEPOINT→Projector 预检序→水位不变量
+    CAS 四条件→CloneBinding/bindInTx 删+单写者静态门→恢复四路+BackfillRunner→卡收口
+    独立 oracle 对拍契约。
+  C1 时间语义 rebaseline（a3dfa4b0..88cc8d01，23 commit）：终态 schema 单一 init（全列
+    timestamptz 161 列+set_updated_at 函数+48 触发器）→三向 allowlist 对象门→时间代码全量
+    （补偿谓词拆零+::timestamp 清零）→三门禁+双时区→触发器 coverage 门+canary 容量→
+    reset 全链演练+§16 代际注记。**回滚锚=tag pre-c1-rebaseline（=ab622d60）**。
+  C3b oracle+Barrier（7e4d4a90..4aef1d69，20 commit）：oracle 双表+DeletionBarrier 三新表
+    →oracle worker（候选无关 UUID 叶+短事务+header 状态机）→decision snapshot+referrer
+    registry（10 条）→DeletionBarrier 持久 fence+admission 三面→DELETING 状态机+对象先删
+    →消费面切换+shadow 对拍+回滚开关→卡收口（红测全族映射+coverage/shadow 首轮+双评审折入）。
+
+【出口门验证数字】
+  ① pnpm verify（FULL）：36/36 步 PASS（exit 0；.verify-logs/e1-verify-full.log；本机
+     15.0min；零 flake 零复跑——无台账引用）。池计数：shared 58 文件/791 用例、web 382/
+     4159、api 305/3144、heavy 4/12（合计 8105 用例全绿）；check-collab-census 37/37。
+  ② 五门禁负控红证（三向 allowlist/schema/raw-SQL/单写者/触发器）：
+     自测载体六文件（verify 链 [35/36] scripts-node-test 常驻）逐文件实跑 83/83 绿：
+       check-rebaseline-delta.test 19｜check-schema-timestamptz.test 10｜
+       check-raw-sql-time.test 20｜check-media-binding-writers.test 10（C3a 单写者门）｜
+       check-ledger-single-writer.test 13（Y0b 台账单写者门同批复核）｜
+       check-updated-at-triggers.test 11（含真实 DB/CLI scratch 端到端腿）。
+     真负控实弹（三向 allowlist 门，C1-2 同款形态）：scripts/rebaseline-delta-allowlist.json
+     摘除 added.triggers 一条（Media.set_updated_at_Media，48→47）→门红 exit 1
+     「未登记 added.triggers: Media.set_updated_at_Media（实测有、allowlist 未登记）」→
+     git checkout 还原→门绿 exit 0「八组三向 delta 与 allowlist 双向闭合（removed 21 /
+     added 83 / changed 0；census 转换 161 列）」。其余四门以自测负控族为证（缺条目/多列
+     naive/违例写者/漏挂触发器→红均在 .test.mjs 内实跑）。
+  ③ bench:load:smoke（PR smoke 档；full 权威档维持部署窗）：verdict=pass（hardBlocks=0/
+     softWarns=0/unobservable=0——硬门全过；exit 0；产物 gate-evidence/e1-bench-smoke.
+     jsonl 七场景+e1-bench-smoke.bench.json）。错误账（v1.7 口径）：http5xx=0/unhandled=0/
+     非预期 1011=0/数据断言失败=0/timeouts=0（httpOps=268 非硬门轴；预期 close 码单列）。
+     关键轴：saveBarrier p95=53ms｜walFsync p95=20ms（fsync 14.4/s）｜coldLoad p95=66ms｜
+     concurrency p95=24ms（10×10 档 3 项目×3 连接 smoke 规模）｜projectionRead p95=6ms｜
+     applyReplay p95=15ms｜backlog drain 424ms｜slowProject 隔离 21 vs 23ms｜sustained
+     容量闸未触发 spool 0B｜recoveryRto=10019ms（kill→ready→36 帧回灌归零）。
+     形态登记：run1/run2 于装置内 ensureBuilt 失败（spawnSync('pnpm') 在 Windows .cmd shim
+     下 status=null 即判构建失败——stdio:inherit 零输出即铁证；verify 链内同脚本 --skip-build
+     跑绿=同机先例）；run3 经装置自带 T33_SKIP_BUILD=1 通道（dist=verify full api-nest-build
+     新鲜态+独立手动 build 复核绿）——非判据面变更，禁调装置（门脚本零触碰）。
+  ④ 30min soak（dev 形态；T15 正式档同款 4 docs×8 conns+--ttl-pin 120000 受控链；
+     apps/api/.data/soak-e1.json+log .verify-logs/e1-soak.log）：60 样本×30s，edits=14280、
+     connErrors=0；frameP95=51ms/frameP99=61ms（客户端回显——heavy 档 echo 预算口径不适用
+     本档）；maxRSS=376.2MB 稳态平台（~340-376MB）/maxHeap=183.3MB；spool 零增长
+     （0.0B/min）；**容量无拐点（storeP99≤1s 判据）→ 容量上限 ≥4×8**；durable-ack 健康面
+     lag 三族全零（appliedUnpersistedMax=0/docDeliveryLag max=0/projectionPendingAge
+     max=0）；持久化实证=actor PG 腿 yjs_store_payload_bytes 14284 观测（逐 append 成功，
+     storeP99=n/a=saveMutex noop 形态非持久化缺席）；soak 后指标实测 gap_seq=0/
+     watermark_lag=0/backfill_remaining=0。形态注记：api 单进程（dist/main.js
+     COLLAB_ROLE=all——worker.module 服务〔oracle worker 等〕不在此进程，T15 同款本地
+     dev 单进程形态）；装置收尾自清理（Cascade 清 soak 全域——台账惯例）。
+  ⑤ restore drill 一次（第六轮 P1-15；一次性装置跑后即删——c3b6 同款；log
+     .verify-logs/e1-restore-drill.log）：pre 态台账（facts=2/binding=0/oracle 双表=0+10/
+     docs=10/media=11/projects=11）→pg_dump -Fc 642KB 留档（backups/e1-restore-*.dump）→
+     **旧备份恢复**（§16 ②确定性形态：DROP SCHEMA public CASCADE+pg_restore ~2.3s——
+     全表计数+binding/oracle digest 与 pre 态等值+historyId 回 dump 纪元）→恢复契约收尾
+     （bump historyId 裸 now() on timestamptz〔C1 后正解形态〕+spool 整目录 quarantine）→
+     派生面缺位仿真（单事务 SET LOCAL app.skip_updated_at='on'——facts/binding/oracle 双表
+     清零+全 doc 置 dirty，**CanvasDoc.updatedAt 历史保留=skip_updated_at 通道实弹✓**）→
+     **binding 重建**（ProjectionBackfillRunner tick 10→2→0 两拍 0.6s：全 doc
+     mediaBindingSeq==pgSeq∧非 dirty）→**oracle 重建**（OracleWorkerService tick 4/4/2
+     三拍 1.2s：10/10 header COMPLETE∧verifiedSeq==pgSeq）→**facts 写点再生**
+     （bumpFactVersionAndUpsert 单源：canary state fact v1→v2=Media.factVersion 同值单调）→
+     cleanup 二次整库恢复（全计数+digest 等值=dev 库回正常态+二次 bump）→verify:fast
+     16/16 PASS。总耗时 7.1s。形态诚实注记：a) 同代备份承载 restore 链（pre-batch 旧 dump
+     字面 restore=旧代码×新库结构性红——runbook §16 ②同代律；旧备份的派生面形态由「缺位
+     仿真」腿承载）；b) dev 宇宙 binding/oracle 行=0（bench 残留 doc 零媒体 UUID 叶——
+     行级语义由 c3b6【二】小宇宙三形态证据承载，本 drill 证水位/header/重建机制全链）。
+  ⑥ PG oracle coverage 证据+抽样影子首轮零 mismatch（已有，直接引）：
+     gate-evidence/c3b6-coverage-shadow.txt——oracle 全宇宙首轮 10/10 COMPLETE∧
+     verifiedSeq==pgSeq∧coverage_ratio=1（指标+DB 双证）+小宇宙 JOIN 过滤三形态（真引用/
+     无行/跨队）+decision snapshot 全链 verified（九 bail 腿+CAS 复读）+GC sweep 真 barrier
+     shadow 首轮 missing=0∧extra=0∧skip=0（19/19 checks）。
+  ⑦ 指标面清单核对（spec §3.5 低基数口径——全部在册）：
+     durable-ack 延迟=yjs_store_duration_seconds（store.metrics.ts:116）+bench saveBarrier
+     p95；恢复耗时=doc_recovery_total/wal_recovery_suspect_total（:507/:558）+bench
+     recoveryRto 场景+yjs_load_duration_seconds；投影 lag+gap_seq=
+     media_binding_watermark_lag+media_binding_gap_seq（media-binding.metrics.ts:72/51——
+     E-1 soak 后实测双零）；oracle coverage_ratio+scan_age=oracle_coverage_ratio+
+     oracle_scan_age_seconds（oracle-worker.metrics.ts:13/20）；拒绝更新=
+     collab_write_rejected_total（写路径拒绝含 barrier admission 4413 族）；GC fail-closed
+     =media_gc_outcome_total（deleted/guarded/valve-bailout/object-delete-failed 分桶）+
+     media_ref_shadow_skip_total；deletion_conflict=media_deletion_conflict_total{reason}；
+     backfill_remaining=media_binding_backfill_remaining（drain 末尾归零收口）；C2 观测族=
+     media_fact_age_seconds/media_fact_unfinished_state_age_seconds/media_fact_read_total
+     （ebffd948）。
+
+【RPO/RTO 四面成文】
+  C1 时间语义 rebaseline（reset 形态）——RPO=0：数据安全不靠 in-place 迁移而靠 §16 七阶段
+    reset 全链（DROP+migrate+seed+gate-seed，C1-6 实弹可重复）；回滚锚=步④ pre-reset
+    pg_dump+代码树 tag pre-c1-rebaseline（=ab622d60）——同代回滚序（§16 ②：停消费者→
+    先 DROP SCHEMA 再 pg_restore→checkout tag 构建部署→起序）零丢失窗。同代律由 §16 机器
+    承载（旧代码×新 init=补偿谓词语义反转、新代码×旧 dump=migrate deploy 必红——非可静默
+    混跑面）。RTO：reset 全链 C1-6 实测（gate-evidence/c1-6-reset-drill.txt）；回滚形态
+    t30b --rollback 4.5s（t30b-cutover-drill.txt）；E-1 同代整库 restore 实测 ~2.3s（642KB
+    dev 档）——生产规模随每日 pg_dump 档（服务器窗校准）。
+  C2 MediaFact——RPO=0（可重建）：①同代备份 restore 直返（E-1 drill C 腿实测 facts 行等值
+    回归）；②缺位形态=写点再生（双函数单源——F 腿实测单调再生）；③读可用性=C2-3 端点合成
+    （state 行缺位零降级读洞）；natural 面=probe/materialize 写点触碰自然回填（无独立丢失
+    窗——当前态表设计属性）。RTO：读路径即时（合成零等待）；全表回填=restore 秒级或写点
+    渐进（生产=下一 probe/materialize 周期）。
+  C3a MediaBinding——RPO=0（同事务）：binding 投影在 appendBatch 同 PG 事务内（inTx 组合
+    闭包+SAVEPOINT——帧/binding 同落同弃，无独立丢失窗）；投影失败=SAVEPOINT 回滚+
+    bindingsDirty 持久脏标（帧已落 PG、binding 由 rebuild 收敛——零数据丢失仅延迟；E-1
+    drill D→E 腿实弹：全 dirty→两拍全水位对齐）。RTO：BackfillRunner 串行排水（8 项目/
+    tick 限速防惊群；drill 实测 10 doc 0.6s）——生产 RTO=候选数×单项目 rebuild 时长，
+    lag/gap_seq/backfill_remaining 三指标在册可观测可告警。
+  C3 media 删除——删除=PITR 窗：media 硬删后旧备份（保留期内）仍含该 media，restore 即
+    复活=备份系统设计属性（runbook §13.1：恢复后开流量前置 restore gate=restore-reerase
+    幂等重放；manifest 双失=RESIDUAL_RISK exit 2 诚实披露非假绿）；在线介质删除=DELETING
+    状态机同事务 recheck 中止语义+erasure VERIFYING 三重复验。恢复链 RTO=restore→derived
+    重建（binding runner+oracle worker）→verify——E-1 drill 全链实测 7.1s（dev 形态）；
+    服务器面 PITR/pg-sync-commit/minio-versioning/restore-drill 四项已闭（charter
+    df2b16ce——13 项全闭 0 pending）。
+
+【限制诚实登记】
+  1. dev 形态边界：bench smoke=PR 档（full 权威档+七场景硬门维持部署窗）；soak=单进程
+     dev 档（服务器双进程+多档容量校准归部署窗）；restore drill=同代 dump+缺位仿真（真
+     pre-batch 旧备份字面回放须 §16 ②同代 checkout 序——属部署窗回滚演练面）。
+  2. bench run1/run2 装置内 ensureBuilt Windows spawnSync('pnpm') .cmd 形态失败（run3
+     T33_SKIP_BUILD=1 通道过）——门脚本零触碰，登记非修改（同机 verify 链内 --skip-build
+     形态恒绿先例）。
+  3. 承袭登记不闭项（C3b-6 移交清单七条+M4 双锚零余量+C2-4 表暂留 C1 物删后销案）——
+     详见 plan C3b-6 注记，均非本门阻断项。
+  4. 预存未跟踪 .workbuddy-ai//AGENTS.md/outputs//.verify-logs/ 维持不入库。
+
+【呈报与停等】四卡闭环+E-1 全项证据落档——**部署窗停等用户显式指令**（reset-collab §16
+  人工序：单命令七阶段全链+八步破坏性发布序；回滚锚=步④ pre-reset pg_dump+tag
+  pre-c1-rebaseline=ab622d60；spec §5 确认点⑤）。本呈报包不构成开放流量/部署的授权。
+════════════════════════════════════════════════════════════════════

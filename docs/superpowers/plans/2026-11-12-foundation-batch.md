@@ -284,7 +284,8 @@ return writeBinding();
 ### Task C3b-6：卡收口+批末出口门
 
 - [x] spec §3.4 红测全族+coverage 首轮证据+抽样影子首轮零 mismatch（或处置留痕）+`pnpm verify`+双评审。
-- [ ] **批末 E-1**：四卡全闭+`pnpm verify` full 全绿+五门禁负控红证（三向 allowlist/schema/raw-SQL/单写者/触发器）+**`pnpm bench:load:smoke`+30min soak（dev 形态；full 权威档维持部署窗）+restore drill 一次（旧备份恢复→binding/oracle/facts 重建+verify）**（第六轮 P1-15）+RPO/RTO 四面成文+呈报包 `gate-evidence/foundation-exit.txt`+**部署窗停等用户指令**（reset-collab §16）。
+- [x] **批末 E-1**：四卡全闭+`pnpm verify` full 全绿+五门禁负控红证（三向 allowlist/schema/raw-SQL/单写者/触发器）+**`pnpm bench:load:smoke`+30min soak（dev 形态；full 权威档维持部署窗）+restore drill 一次（旧备份恢复→binding/oracle/facts 重建+verify）**（第六轮 P1-15）+RPO/RTO 四面成文+呈报包 `gate-evidence/foundation-exit.txt`+**部署窗停等用户指令**（reset-collab §16）。
+  **E-1 执行落档（2026-11-14）**：verify FULL 36/36（15.0min 零 flake；池 8105 用例）；五门自测六文件 83/83+allowlist 摘条实弹红 exit 1→还原绿；bench smoke 硬门全过（run1/2=装置 ensureBuilt Windows spawnSync .cmd 形态失败登记，run3 经 T33_SKIP_BUILD=1 过——门脚本零触碰）；30min soak 4×8 无拐点（edits 14280/connErrors 0/RSS 376MB 稳态/spool 零增长/lag 三族零）；restore drill 7.1s 全链（同代 restore 等值核验+bump+quarantine+skip_updated_at 通道实弹+binding 两拍/oracle 三拍重建+facts 写点再生+cleanup 二次恢复+verify:fast 16/16）；RPO/RTO 四面+指标面清单核对+部署窗停等声明全在呈报包。
 
 > **C3b-6 卡收口注记（2026-11-14）**：
 > - **红测全族审计**：`gate-evidence/c3b-redtest-map.txt`——spec §3.4-10 :86 十二条红测面→测试锚
