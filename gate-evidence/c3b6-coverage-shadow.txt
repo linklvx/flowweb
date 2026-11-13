@@ -73,7 +73,7 @@ MinIO/docs=stub 形态同 int 套件既有裁定——证据面=决策/对拍链
 
   19/19 checks PASS（exit 0）。三项 C3b-6 卡收口证据全部落定：
   ① oracle coverage 首轮=10/10 COMPLETE∧verifiedSeq==pgSeq∧coverage_ratio=1（真首轮：前置 0 header）；
-  ② decision snapshot 全链 verified（九腿校验链+CAS 复读）；
+  ② decision snapshot 全链 verified（九 bail 腿全通过——第 9 腿 pgseq-moved 即 CAS 复读）；
   ③ shadow 对拍首轮 missing=0 ∧ extra=0（零 skip——预算门控未触发，观测面完备形态）。
   附注：宇宙内 bench 残留 t33-* doc 均零媒体 UUID 叶（bench 负载无 fileId 面）→refCount=0 全档；
   真引用命中面由【二】小宇宙承载（JOIN 过滤三形态：真引用/无行/跨队）。

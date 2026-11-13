@@ -23,12 +23,13 @@
 - 2026-10-27（Y1c T23 双评审收口 M-6 登记行）：collab.gateway.spec Y7 硬阈 coalesce 用例（600×8KB 累积折并
   队列元素 ≤1MB）本机全池负载态 20s 超时间歇红（T23 批 2980/2981 一例）、隔离跑 371ms 绿——T15 时已三员
   证实环境性（负载放大 coalesce 窗）；处置=复现时单独复跑收口（禁以环境态调阈值——与 soak echo p95 同款口径）。
-  **C3b-6 复击中（2026-11-14）**：卡收口 verify full run1/run2 连续两轮同例 20s 超时〔.verify-logs/
-  c3b6-verify-full.run1-flake.log——api-test 20/36 步 3143/3144 唯一红；run2 同形〕；隔离 -t 复跑 2/2 绿
-  （442ms）；零代码交叠=HEAD b8664529 后零生产码变更（仅 docs/gate-evidence）；环境佐证=同码 c3b5-r3
-  （2026-11-14 00:16）36/36 绿中该 spec 文件 21.7s vs 失败轮 41.2s+collect 768s vs 8.5s——本机用户态
-  应用负载（视频/直播类常驻）放大池轮窗；处置=冷却重跑：run3 36/36 PASS（.verify-logs/c3b6-verify-full.log
-  ——T24/T28 同款先例，禁以环境态调阈值维持）。
+  **C3b-6 复击中（2026-11-14）**：卡收口 verify full run1/run2 连续两轮同例 20s 超时〔run1 落盘
+  .verify-logs/c3b6-verify-full.run1-flake.log——api-test 20/36 步 3143/3144 唯一红+池 collect
+  820.69s；run2 同形（现场观测，输出未落盘——处置结论由隔离复跑+run3 全绿独立承载）〕；隔离 -t 复跑
+  2/2 绿（442ms）；零代码交叠=HEAD b8664529 后零生产码变更（仅 docs/gate-evidence）；环境佐证=同码
+  c3b5-r3（2026-11-14 00:16）36/36 绿中该 spec 文件 21.7s vs 失败轮 41.2s+池 collect 8.55s vs 820.69s
+  ——本机用户态应用负载（视频/直播类常驻）放大池轮窗；处置=冷却重跑：run3 36/36 PASS
+  （.verify-logs/c3b6-verify-full.log——T24/T28 同款先例，禁以环境态调阈值维持）。
 - 2026-10-27（Y1c T24 收口批）：collab-rate-gate 两例（「成对用例 maxDocBytes+30B SS2」与「红门⑧
   8MB 回灌」）满载并行下 pollUntil 超时——spec 评审机满载触发（ms 级时序窗）；单独重跑 9/9 绿
   （口径同 Y7/soak 行——环境负载态非回归，禁以环境态调阈值）。
