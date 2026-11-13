@@ -9,8 +9,9 @@
 //   实测集 = pg_trigger（NOT tgisinternal）JOIN pg_proc（函数名）取 tgtype（时机/事件/行级）+tgenabled
 //     （禁用态）+tgattr（UPDATE OF 列清单）+pg_get_triggerdef（原文，违规输出诊断面）。
 //   每表恰须 1 个 `set_updated_at_<表名>` 触发器：BEFORE INSERT OR UPDATE FOR EACH ROW（tgtype=23）、
-//   调用 set_updated_at()、启用态、无 UPDATE OF 列清单。偏离分档：缺挂/多挂/错名/错函数/错时机/禁用/
-//   UPDATE OF/多余（触发器挂在无 updatedAt 列的表上）→ exit 1。
+//   调用 **public.**set_updated_at()（同名异 schema 不得过）、启用态、无 UPDATE OF 列清单、无条件 WHEN
+//   （tgqual IS NULL）。偏离分档：缺挂/多挂/错名/错函数/错时机/禁用/UPDATE OF/条件 WHEN/多余（触发器挂在
+//   无 updatedAt 列的表上）→ exit 1。
 // 退出码（verify db 步语义=非零）：0=PASS；1=coverage 违规；2=结构性错误（DATABASE_URL 缺失/DB 不可达/
 //   表集为空〔未迁移或错库——扫零即假绿，fail-closed〕）。
 // 负控 = scripts/check-updated-at-triggers.test.mjs（纯函数六族+真实 DB 事务内 DROP→红→ROLLBACK→绿）。
@@ -58,8 +59,10 @@ export function describeTiming(tgtype) {
 
 /**
  * coverage 判据（纯函数——自测负控消费）。tables=带 updatedAt 列的表名集；triggers 行形
- * {table,name,fn,tgtype,enabled,cols,def}。返回 { ok, violations[], stats{tables,triggers,covered} }。
+ * {table,name,fn,fnSchema,tgtype,enabled,cols,whenExpr,def}。返回 { ok, violations[], stats{tables,triggers,covered} }。
  * 归属判定=表身：本表触发器（名以 set_updated_at_ 开头或函数为 set_updated_at）即候选——恰一且全维合规。
+ * 加固（C1-5 评审 Minor-5）：函数须在 public schema（同名异 schema 不得过）+ tgqual IS NULL（无条件 WHEN
+ * ——带 WHEN 的触发器对不满足行跳过，coverage 假绿）。
  */
 export function evaluateCoverage({ tables, triggers }) {
   const violations = [];
@@ -83,8 +86,9 @@ export function evaluateCoverage({ tables, triggers }) {
       continue;
     }
     const t = candidates[0];
-    if (t.fn !== REQUIRED_FUNCTION) {
-      violations.push(`错函数：${table}.${t.name} 调用 ${t.fn}()，期望 ${REQUIRED_FUNCTION}()（def: ${t.def}）`);
+    if (t.fn !== REQUIRED_FUNCTION || t.fnSchema !== 'public') {
+      const called = t.fnSchema && t.fnSchema !== 'public' ? `${t.fnSchema}.${t.fn}` : t.fn;
+      violations.push(`错函数：${table}.${t.name} 调用 ${called}()，期望 public.${REQUIRED_FUNCTION}()（def: ${t.def}）`);
     } else if (t.name !== expected) {
       violations.push(`错名：表 ${table} 的 updatedAt 触发器名为 ${t.name}，期望 ${expected}（命名=表↔触发器可审计映射）`);
     } else if (t.cols) {
@@ -93,6 +97,8 @@ export function evaluateCoverage({ tables, triggers }) {
       violations.push(`禁用：${table}.${t.name} tgenabled='${t.enabled}'（非 'O'）——禁用/复制模式不写 updatedAt，coverage 假绿`);
     } else if (!isExpectedTiming(t.tgtype)) {
       violations.push(`错时机：${table}.${t.name} = ${describeTiming(t.tgtype)}，期望 ${EXPECTED_TIMING}`);
+    } else if (t.whenExpr != null) {
+      violations.push(`条件 WHEN：${table}.${t.name} tgqual=${t.whenExpr}——不满足 WHEN 的行不写 updatedAt（coverage 假绿），期望无条件触发`);
     } else {
       covered += 1;
     }
@@ -114,8 +120,10 @@ export async function introspect(client) {
      WHERE table_schema = 'public' AND column_name = 'updatedAt' AND table_name NOT LIKE '\\_prisma%'
      ORDER BY table_name`)).rows.map((r) => r.table_name);
   const triggers = (await client.query(
-    `SELECT c.relname AS table, t.tgname AS name, p.proname AS fn, t.tgtype::int AS tgtype,
-            t.tgenabled AS enabled, t.tgattr::text AS cols, pg_get_triggerdef(t.oid) AS def
+    `SELECT c.relname AS table, t.tgname AS name, p.proname AS fn,
+            p.pronamespace::regnamespace::text AS "fnSchema", t.tgtype::int AS tgtype,
+            t.tgenabled AS enabled, t.tgattr::text AS cols, t.tgqual::text AS "whenExpr",
+            pg_get_triggerdef(t.oid) AS def
      FROM pg_trigger t
      JOIN pg_class c ON c.oid = t.tgrelid
      JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -167,7 +175,7 @@ async function main() {
       return;
     }
     console.log(`updated-at-triggers OK: ${r.stats.covered}/${r.stats.tables} 表已覆盖（public 触发器 ${snap.triggers.length}/本族 ${family}；缺失: 无）`);
-    console.log(`  缺失清单: 无（每表恰 1 个 ${TRIGGER_PREFIX}<表> = ${EXPECTED_TIMING} → ${REQUIRED_FUNCTION}()）`);
+    console.log(`  缺失清单: 无（每表恰 1 个 ${TRIGGER_PREFIX}<表> = ${EXPECTED_TIMING} → public.${REQUIRED_FUNCTION}()，无条件 WHEN）`);
     process.exitCode = 0;
   } finally {
     await client.end().catch(() => {});

@@ -1,10 +1,14 @@
 // scripts/check-updated-at-triggers.test.mjs —— C1-5 coverage 门自测（node --test scripts/ 消费——import
 // 零副作用；verify 链 scripts-node-test 步列举）。
-// 负控（plan Task C1-5）：纯函数六族（缺挂/多挂/错名/错函数/错时机/多余）+真实 DB 两用例
-// （48/48 绿；事务内 DROP 一个触发器→红→ROLLBACK→绿——零持久变更）。无 DB 时 DB 用例 skip。
+// 负控（plan Task C1-5）：纯函数六族（缺挂/多挂/错名/错函数/错时机/多余）+真实 DB 三用例
+// （48/48 绿；事务内 DROP 一个触发器→红→ROLLBACK→绿——零持久变更；**CLI 端到端 scratch 库**
+// 重放新 init→exit 0 / DROP→exit 1 / 恢复→exit 0——评审 Minor-6 可复跑红证）。无 DB 时 DB 用例 skip。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import {
   evaluateCoverage, describeTiming, isExpectedTiming, REQUIRED_FUNCTION, TRIGGER_PREFIX,
   introspect, resolveDatabaseUrl, EXPECTED_TIMING,
@@ -12,8 +16,9 @@ import {
 
 /** 合规触发器行（纯函数夹具——真实 introspection 同形）。 */
 const good = (table, over = {}) => ({
-  table, name: `${TRIGGER_PREFIX}${table}`, fn: REQUIRED_FUNCTION, tgtype: 23,
-  enabled: 'O', cols: '', def: `CREATE TRIGGER "${TRIGGER_PREFIX}${table}" BEFORE INSERT OR UPDATE ON public."${table}" FOR EACH ROW EXECUTE FUNCTION set_updated_at()`,
+  table, name: `${TRIGGER_PREFIX}${table}`, fn: REQUIRED_FUNCTION, fnSchema: 'public', tgtype: 23,
+  enabled: 'O', cols: '', whenExpr: null,
+  def: `CREATE TRIGGER "${TRIGGER_PREFIX}${table}" BEFORE INSERT OR UPDATE ON public."${table}" FOR EACH ROW EXECUTE FUNCTION set_updated_at()`,
   ...over,
 });
 
@@ -39,10 +44,17 @@ test('负控②多挂：同表两个 set_updated_at 函数触发器 → 红', ()
   assert.match(r.violations.join('\n'), /多挂：表 A/);
 });
 
-test('负控③错函数：名合规但调用别的函数 → 红', () => {
-  const r = evaluateCoverage({ tables: ['A'], triggers: [good('A', { fn: 'some_other_fn' })] });
-  assert.equal(r.ok, false);
-  assert.match(r.violations[0], /错函数：A\.set_updated_at_A 调用 some_other_fn\(\)/);
+test('负控③错函数：名合规但调用别的函数/同名异 schema → 逐档红（Minor-5 加固）', () => {
+  const cases = [
+    { over: { fn: 'some_other_fn' }, why: /错函数：A\.set_updated_at_A 调用 some_other_fn\(\)/ },
+    { over: { fnSchema: 'other' }, why: /错函数：A\.set_updated_at_A 调用 other\.set_updated_at\(\)/ },
+    { over: { fnSchema: null }, why: /错函数/ },   // schema 不可解析（防未取到 schema 时静默放行）
+  ];
+  for (const c of cases) {
+    const r = evaluateCoverage({ tables: ['A'], triggers: [good('A', c.over)] });
+    assert.equal(r.ok, false, JSON.stringify(c.over));
+    assert.match(r.violations[0], c.why, JSON.stringify(c.over));
+  }
 });
 
 test('负控④错名：函数正确但触发器名不符 set_updated_at_<表> → 红（可审计映射）', () => {
@@ -51,7 +63,7 @@ test('负控④错名：函数正确但触发器名不符 set_updated_at_<表> �
   assert.match(r.violations[0], /错名：表 A 的 updatedAt 触发器名为 a_updated_at/);
 });
 
-test('负控⑤错时机：AFTER/语句级/DELETE 事件/UPDATE OF 列清单/禁用 → 逐档红', () => {
+test('负控⑤错时机：AFTER/语句级/DELETE 事件/UPDATE OF 列清单/禁用/条件 WHEN → 逐档红', () => {
   const cases = [
     { over: { tgtype: 5 }, why: /错时机/ },      // AFTER INSERT FOR EACH ROW
     { over: { tgtype: 6 }, why: /错时机/ },      // BEFORE INSERT FOR EACH STATEMENT
@@ -59,6 +71,7 @@ test('负控⑤错时机：AFTER/语句级/DELETE 事件/UPDATE OF 列清单/禁
     { over: { tgtype: 21 }, why: /错时机/ },     // BEFORE UPDATE FOR EACH ROW（缺 INSERT）
     { over: { cols: '2' }, why: /UPDATE OF 列清单/ },
     { over: { enabled: 'D' }, why: /禁用/ },
+    { over: { whenExpr: '(old."x" IS NULL)' }, why: /条件 WHEN/ },   // Minor-5 加固：tgqual 非 NULL
   ];
   for (const c of cases) {
     const r = evaluateCoverage({ tables: ['A'], triggers: [good('A', c.over)] });
@@ -118,5 +131,50 @@ test('真实 DB 负控：事务内 DROP 一个触发器 → 红；ROLLBACK 恢�
     assert.deepEqual(green.violations, []);
   } finally {
     await client.end();
+  }
+});
+
+// ── CLI 端到端（Minor-6：exit 1 场景固化为可复跑证据——scratch 库重放新 init，零触碰目标库）──
+const GATE_SCRIPT = fileURLToPath(new URL('./check-updated-at-triggers.mjs', import.meta.url));
+const INIT_SQL = fileURLToPath(new URL('../apps/api/prisma/migrations/20261112120000_c1_rebaseline_init/migration.sql', import.meta.url));
+const toDbUrl = (url, name) => new URL(url).toString().replace(/\/[^/]*$/, `/${name}`);
+const runGate = (databaseUrl) => spawnSync(process.execPath, [GATE_SCRIPT], {
+  env: { ...process.env, DATABASE_URL: databaseUrl }, encoding: 'utf8', timeout: 120_000,
+});
+
+test('真实 DB CLI 端到端：scratch 重放新 init→exit 0（48/48）；DROP 触发器→exit 1；恢复→exit 0', { skip: dbUrl == null }, async () => {
+  const scratchName = `flowweb_c15_gate_${process.pid}_${Date.now().toString(36)}`;
+  const admin = new Client({ connectionString: toDbUrl(dbUrl, 'postgres') });
+  await admin.connect();
+  let scratch = null;
+  try {
+    await admin.query(`CREATE DATABASE ${scratchName}`);
+    const scratchUrl = toDbUrl(dbUrl, scratchName);
+    scratch = new Client({ connectionString: scratchUrl });
+    await scratch.connect();
+    // 重放新 init（psql 元命令行剥除——check-rebaseline-delta 同款）
+    const sql = fs.readFileSync(INIT_SQL, 'utf8').split(/\r?\n/).filter((l) => !l.startsWith('\\')).join('\n');
+    await scratch.query(sql);
+    await scratch.query('SET search_path TO public');
+    const target = (await introspect(scratch)).tables[0];
+    assert.ok(target, 'scratch 库 updatedAt 表集不得为空');
+
+    const green1 = runGate(scratchUrl);
+    assert.equal(green1.status, 0, green1.stderr);
+    assert.match(green1.stdout, /updated-at-triggers OK: \d+\/\d+ 表已覆盖/);
+
+    await scratch.query(`DROP TRIGGER "${TRIGGER_PREFIX}${target}" ON "${target}"`);
+    const red = runGate(scratchUrl);
+    assert.equal(red.status, 1, `门须 exit 1（实际 ${red.status}）: ${red.stdout}${red.stderr}`);
+    assert.match(red.stderr, new RegExp(`缺触发器：表 ${target}`));
+
+    await scratch.query(`CREATE TRIGGER "${TRIGGER_PREFIX}${target}" BEFORE INSERT OR UPDATE ON "${target}" FOR EACH ROW EXECUTE FUNCTION set_updated_at()`);
+    const green2 = runGate(scratchUrl);
+    assert.equal(green2.status, 0, green2.stderr);
+    assert.match(green2.stdout, /updated-at-triggers OK: \d+\/\d+ 表已覆盖/);
+  } finally {
+    if (scratch) await scratch.end().catch(() => {});
+    await admin.query(`DROP DATABASE IF EXISTS ${scratchName}`).catch(() => {});
+    await admin.end().catch(() => {});
   }
 });
