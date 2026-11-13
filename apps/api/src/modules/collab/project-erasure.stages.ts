@@ -54,7 +54,8 @@ import {
 } from './project-erasure.manifest';
 import { assertProjectErasureDbComplete, type ErasureAssertDb } from './project-erasure.assert';
 import { ERASURE_MEDIA_REFS_BATCH } from './collab-spool.service';
-import { collectJsonMediaIds } from '../media-delivery/media-gc.service';
+import { collectJsonMediaIds, claimMediaForDeletion, releaseMediaDeletionClaim } from '../media-delivery/media-gc.service';
+import { mediaDeletionConflictTotal } from '../media-delivery/binding-reconcile.metrics';
 import { ERASURE_RUN_LEASE_MS } from './project-erasure';
 import { erasureRunsTotal, erasureStageDuration } from './erasure.metrics';
 
@@ -369,17 +370,33 @@ export async function executePurgingDbStage(deps: PurgingDbStageDeps): Promise<P
     const disposition = await resolveMediaDisposition(prisma, pid, live.mediaRows, deps.collectMediaRefs);
     if (run.dryRun) return { outcome: 'dry-run', detach: disposition.detach.length, exclusive: disposition.exclusive.length, docScanFailed: disposition.docScanFailed };
     // ④ 两阶段复核（首扫标记→跨 claim 周期复核仍独占才删；sidecar=复核载体〔禁加列〕）
+    //    C3b-4 DELETING 状态机接线（spec §3.4-5 :81）：标记时 CAS 抢占独占集进 DELETING（审计列
+    //    runId=erasureId/reason=project-erasure——与 GC 双流互斥+复核窗期 facts 过滤/命令面拒绑）；
+    //    复核集漂移（首扫后新引用——独占候选离集）→中止回 ACTIVE+media_deletion_conflict_total；
+    //    删除窗 claim 幂等再持有（同 erasureId）——他消费者活持有的行不删（下轮重试）。
     const sidecar = await readPendingMediaMarker(manifestDir, run.erasureId);
     const exclusiveSet = new Set(disposition.exclusive);
     const sidecarSet = new Set(sidecar?.mediaIds ?? []);
     const sameSet = sidecar != null && sidecarSet.size === exclusiveSet.size && [...exclusiveSet].every((id) => sidecarSet.has(id));
     let deletable: string[] = [];
     if (!sameSet) {
+      // 复核集漂移：离集候选=首扫后新引用（recheck 命中）→中止回退+conflict 计数（复核窗重置=新标记）；
+      // docScanFailed 档独占集人为空——非真漂移不回退（fail-closed 下轮重判）。
+      const departed = sidecar != null && !disposition.docScanFailed
+        ? [...sidecarSet].filter((id) => !exclusiveSet.has(id)) : [];
+      if (departed.length > 0) {
+        const n = await releaseMediaDeletionClaim(prisma, departed, run.erasureId);
+        if (n > 0) mediaDeletionConflictTotal.inc({ reason: 'project-erasure' }, n);
+      }
       if (disposition.exclusive.length > 0) {   // 标记（首次/新晋独占/判别漂移——复核窗重起：保守方向）
+        await claimMediaForDeletion(prisma, disposition.exclusive, { runId: run.erasureId, reason: 'project-erasure' });
         await writePendingMediaMarker(manifestDir, run.erasureId, { schemaVersion: 1, markAt: new Date().toISOString(), teamId: live.mediaRows[0]?.teamId ?? sidecar?.teamId ?? null, mediaIds: disposition.exclusive });
       }
     } else if (Date.now() - Date.parse(sidecar!.markAt) >= (deps.reviewWindowMs ?? ERASURE_MEDIA_REVIEW_MS) && !disposition.docScanFailed) {
-      deletable = sidecar!.mediaIds;   // 复核窗已满∧本 tick 判别仍全独占（sameSet）→删
+      // 删除窗：同 runId 幂等再持有（claim 三腿谓词②）——他消费者活持有的行（新鲜 DELETING）不归
+      // 本 run 即不删（remainingExclusive 收口下轮重试；陈旧行经接管腿回收）。
+      const owned = await claimMediaForDeletion(prisma, sidecar!.mediaIds, { runId: run.erasureId, reason: 'project-erasure' });
+      deletable = sidecar!.mediaIds.filter((id) => owned.has(id));   // 复核窗已满∧本 tick 判别仍全独占（sameSet）→删（所有权内）
     }
     // ⑤ 写批（两批各自锁——kill -9 各步幂等）
     await applyProjectErasureWrites(prisma, pid, { detachMediaIds: disposition.detach, deleteMediaIds: deletable });

@@ -153,10 +153,12 @@ export class MediaFactsController {
     if (mediaIds.length > MEDIA_FACTS_MAX_IDS) {
       throw new BadRequestException(`mediaIds 超上限（≤${MEDIA_FACTS_MAX_IDS}——分批拉取）`);
     }
-    // 团队单门+软删过滤锚=Media（spec §3.1-3：deletedAt:null——软删 media 的 facts 不出；跨 team
-    // mediaId 静默不返，batch 端点同口径）。orderBy id=响应行确定性（旧 outbox 读道同序）。
+    // 团队单门+软删/DELETING 过滤锚=Media（spec §3.1-3：deletedAt:null——软删 media 的 facts 不出；
+    // C3b-4 spec §3.4-5：deletionState='ACTIVE'——DELETING〔erasure 复核窗内〕media 的 facts 不出
+    //（erasure 路径 DELETING 行 deletedAt=null，软删门单独拦不住）；跨 team mediaId 静默不返，batch
+    // 端点同口径）。orderBy id=响应行确定性（旧 outbox 读道同序）。
     const ownMedia = await this.prisma.media.findMany({
-      where: { id: { in: mediaIds }, teamId: resolved, deletedAt: null },
+      where: { id: { in: mediaIds }, teamId: resolved, deletedAt: null, deletionState: 'ACTIVE' },
       select: { id: true, status: true, factVersion: true },
       orderBy: { id: 'asc' },
     });

@@ -33,3 +33,14 @@ export const mediaGcOutcomeTotal = new Counter({
   labelNames: ['outcome'],
   registers: [register],
 });
+
+/** DELETING 删除中止计数（C3b-4——spec 2026-11-11 foundation-batch §3.4-5 :81：删除事务 recheck 命中
+ *  任一证人→删除中止+DELETING→ACTIVE 回退+复核窗重置）。reason=两删除流闭集：media-gc（GC sweep
+ *  ——引用图命中或删除事务 isMediaReferenced recheck 命中）/project-erasure（擦除两阶段复核集漂移
+ *  ——首扫后新引用出现，独占候选中止回退）。 */
+export const mediaDeletionConflictTotal = new Counter({
+  name: 'media_deletion_conflict_total',
+  help: 'C3b-4：DELETING 删除中止计数（reason=media-gc/project-erasure——recheck 命中任一证人→中止回 ACTIVE+复核窗重置；spec §3.4-5）',
+  labelNames: ['reason'],
+  registers: [register],
+});

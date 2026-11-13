@@ -9,11 +9,21 @@
 //     的引用可能尚未进 binding 索引〔离线 paste 后 reconcile 未触〕，binding∪NodeArtifact 只是
 //     快速预判，doc 扫描是 GC 前的最终裁决——「副本还在媒体被删」的根防）
 //   ∪ grace period（软删期：素材库 deleteFile 仅软删，deletedAt 过 MEDIA_GC_GRACE 才进 GC 候选）。
-// 判定无引用 ⇒ MinIO 对象删除（404 容忍——幂等）+行删除（**无 mediaId FK**——孤儿 binding 行由
-// `binding-reconcile` 只读漂移检测→置 dirty→runner rebuild 清理，C3a-8）；
+// 判定无引用 ⇒ 删除序执行（**C3b-4 DELETING 状态机+删除序**——spec §3.4-5 :81/§3.4-7 :83）：
+//   ①CAS 抢占 ACTIVE→DELETING（审计三列 deletionRequestedAt/RunId/Reason 同拍落值——双 worker/
+//     他删除流〔erasure〕并发恰一者得，一者零行）；
+//   ②引用图命中 ⇒ 删除中止+DELETING→ACTIVE 回退+`media_deletion_conflict_total{reason}`+复核窗
+//     重置（下轮 sweep 重判——引用消失后自然放行；审计列保留=最近一次尝试痕迹，runbook §13.2）；
+//   ③删除序=**对象先删（404/NoSuchKey 容忍——幂等）→行删**（第六轮 P0-7：行先删则对象失败无重试
+//     锚——v5「DB 行删先于对象删」撤回）；删除事务内 isMediaReferenced recheck（C3b-3 决策级证人
+//     并集直供 tx——覆盖旧引用图盲区〔LightingTask/VideoTrim/coverKey/ObjectManifest/resultRef〕）；
+//   ④对象失败（非 404）⇒ 行保留 DELETING（重试锚）——下轮 sweep（>MEDIA_DELETING_STALE_MS）接管重试；
+//   ⑤用户恢复（deletedAt=null）⇒ 回 ACTIVE（restoreMediaToActive——删除事务 FOR UPDATE 所有权门
+//     失守即中止）。
 // 有引用/扫描源读失败/扫描源超安全阀 ⇒ guarded 计数保留（下轮重判——副本删除后自然放行；
 // **读失败=保守保留**：doc 读 503（lease 失守/vacuum）或 VideoProject 扫描超阀时本轮全量
-// 保留候选——少删=护栏安全方向）。
+// 保留候选——少删=护栏安全方向；valve 档同步回 ACTIVE 释放持有〔本轮未判〕下轮任意 worker
+// 即可重判）。
 // 【跨 team 语义钉明（spec 评审 P2#7——与裁决③一致）】**跨 team 引用不受本 GC 保护**：裁决③
 // 定案跨 team paste=客户端 strip+服务端不建 binding+读 ACL 403 兜底——他队 doc 引用本队 mediaId
 // 是被拒形态（无 binding 行、读侧 403），本队软删+过 grace+队内无引用即可硬删；「跨队副本保图」
@@ -22,13 +32,16 @@
 // 进程归属=api（media-delivery 模块——ExecutionDaemonModule.register role 门内；需 withSession
 // doc 读，worker 面零实例化）。
 import { Inject, Injectable, Logger, OnModuleInit, OnApplicationShutdown } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import { collectMediaRefs } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { runWithIncludeDeleted } from '../../prisma/read-path.filter';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { MinioService } from '../minio/minio.service';
 import { toDocLike } from '../collab/doc-like.util';
-import { mediaGcOutcomeTotal } from './binding-reconcile.metrics';
+import { MediaReferenceService } from '../collab/media-reference.service';
+import { mediaGcOutcomeTotal, mediaDeletionConflictTotal } from './binding-reconcile.metrics';
 
 /** 软删 grace（素材库删除后悔窗——副本护栏外的用户意图缓冲；spec :25「grace period」）。 */
 export const MEDIA_GC_GRACE_MS = 7 * 24 * 3600_000;
@@ -42,10 +55,71 @@ export const MEDIA_GC_DOC_SCAN_PAGE = 500;
 /** VideoProject timeline 扫描行上界（安全阀同 doc 扫描——超量=引用图不完整，全量保守保留）。 */
 export const MEDIA_GC_TIMELINE_SCAN_PAGE = 500;
 
+// ═══ C3b-4：DELETING 状态机原语（spec §3.4-5 :81——GC/erasure 共用；erasure 经
+//     project-erasure.stages 跨模块引用，collectJsonMediaIds 同族先例）════════════════════
+
+/** DELETING 持有陈旧阈值：超过即视为死轮（对象删除失败/进程崩溃遗留）可被下一删除流接管
+ *  （GC sweep 周期 1h ≫ 阈值——活持有窗〔单轮 sweep 秒级/erasure 复核窗 60s〕恒不被误抢）。 */
+export const MEDIA_DELETING_STALE_MS = 10 * 60_000;
+/** 删除序事务上界（对象删〔网络 IO〕在事务内——MinIO 挂起由本超时兜底回滚：行保留 DELETING 重试）。 */
+export const MEDIA_DELETING_TX_TIMEOUT_MS = 15_000;
+
+/** 删除流审计载荷（CAS 抢占时落值——reason=两消费面闭集）。 */
+export interface MediaDeletionAudit { runId: string; reason: 'media-gc' | 'project-erasure' }
+
+/** CAS 抢占进 DELETING（spec :81——`UPDATE..WHERE deletionState='ACTIVE' RETURNING`）。三腿谓词：
+ *  ①ACTIVE→DELETING（双 worker 并发恰一者得——一者零行）；②DELETING∧同 runId（幂等再持有——
+ *  erasure 跨 tick 复核/删除窗同 erasureId）；③DELETING∧陈旧（deletionRequestedAt 超过
+ *  MEDIA_DELETING_STALE_MS——死轮接管=对象失败下轮重试的归还面）。审计三列同拍落值。 */
+export async function claimMediaForDeletion(
+  db: Prisma.TransactionClient, ids: readonly string[], audit: MediaDeletionAudit,
+): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const staleBefore = new Date(Date.now() - MEDIA_DELETING_STALE_MS);
+  const rows = await db.$queryRaw<{ id: string }[]>`
+    UPDATE "Media" SET
+      "deletionState" = 'DELETING',
+      "deletionRequestedAt" = now(),
+      "deletionRunId" = ${audit.runId}::text,
+      "deletionReason" = ${audit.reason}::text
+    WHERE "id" = ANY(${[...ids]}::text[])
+      AND (
+        "deletionState" = 'ACTIVE'
+        OR ("deletionState" = 'DELETING' AND "deletionRunId" = ${audit.runId}::text)
+        OR ("deletionState" = 'DELETING' AND "deletionRequestedAt" < ${staleBefore})
+      )
+    RETURNING "id"`;
+  return new Set(rows.map((r) => r.id));
+}
+
+/** DELETING→ACTIVE 回退（spec :81「删除中止+回退+复核窗重置」）。owned 守卫（deletionRunId=本
+ *  run——禁回退他消费者持有行）；审计列保留=最近一次尝试痕迹。返回回退行数（调用方计
+ *  media_deletion_conflict_total{reason}）。 */
+export async function releaseMediaDeletionClaim(
+  db: Prisma.TransactionClient, ids: readonly string[], runId: string,
+): Promise<number> {
+  if (ids.length === 0) return 0;
+  return db.$executeRaw`
+    UPDATE "Media" SET "deletionState" = 'ACTIVE'
+    WHERE "id" = ANY(${[...ids]}::text[]) AND "deletionState" = 'DELETING' AND "deletionRunId" = ${runId}::text`;
+}
+
+/** 用户恢复（spec :81「用户恢复〔deletedAt=null〕→回 ACTIVE」）：DELETING 行恢复=deletedAt 置
+ *  null+删除态复位（用户意图压过在飞删除——删除事务 FOR UPDATE 所有权门随后失守即中止）。行已硬删
+ *  （删除事务先提交）=零行——恢复面按不存在档处理。 */
+export async function restoreMediaToActive(db: Prisma.TransactionClient, ids: readonly string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  return db.$executeRaw`
+    UPDATE "Media" SET "deletionState" = 'ACTIVE', "deletedAt" = NULL
+    WHERE "id" = ANY(${[...ids]}::text[]) AND "deletionState" = 'DELETING'`;
+}
+
 export interface MediaGcSweepSummary {
   candidates: number;
   deleted: number;
   guarded: number;
+  /** C3b-4：recheck 命中中止行数（conflict 计数行——同时计入 guarded〔保留语义〕）。 */
+  conflicted: number;
   objectDeleteFailed: number;
 }
 
@@ -72,12 +146,17 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
   private timer: ReturnType<typeof setInterval> | null = null;
   private sweeping = false;
   private destroyed = false;
+  /** 删除事务 recheck 面（C3b-3 isMediaReferenced——直构注入，DeletionBarrierService 同款体例：
+   *  保持三参构造签名〔既有测试面零扰动〕）。 */
+  private readonly mediaRef: MediaReferenceService;
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
     @Inject(CollabDocumentService) private readonly docs: CollabDocumentService,
-  ) {}
+  ) {
+    this.mediaRef = new MediaReferenceService(prisma);
+  }
 
   onModuleInit(): void {
     const t = setInterval(() => {
@@ -95,7 +174,7 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
 
   /** 一轮 GC（busy 防重入；destroyed 后零动作）。测试直调入口。 */
   async sweep(): Promise<MediaGcSweepSummary> {
-    const summary: MediaGcSweepSummary = { candidates: 0, deleted: 0, guarded: 0, objectDeleteFailed: 0 };
+    const summary: MediaGcSweepSummary = { candidates: 0, deleted: 0, guarded: 0, conflicted: 0, objectDeleteFailed: 0 };
     if (this.sweeping || this.destroyed) return summary;
     this.sweeping = true;
     try {
@@ -108,7 +187,13 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
       });
       summary.candidates = candidates.length;
       if (candidates.length === 0) return summary;
-      const ids = candidates.map((c) => c.id);
+      // ── DELETING CAS 抢占（C3b-4 ①——本 runId 持有：双 sweep 实例/erasure 并发恰一者得；
+      //    上轮对象失败遗留的 DELETING 行经陈旧腿接管重试）──
+      const runId = randomUUID();
+      const won = await claimMediaForDeletion(this.prisma, candidates.map((c) => c.id), { runId, reason: 'media-gc' });
+      const claimed = candidates.filter((c) => won.has(c.id));
+      if (claimed.length === 0) return summary;
+      const ids = claimed.map((c) => c.id);
 
       // ── 引用图（护栏权威序：PG 快判在前、doc 扫描终裁在后）──
       const referenced = new Set<string>();
@@ -124,7 +209,7 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
         where: { videoMediaId: { in: ids } }, select: { videoMediaId: true },
       });
       for (const w of fromWorks) if (w.videoMediaId) referenced.add(w.videoMediaId);
-      const teamIds = [...new Set(candidates.map((c) => c.teamId))];
+      const teamIds = [...new Set(claimed.map((c) => c.teamId))];
       // I-2（C4-a 评审承接——C4-b 显式收口）：读过滤 Proxy 恒激活改义面——引用图判定（doc 扫描候选
       // 项目集）应**含 DELETING 项目**（擦除中项目的 doc 仍引用候选 media：漏扫=引用图缺口误删）。
       // 方向与擦除一致但语义须显式：runWithIncludeDeleted 包裹（保守侧=全量项目集入扫描）。
@@ -168,41 +253,84 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
         }
       }
 
-      // ── 判定执行：无引用→对象删（404 容忍）+行删；有引用→guarded；阀 bail-out（超阀/读失败）→
-      // valve-bailout 保留（T16 登记收口·T19：outcome 分桶区分「引用命中」vs「阀 bail-out」——
-      // 前者=引用图真实命中（下轮仍会命中直至引用消失），后者=扫描面不完整/失败的保守保留
-      // （下轮恢复即放行；持续 valve-bailout=扫描面异常信号非引用增长）──
-      for (const c of candidates) {
+      // ── 判定执行（C3b-4 删除序）：引用命中→中止回 ACTIVE+conflict；阀 bail-out→回 ACTIVE 释放
+      // 持有+保守保留（下轮任意 worker 重判）；无引用→删除序（对象先删 404 容忍→行删；事务内
+      // recheck 命中→中止回退）。T19 outcome 分桶区分「引用命中」vs「阀 bail-out」——前者=引用图
+      // 真实命中（下轮仍会命中直至引用消失），后者=扫描面不完整/失败的保守保留（下轮恢复即放行；
+      // 持续 valve-bailout=扫描面异常信号非引用增长）──
+      for (const c of claimed) {
         if (referenced.has(c.id)) {
+          const n = await releaseMediaDeletionClaim(this.prisma, [c.id], runId);
+          if (n > 0) {
+            summary.conflicted += 1;
+            mediaDeletionConflictTotal.inc({ reason: 'media-gc' });   // 删除中止（回 ACTIVE+复核窗重置）
+          }
           summary.guarded += 1;
           mediaGcOutcomeTotal.inc({ outcome: 'guarded' });
           continue;
         }
         if (scanOverflow || timelineOverflow || scanFailed) {
+          // 本轮未判（扫描面不完整/失败）——回 ACTIVE 释放持有（下轮任意 worker 即可重判；非引用
+          // 冲突=零 conflict 计数）；保守保留方向不变（T19 valve-bailout 桶）。
+          await releaseMediaDeletionClaim(this.prisma, [c.id], runId);
           summary.guarded += 1;
           mediaGcOutcomeTotal.inc({ outcome: 'valve-bailout' });
           continue;
         }
-        try {
-          await this.minio.delete(c.key);
-        } catch (e) {
-          const status = (e as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode
-            ?? (e as { name?: string }).name;
-          if (status !== 404 && status !== 'NoSuchKey') {
-            // 对象删除失败（非灭失）——行保留待下轮（pending-upload sweep 同语义；MinIO 环境红非回归）
-            summary.objectDeleteFailed += 1;
-            mediaGcOutcomeTotal.inc({ outcome: 'object-delete-failed' });
-            this.logger.warn(`mediaGc 对象删除失败（行保留待下轮）key=${c.key}: ${e}`);
-            continue;
-          }
+        const outcome = await this.executeDeletionSequence(c, runId);
+        if (outcome === 'deleted') {
+          summary.deleted += 1;
+          mediaGcOutcomeTotal.inc({ outcome: 'deleted' });
+        } else if (outcome === 'object-failed') {
+          // 对象删除失败（非灭失）——行保留 DELETING 待下轮（pending-upload sweep 同语义；MinIO 环境红非回归）
+          summary.objectDeleteFailed += 1;
+          mediaGcOutcomeTotal.inc({ outcome: 'object-delete-failed' });
+          this.logger.warn(`mediaGc 对象删除失败（行保留 DELETING 下轮重试）key=${c.key}`);
+        } else if (outcome === 'conflict') {
+          // 删除事务 recheck 命中（isMediaReferenced——旧引用图盲区面）→中止回 ACTIVE
+          summary.conflicted += 1;
+          summary.guarded += 1;
+          mediaGcOutcomeTotal.inc({ outcome: 'guarded' });
+          mediaDeletionConflictTotal.inc({ reason: 'media-gc' });
         }
-        await this.prisma.media.delete({ where: { id: c.id } });   // 无 mediaId FK（spec v5.2）——孤儿 binding 行由 drift→dirty→runner rebuild 清理
-        summary.deleted += 1;
-        mediaGcOutcomeTotal.inc({ outcome: 'deleted' });
+        // 'lost'=用户恢复（回 ACTIVE）/他消费者接管——零计数（下轮自然重判）
       }
       return summary;
     } finally {
       this.sweeping = false;
     }
+  }
+
+  /** 删除序（spec §3.4-7 :83——**对象先删（404/NoSuchKey 容忍）→行删**；对象失败→行保留 DELETING
+   *  下轮重试）。单事务：FOR UPDATE 所有权门（deletionState='DELETING'∧deletionRunId=本 run——
+   *  用户恢复/接管即失守中止；行锁与恢复写串行化）→删除事务 recheck（isMediaReferenced 直供 tx
+   *  ——spec :81「删除事务 recheck 命中任一证人」）→命中中止回 ACTIVE→对象删→行删（无 mediaId FK
+   *  ——孤儿 binding 行由 drift→dirty→runner rebuild 清理，C3a-8）。MinIO 挂起=事务超时兜底回滚
+   *  （行保留 DELETING 重试）。 */
+  private async executeDeletionSequence(
+    c: { id: string; teamId: string }, runId: string,
+  ): Promise<'deleted' | 'object-failed' | 'conflict' | 'lost'> {
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<{ key: string }[]>`
+        SELECT "key" FROM "Media"
+        WHERE "id" = ${c.id}::text AND "deletionState" = 'DELETING' AND "deletionRunId" = ${runId}::text
+        FOR UPDATE`;
+      if (rows.length === 0) return 'lost';   // 用户恢复（回 ACTIVE）/陈旧被他消费者接管——中止
+      if (await this.mediaRef.isMediaReferenced(tx, c.id, { teamId: c.teamId })) {
+        const n = await tx.$executeRaw`
+          UPDATE "Media" SET "deletionState" = 'ACTIVE'
+          WHERE "id" = ${c.id}::text AND "deletionState" = 'DELETING' AND "deletionRunId" = ${runId}::text`;
+        return n === 1 ? 'conflict' : 'lost';   // 删除中止（回 ACTIVE+复核窗重置——计数在提交后）
+      }
+      try {
+        await this.minio.delete(rows[0]!.key);
+      } catch (e) {
+        const status = (e as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode
+          ?? (e as { name?: string }).name;
+        if (status !== 404 && status !== 'NoSuchKey') return 'object-failed';   // 行保留=重试锚（spec §3.4-7）
+      }
+      await tx.media.delete({ where: { id: c.id } });
+      return 'deleted';
+    }, { timeout: MEDIA_DELETING_TX_TIMEOUT_MS, maxWait: 5_000 });
   }
 }

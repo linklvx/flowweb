@@ -1135,6 +1135,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - media_binding_skip_total
 - media_binding_watermark_lag
 - media_binding_write_total
+- media_deletion_conflict_total
 - media_fact_age_seconds
 - media_fact_read_total
 - media_fact_unfinished_state_age_seconds

@@ -33,6 +33,7 @@ import { readErasureManifest } from './project-erasure.manifest';
 import {
   executePurgingDbStage, pendingMediaMarkerPath, type MediaRefsCollector,
 } from './project-erasure.stages';
+import { mediaDeletionConflictTotal } from '../media-delivery/binding-reconcile.metrics';
 import { assertProjectErasureDbComplete, assertTeamErasureAuditContent } from './project-erasure.assert';
 import { VideoWorkService } from '../video-work/video-work.service';
 import { VideoWorkCloneService } from '../video-work/video-work-clone.service';
@@ -440,4 +441,79 @@ maybe('C4-c1 ★红⑫⑬⑯ PURGING_DB 执行体（真 PG）', () => {
     expect(manifestAfter.footer.rows.media).toBe(4);   // live 4 行并入册（collect 完整流程）
     expect(manifestAfter.footer.rows.work).toBe(1);
   }, 60_000);
+
+  // ════════ C3b-4（spec §3.4-5 :81）：DELETING 状态机接线——标记时 CAS 抢占（审计列 erasureId/
+  // project-erasure）+复核集漂移（首扫后新引用）中止回退 ACTIVE+conflict 计数+删除窗所有权门 ════════
+  describe('C3b-4 DELETING 状态机接线', () => {
+    const conflictOf = async (): Promise<number> =>
+      (await (mediaDeletionConflictTotal as unknown as { get(): Promise<{ values: { labels: Record<string, string>; value: number }[] }> }).get())
+        .values.find((v) => v.labels.reason === 'project-erasure')?.value ?? 0;
+
+    /** C3b-4 轻量独占 fixture（seedRichProject 的 sourceNodeId='n1' 全局唯一——多用例复用必撞，
+     *  本组只需独占/库资产两档+真实 stage 管道）。 */
+    const seedExclusiveProject = async (): Promise<string> => {
+      const pid = `c4c1-p-${stamp}-${seq++}`;
+      await prisma.canvasProject.create({ data: { id: pid, name: pid, teamId, userId: owner } });
+      projects.push(pid);
+      // exc=独占（generated 无引用）；lib=库资产档（uploaded→detach——不抢占面负控）
+      await prisma.media.create({ data: { id: `${pid}-m-exc`, userId: owner, teamId, projectId: pid, bucket: 'flowai', key: `${pid}/exc.bin`, originalName: 'exc', mimeType: 'application/octet-stream', size: 1n, type: 'generated' } });
+      await prisma.media.create({ data: { id: `${pid}-m-lib`, userId: owner, teamId, projectId: pid, bucket: 'flowai', key: `${pid}/lib.bin`, originalName: 'lib', mimeType: 'application/octet-stream', size: 1n, type: 'uploaded' } });
+      await tombstone(pid);
+      await poller.tick();   // DRAINING→manifest→PURGING_DB 前置位
+      await poller.tick();   // PURGING_DB 首扫：标记独占 sidecar（C3b-4：此刻 CAS 抢占 DELETING）
+      return pid;
+    };
+
+    it('E1 标记时 CAS 抢占：独占行进 DELETING+审计列落值（runId=erasureId/reason=project-erasure）', async () => {
+      stubRefs = [];
+      const pid = await seedExclusiveProject();
+      const run = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
+      const exc = await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } });
+      expect(exc.deletionState).toBe('DELETING');   // 改前红：无状态机=恒 ACTIVE
+      expect(exc.deletionRunId).toBe(run.erasureId);
+      expect(exc.deletionReason).toBe('project-erasure');
+      expect(exc.deletionRequestedAt).toBeTruthy();
+      // detach 档不抢占（库资产/被引行=保留语义，非删除候选）
+      expect((await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-lib` } })).deletionState).toBe('ACTIVE');
+    }, 60_000);
+
+    it('E2 复核集漂移（首扫后新引用）→中止回 ACTIVE+conflict 计数+行随 detach 保留', async () => {
+      stubRefs = [];
+      const pid = await seedExclusiveProject();
+      const run = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
+      // 首扫后新引用（他项目 binding——两阶段复核窗内的新引用面）
+      const holder = `c4c1-p-${stamp}-${seq++}`;
+      await prisma.canvasProject.create({ data: { id: holder, name: holder, teamId, userId: owner } });
+      projects.push(holder);
+      await prisma.mediaBinding.create({ data: { mediaId: `${pid}-m-exc`, projectId: holder, nodeId: 'n1', teamId } });
+      const before = await conflictOf();
+      const res = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0 });
+      expect(res.outcome).toBe('purging-objects');   // 独占集漂移空（exc 转被引 detach）=零剩余独占即完成
+      const exc = await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } });
+      expect(exc.deletionState).toBe('ACTIVE');   // 中止回退（复核窗重置=独占集消失面）
+      expect(exc.projectId).toBeNull();            // 被引行随 detach 档保留（不删）
+      expect(await conflictOf()).toBeGreaterThan(before);   // media_deletion_conflict_total{reason=project-erasure}
+      expect(exc.deletionReason).toBe('project-erasure');   // 审计留痕（回退不擦）
+    }, 60_000);
+
+    it('E3 删除窗所有权门：他消费者活持有的 DELETING 行（新鲜）不删——pending-review 下轮重试', async () => {
+      stubRefs = [];
+      const pid = await seedExclusiveProject();
+      const run = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
+      // 模拟 GC worker 活持有（新鲜 DELETING+他人 runId——CAS 互斥面）
+      await prisma.media.update({
+        where: { id: `${pid}-m-exc` },
+        data: { deletionRunId: 'c3b4-gc-worker', deletionRequestedAt: new Date() },
+      });
+      const res = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0 });
+      expect(res).toMatchObject({ outcome: 'pending-review', remainingExclusive: 1 });   // 所有权丢失=不删
+      const exc = await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } });
+      expect(exc.deletionRunId).toBe('c3b4-gc-worker');   // 他消费者持有原样（禁抢活行）
+      // 释放所有权后下轮收敛删除（陈旧接管面）
+      await prisma.media.update({ where: { id: `${pid}-m-exc` }, data: { deletionRequestedAt: new Date(Date.now() - 11 * 60_000) } });
+      const res2 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0 });
+      expect(res2.outcome).toBe('purging-objects');
+      expect(await prisma.media.findUnique({ where: { id: `${pid}-m-exc` } })).toBeNull();
+    }, 60_000);
+  });
 });

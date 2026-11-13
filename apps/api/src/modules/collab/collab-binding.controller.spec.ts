@@ -120,6 +120,15 @@ describe('C3a-7：BindMedia——校验+NodeArtifact/Projection 写（零 MediaB
     await expect(c.command('p1', BIND_BODY, req())).rejects.toThrow(NotFoundException);
   });
 
+  it('C3b-4：DELETING media 拒新绑定——ACL 查询含 deletionState=ACTIVE 门（spec §3.4-5「命令面拒新绑定」；erasure 路径 DELETING 行 deletedAt=null，软删门单独拦不住→404 同档）', async () => {
+    const c = await make();
+    prisma.nodeArtifact.findFirst.mockResolvedValue({ id: 'na1' });
+    await c.command('p1', BIND_BODY, req());
+    expect(prisma.media.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'm1', deletedAt: null, deletionState: 'ACTIVE' },   // 改前红：where 无 deletionState 门
+    }));
+  });
+
   it('CAS 0 行=superseded→409 ARTIFACT_REV_CONFLICT（F2 同门——禁静默覆盖并发生成）', async () => {
     const c = await make();
     prisma.nodeArtifact.findFirst.mockResolvedValue({ id: 'na1' });

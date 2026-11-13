@@ -234,6 +234,20 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
       expect(binding).toBeNull();                  // 软删不建 binding
     });
 
+    it('C3b-4 红测：DELETING media replace 拒（spec §3.4-5「命令面拒新绑定」）——deletionState 门：erasure 路径 DELETING 行 deletedAt=null，404 同档+槽位零变更', async () => {
+      const nodeId = `n-deleting-${randomUUID().slice(0, 6)}`;
+      await seedSlot(nodeId, 1, MEDIA_OLD);
+      const deleting = await prisma.media.create({
+        data: { userId: UID, teamId: TID, key: `int-t11/deleting-${randomUUID().slice(0, 6)}`, originalName: 'deleting.png', mimeType: 'image/png', size: 1_000, type: 'uploaded', status: 'completed', deletionState: 'DELETING', deletionRunId: 'c3b4-erasure', deletionReason: 'project-erasure', deletionRequestedAt: new Date() },
+      });
+      await expect(
+        controller.command(PID, nodeId, { action: 'replace', mediaId: deleting.id, expectedRev: 1 }, { user: { id: UID } } as never),
+      ).rejects.toMatchObject({ status: 404 });   // 改前红：deletionState 不在门=放行绑定
+      const row = await slotRow(nodeId);
+      expect(row!.rev).toBe(1);                    // 槽位不被覆盖
+      expect(row!.mediaId).toBe(MEDIA_OLD);
+    });
+
     it('红②expectedRev 上界（Minor#2）：2^31-1 → 400 MEDIA_COMMAND_BAD_BODY（防无槽位 INSERT rev=2^31 溢出 int4→22003→500 噪声）；上界内 2^31-2 合法（INSERT rev=2147483647 恰容）', async () => {
       const nodeId = `n-overflow-${randomUUID().slice(0, 6)}`;   // 无槽位行——INSERT 分支才触溢出面
       await expect(

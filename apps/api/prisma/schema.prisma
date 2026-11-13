@@ -358,6 +358,11 @@ model Media {
   // binding=recheck 证人，「引用即中止删除」；列本卡落位解 C1 前引用冲突，**消费归 C3b-4**）。
   // DB CHECK IN ('ACTIVE','DELETING') 为 raw 迁移附（Prisma 不可表达——MediaFact.factType 同款先例）。
   deletionState String    @default("ACTIVE")
+  // C3b-4（spec §3.4-5 :81）：DELETING 状态机审计三列——CAS 抢占（ACTIVE→DELETING）时落值；
+  // 回退 ACTIVE 保留值=最近一次删除尝试的审计痕迹（runbook §13.2——ACTIVE∧非空=上次尝试中止/失败）。
+  deletionRequestedAt DateTime? @db.Timestamptz(3)
+  deletionRunId       String?
+  deletionReason      String?
 
   folder MaterialFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
 

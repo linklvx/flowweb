@@ -66,9 +66,11 @@ export class CollabBindingController {
 
   /** BindMedia：校验（ACL+源配对）+NodeArtifact CAS/投影 pending——零 MediaBinding 读写（C3a-7）。 */
   private async bindMedia(p: { projectId: string; teamId: string; sourceNodeId: string; mediaId: string; targetNodeId: string; expectedRev: number }): Promise<BindingCommandResult> {
-    // ACL+存在性（软删=读侧不存在口径——质评 Important#1 同款：绑定软删 media=渲染永久 404）
+    // ACL+存在性（软删=读侧不存在口径——质评 Important#1 同款：绑定软删 media=渲染永久 404；
+    // C3b-4 spec §3.4-5「命令面拒新绑定」：DELETING 同拒——erasure 复核窗内行 deletedAt=null，
+    // deletionState 门单独拦）
     const media = await this.prisma.media.findFirst({
-      where: { id: p.mediaId, deletedAt: null },
+      where: { id: p.mediaId, deletedAt: null, deletionState: 'ACTIVE' },
       select: { teamId: true },
     });
     if (!media) throw new NotFoundException('媒体不存在');

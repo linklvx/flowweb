@@ -4,5 +4,8 @@
   },
   "20261113021304_c3b1_oracle_barrier": {
     "migration.sql": "e5dfa75d9eb32a65640e691622d1aecb7c2a3d0d1caed0a094684fa703695fd1"
+  },
+  "20261113050000_c3b4_media_deleting_audit": {
+    "migration.sql": "e55c7f3d1238ee21f41d038eb6fb8ffe27f233ea8b562f584e6a2247e026dd8e"
   }
 }

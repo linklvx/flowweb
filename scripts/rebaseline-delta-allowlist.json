@@ -296,6 +296,30 @@
           "data_type": "text",
           "column_default": null
         }
+      },
+      {
+        "key": "Media.deletionReason",
+        "def": {
+          "is_nullable": "YES",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "Media.deletionRequestedAt",
+        "def": {
+          "is_nullable": "YES",
+          "data_type": "timestamp with time zone",
+          "column_default": null
+        }
+      },
+      {
+        "key": "Media.deletionRunId",
+        "def": {
+          "is_nullable": "YES",
+          "data_type": "text",
+          "column_default": null
+        }
       }
     ],
     "constraints": [

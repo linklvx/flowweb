@@ -98,8 +98,10 @@ export class CollabMediaController {
       // 读侧 ACL 团队级（Z7''-v14）的写面同构：跨队 mediaId 引用拒（恶意客户端绑定他队资产）。
       // 软删（deletedAt）在读侧视为不存在（media.service content 404 同口径——质评 Important#1）：
       // 绑定软删 mediaId 会 binding+doc fileId 落地成功而渲染永久 404=「绑定即可读」不变量破。
+      // C3b-4（spec §3.4-5「命令面拒新绑定」）：DELETING 同拒——erasure 复核窗内行 deletedAt=null，
+      // deletionState 门单独拦。
       const media = await this.prisma.media.findFirst({
-        where: { id: mediaId as string, deletedAt: null },
+        where: { id: mediaId as string, deletedAt: null, deletionState: 'ACTIVE' },
         select: { teamId: true },
       });
       if (!media) throw new NotFoundException('媒体不存在');

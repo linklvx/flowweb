@@ -638,6 +638,25 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 - **日志/Sentry 数据最小化**：erasure 日志载荷=erasureId/scope 键族/计数（零用户内容）；AuditLog 擦除谓词行=操作留痕（状态翻转+run 锚）非项目内容（列级断言钉死）。
 - **告警面**：`erasure_pending_age` P0@1h（tombstone 后介质残留窗撕开——查 worker/state 分布）；`erasure_runs_total{state="FAILED"}` P1（毒丸上界 attempts=5 兜底终态——人工 re-drive 处置）。
 
+### §13.2 Media DELETING 状态机运维：复位/人工/审计语义（C3b-4——2026-11-13 落档；spec 2026-11-11-foundation-batch-design §3.4-5/§3.4-7）
+
+**状态机**（`Media.deletionState`：`ACTIVE|DELETING`——DB CHECK 约束）：删除流（GC sweep / project-erasure）经 CAS `UPDATE..WHERE deletionState='ACTIVE' RETURNING` 抢占进 `DELETING`（双 worker/两删除流并发恰一者得）；删除事务 recheck 命中任一引用证人 → **中止+DELETING→ACTIVE 回退**+`media_deletion_conflict_total{reason=media-gc|project-erasure}` 计数+复核窗重置；用户恢复（`deletedAt=null`）→ 回 `ACTIVE`。`DELETING` 期语义：**content 仍可读**（软删才 404）、facts 端点过滤、命令面（BindMedia/replace）拒新绑定、doc 帧投影照写 binding（recheck 证人——「引用即中止删除」）。删除序=**对象先删（404/NoSuchKey 容忍）→行删**——对象失败（非 404）行保留 `DELETING`（重试锚）。
+
+**审计列读法**（CAS 抢占时落值；**回退不擦**=最近一次删除尝试痕迹）：`deletionRequestedAt`（抢占时刻）/`deletionRunId`（GC=每轮 sweep UUID；erasure=erasureId）/`deletionReason`（`media-gc`/`project-erasure`）。诊断口径：`deletionState='ACTIVE' ∧ deletionRunId 非空` = 上次尝试中止（conflict 计数同刻增长）或阀 bail-out 释放；`deletionState='DELETING' ∧ deletionRequestedAt < now()-10min` = 死轮（见复位段）。
+
+**重试语义**（自愈面——人工介入前先看时钟）：持有陈旧阈值 `MEDIA_DELETING_STALE_MS`=10min（代码单源 `media-gc.service.ts`）——超过即视为死轮，下一删除流 CAS 接管：①GC 路径（软删+过 7d grace）每小时 sweep 自愈（对象删除失败/进程崩溃遗留行下轮接管重删——404 容忍幂等）；②erasure 路径（`deletedAt=null` 的独占行）**无 GC 兜底**——run 行（`ProjectErasureRun`）是唯一唤醒源：同 erasureId 跨 tick 幂等再持有直至删除；run 终态 FAILED 后遗留 `DELETING` 行=人工复位面（下述 SQL）。
+
+**人工复位 SQL**（运维通道——按 `deletionReason` 分诊后执行；执行前先查 `media_deletion_conflict_total` 与审计列确认非活持有）：
+
+```sql
+-- 滞留 DELETING 复位（erasure run FAILED 遗留/误判人工放弃删除）：
+UPDATE "Media" SET "deletionState" = 'ACTIVE'
+ WHERE "deletionState" = 'DELETING' AND "deletionRequestedAt" < now() - interval '10 minutes';
+-- 审计列保留（最近一次尝试痕迹）；如需彻底清审计（行回到从未尝试形态）：
+UPDATE "Media" SET "deletionRequestedAt" = NULL, "deletionRunId" = NULL, "deletionReason" = NULL
+ WHERE "deletionState" = 'ACTIVE' AND "deletionRunId" IS NOT NULL;   -- 仅运维裁量，非默认动作
+```
+
 ---
 
 ## §14 Y1c 载体协议契约草节（T5a 冻结——2026-10-24；T8/T9/T10/T13 实装时的操作面输入；§14.1=C2 canary cron+处置序——2026-11-05；§14.2=MediaFact 观测金丝雀——2026-11-11；§14.3=MediaBinding 帧级投影与 backfill 运维——2026-11-12）
