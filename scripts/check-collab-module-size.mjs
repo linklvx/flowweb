@@ -26,7 +26,7 @@ export const SIZE_LIMITS = {
   'apps/api/src/modules/collab/media-binding-projector.ts': 147,   // C3a-5 新文件入锚（实测 112+1.3 余量——spec §4 module-size「MediaBindingProjector 新文件入锚」兑现）
   'apps/api/src/modules/collab/binding-rebuild.service.ts': 192,   // C3a-6 新文件入锚（实测 147+1.3 余量——spec §4 module-size「新文件入锚」：水位不变量闭环 rebuild 服务）
   'apps/api/src/modules/collab/projection-backfill.runner.ts': 271,   // C3a-8 新文件入锚（实测 208+1.3 余量——spec §4 module-size「新文件入锚」：恢复四路统一入队+全表分页回填 runner）
-  'apps/api/src/modules/collab/oracle-worker.service.ts': 380,   // C3b-2 新文件入锚（实测 291+1.3 余量——spec §4 module-size「PG oracle worker 新文件入锚」：候选无关 UUID 叶扫描+短事务纪律+coverage header 状态机 worker）
+  'apps/api/src/modules/collab/oracle-worker.service.ts': 380,   // C3b-2 新文件入锚（实测 295+定档 380 余量——spec §4 module-size「PG oracle worker 新文件入锚」：候选无关 UUID 叶扫描+短事务纪律+coverage header 状态机 worker）
 };
 
 /** Z96 计法（plan 钉死）：对齐 wc -l（尾换行文件两口径一致；无尾换行差 1——自测钉）。 */

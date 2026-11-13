@@ -79,7 +79,7 @@ test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑�
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/media-binding-projector.ts'], 147);   // C3a-5 新文件入锚（实测 112+1.3 余量）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/binding-rebuild.service.ts'], 192);   // C3a-6 新文件入锚（实测 147+1.3 余量）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/projection-backfill.runner.ts'], 271);   // C3a-8 新文件入锚（实测 208+1.3 余量）
-  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/oracle-worker.service.ts'], 380);   // C3b-2 新文件入锚（实测 291+1.3 余量）
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/oracle-worker.service.ts'], 380);   // C3b-2 新文件入锚（实测 295+定档 380 余量）
 });
 
 test('现状实测：十一文件全部限内（端到端触盘——真锚真文件，门禁 PASS 前提自证）', () => {
