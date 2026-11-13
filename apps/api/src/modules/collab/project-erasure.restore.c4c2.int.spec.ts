@@ -14,6 +14,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import {
   S3Client, CreateBucketCommand, DeleteBucketCommand, PutBucketVersioningCommand,
@@ -24,6 +25,7 @@ import { CreditLedgerService } from '../team/credit-ledger.service';
 import { MinioService } from '../minio/minio.service';
 import { ErasureContextService } from './project-lock';
 import { ProjectErasureRunPoller } from './project-erasure.poller';
+import type { DeletionBarrierPort } from './deletion-barrier.port';   // C3b-5：删除窗 barrier stub
 import { pendingMediaMarkerPath } from './project-erasure.stages';
 import { writeErasureManifest } from './project-erasure.manifest';
 import { scanPrefixKeys } from './project-erasure.cache';
@@ -77,6 +79,13 @@ maybe('C4-c2 ★红⑱ restore-reerase 恢复重擦除（真 PG+MinIO+Redis+脚�
   let bucket: string;
   let minio: MinioService;
   let redis: Redis;
+/** C3b-5：删除窗 barrier stub（verified 档——消费面切换后删除窗经 barrier；真 barrier 全链=
+ *  deletion-barrier.int.spec+media-gc.shadow.c3b5）。 */
+const okBarrier = (): DeletionBarrierPort => ({
+  prepare: async () => ({ outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 60_000 }),
+  release: async () => true,
+}) as unknown as DeletionBarrierPort;
+
   let p: ProjectErasureRunPoller;
   const projects: string[] = [];
 
@@ -135,7 +144,7 @@ maybe('C4-c2 ★红⑱ restore-reerase 恢复重擦除（真 PG+MinIO+Redis+脚�
     minio = new MinioService({ endpoint, accessKey, secretKey, bucket, useSsl: false });
     p = new ProjectErasureRunPoller(
       prismaService as never, ledger as never, new ErasureContextService(),
-      async () => [], minio as never, redis as never, async () => true,
+      async () => [], minio as never, redis as never, async () => true, okBarrier(),
     );
     await prisma.user.upsert({ where: { id: owner }, update: {}, create: { id: owner, name: owner, email: `${owner}@local.test`, emailVerified: true } });
     await prisma.team.create({ data: { id: teamId, name: 'c4c2r-team', ownerId: owner } });

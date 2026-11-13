@@ -24,6 +24,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
@@ -33,6 +34,7 @@ import { readErasureManifest } from './project-erasure.manifest';
 import {
   executePurgingDbStage, pendingMediaMarkerPath, type MediaRefsCollector,
 } from './project-erasure.stages';
+import type { DeletionBarrierPort } from './deletion-barrier.port';   // C3b-5：删除窗 barrier stub
 import { mediaDeletionConflictTotal } from '../media-delivery/binding-reconcile.metrics';
 import { assertProjectErasureDbComplete, assertTeamErasureAuditContent } from './project-erasure.assert';
 import { VideoWorkService } from '../video-work/video-work.service';
@@ -48,7 +50,14 @@ maybe('C4-c1 ★红⑫⑬⑯ PURGING_DB 执行体（真 PG）', () => {
   /** collector stub：可控他项目 doc 扫描面（默认零引用——引用命中由 PG 快判面承载）。 */
   let stubRefs: string[] | null = [];
   const collector: MediaRefsCollector = async () => stubRefs;
-  const poller = new ProjectErasureRunPoller(prismaService as never, ledger as never, new ErasureContextService(), collector);
+
+/** C3b-5：删除窗 barrier stub（verified 档——消费面切换后删除窗经 barrier；真 barrier 全链=
+ *  deletion-barrier.int.spec+media-gc.shadow.c3b5）。 */
+const okBarrier = (): DeletionBarrierPort => ({
+  prepare: async () => ({ outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 60_000 }),
+  release: async () => true,
+}) as unknown as DeletionBarrierPort;
+  const poller = new ProjectErasureRunPoller(prismaService as never, ledger as never, new ErasureContextService(), collector, undefined, undefined, undefined, okBarrier());
   const stamp = Date.now().toString(36);
   const owner = `c4c1-owner-${stamp}`;
   const teamId = `c4c1-team-${stamp}`;
@@ -218,7 +227,7 @@ maybe('C4-c1 ★红⑫⑬⑯ PURGING_DB 执行体（真 PG）', () => {
     const marker = JSON.parse(readFileSync(pendingMediaMarkerPath(manifestDir, run.erasureId), 'utf8')) as { mediaIds: string[] };
     expect([...marker.mediaIds].sort()).toEqual([`${pid}-m-exc`, `${pid}-m-late`]);
     // 复核窗内（sidecar markAt 未跨 claim 周期）：再跑 stage 仍不删（两阶段语义——标记与删除不得同窗）
-    const inWindow = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
+    const inWindow = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
     expect(inWindow).toEqual({ outcome: 'pending-review', remainingExclusive: 2, docScanFailed: false });
     expect(await prisma.media.count({ where: { id: { in: [`${pid}-m-exc`, `${pid}-m-late`] }, projectId: pid } })).toBe(2);   // 独占行未删
     // ★红⑬ VideoWork detach：行保留（视频键/计费）+canvasProjectId=NULL
@@ -265,7 +274,7 @@ maybe('C4-c1 ★红⑫⑬⑯ PURGING_DB 执行体（真 PG）', () => {
     const aged = { ...(JSON.parse(readFileSync(markerPath, 'utf8')) as { markAt: string }), markAt: new Date(Date.now() - 120_000).toISOString() };
     const { writeFile } = await import('node:fs/promises');
     await writeFile(markerPath, `${JSON.stringify(aged)}\n`, 'utf8');
-    const result = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
+    const result = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
     expect(result).toEqual({ outcome: 'purging-objects' });
     expect(await prisma.media.count({ where: { id: { in: [`${pid}-m-exc`, `${pid}-m-late`] } } })).toBe(0);   // 独占行删（复核后）
     expect(existsSync(markerPath)).toBe(false);   // sidecar 收敛移除
@@ -294,7 +303,7 @@ maybe('C4-c1 ★红⑫⑬⑯ PURGING_DB 执行体（真 PG）', () => {
       const { writeFile } = await import('node:fs/promises');
       await writeFile(markerPath, `${JSON.stringify(aged)}\n`, 'utf8');
     }
-    await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
+    await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
     run = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
     expect(run.state).toBe('PURGING_OBJECTS');
     // 注入残留行 → 断言红
@@ -339,13 +348,13 @@ maybe('C4-c1 ★红⑫⑬⑯ PURGING_DB 执行体（真 PG）', () => {
     expect(await prisma.canvasProject.count({ where: { id: pid } })).toBe(0);   // 批删/行删照常推进（fail-closed 只停独占删除）
     // 恢复（api 回达=stub 引用面）：直接执行体收敛
     stubRefs = [];
-    const res1 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
+    const res1 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
     expect(res1.outcome).toBe('pending-review');   // 首扫标记（恢复后窗重起——保守方向）
     const markerPath = pendingMediaMarkerPath(manifestDir, run.erasureId);
     const aged = { ...(JSON.parse(readFileSync(markerPath, 'utf8')) as { markAt: string }), markAt: new Date(Date.now() - 120_000).toISOString() };
     const { writeFile } = await import('node:fs/promises');
     await writeFile(markerPath, `${JSON.stringify(aged)}\n`, 'utf8');
-    const res2 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
+    const res2 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
     expect(res2).toEqual({ outcome: 'purging-objects' });
     expect(await prisma.media.count({ where: { projectId: pid } })).toBe(0);
     expect((await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } })).state).toBe('PURGING_OBJECTS');
@@ -425,7 +434,7 @@ maybe('C4-c1 ★红⑫⑬⑯ PURGING_DB 执行体（真 PG）', () => {
     });
     const before = await prisma.media.count({ where: { projectId: pid } });
     expect(before).toBe(inputs.length);
-    const res = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
+    const res = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
     expect(res).toEqual({ outcome: 'dry-run', detach: 2, exclusive: 2, docScanFailed: false });   // 判别跑全（lib=uploaded+workm=作品引用→detach 档；refb/exc→独占档）零写
     // 零写面：行集/内容列/状态/manifest 全原样
     expect(await prisma.media.count({ where: { projectId: pid } })).toBe(before);
@@ -487,7 +496,7 @@ maybe('C4-c1 ★红⑫⑬⑯ PURGING_DB 执行体（真 PG）', () => {
       projects.push(holder);
       await prisma.mediaBinding.create({ data: { mediaId: `${pid}-m-exc`, projectId: holder, nodeId: 'n1', teamId } });
       const before = await conflictOf();
-      const res = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0 });
+      const res = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0 });
       expect(res.outcome).toBe('purging-objects');   // 独占集漂移空（exc 转被引 detach）=零剩余独占即完成
       const exc = await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } });
       expect(exc.deletionState).toBe('ACTIVE');   // 中止回退（复核窗重置=独占集消失面）
@@ -505,13 +514,13 @@ maybe('C4-c1 ★红⑫⑬⑯ PURGING_DB 执行体（真 PG）', () => {
         where: { id: `${pid}-m-exc` },
         data: { deletionRunId: 'c3b4-gc-worker', deletionRequestedAt: new Date() },
       });
-      const res = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0 });
+      const res = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0 });
       expect(res).toMatchObject({ outcome: 'pending-review', remainingExclusive: 1 });   // 所有权丢失=不删
       const exc = await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } });
       expect(exc.deletionRunId).toBe('c3b4-gc-worker');   // 他消费者持有原样（禁抢活行）
       // 释放所有权后下轮收敛删除（陈旧接管面）
       await prisma.media.update({ where: { id: `${pid}-m-exc` }, data: { deletionRequestedAt: new Date(Date.now() - 11 * 60_000) } });
-      const res2 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0 });
+      const res2 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0 });
       expect(res2.outcome).toBe('purging-objects');
       expect(await prisma.media.findUnique({ where: { id: `${pid}-m-exc` } })).toBeNull();
     }, 60_000);

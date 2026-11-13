@@ -15,6 +15,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { ErasureContextService, lockProject } from './project-lock';
@@ -25,6 +26,7 @@ import {
   executePurgingDbStage, rescanProjectMediaWork, unionManifestRows, pendingMediaMarkerPath,
   type MediaRefsCollector,
 } from './project-erasure.stages';
+import type { DeletionBarrierPort } from './deletion-barrier.port';   // C3b-5：删除窗 barrier stub
 import { assertProjectErasureDbComplete } from './project-erasure.assert';
 
 const hasDb = !!process.env.DATABASE_URL;
@@ -35,7 +37,14 @@ maybe('C4-c1 ★红⑪ PURGING_DB kill -9 各内步幂等收敛（真 PG）', ()
   const prismaService = new PrismaService();
   const ledger = new CreditLedgerService(prismaService as never);
   const collector: MediaRefsCollector = async () => [];   // stub：零他项目 doc 引用
-  const poller = new ProjectErasureRunPoller(prismaService as never, ledger as never, new ErasureContextService(), collector);
+
+/** C3b-5：删除窗 barrier stub（verified 档——消费面切换后删除窗经 barrier；真 barrier 全链=
+ *  deletion-barrier.int.spec+media-gc.shadow.c3b5）。 */
+const okBarrier = (): DeletionBarrierPort => ({
+  prepare: async () => ({ outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 60_000 }),
+  release: async () => true,
+}) as unknown as DeletionBarrierPort;
+  const poller = new ProjectErasureRunPoller(prismaService as never, ledger as never, new ErasureContextService(), collector, undefined, undefined, undefined, okBarrier());
   const stamp = Date.now().toString(36);
   const owner = `c4c1k9-owner-${stamp}`;
   const teamId = `c4c1k9-team-${stamp}`;
@@ -156,10 +165,10 @@ maybe('C4-c1 ★红⑪ PURGING_DB kill -9 各内步幂等收敛（真 PG）', ()
     await prisma.projectErasureRun.update({ where: { erasureId }, data: { manifestSha256: rewritten.manifestSha256 } });
     // ── 重启重跑：执行体全量两轮（首扫标记→复核窗跨越）收敛 ──
     const run = await prisma.projectErasureRun.findUniqueOrThrow({ where: { erasureId } });
-    const r1 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir });
+    const r1 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir });
     expect(r1.outcome).toBe('pending-review');
     await ageSidecar(erasureId);
-    const r2 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir });
+    const r2 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir });
     expect(r2).toEqual({ outcome: 'purging-objects' });
     await expectConverged(pid, erasureId);
     // 并集 late 行入册（C4-c2 对象重放面）且 DB 行已删（manifest−DB 现存=对象删除面契约）
@@ -177,10 +186,10 @@ maybe('C4-c1 ★红⑪ PURGING_DB kill -9 各内步幂等收敛（真 PG）', ()
     await prisma.videoTrimTask.deleteMany({ where: { workflowId: pid } });
     // ── 重跑：两轮收敛 ──
     const run = await prisma.projectErasureRun.findUniqueOrThrow({ where: { erasureId } });
-    const r1 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir });
+    const r1 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir });
     expect(r1.outcome).toBe('pending-review');
     await ageSidecar(erasureId);
-    const r2 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir });
+    const r2 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir });
     expect(r2).toEqual({ outcome: 'purging-objects' });
     await expectConverged(pid, erasureId);   // 全表清点零残留+audit 恰 1（零双删形态）
   }, 60_000);
@@ -196,10 +205,10 @@ maybe('C4-c1 ★红⑪ PURGING_DB kill -9 各内步幂等收敛（真 PG）', ()
       }));
     // ── 重跑收敛 ──
     const run = await prisma.projectErasureRun.findUniqueOrThrow({ where: { erasureId } });
-    const r1 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir });
+    const r1 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir });
     expect(r1.outcome).toBe('pending-review');
     await ageSidecar(erasureId);
-    await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir });
+    await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir });
     await expectConverged(pid, erasureId);
     const gi = await prisma.generationIntent.findFirstOrThrow({ where: { projectId: pid } });
     expect(gi.resultText).toBeNull();
@@ -211,7 +220,7 @@ maybe('C4-c1 ★红⑪ PURGING_DB kill -9 各内步幂等收敛（真 PG）', ()
     const { erasureId } = await toPurgingDb(pid);
     // 首扫（标记）后置他实例持有+过期租约——kill -9 后租约到期形态
     let run = await prisma.projectErasureRun.findUniqueOrThrow({ where: { erasureId } });
-    await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, manifestDir, spoolDir });
+    await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir });
     run = await prisma.projectErasureRun.findUniqueOrThrow({ where: { erasureId } });
     expect(run.state).toBe('PURGING_DB');   // 复核窗内
     await ageSidecar(erasureId);

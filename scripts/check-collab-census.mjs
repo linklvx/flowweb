@@ -1200,6 +1200,9 @@ if (isMain()) {
       CANARY_VERIFY_INTERVAL_MS: 1,
       CANARY_FREEZE_ENABLED: 1,
     },
+    'apps/api/src/modules/collab/media-reference.service.ts': {   // C3b-5（地基修复批·media 删除保护）：Binding 臂回滚开关键（MEDIA_REF_ORACLE_ONLY——CANARY_FREEZE_ENABLED 同族 enum 形态：方法内每判即读〔运行时开关——spec §3.4-8「运行时开关：binding 候选一键降级纯 oracle」〕、缺省=并集全臂、消费面=isMediaReferenced 决策臂非部署档位）
+      MEDIA_REF_ORACLE_ONLY: 1,
+    },
     'apps/api/src/modules/collab/oracle-worker.service.ts': {   // C3b-2（地基修复批·PG oracle 证人）：worker oracle 扫描轮询周期键（ORACLE_SCAN_INTERVAL_MS——CANARY_VERIFY_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、Number()||默认缺省档 60_000、消费面=worker 轮询周期非部署档位）
       ORACLE_SCAN_INTERVAL_MS: 1,
     },

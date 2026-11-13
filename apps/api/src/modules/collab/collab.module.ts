@@ -123,6 +123,6 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
   // .currentEpoch；模块外消费面唯一=ProjectionOutboxPoller）。
   // T25b 四读径①：exports += RuntimeFeedService（video-work 公开快照 projection join 读面——
   // snapshotEnvelope 已提交态折叠；偏离 21 直注登记族追加同款）。
-  exports: [CollabDocumentService, CollabWritePort, CollabResidencyService, CollabLeaseService, CanvasDocUpdateRepository, RuntimeFeedService, ProjectionBackfillRunner],   // C3a-8：ProjectionBackfillRunner 导出（media-delivery reconcile 漂移→入队 rebuild；DI 环检查=CollabModule 不 import MediaDeliveryModule）   // Y1c T32：CollabDocWriterService 导出随 writeBatch 门面退役删除（维护域走纯函数 applyWriteOpsToDoc 直调）   // Y0c T8：消费面逐步扩（T12 收编 shrink/intent-reconcile）；Y0c T15：residency 面导出（T16/T17 reaper/释放入口消费）；Y1c T21：+CanvasDocUpdateRepository（ExecutionRequestService PG 前缀重建档——受理冻结读面）
+  exports: [CollabDocumentService, CollabWritePort, CollabResidencyService, CollabLeaseService, CanvasDocUpdateRepository, RuntimeFeedService, ProjectionBackfillRunner, DeletionBarrierPort],   // C3b-5：+DeletionBarrierPort（api 进程 Direct 形态——media-delivery GC 删除窗消费）   // C3a-8：ProjectionBackfillRunner 导出（media-delivery reconcile 漂移→入队 rebuild；DI 环检查=CollabModule 不 import MediaDeliveryModule）   // Y1c T32：CollabDocWriterService 导出随 writeBatch 门面退役删除（维护域走纯函数 applyWriteOpsToDoc 直调）   // Y0c T8：消费面逐步扩（T12 收编 shrink/intent-reconcile）；Y0c T15：residency 面导出（T16/T17 reaper/释放入口消费）；Y1c T21：+CanvasDocUpdateRepository（ExecutionRequestService PG 前缀重建档——受理冻结读面）
 })
 export class CollabModule {}

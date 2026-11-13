@@ -41,7 +41,7 @@ export const mediaBindingSkipTotal = new Counter({
 /** 投影失败计数（reason=typed|unexpected|rebuild-page——闭集短标签；帧照常提交由闭包承接）。 */
 export const mediaBindingProjectionFailedTotal = new Counter({
   name: 'media_binding_projection_failed_total',
-  help: 'MediaBinding 投影失败（reason=typed BindingProjectionFailedError/unexpected 帧级闭包非 typed/rebuild-page rebuild 分页事务失败）',
+  help: 'MediaBinding 投影失败（reason=typed BindingProjectionFailedError/unexpected 帧级闭包非 typed/rebuild-page rebuild 分页事务失败/stale-binding-rebuild C3b5 shadow extra 受控 rebuild 失败〔dirty 保持下轮收敛〕）',
   labelNames: ['reason'],
   registers: [register],
 });

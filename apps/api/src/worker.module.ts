@@ -88,6 +88,11 @@ import { PaymentGateway } from './modules/recharge/payment.gateway';
 import { WechatPaymentProvider } from './modules/recharge/providers/wechat-payment.provider';
 // ── 端口形态 ──
 import { CollabWritePort, HttpCollabWritePort } from './modules/collab/collab-write.port';
+// ── C3b-5（地基修复批·media 删除保护）：删除窗 barrier 端口——erasure worker 经 HttpDeletionBarrierPort
+//    loopback api（prepare 六步序在 api 进程执行〔seal 与 DB 行同进程翻/清〕；CollabWritePort 同族
+//    baseUrl/token env 读；闭包=deletion-barrier.port→service→oracle-worker/media-reference 族，
+//    零 controller/HttpModule 面，census ⑰ 不破） ──
+import { DeletionBarrierPort, HttpDeletionBarrierPort } from './modules/collab/deletion-barrier.port';
 import { EmitPort, WorkerEmitPort } from './modules/gateway/emit.port';
 // ── Y1c T11：compact 轮询 DB poller（worker 进程——重放在 worker；MediaProbePoller/MaterializeJob
 //    同款平铺先例；闭包纯净=repo 族〔canvas-doc.factory/sentry-scrub/store.metrics〕零 controller/
@@ -253,6 +258,14 @@ const env = validateEnv();
       provide: CollabWritePort,
       useFactory: () => new HttpCollabWritePort({
         baseUrl: `http://127.0.0.1:${env.PORT}`,   // Z102 ready 门同源 loopback（api 同 .env 同 PORT）
+        token: env.WORKER_WRITE_TOKEN,
+      }),
+    },
+    // C3b-5：erasure 删除窗 barrier 端口（Http 形态——CollabWritePort 同族 loopback api+token）
+    {
+      provide: DeletionBarrierPort,
+      useFactory: () => new HttpDeletionBarrierPort({
+        baseUrl: `http://127.0.0.1:${env.PORT}`,
         token: env.WORKER_WRITE_TOKEN,
       }),
     },

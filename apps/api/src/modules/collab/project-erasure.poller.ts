@@ -32,6 +32,7 @@ import { executePurgingDbStage, httpMediaRefsCollector, type MediaRefsCollector 
 import { executePurgingObjectsStage, type ErasureObjectPort } from './project-erasure.objects';
 import { executePurgingCacheStage, httpPurgeScope, type PurgeScopeClient, type RedisPurgePort } from './project-erasure.cache';
 import { executeVerifyingStage } from './project-erasure.verifying';
+import type { DeletionBarrierPort } from './deletion-barrier.port';   // C3b-5：删除窗 barrier（worker=Http loopback）
 import { erasurePendingAge, erasureRunsTotal } from './erasure.metrics';
 
 /** 轮询周期（时间门基线：run 行=唤醒源，间隔即红④兜底延迟上界；env 可调——RETENTION_SWEEP_INTERVAL_MS 同族形态）。 */
@@ -69,6 +70,9 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
     @Optional() @Inject('REDIS_CLIENT') private readonly redis?: RedisPurgePort,
     /** C4-c2：purgeScope 客户端（PURGING_CACHE 首步——api 内部端点；缺省 httpPurgeScope）。 */
     @Optional() private readonly purgeScope?: PurgeScopeClient,
+    /** C3b-5：删除窗 barrier 端口（PURGING_DB 删除窗——worker.module DeletionBarrierPort 注入
+     *  〔Http 形态 loopback api〕；int 测试注入 stub——执行体缺省 HttpDeletionBarrierPort）。 */
+    @Optional() private readonly barrier?: DeletionBarrierPort,
   ) {}
 
   onModuleInit(): void {
@@ -293,6 +297,7 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
         prisma: this.prisma, run,
         collectMediaRefs: this.mediaRefs ?? httpMediaRefsCollector(),
         spoolDir: collabSpoolDir(),
+        barrier: this.barrier,
       }).catch(async (e: unknown) => { await this.noteRunFailure(run, 'PURGING_DB', e); });
       return;
     }

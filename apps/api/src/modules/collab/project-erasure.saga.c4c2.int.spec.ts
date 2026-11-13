@@ -19,6 +19,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import {
   S3Client, CreateBucketCommand, DeleteBucketCommand, PutBucketVersioningCommand,
@@ -31,6 +32,7 @@ import { RuntimeFeedRetentionService } from './runtime-feed.retention.service';
 import { ErasureContextService, lockProject } from './project-lock';
 import { openProjectErasure } from './project-erasure';
 import { ProjectErasureRunPoller } from './project-erasure.poller';
+import type { DeletionBarrierPort } from './deletion-barrier.port';   // C3b-5：删除窗 barrier stub
 import { pendingMediaMarkerPath } from './project-erasure.stages';
 import { scanPrefixKeys } from './project-erasure.cache';
 
@@ -69,11 +71,18 @@ maybe('C4-c2 ★红⑪ 完整锚 saga（真 PG+MinIO+Redis——kill -9 各新 s
   let redis: Redis;
   /** purgeScope stub（api 内存面端点归单测——saga 面注入 true 防真 api 进程依赖）。 */
   const purgeScopeCalls: string[][] = [];
+/** C3b-5：删除窗 barrier stub（verified 档——消费面切换后删除窗经 barrier；真 barrier 全链=
+ *  deletion-barrier.int.spec+media-gc.shadow.c3b5）。 */
+const okBarrier = (): DeletionBarrierPort => ({
+  prepare: async () => ({ outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 60_000 }),
+  release: async () => true,
+}) as unknown as DeletionBarrierPort;
+
   const poller = () => new ProjectErasureRunPoller(
     prismaService as never, ledger as never, new ErasureContextService(),
     async () => [],                                   // collector：零他项目 doc 引用
     minio as never, redis as never,
-    async (projectIds) => { purgeScopeCalls.push(projectIds); return true; },
+    async (projectIds) => { purgeScopeCalls.push(projectIds); return true; }, okBarrier(),
   );
   let p: ProjectErasureRunPoller;
   const projects: string[] = [];

@@ -659,6 +659,14 @@ UPDATE "Media" SET "deletionRequestedAt" = NULL, "deletionRunId" = NULL, "deleti
  WHERE "deletionState" = 'ACTIVE' AND "deletionRunId" IS NOT NULL;   -- 仅运维裁量，非默认动作
 ```
 
+### §13.3 删除保护消费面（barrier 删除窗）+shadow 对拍+回滚开关（C3b-5——2026-11-13 落档；spec §3.4-4/§3.4-6/§3.4-8）
+
+**消费面形态**（GC/erasure 两删除流统一）：候选 CAS 抢占进 `DELETING` 后经 **DeletionBarrier 持有窗**（GC=api 进程 Direct 端口；erasure=worker 经 Http loopback `POST /api/collab/doc/deletion-barrier`+`WORKER_WRITE_TOKEN`）→ 窗内**并集单源决策**（`isMediaReferenced` 五臂闭集=Binding+Oracle+registry——spec §3.4-6）→ 删除序（对象先删 404 容忍→行删；事务内 recheck 终裁）→ 配对 `release`。**决策不再读 live doc**（旧 doc 扫描/四源预筛=shadow 对拍面）；barrier bail-out（lost-race/flush-timeout/decision snapshot 不满足/预算过期）→ 回 `ACTIVE` 释放持有+`media_gc_outcome_total{outcome=valve-bailout}` 保守保留（下轮重判）——「快照不满足=不删」是常态安全态（oracle worker 重扫收敛后自动放行），持续 valve-bailout=oracle coverage 异常信号（§13 oracle 段分诊）。
+
+**shadow 长期对拍**（`media_ref_shadow_mismatch_total{consumer,dir}`——同 barrier 窗同快照求值）：missing（新面独有证人=旧面漏保护向）=计数+决策面已阻断保留（无运维动作）；extra（旧面独有=stale binding 过度保留向）=计数+WARN 日志「shadow extra → 受控 rebuild」+`media_binding_stale_total`+自动触发所在项目 binding rebuild 清行（清理后下轮对拍零差）。**extra 持续增长**=binding 投影持续漂移分诊锚（rebuild CAS miss/收敛失败——§14.3 backfill 运维段）。
+
+**回滚开关 `MEDIA_REF_ORACLE_ONLY`**（env，运行时每判即读——改 env 后下一判即生效，无需重启）：`'true'`=决策面 Binding 臂 skip（降级纯 oracle/registry 证人——binding 投影不可信的应急档）；缺省=并集全臂。注意：降级档 binding-only 引用媒体可删（doc 无引用的 binding 行=oracle 不背书）——开前确认 `media_ref_shadow_mismatch_total{dir=extra}` 已清零（无未处置 stale binding），事后关回缺省档。
+
 ---
 
 ## §14 Y1c 载体协议契约草节（T5a 冻结——2026-10-24；T8/T9/T10/T13 实装时的操作面输入；§14.1=C2 canary cron+处置序——2026-11-05；§14.2=MediaFact 观测金丝雀——2026-11-11；§14.3=MediaBinding 帧级投影与 backfill 运维——2026-11-12）

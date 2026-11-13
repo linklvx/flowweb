@@ -32,10 +32,12 @@ import * as Y from 'yjs';
 import { collectMediaRefs } from '@flowweb/shared';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { projectBindings } from './media-binding-projector';
+import { lockProject } from './project-lock';   // C3b-5：置 dirty 写锁门禁合规（CanvasDoc=guarded）
 import type { MediaRef } from '@flowweb/shared';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { toDocLike } from './doc-like.util';
 import { clearMediaBindingGap, mediaBindingProjectionFailedTotal, mediaBindingWatermarkLag, recordMediaBindingProjection } from './media-binding.metrics';   // C3a-8：write/skip/projection_failed/gap/lag 观测面
+import { mediaBindingStaleTotal } from '../media-delivery/binding-reconcile.metrics';   // C3b-5：shadow extra 处置计数
 
 /** C3a-8 修复批 I2：rebuild 不可继续的 typed error（项目行缺失/非 ACTIVE 等）——**禁 return 后继续
  *  走 CAS**（teamId=null 时 return 会使 commitByCas 清 dirty+推水位=擦除失败/恢复后假覆盖）。 */
@@ -87,6 +89,30 @@ export function needsBindingRebuild(row: { replayed: number; mediaBindingSeq: bi
 /** 分页写页大小（spec §0「分页写+短事务」——每页一轮独立短事务，页间并发 append 由 CAS 门收敛）。 */
 const REBUILD_PAGE_NODES = 500;
 
+/** C3b-5（spec §3.4-8 :84「extra=告警+触发受控 rebuild 清理——修 stale binding 永久过度保留」）：
+ *  shadow 对拍 extra 处置=对 stale binding 行所在项目跑全量 rebuild（重建后 doc 无引用的槽位行随
+ *  全量替换清出）。受控=错误不外抛（计数+日志——对拍/删除流不因 rebuild 抖动中断；CAS miss/收敛失败
+ *  由 dirty 保持+下轮装载/backfill 重试收敛）。excludeProjectIds=erasure 面（被擦项目自身 binding 随
+ *  scope 批删，非 rebuild 对象）。 */
+export async function controlledRebuildForMedia(
+  prisma: PrismaService, mediaId: string, opts: { excludeProjectIds?: readonly string[] } = {},
+): Promise<void> {
+  const where = opts.excludeProjectIds && opts.excludeProjectIds.length > 0
+    ? { mediaId, projectId: { notIn: [...opts.excludeProjectIds] } }
+    : { mediaId };
+  const rows = await prisma.mediaBinding.findMany({ where, select: { projectId: true } });
+  if (rows.length === 0) return;
+  mediaBindingStaleTotal.inc(rows.length);
+  const logger = new Logger('BindingRebuild');
+  const svc = new BindingRebuildService(prisma, new CanvasDocUpdateRepository(prisma));
+  for (const pid of [...new Set(rows.map((r) => r.projectId))]) {
+    await svc.rebuildProjectBindings(pid).catch((e) => {
+      mediaBindingProjectionFailedTotal.inc({ reason: 'stale-binding-rebuild' });   // C3b-5（'shadow-' 前缀字面量禁令——shadow-literal.scan 门）
+      logger.warn(`shadow extra 受控 rebuild ${pid} 失败（dirty 保持下轮收敛）: ${(e as Error).message}`);
+    });
+  }
+}
+
 @Injectable()
 export class BindingRebuildService {
   private readonly logger = new Logger(BindingRebuildService.name);
@@ -107,8 +133,13 @@ export class BindingRebuildService {
 
   /** ②-⑤ 置 dirty+定代重放+全量分页写（CAS 前置段——分段暴露供交错红测锚定竞窗）。 */
   async writeBindingsAt(projectId: string, anchor: RebuildAnchor): Promise<void> {
-    // ② rebuild 开始即置 dirty（幂等；updateMany——行缺布景下 0 行不炸，C3a-4 闭包同判）
-    await this.prisma.canvasDoc.updateMany({ where: { projectId }, data: { bindingsDirty: true } });
+    // ② rebuild 开始即置 dirty（幂等；updateMany——行缺布景下 0 行不炸，C3a-4 闭包同判）。
+    //    C3b-5：写锁门禁合规（CanvasDoc=guarded 模型——updateMany 须 lockProject 先行的事务内；
+    //    生产语义不变：advisory xact 锁短持，与 appendBatch 短暂串行化非锁外新增面）。
+    await this.prisma.$transaction(async (tx) => {
+      await lockProject(tx, projectId);
+      await tx.canvasDoc.updateMany({ where: { projectId }, data: { bindingsDirty: true } });
+    });
     // ③ 定代重放 doc@S（固定 G——换代行排除）+④ 全量 delta（doc 全节点——collectMediaRefs 聚合
     // 单源；C3a-8 质量收口：重放采集与 reconcile 共用 collectRefsAt 单源）
     const refs = await collectRefsAt(this.repo, projectId, { generation: anchor.generation, pgSeq: anchor.pgSeq });

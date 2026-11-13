@@ -14,11 +14,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
 import { ErasureContextService, lockProject } from './project-lock';
 import { openProjectErasure, reDriveErasureRun } from './project-erasure';
 import { ProjectErasureRunPoller } from './project-erasure.poller';
+import type { DeletionBarrierPort } from './deletion-barrier.port';   // C3b-5：删除窗 barrier stub
 import { pendingMediaMarkerPath, type MediaRefsCollector } from './project-erasure.stages';
 import { AdminErasureController } from '../admin/erasure/erasure.controller';
 
@@ -30,7 +32,14 @@ maybe('C4-c1 FAILED re-drive+admin 读面（真 PG）', () => {
   const prismaService = new PrismaService();
   const ledger = new CreditLedgerService(prismaService as never);
   const collector: MediaRefsCollector = async () => [];
-  const poller = new ProjectErasureRunPoller(prismaService as never, ledger as never, new ErasureContextService(), collector);
+/** C3b-5：删除窗 barrier stub（verified 档——消费面切换后删除窗经 barrier；真 barrier 全链=
+ *  deletion-barrier.int.spec+media-gc.shadow.c3b5）。 */
+const okBarrier = (): DeletionBarrierPort => ({
+  prepare: async () => ({ outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 60_000 }),
+  release: async () => true,
+}) as unknown as DeletionBarrierPort;
+
+  const poller = new ProjectErasureRunPoller(prismaService as never, ledger as never, new ErasureContextService(), collector, undefined, undefined, undefined, okBarrier());
   const admin = new AdminErasureController(prismaService as never);
   const stamp = Date.now().toString(36);
   const owner = `c4c1rd-owner-${stamp}`;
@@ -181,7 +190,7 @@ maybe('C4-c1 FAILED re-drive+admin 读面（真 PG）', () => {
       prismaService as never, ledger as never, new ErasureContextService(),
       async () => [],
       { getBucketVersioningStatus: async () => { throw new Error('演练：对象存储不可达'); } } as never,
-      {} as never, async () => true,
+      {} as never, async () => true, okBarrier(),
     );
     /** 退避窗流逝模拟（P2-1：失败后 leaseUntil 刷 now+60s——同实例 attempts>0 须待窗过期才重认领；
      *  手动置过去=窗已过形态〔评审钦定免注入面〕）。 */

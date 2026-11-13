@@ -44,3 +44,25 @@ export const mediaDeletionConflictTotal = new Counter({
   labelNames: ['reason'],
   registers: [register],
 });
+
+/** shadow 对拍差集计数（C3b-5——spec §3.4-8 :84「抽样长期对拍」：两决策面在 barrier ACTIVE 持有窗内
+ *  求值〔同快照——appendBatch 封帧=pgSeq/epoch 冻结，第六轮 P1-7 防假 mismatch〕）。新面=registry∪Oracle
+ *  证人面（Binding 臂除外——两面共有投影证人，纳入即互掩：stale binding 永不显形）。
+ *  consumer=media-gc|project-erasure（两删除流闭集）；dir=missing（新面独有证人=旧面漏保护向——决策面
+ *  〔并集单源〕已阻断保留）/extra（旧面独有=stale binding 过度保留向——告警+触发受控 rebuild 清理，
+ *  修「stale binding 永久过度保留」）。低基数：consumer×dir 四系列。 */
+export const mediaRefShadowMismatchTotal = new Counter({
+  name: 'media_ref_shadow_mismatch_total',
+  help: 'C3b-5：shadow 对拍差集（consumer=media-gc/project-erasure；dir=missing=新面独有证人漏保护向〔阻断保留〕/extra=旧面独有 stale binding 过度保留向〔告警+受控 rebuild〕；spec §3.4-8——同 barrier 窗同快照对拍）',
+  labelNames: ['consumer', 'dir'],
+  registers: [register],
+});
+
+/** stale binding 计数（C3b-5——spec §3.4-8 :84：shadow extra 处置=受控 rebuild 的发现面——对拍发现的
+ *  stale binding 行数〔doc 已无引用但 MediaBinding 行在〕；rebuild 后行随全量替换清出，持续增长=投影
+ *  漂移信号〔binding-rebuild CAS miss/收敛失败分诊锚〕）。 */
+export const mediaBindingStaleTotal = new Counter({
+  name: 'media_binding_stale_total',
+  help: 'C3b-5：shadow extra 处置发现的 stale binding 行计数（doc 无引用但 MediaBinding 行在——受控 rebuild 清理面；持续增长=投影漂移分诊锚；spec §3.4-8）',
+  registers: [register],
+});

@@ -10,22 +10,24 @@
 // **须在剩余预算内完成**：fence 在手至 expiresAt∩release 孰先〔质量评审 M3——过期后 seal 惰性
 // 失效+appendBatch 放行，删除事务须自带 budget 自查〕；进程崩溃=expiresAt TTL 自愈+seal 惰性
 // 过期）；release 带 barrierId 守卫（stale release 零行）。
-// 消费面接线（GC/erasure 全面改走本面）归 C3b-5——本卡只建机制+最小编排入口。
+// 消费面接线（C3b-5 已兑现：GC=Direct 形态 api 进程内；erasure=Http 形态 worker loopback）——
+// prepare↔release 必须配对（窗内删除+budget 自查〔expiresAt〕）。
 // spec 评审 P1-1：URL 与 controller 实际路由对拍锚在 deletion-barrier.port.spec.ts（fetchImpl 假体
 // 断言 URL/方法/载荷/token 头——路径漂移即红）。
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { DeletionBarrierService, type DeletionBarrierPrepareResult } from './deletion-barrier.service';
 
 /** wire 形 prepare 结果（loopback JSON 契约——pgSeq 序列化为 string；bigint 经 JSON.stringify 即 throw，
- *  端点/Http 形态统一经 mapPrepareToWire 收口）。 */
+ *  端点/Http 形态统一经 mapPrepareToWire 收口）。verified.expiresAt=epoch ms（C3b-5 消费方 budget
+ *  自查——过期=围栏已漏，窗内删除/对拍前保守保留）。 */
 export type DeletionBarrierPrepareWireResult =
-  | { outcome: 'verified'; barrierId: string; projects: { projectId: string; pgSeq: string }[] }
+  | { outcome: 'verified'; barrierId: string; expiresAt: number; projects: { projectId: string; pgSeq: string }[] }
   | { outcome: 'bail-out'; reason: Extract<DeletionBarrierPrepareResult, { outcome: 'bail-out' }>['reason'] };
 
-/** wire 映射单点（controller/Direct 形态共用——pgSeq bigint→string）。 */
+/** wire 映射单点（controller/Direct 形态共用——pgSeq bigint→string/expiresAt Date→epoch ms）。 */
 export function mapPrepareToWire(r: DeletionBarrierPrepareResult): DeletionBarrierPrepareWireResult {
   return r.outcome === 'verified'
-    ? { outcome: 'verified', barrierId: r.barrierId, projects: r.projects.map((p) => ({ projectId: p.projectId, pgSeq: p.pgSeq.toString() })) }
+    ? { outcome: 'verified', barrierId: r.barrierId, expiresAt: r.expiresAt.getTime(), projects: r.projects.map((p) => ({ projectId: p.projectId, pgSeq: p.pgSeq.toString() })) }
     : { outcome: 'bail-out', reason: r.reason };
 }
 
@@ -37,10 +39,13 @@ export abstract class DeletionBarrierPort {
   abstract release(teamId: string, barrierId: string): Promise<boolean>;
 }
 
-/** Direct 形态（api 进程内直调）：prepare 经 wire 映射（与 Http 形态同契约）+release 1 行委托。 */
+/** Direct 形态（api 进程内直调）：prepare 经 wire 映射（与 Http 形态同契约）+release 1 行委托。
+ *  ctor=forwardRef 注入（C3b-5 消费接线根由：port→service→media-reference→registry→media-gc→port
+ *  import 环——环上求值中段 service 绑定未落，装饰期直引=undefined dependency 红〔bench smoke 实锚〕；
+ *  forwardRef 惰性求值使装饰期零依赖，实例化期〔全部模块已求值〕绑定恒在）。 */
 @Injectable()
 export class DirectDeletionBarrierPort extends DeletionBarrierPort {
-  constructor(private readonly svc: DeletionBarrierService) {
+  constructor(@Inject(forwardRef(() => DeletionBarrierService)) private readonly svc: DeletionBarrierService) {
     super();
   }
 

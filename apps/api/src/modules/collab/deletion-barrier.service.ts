@@ -75,9 +75,11 @@ export type DeletionBarrierBailOutReason = 'lost-race' | 'flush-timeout' | 'barr
 //    （独立文件根因见彼处头注：SG 不得 import 本服务=防 gateway 求值中段提前拉入 document.service
 //    的 @Inject(CollabGateway) 空值环）。本服务=seal 的唯一写者（acquire 后置翻/release 清）。
 
-/** prepare 结果（loopback 端点 wire 契约同形——port/controller 消费）。 */
+/** prepare 结果（loopback 端点 wire 契约同形——port/controller 消费）。verified.expiresAt=持有窗
+ *  绝对到期（epoch ms——C3b-5 消费方 budget 自查〔port 头注 M3「须在剩余预算内完成」的落地锚〕：
+ *  过期后 seal 惰性失效+appendBatch 放行，调用方窗内删除/对拍前自查，过期即保守保留）。 */
 export type DeletionBarrierPrepareResult =
-  | { outcome: 'verified'; barrierId: string; projects: { projectId: string; pgSeq: bigint }[] }
+  | { outcome: 'verified'; barrierId: string; expiresAt: Date; projects: { projectId: string; pgSeq: bigint }[] }
   | { outcome: 'bail-out'; reason: DeletionBarrierBailOutReason };
 
 @Injectable()
@@ -178,7 +180,7 @@ export class DeletionBarrierService {
       if (Date.now() >= acq.expiresAt.getTime()) {
         return await this.bailOut(teamId, acq.barrierId, 'barrier-expired');
       }
-      return { outcome: 'verified', barrierId: acq.barrierId, projects: snap.projects };
+      return { outcome: 'verified', barrierId: acq.barrierId, expiresAt: acq.expiresAt, projects: snap.projects };
     } catch (err) {
       const reason: DeletionBarrierBailOutReason = inScanSegment ? 'scan-failed' : 'unexpected-error';
       this.logger.warn(`prepare ${teamId} 异常 bail-out(${reason}): ${(err as Error).message}`);

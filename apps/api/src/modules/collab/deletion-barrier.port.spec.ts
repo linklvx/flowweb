@@ -32,11 +32,11 @@ describe('C3b-4a spec 评审 P1-1：HttpDeletionBarrierPort 请求契约（URL �
     expect(JSON.parse(calls[0].init.body ?? '{}')).toEqual({ action: 'release', teamId: 't1', barrierId: 'b1' });
   });
 
-  it('prepare：excludeProjectId 载荷透传+wire 形 verified 解析（pgSeq string——JSON 契约）', async () => {
-    const { calls, fetchImpl } = fakeFetch(200, () => ({ outcome: 'verified', barrierId: 'bx', projects: [{ projectId: 'p1', pgSeq: '7' }] }));
+  it('prepare：excludeProjectId 载荷透传+wire 形 verified 解析（pgSeq string+expiresAt epoch ms——JSON 契约）', async () => {
+    const { calls, fetchImpl } = fakeFetch(200, () => ({ outcome: 'verified', barrierId: 'bx', expiresAt: 123456, projects: [{ projectId: 'p1', pgSeq: '7' }] }));
     const port = new HttpDeletionBarrierPort({ baseUrl: 'http://127.0.0.1:9', token: 'tok-p1', fetchImpl });
     await expect(port.prepare('t1', { excludeProjectId: 'p2' })).resolves.toEqual({
-      outcome: 'verified', barrierId: 'bx', projects: [{ projectId: 'p1', pgSeq: '7' }],
+      outcome: 'verified', barrierId: 'bx', expiresAt: 123456, projects: [{ projectId: 'p1', pgSeq: '7' }],   // C3b-5：expiresAt=消费方 budget 自查锚
     });
     expect(JSON.parse(calls[0].init.body ?? '{}')).toEqual({ action: 'prepare', teamId: 't1', excludeProjectId: 'p2' });
   });

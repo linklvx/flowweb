@@ -30,7 +30,9 @@ import { basename } from 'node:path';
 //（X16 纪律「新增 int 文件 ⇒ 同步上调」；实测全量 712 例远高于下限，MIN 仅防大规模静默缩水）。
 // C1-5 增补（2026-11-13）：updated-at-triggers.int.spec（4 例——UPDATE now/GUC 首行/INSERT 两分/
 // appendBatch canary 窗）→210。
-const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 210);
+// C3b-5 增补（2026-11-13）：media-gc.shadow.c3b5.int.spec（8 例——消费面切换+shadow 对拍双向+回滚
+// 开关+barrier bail-out 保守保留+erasure 删除窗三例）→218。
+const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 218);
 
 // Y0b-1 资金门 6 文件逐文件下限（T7 标定——记录现状非拔高，初值为 plan 预估、实测全部 ≥ 初值故按实测落库：
 // ledger-invariants 14/pricing-resolver 10/funds-four-way 3/credit-ledger 10/team-lifecycle-funds 4/di-smoke 2）。

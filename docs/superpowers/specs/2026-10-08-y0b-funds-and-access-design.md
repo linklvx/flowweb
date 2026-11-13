@@ -940,6 +940,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - EXEC_POLL_TIMEOUT_MS
 - EXEC_SUBMIT_TIMEOUT_MS
 - EXEC_SYNC_HARD_CAP
+- MEDIA_REF_ORACLE_ONLY
 - MEDIA_X_ACCEL_PREFIX
 - MINIO_ACCESS_KEY
 - MINIO_BUCKET
@@ -1133,6 +1134,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - media_binding_projection_failed_total
 - media_binding_reconcile_outcome_total
 - media_binding_skip_total
+- media_binding_stale_total
 - media_binding_watermark_lag
 - media_binding_write_total
 - media_deletion_conflict_total
@@ -1141,6 +1143,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - media_fact_unfinished_state_age_seconds
 - media_gc_outcome_total
 - media_materialize_lag
+- media_ref_shadow_mismatch_total
 - member_revoked_conns
 - oracle_coverage_ratio
 - oracle_scan_age_seconds

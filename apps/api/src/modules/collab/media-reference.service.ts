@@ -70,6 +70,9 @@ export interface IsMediaReferencedOpts {
   excludeProjectId?: string;
   /** 默认 true=全计入（含 DELETING 项目——GC/erasure 引用保护面）；false=仅 ACTIVE 项目。 */
   includeDeletedProjects?: boolean;
+  /** 跳过 Binding 臂（C3b-5 shadow 对拍基准面=registry∪Oracle 证人面——Binding 臂=两面共有投影
+   *  证人，纳入对拍即互掩：stale binding 永不显形 extra）。与回滚开关 MEDIA_REF_ORACLE_ONLY 同腿。 */
+  skipBindingArm?: boolean;
 }
 
 @Injectable()
@@ -135,12 +138,19 @@ export class MediaReferenceService {
     for (const referrer of MEDIA_REFERRERS) {
       if (await referrer.resolve(scope)) return true;
     }
-    // ④ Binding 臂（投影证人——projectId 排除=被擦项目自身 binding 随 scope 批删/FK Cascade）
-    const binding = await db.mediaBinding.findFirst({
-      where: excluded.length > 0 ? { mediaId, projectId: { notIn: [...excluded] } } : { mediaId },
-      select: { id: true },
-    });
-    if (binding != null) return true;
+    // ④ Binding 臂（投影证人——projectId 排除=被擦项目自身 binding 随 scope 批删/FK Cascade）。
+    //    C3b-5 回滚开关（spec §3.4-8 :84「binding 候选一键降级纯 oracle」）：MEDIA_REF_ORACLE_ONLY='true'
+    //    =决策面 Binding 臂 skip（运行时每判即读——应急降级档：binding 投影不可信时 doc 证人退纯 oracle；
+    //    作用面=本决策臂，snapshot 校验链/registry/oracle 臂不受影响）。skipBindingArm=shadow 对拍基准面
+    //    同腿（对拍两面共有 Binding 臂即互掩——stale binding 永不显形 extra）。
+    const bindingArmOff = opts.skipBindingArm === true || process.env.MEDIA_REF_ORACLE_ONLY === 'true';
+    if (!bindingArmOff) {
+      const binding = await db.mediaBinding.findFirst({
+        where: excluded.length > 0 ? { mediaId, projectId: { notIn: [...excluded] } } : { mediaId },
+        select: { id: true },
+      });
+      if (binding != null) return true;
+    }
     // ⑤ Oracle 臂（PG 证人——join header 决策级校验：epoch+generation+verifiedSeq+status；陈旧 header
     //    行不作证人〔裁定见头注〕。o.verifiedSeq=h.verifiedSeq=行写入时锚——再钉 d.pgSeq 当前态）
     const epoch = await this.currentHistoryEpoch(db);

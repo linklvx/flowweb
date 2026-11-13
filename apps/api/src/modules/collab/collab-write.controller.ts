@@ -83,7 +83,7 @@ export class CollabWriteController {
   @NoTransform()
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @UseGuards(WorkerWriteAuthGuard)
-  async postDeletionBarrier(@Body() body: DeletionBarrierDto): Promise<{ outcome: string; barrierId?: string; projects?: { projectId: string; pgSeq: string }[]; reason?: string } | { released: boolean }> {
+  async postDeletionBarrier(@Body() body: DeletionBarrierDto): Promise<{ outcome: string; barrierId?: string; expiresAt?: number; projects?: { projectId: string; pgSeq: string }[]; reason?: string } | { released: boolean }> {
     if (body.action === 'prepare') {
       const r = await this.deletionBarrier.prepare(body.teamId, { excludeProjectId: body.excludeProjectId });
       return mapPrepareToWire(r);

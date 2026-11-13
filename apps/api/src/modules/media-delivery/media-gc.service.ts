@@ -1,15 +1,13 @@
-// apps/api/src/modules/media-delivery/media-gc.service.ts —— Y1a+Y1b T16
-//（spec :25 裁决③「Media GC 加 doc 引用检查/grace period 护栏——防副本还在媒体被删」/:53 GC 引用图）：
-// 软删 Media 的硬删决策=引用图判定——引用集 =
-//   ①MediaBinding 行（mediaId 索引——惰性 reconcile 维护的 doc 引用索引）
-//   ②NodeArtifact.mediaId（生成产物权威）
-//   ③VideoWork.videoMediaId（已发布作品）
-//   ④VideoProject.data JSON 深扫（剪辑 timeline clip.mediaId——shared VideoClip/ImageClip/AudioClip 词形）
-//   ⑤doc 引用扫描（mediaRefsOf 词表=shared MEDIA_REF_TARGET_FIELDS 九键——**预筛护栏权威面**：副本/copy
-//     的引用可能尚未进 binding 索引〔离线 paste 后 reconcile 未触〕，binding∪NodeArtifact 只是
-//     快速预判——「副本还在媒体被删」的根防在 doc 扫描面；**最终裁决=删除事务内 isMediaReferenced
-//     recheck**（C3b-4——预筛全并集仍可能有盲区，recheck 五臂闭集兜底）
-//   ∪ grace period（软删期：素材库 deleteFile 仅软删，deletedAt 过 MEDIA_GC_GRACE 才进 GC 候选）。
+// apps/api/src/modules/media-delivery/media-gc.service.ts —— Y1a+Y1b T16 → C3b-5 消费面切换
+//（spec :25 裁决③「Media GC 加 doc 引用检查/grace period 护栏」/:53 GC 引用图/§3.4-4 :78 删除序/
+//  §3.4-6 :82 引用并集/§3.4-8 :84 shadow 对拍）：
+// **C3b-5 起删除决策=并集单源（isMediaReferenced 五臂闭集——Binding+Oracle+registry）**，流经
+// 「barrier prepare（持有窗——Direct port，api 进程）→窗内决策+shadow 对拍→删除序（in-tx recheck
+//  终裁）→release」；软删 Media 的硬删候选=引用图判定+grace period（软删期 deletedAt 过 MEDIA_GC_GRACE
+//  才进 GC 候选）。旧引用图四源+doc 扫（下方 shadowOldFaceReferenced）=**shadow 对拍面**（spec §3.4-8
+//  抽样长期对拍——同 barrier 窗同快照：missing=新面独有证人〔旧面漏保护向〕计数+决策面已阻断保留；
+//  extra=旧面独有〔stale binding 过度保留向〕计数+告警+受控 rebuild 清行）；其读失败/超阀不再作决策门
+//  （决策面保守性由 decision snapshot 校验链+barrier 预算承载——bail-out=保守保留）。
 // 判定无引用 ⇒ 删除序执行（**C3b-4 DELETING 状态机+删除序**——spec §3.4-5 :81/§3.4-7 :83）：
 //   ①CAS 抢占 ACTIVE→DELETING（审计三列 deletionRequestedAt/RunId/Reason 同拍落值——双 worker/
 //     他删除流〔erasure〕并发恰一者得，一者零行）；
@@ -17,14 +15,12 @@
 //     重置（下轮 sweep 重判——引用消失后自然放行；审计列保留=最近一次尝试痕迹，runbook §13.2）；
 //   ③删除序=**对象先删（404/NoSuchKey 容忍——幂等）→行删**（第六轮 P0-7：行先删则对象失败无重试
 //     锚——v5「DB 行删先于对象删」撤回）；删除事务内 isMediaReferenced recheck（C3b-3 决策级证人
-//     并集直供 tx——覆盖旧引用图盲区〔LightingTask/VideoTrim/coverKey/ObjectManifest/resultRef〕）；
+//     并集直供 tx——终裁）；
 //   ④对象失败（非 404）⇒ 行保留 DELETING（重试锚）——下轮 sweep（>MEDIA_DELETING_STALE_MS）接管重试；
 //   ⑤用户恢复（deletedAt=null）⇒ 回 ACTIVE（restoreMediaToActive——删除事务 FOR UPDATE 所有权门
 //     失守即中止）。
-// 有引用/扫描源读失败/扫描源超安全阀 ⇒ guarded 计数保留（下轮重判——副本删除后自然放行；
-// **读失败=保守保留**：doc 读 503（lease 失守/vacuum）或 VideoProject 扫描超阀时本轮全量
-// 保留候选——少删=护栏安全方向；valve 档同步回 ACTIVE 释放持有〔本轮未判〕下轮任意 worker
-// 即可重判）。
+// barrier bail-out（lost-race/flush-timeout/快照不满足/预算过期）⇒ 回 ACTIVE 释放持有+valve-bailout
+// 桶保守保留（下轮任意 worker 重判——T19 桶语义：扫描面/预算异常≠引用增长）。
 // 【跨 team 语义钉明（spec 评审 P2#7——与裁决③一致）】**跨 team 引用不受本 GC 保护**：裁决③
 // 定案跨 team paste=客户端 strip+服务端不建 binding+读 ACL 403 兜底——他队 doc 引用本队 mediaId
 // 是被拒形态（无 binding 行、读侧 403），本队软删+过 grace+队内无引用即可硬删；「跨队副本保图」
@@ -42,7 +38,11 @@ import { CollabDocumentService } from '../collab/collab-document.service';
 import { MinioService } from '../minio/minio.service';
 import { toDocLike } from '../collab/doc-like.util';
 import { MediaReferenceService } from '../collab/media-reference.service';
-import { mediaGcOutcomeTotal, mediaDeletionConflictTotal } from './binding-reconcile.metrics';
+import { DeletionBarrierPort, type DeletionBarrierPrepareWireResult } from '../collab/deletion-barrier.port';
+import { controlledRebuildForMedia } from '../collab/binding-rebuild.service';
+import {
+  mediaGcOutcomeTotal, mediaDeletionConflictTotal, mediaRefShadowMismatchTotal,
+} from './binding-reconcile.metrics';
 
 /** 软删 grace（素材库删除后悔窗——副本护栏外的用户意图缓冲；spec :25「grace period」）。 */
 export const MEDIA_GC_GRACE_MS = 7 * 24 * 3600_000;
@@ -50,10 +50,10 @@ export const MEDIA_GC_GRACE_MS = 7 * 24 * 3600_000;
 export const MEDIA_GC_SWEEP_INTERVAL_MS = 3600_000;
 /** 每轮候选上界（积压按轮消化——同 SWEEP_PAGE 纪律）。 */
 export const MEDIA_GC_PAGE = 50;
-/** doc 扫描项目上界（安全阀——超量团队本轮全量保守保留〔guarded〕不删：少删=护栏安全方向，
- *  禁部分扫描〔漏扫项目的副本引用会被误删=「副本还在媒体被删」正中红测〕）。 */
+/** doc 扫描项目上界（C3b-5 起=shadow 对拍面安全阀——超量/读失败=对拍跳过〔非决策门〕：决策面保守性
+ *  由 decision snapshot 校验链+barrier 预算承载）。 */
 export const MEDIA_GC_DOC_SCAN_PAGE = 500;
-/** VideoProject timeline 扫描行上界（安全阀同 doc 扫描——超量=引用图不完整，全量保守保留）。 */
+/** VideoProject timeline 扫描行上界（shadow 对拍面安全阀——同 doc 扫描）。 */
 export const MEDIA_GC_TIMELINE_SCAN_PAGE = 500;
 
 // ═══ C3b-4：DELETING 状态机原语（spec §3.4-5 :81——GC/erasure 共用；erasure 经
@@ -148,13 +148,15 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
   private sweeping = false;
   private destroyed = false;
   /** 删除事务 recheck 面（C3b-3 isMediaReferenced——直构注入，DeletionBarrierService 同款体例：
-   *  保持三参构造签名〔既有测试面零扰动〕）。 */
+   *  保持四参构造签名〔barrier 为 C3b-5 新增第四参〕）。 */
   private readonly mediaRef: MediaReferenceService;
 
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
     @Inject(CollabDocumentService) private readonly docs: CollabDocumentService,
+    /** C3b-5：barrier 端口（api 进程=Direct 形态——collab.module 装配；测试注入 stub/real port）。 */
+    @Inject(DeletionBarrierPort) private readonly barrier: DeletionBarrierPort,
   ) {
     this.mediaRef = new MediaReferenceService(prisma);
   }
@@ -173,7 +175,8 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
     this.timer = null;
   }
 
-  /** 一轮 GC（busy 防重入；destroyed 后零动作）。测试直调入口。 */
+  /** 一轮 GC（busy 防重入；destroyed 后零动作）。测试直调入口。候选跨 team→逐 team 删除窗
+   *  （barrier=team 维——顺序 prepare，每 team ≤总预算）。 */
   async sweep(): Promise<MediaGcSweepSummary> {
     const summary: MediaGcSweepSummary = { candidates: 0, deleted: 0, guarded: 0, conflicted: 0, objectDeleteFailed: 0 };
     if (this.sweeping || this.destroyed) return summary;
@@ -194,73 +197,87 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
       const won = await claimMediaForDeletion(this.prisma, candidates.map((c) => c.id), { runId, reason: 'media-gc' });
       const claimed = candidates.filter((c) => won.has(c.id));
       if (claimed.length === 0) return summary;
-      const ids = claimed.map((c) => c.id);
+      const byTeam = new Map<string, typeof claimed>();
+      for (const c of claimed) {
+        const list = byTeam.get(c.teamId);
+        if (list) list.push(c); else byTeam.set(c.teamId, [c]);
+      }
+      for (const [teamId, teamClaimed] of byTeam) {
+        await this.sweepTeam(teamId, teamClaimed, runId, summary);
+      }
+      return summary;
+    } finally {
+      this.sweeping = false;
+    }
+  }
 
-      // ── 引用图（护栏权威序：PG 快判在前、doc 扫描终裁在后）──
-      const referenced = new Set<string>();
-      const fromBindings = await this.prisma.mediaBinding.findMany({
-        where: { mediaId: { in: ids } }, select: { mediaId: true },
-      });
-      for (const b of fromBindings) referenced.add(b.mediaId);
-      const fromArtifacts = await this.prisma.nodeArtifact.findMany({
-        where: { mediaId: { in: ids } }, select: { mediaId: true },
-      });
-      for (const a of fromArtifacts) if (a.mediaId) referenced.add(a.mediaId);
-      const fromWorks = await this.prisma.videoWork.findMany({
-        where: { videoMediaId: { in: ids } }, select: { videoMediaId: true },
-      });
-      for (const w of fromWorks) if (w.videoMediaId) referenced.add(w.videoMediaId);
-      const teamIds = [...new Set(claimed.map((c) => c.teamId))];
-      // I-2（C4-a 评审承接——C4-b 显式收口）：读过滤 Proxy 恒激活改义面——引用图判定（doc 扫描候选
-      // 项目集）应**含 DELETING 项目**（擦除中项目的 doc 仍引用候选 media：漏扫=引用图缺口误删）。
-      // 方向与擦除一致但语义须显式：runWithIncludeDeleted 包裹（保守侧=全量项目集入扫描）。
-      const projects = await runWithIncludeDeleted(() => this.prisma.canvasProject.findMany({
-        where: { teamId: { in: teamIds } },
-        orderBy: { id: 'asc' },
-        take: MEDIA_GC_DOC_SCAN_PAGE + 1,   // +1=超量探测（===PAGE+1 ⇒ 超阀——本轮全量保守保留）
-        select: { id: true, teamId: true },
-      }));
-      const scanOverflow = projects.length > MEDIA_GC_DOC_SCAN_PAGE;
-      if (scanOverflow) {
-        this.logger.warn(`mediaGc doc 扫描超安全阀（>${MEDIA_GC_DOC_SCAN_PAGE} 项目）——本轮全量保守保留 ${ids.length} 候选`);
+  /** 单 team 删除窗（C3b-5 消费面切换——spec §3.4-4 :78 删除序 ②-⑥ 消费侧）：barrier prepare
+   *  （持有窗）→[预算自查]→窗内并集决策+shadow 同快照对拍→判定执行（删除序 in-tx recheck 终裁）
+   *  →finally release（配对纪律——崩溃=expiresAt TTL 自愈）。 */
+  private async sweepTeam(
+    teamId: string, claimed: { id: string; key: string; teamId: string }[], runId: string, summary: MediaGcSweepSummary,
+  ): Promise<void> {
+    const ids = claimed.map((c) => c.id);
+    let prep: DeletionBarrierPrepareWireResult;
+    try {
+      prep = await this.barrier.prepare(teamId);
+    } catch (e) {
+      prep = { outcome: 'bail-out', reason: 'unexpected-error' };
+      this.logger.warn(`mediaGc barrier prepare 异常: ${(e as Error).message}`);
+    }
+    if (prep.outcome !== 'verified') {
+      await this.conservativeRetain(ids, runId, summary, `barrier bail-out(${prep.reason})`);
+      return;
+    }
+    try {
+      // M3 预算自查（port 头注纪律）：过期=围栏已漏（seal 惰性失效+appendBatch 放行）——窗内决策/
+      // 对拍/删除全段前置自查，过期即保守保留（与 barrier-expired 同语义档）。
+      const expired = (): boolean => Date.now() >= prep.expiresAt;
+      if (expired()) {
+        await this.conservativeRetain(ids, runId, summary, 'barrier 已过期（窗内预算耗尽）');
+        return;
       }
-      const scannable = scanOverflow ? [] : projects;
-      // VideoProject（剪辑 timeline——team 维度行集；JSON 深扫 mediaId 词形）；超阀=引用图不完整→保守保留
-      const videoProjects = await this.prisma.videoProject.findMany({
-        where: { teamId: { in: teamIds } },
-        orderBy: { id: 'asc' },
-        take: MEDIA_GC_TIMELINE_SCAN_PAGE + 1,   // +1=超量探测（同 doc 扫描安全阀）
-        select: { data: true },
-      });
-      const timelineOverflow = videoProjects.length > MEDIA_GC_TIMELINE_SCAN_PAGE;
-      if (timelineOverflow) {
-        this.logger.warn(`mediaGc VideoProject 扫描超安全阀（>${MEDIA_GC_TIMELINE_SCAN_PAGE} 行）——本轮全量保守保留 ${ids.length} 候选`);
+      // ── 决策面（并集单源——spec §3.4-6：Binding+Oracle+registry 五臂闭集；回滚开关 MEDIA_REF_
+      //    ORACLE_ONLY='true' 时 Binding 臂 skip=降级纯 oracle）──
+      const unionRefs = new Set<string>();
+      for (const id of ids) {
+        if (await this.mediaRef.isMediaReferenced(this.prisma, id, { teamId })) unionRefs.add(id);
       }
-      const timelineRefs = new Set<string>();
-      if (!timelineOverflow) {
-        for (const vp of videoProjects) collectJsonMediaIds(vp.data, timelineRefs);
-        for (const id of ids) if (timelineRefs.has(id)) referenced.add(id);
+      if (expired()) {
+        await this.conservativeRetain(ids, runId, summary, 'barrier 已过期（决策段后）');
+        return;
       }
-      // doc 引用扫描（终裁——副本/copy 引用未进 binding 索引的窗）：**读失败=保守保留**（P1#2——
-      // 503/lease 失守/vacuum 窗本轮全量 guarded，下轮重试；禁「log 后照删」）。
-      let scanFailed = false;
-      for (const p of scannable) {
-        try {
-          const refs = await this.docs.withSession(p.id, (doc) => collectMediaRefs(toDocLike(doc)), { mode: 'read' });
-          for (const r of refs) referenced.add(r.mediaId);
-        } catch (e) {
-          scanFailed = true;
-          this.logger.warn(`mediaGc doc 扫描失败 project=${p.id}（本轮全量保守保留候选——下轮重试）: ${(e as Error).message}`);
+      // ── shadow 对拍（spec §3.4-8——同快照：ACTIVE 窗内 appendBatch 封帧=pgSeq/epoch 冻结，两面
+      //    读同一冻结宇宙〔第六轮 P1-7〕）。新面=registry∪Oracle 证人面（skipBindingArm——Binding
+      //    臂两面共有，纳入即互掩）；旧面读失败/超阀=对拍跳过（非决策门）。──
+      const shadowOld = await this.shadowOldFaceReferenced(teamId, ids);
+      if (shadowOld != null && !expired()) {
+        const faceB = new Set<string>();
+        for (const id of ids) {
+          if (await this.mediaRef.isMediaReferenced(this.prisma, id, { teamId, skipBindingArm: true })) faceB.add(id);
+        }
+        for (const id of ids) {
+          const oldHit = shadowOld.has(id);
+          const newHit = faceB.has(id);
+          if (newHit && !oldHit) {
+            mediaRefShadowMismatchTotal.inc({ consumer: 'media-gc', dir: 'missing' });   // 旧面漏保护向（决策面已阻断保留）
+          } else if (oldHit && !newHit) {
+            // 过度保留向=stale binding 形态（旧面 binding 腿独有——doc 已无引用而行在）→告警+受控
+            // rebuild 清行（清理后下轮对拍零差+决策放行）；本轮决策面含 Binding 臂=保守保留非越证删。
+            mediaRefShadowMismatchTotal.inc({ consumer: 'media-gc', dir: 'extra' });
+            this.logger.warn(`mediaGc shadow extra（stale binding 过度保留向）media=${id} → 受控 rebuild`);
+            await controlledRebuildForMedia(this.prisma, id).catch(() => undefined);   // 受控（内部计数+日志）
+          }
         }
       }
-
-      // ── 判定执行（C3b-4 删除序）：引用命中→中止回 ACTIVE+conflict；阀 bail-out→回 ACTIVE 释放
-      // 持有+保守保留（下轮任意 worker 重判）；无引用→删除序（对象先删 404 容忍→行删；事务内
-      // recheck 命中→中止回退）。T19 outcome 分桶区分「引用命中」vs「阀 bail-out」——前者=引用图
-      // 真实命中（下轮仍会命中直至引用消失），后者=扫描面不完整/失败的保守保留（下轮恢复即放行；
-      // 持续 valve-bailout=扫描面异常信号非引用增长）──
+      if (expired()) {
+        await this.conservativeRetain(ids, runId, summary, 'barrier 已过期（对拍段后）');
+        return;
+      }
+      // ── 判定执行（C3b-4 删除序）：决策面命中→中止回 ACTIVE+conflict；否则删除序（对象先删
+      //    404 容忍→行删；事务内 recheck 命中→中止回退）──
       for (const c of claimed) {
-        if (referenced.has(c.id)) {
+        if (unionRefs.has(c.id)) {
           const n = await releaseMediaDeletionClaim(this.prisma, [c.id], runId);
           if (n > 0) {
             summary.conflicted += 1;
@@ -268,14 +285,6 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
           }
           summary.guarded += 1;
           mediaGcOutcomeTotal.inc({ outcome: 'guarded' });
-          continue;
-        }
-        if (scanOverflow || timelineOverflow || scanFailed) {
-          // 本轮未判（扫描面不完整/失败）——回 ACTIVE 释放持有（下轮任意 worker 即可重判；非引用
-          // 冲突=零 conflict 计数）；保守保留方向不变（T19 valve-bailout 桶）。
-          await releaseMediaDeletionClaim(this.prisma, [c.id], runId);
-          summary.guarded += 1;
-          mediaGcOutcomeTotal.inc({ outcome: 'valve-bailout' });
           continue;
         }
         const outcome = await this.executeDeletionSequence(c, runId);
@@ -288,7 +297,7 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
           mediaGcOutcomeTotal.inc({ outcome: 'object-delete-failed' });
           this.logger.warn(`mediaGc 对象删除失败（行保留 DELETING 下轮重试）key=${c.key}`);
         } else if (outcome === 'conflict') {
-          // 删除事务 recheck 命中（isMediaReferenced——旧引用图盲区面）→中止回 ACTIVE
+          // 删除事务 recheck 命中（isMediaReferenced 终裁）→中止回 ACTIVE
           summary.conflicted += 1;
           summary.guarded += 1;
           mediaGcOutcomeTotal.inc({ outcome: 'guarded' });
@@ -296,10 +305,74 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
         }
         // 'lost'=用户恢复（回 ACTIVE）/他消费者接管——零计数（下轮自然重判）
       }
-      return summary;
     } finally {
-      this.sweeping = false;
+      await this.barrier.release(teamId, prep.barrierId).catch((e) =>
+        this.logger.warn(`mediaGc barrier release 失败（expiresAt TTL 自愈）: ${(e as Error).message}`));
     }
+  }
+
+  /** 保守保留单点（barrier bail-out/预算过期）：回 ACTIVE 释放持有+valve-bailout 桶计数（T19 分桶
+   *  ——扫描面/预算异常≠引用增长，零 conflict 计数）。 */
+  private async conservativeRetain(ids: readonly string[], runId: string, summary: MediaGcSweepSummary, why: string): Promise<void> {
+    await releaseMediaDeletionClaim(this.prisma, [...ids], runId);
+    summary.guarded += ids.length;
+    for (let i = 0; i < ids.length; i += 1) mediaGcOutcomeTotal.inc({ outcome: 'valve-bailout' });
+    this.logger.warn(`mediaGc ${why}——本轮保守保留 ${ids.length} 候选（回 ACTIVE 释放持有，下轮重判）`);
+  }
+
+  /** shadow 旧引用面（C3b-5 前的预筛引用图——四源 PG 快判+doc 扫描原样；返回 referenced 集，
+   *  null=对拍跳过〔doc 读失败/超安全阀——非决策门〕）。同 barrier ACTIVE 窗内调用=同快照。 */
+  private async shadowOldFaceReferenced(teamId: string, ids: readonly string[]): Promise<Set<string> | null> {
+    const referenced = new Set<string>();
+    const fromBindings = await this.prisma.mediaBinding.findMany({
+      where: { mediaId: { in: [...ids] } }, select: { mediaId: true },
+    });
+    for (const b of fromBindings) referenced.add(b.mediaId);
+    const fromArtifacts = await this.prisma.nodeArtifact.findMany({
+      where: { mediaId: { in: [...ids] } }, select: { mediaId: true },
+    });
+    for (const a of fromArtifacts) if (a.mediaId) referenced.add(a.mediaId);
+    const fromWorks = await this.prisma.videoWork.findMany({
+      where: { videoMediaId: { in: [...ids] } }, select: { videoMediaId: true },
+    });
+    for (const w of fromWorks) if (w.videoMediaId) referenced.add(w.videoMediaId);
+    // I-2（C4-a 评审承接）：引用图判定（doc 扫描候选项目集）应含 DELETING 项目（擦除中项目的 doc
+    // 仍引用候选 media）——runWithIncludeDeleted 包裹（保守侧=全量项目集入扫描）。
+    const projects = await runWithIncludeDeleted(() => this.prisma.canvasProject.findMany({
+      where: { teamId },
+      orderBy: { id: 'asc' },
+      take: MEDIA_GC_DOC_SCAN_PAGE + 1,   // +1=超量探测（===PAGE+1 ⇒ 对拍跳过）
+      select: { id: true, teamId: true },
+    }));
+    if (projects.length > MEDIA_GC_DOC_SCAN_PAGE) {
+      this.logger.warn(`mediaGc shadow doc 扫描超安全阀（>${MEDIA_GC_DOC_SCAN_PAGE} 项目）——本轮对拍跳过`);
+      return null;
+    }
+    // VideoProject（剪辑 timeline——team 维度行集；JSON 深扫 mediaId 词形）；超阀=对拍跳过
+    const videoProjects = await this.prisma.videoProject.findMany({
+      where: { teamId },
+      orderBy: { id: 'asc' },
+      take: MEDIA_GC_TIMELINE_SCAN_PAGE + 1,
+      select: { data: true },
+    });
+    if (videoProjects.length > MEDIA_GC_TIMELINE_SCAN_PAGE) {
+      this.logger.warn(`mediaGc shadow VideoProject 扫描超安全阀（>${MEDIA_GC_TIMELINE_SCAN_PAGE} 行）——本轮对拍跳过`);
+      return null;
+    }
+    const timelineRefs = new Set<string>();
+    for (const vp of videoProjects) collectJsonMediaIds(vp.data, timelineRefs);
+    for (const id of ids) if (timelineRefs.has(id)) referenced.add(id);
+    // doc 引用扫描（副本/copy 引用未进 binding 索引的窗——旧面的终裁腿）；读失败=对拍跳过
+    for (const p of projects) {
+      try {
+        const refs = await this.docs.withSession(p.id, (doc) => collectMediaRefs(toDocLike(doc)), { mode: 'read' });
+        for (const r of refs) referenced.add(r.mediaId);
+      } catch (e) {
+        this.logger.warn(`mediaGc shadow doc 扫描失败 project=${p.id}（本轮对拍跳过）: ${(e as Error).message}`);
+        return null;
+      }
+    }
+    return referenced;
   }
 
   /** 删除序（spec §3.4-7 :83——**对象先删（404/NoSuchKey 容忍）→行删**；对象失败→行保留 DELETING
