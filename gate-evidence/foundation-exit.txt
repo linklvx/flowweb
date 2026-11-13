@@ -30,7 +30,7 @@ quality✅）全闭后的批末出口门。**本包≠部署授权**——全环
 【出口门验证数字】
   ① pnpm verify（FULL）：36/36 步 PASS（exit 0；.verify-logs/e1-verify-full.log；本机
      15.0min；零 flake 零复跑——无台账引用）。池计数：shared 58 文件/791 用例、web 382/
-     4159、api 305/3144、heavy 4/12（合计 8105 用例全绿）；check-collab-census 37/37。
+     4159、api 305/3144、heavy 4/12（合计 8106 用例全绿——791+4159+3144+12）；check-collab-census 37/37。
   ② 五门禁负控红证（三向 allowlist/schema/raw-SQL/单写者/触发器）：
      自测载体六文件（verify 链 [35/36] scripts-node-test 常驻）逐文件实跑 83/83 绿：
        check-rebaseline-delta.test 19｜check-schema-timestamptz.test 10｜
@@ -59,11 +59,13 @@ quality✅）全闭后的批末出口门。**本包≠部署授权**——全环
      apps/api/.data/soak-e1.json+log .verify-logs/e1-soak.log）：60 样本×30s，edits=14280、
      connErrors=0；frameP95=51ms/frameP99=61ms（客户端回显——heavy 档 echo 预算口径不适用
      本档）；maxRSS=376.2MB 稳态平台（~340-376MB）/maxHeap=183.3MB；spool 零增长
-     （0.0B/min）；**容量无拐点（storeP99≤1s 判据）→ 容量上限 ≥4×8**；durable-ack 健康面
+     （0.0B/min）；**容量无拐点（storeP99≤1s 判据）→ 容量上限 ≥4×8（单档下界——正式档多档跑归 T18）**；durable-ack 健康面
      lag 三族全零（appliedUnpersistedMax=0/docDeliveryLag max=0/projectionPendingAge
      max=0）；持久化实证=actor PG 腿 yjs_store_payload_bytes 14284 观测（逐 append 成功，
-     storeP99=n/a=saveMutex noop 形态非持久化缺席）；soak 后指标实测 gap_seq=0/
-     watermark_lag=0/backfill_remaining=0。形态注记：api 单进程（dist/main.js
+     storeP99=n/a=saveMutex noop 形态非持久化缺席）；soak 后指标 gap_seq=0/watermark_lag=0/
+     backfill_remaining=0（呈报口径注记：三零无独立 soak 后落盘——等价事实由 03:40 restore drill
+     A 腿等值核验承载〔10 doc 全 mediaBindingSeq==pgSeq∧非 dirty，.verify-logs/e1-restore-drill.log〕）。
+     形态注记：api 单进程（dist/main.js
      COLLAB_ROLE=all——worker.module 服务〔oracle worker 等〕不在此进程，T15 同款本地
      dev 单进程形态）；装置收尾自清理（Cascade 清 soak 全域——台账惯例）。
   ⑤ restore drill 一次（第六轮 P1-15；一次性装置跑后即删——c3b6 同款；log
