@@ -18,7 +18,11 @@
 //  ⑦erasure 删除窗 shadow missing：GenerationIntent.resultRef@他项目（旧 erasure 面盲区）→detach 保留
 //    +mismatch{dir=missing}；
 //  ⑧erasure barrier bail-out：删除窗 prepare bail-out→pending-review 保守不删（下轮恢复收敛——
-//    复核窗/标记零破坏）。
+//    复核窗/标记零破坏）；
+//  ⑨(P1-1) erasure release→行删竞窗：release 后新引用（投影照写 binding 形态——appendBatch 复通帧
+//    落定投影）→批删事务内逐 id in-tx recheck 终裁拦下→该 id 保留（挂起 DELETING 收敛 pending-review）
+//    +下轮 disposition 重判→漂移释放+detach 保留（悬挂引用根修锚——变异 if(false)→误删即红）；
+//  ⑩(Minor-1) GC 逐候选预算自查：删除事务跨 expiresAt 后未处理尾段保守保留出循环（已处理段不回卷）。
 // 对拍形态（第六轮 P1-7）：两决策面在 barrier ACTIVE 持有窗内求值（appendBatch 封帧=pgSeq/epoch 冻结
 // ——同快照防假 mismatch）；新面=**registry∪Oracle 证人面（Binding 臂除外——两面共有投影证人，纳入
 // 即互掩：stale binding 永不显形）**；决策面=完整并集（含 Binding——回滚开关=决策面降至此证人面）。
@@ -411,5 +415,60 @@ maybe('C3b-5：消费面切换+shadow 对拍+回滚开关（真 PG）', () => {
     });
     expect(r2.outcome).toBe('purging-objects');
     expect(await prisma.media.findUnique({ where: { id: mExc.id } })).toBeNull();
+  }, 90_000);
+
+  it('⑨(P1-1) erasure release→行删竞窗：release 后新引用（投影照写）→in-tx recheck 拦下保留+下轮收敛 detach', async () => {
+    const pid = await seedErProject('d');
+    const mExc = await seedErMedia(pid, 'race');
+    await tombstone(pid);
+    await poller.tick();
+    await poller.tick();   // 标记（sidecar=[mExc]）
+    const run = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
+    // 竞窗注入：stub barrier 的 release 回调=fence 抬起后新投影 binding 落地形态（appendBatch 复通
+    // →帧落定→binding 投影照写 DELETING 媒体——MediaBinding 无 mediaId FK=悬挂引用无 DB 兜底形态）。
+    const raceBarrier: DeletionBarrierPort = {
+      prepare: async () => ({ outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 60_000 }),
+      release: async () => {
+        await prisma.mediaBinding.create({ data: { mediaId: mExc.id, projectId: PO, nodeId: 'n-p1-race', teamId: ER_TID, role: 'primary', targetField: 'fileId', targetItemId: '' } });
+        return true;
+      },
+    } as unknown as DeletionBarrierPort;
+    const r = await executePurgingDbStage({
+      prisma: prismaService, run, collectMediaRefs: collector, manifestDir,
+      spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0, barrier: raceBarrier,
+    });
+    // 窗内算出删除集（竞窗注入在 release 后）→release→批删事务内逐 id recheck 终裁命中→中止保留
+    expect(r).toMatchObject({ outcome: 'pending-review', remainingExclusive: 1 });   // 本 tick 不删（收敛下轮）
+    const row = await prisma.media.findUniqueOrThrow({ where: { id: mExc.id } });
+    expect(row.projectId).toBe(pid);            // 保留且仍挂起（误删=悬挂引用正中红锚——变异 if(false) 红）
+    expect(row.deletionState).toBe('DELETING'); // claims 留持有（同 erasureId 幂等再持有面）
+    // 下轮收敛：disposition 重判见新引用→复核集漂移释放+detach 保留
+    const run2 = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
+    const r2 = await executePurgingDbStage({
+      prisma: prismaService, run: run2, collectMediaRefs: collector, manifestDir,
+      spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0, barrier: okBarrier(),
+    });
+    expect(r2.outcome).toBe('purging-objects');
+    const row2 = await prisma.media.findUniqueOrThrow({ where: { id: mExc.id } });
+    expect(row2.projectId).toBeNull();          // 新引用被尊重→detach 保留
+    expect(row2.deletionState).toBe('ACTIVE');  // 漂移释放（conflict 路径）
+  }, 90_000);
+
+  it('⑩(Minor-1) GC 逐候选预算自查：删除事务跨 expiresAt→未处理尾段保守保留出循环（已处理段不回卷）', async () => {
+    await purgeStrayCandidates();
+    const m1 = await seedMedia({ deletedAt: new Date(GRACE_OLD.getTime() - 1_000) });   // deletedAt 序=确定处理序
+    const m2 = await seedMedia({ deletedAt: GRACE_OLD });
+    const slowMinio = () => ({ delete: vi.fn(async () => { await new Promise((res) => setTimeout(res, 1_200)); }) }) as never;
+    const shortBarrier = (): DeletionBarrierPort => ({
+      prepare: async () => ({ outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 500 }),
+      release: async () => true,
+    }) as unknown as DeletionBarrierPort;
+    const svc = new MediaGcService(prismaService, slowMinio(), makeDocsStub(), shortBarrier());
+    const s = await svc.sweep();
+    expect(s.deleted).toBe(1);   // 首候选照删（其删除事务〔对象删 1.2s 慢桩〕跨 expiresAt 落定）
+    expect(await prisma.media.findUnique({ where: { id: m1.id } })).toBeNull();
+    const row2 = await prisma.media.findUniqueOrThrow({ where: { id: m2.id } });
+    expect(row2.deletionState).toBe('ACTIVE');   // 未处理尾段：回 ACTIVE 释放持有+保守保留（下轮重判）
+    expect(s.guarded).toBeGreaterThanOrEqual(1);
   }, 90_000);
 });

@@ -276,7 +276,15 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
       }
       // ── 判定执行（C3b-4 删除序）：决策面命中→中止回 ACTIVE+conflict；否则删除序（对象先删
       //    404 容忍→行删；事务内 recheck 命中→中止回退）──
-      for (const c of claimed) {
+      for (let i = 0; i < claimed.length; i += 1) {
+        const c = claimed[i]!;
+        // Minor-1（spec 评审）：逐候选 expired() 自查——删除事务上界 15s×候选数（MEDIA_GC_PAGE≤50）
+        // 可越过 expiresAt（barrier 总预算 10s）；未处理尾段保守保留出循环（已处理段语义已落定：
+        // deleted/conflict 回退/object-failed 留 DELETING 重试锚——不回卷）。
+        if (expired()) {
+          await this.conservativeRetain(claimed.slice(i).map((x) => x.id), runId, summary, 'barrier 已过期（判定执行段）');
+          return;
+        }
         if (unionRefs.has(c.id)) {
           const n = await releaseMediaDeletionClaim(this.prisma, [c.id], runId);
           if (n > 0) {

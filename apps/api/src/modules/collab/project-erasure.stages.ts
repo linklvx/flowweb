@@ -265,7 +265,10 @@ export async function resolveMediaDisposition(
   const referenced = await erasureOldFaceReferenced(prisma, pid, rest, collectRefs);
   if (referenced == null) return { detach, exclusive: [], docScanFailed: true, docScanSkipped: false };   // fail-closed：本轮不判独占（不删）
   // ── C3b-5 并集单源 overlay（决策面=spec §3.4-6 五臂闭集——含 registry 臂〔ArtifactProjection/
-  //    GenerationIntent.resultRef 等〕+Oracle 臂〔PG doc 证人〕；被擦项目排除同旧面语义）──
+  //    GenerationIntent.resultRef 等〕+Oracle 臂〔PG doc 证人〕；被擦项目排除同旧面语义）。
+  //    注记（spec 评审 Minor-2）：回滚开关 MEDIA_REF_ORACLE_ONLY 仅辖 isMediaReferenced 决策臂
+  //    （=GC 全效）；erasure 决策另含旧面 binding 快判腿（常驻）——开关后 erasure 仍计 binding
+  //    证人=过度保留向无安全损失（runbook §13.3 开关辖面）。──
   const teamId = rest[0]!.teamId;
   const mediaRef = new MediaReferenceService(prisma);
   for (const m of rest) {
@@ -288,7 +291,13 @@ type DeleteManyDelegate = { deleteMany(args: unknown): Promise<unknown> };
 /**
  * PURGING_DB 写批（R15「每批删除各自取同键锁」——两批各自 lockProject→fenceProject 首句）：
  *  批一（resolution 写）：Media detach（projectId=NULL+清 nodeId/taskId）+独占行删+GenerationIntent
- *   scrub+VideoWork detach；
+ *   scrub+VideoWork detach。**独占行删=逐 id 删除事务内 isMediaReferenced recheck 终裁**（C3b-5 spec
+ *   评审 P1-1 根修）：删除集在 barrier 窗内算出后 **release 在先行删在后**（60s 批删 tx 不入 10s
+ *   fence 窗——spec §3.4-4 :78「⑤删除在 barrier 持有期内完成」的可达成等价形态），release→行删窗内
+ *   新投影 binding 照写 DELETING 媒体且 MediaBinding 无 mediaId FK（C1-1 去 FK）=悬挂引用无 DB 兜底
+ *   ⇒ 唯一根修面=行删事务内逐 id recheck：命中即该 id 中止保留（claims 留 DELETING，本 tick 收敛
+ *   pending-review 下轮 disposition 重判）；返回 deletedMediaIds=实际删除集（中止 id 留
+ *   remainingExclusive——调用方 ⑥ 消费）。
  *  批二（scope 批删+行删除）：registry 直列/别名/桥全量 deleteMany+CanvasProject 行删除（FK Cascade
  *   载体；P2025 折幂等——kill -9 重跑行已删）。
  *  批量界注记（C4-c1 质量评审 M6）：单 scope 行集无界批=已知界——谓词幂等重试+60s tx 上界承载；
@@ -297,8 +306,9 @@ type DeleteManyDelegate = { deleteMany(args: unknown): Promise<unknown> };
 async function applyProjectErasureWrites(
   prisma: PrismaService, pid: string,
   opts: { detachMediaIds: readonly string[]; deleteMediaIds: readonly string[] },
-): Promise<void> {
+): Promise<{ deletedMediaIds: string[] }> {
   // ── 批一：resolution 写（detach/scrub——谓词幂等：已 detach/scrub 行再跑零匹配）──
+  const deletedMediaIds: string[] = [];
   await prisma.$transaction(async (tx) => {
     await lockProject(tx, pid);
     await fenceProject(tx, pid);
@@ -309,7 +319,17 @@ async function applyProjectErasureWrites(
       });
     }
     if (opts.deleteMediaIds.length > 0) {
-      await tx.media.deleteMany({ where: { id: { in: [...opts.deleteMediaIds] }, projectId: pid } });
+      // 逐 id in-tx recheck 终裁（P1-1——头注根由）：窗内算出的删除集跨 release→行删窗后逐 id 在
+      // 删除事务内重判；命中（release 后投影照写 binding 等新引用）=该 id 中止保留（不删——claims
+      // 留 DELETING，remainingExclusive 收敛 pending-review 下轮 disposition 重判）。谓词保持
+      // id∧projectId=pid（detach 态行不误删；kill -9 重跑已删行=findUnique 零行折幂等跳过）。
+      const mediaRef = new MediaReferenceService(prisma);
+      for (const id of opts.deleteMediaIds) {
+        const row = await tx.media.findUnique({ where: { id }, select: { teamId: true, projectId: true } });
+        if (row == null || row.projectId !== pid) continue;   // 行已删/detach（重跑收敛面——非本批删除）
+        if (await mediaRef.isMediaReferenced(tx, id, { teamId: row.teamId, excludeProjectId: pid })) continue;   // recheck 命中→中止保留
+        if ((await tx.media.deleteMany({ where: { id, projectId: pid } })).count === 1) deletedMediaIds.push(id);
+      }
     }
     await tx.generationIntent.updateMany({
       where: { projectId: pid, OR: [{ resultText: { not: null } }, { gestureKey: { not: null } }, { resultRef: { not: null } }] },
@@ -344,6 +364,7 @@ async function applyProjectErasureWrites(
       if ((e as { code?: string })?.code !== 'P2025') throw e;   // 行已删（kill -9 重跑）折幂等
     }
   }, { timeout: PURGE_TX_TIMEOUT_MS, maxWait: 10_000 });
+  return { deletedMediaIds };
 }
 
 /** stage 结果（poller 只记日志/续租——状态推进见 outcome）。 */
@@ -421,7 +442,8 @@ export async function executePurgingDbStage(deps: PurgingDbStageDeps): Promise<P
       }
     } else if (Date.now() - Date.parse(sidecar!.markAt) >= (deps.reviewWindowMs ?? ERASURE_MEDIA_REVIEW_MS) && !disposition.docScanFailed) {
       // 删除窗（C3b-5 barrier 接线——spec §3.4-4 :78 删除序 ②-⑥ 消费侧）：prepare（exclude=被擦项目
-      // ——其自身引用不算保护）→窗内 union 终裁+shadow 同快照对拍→删除（所有权内）→release。
+      // ——其自身引用不算保护）→窗内 union 终裁+shadow 同快照对拍算出删除集→release（60s 批删 tx
+      // 不入 10s fence 窗——配对纪律）→⑤ 批删事务内逐 id in-tx recheck 终裁后行删（P1-1 头注）。
       // bail-out/预算过期=保守不删（pending-review 下轮 tick 重试——同 erasureId 幂等再持有）。
       const teamId = live.mediaRows[0]?.teamId ?? sidecar?.teamId ?? null;
       if (teamId != null && sidecar!.mediaIds.length > 0) {
@@ -490,10 +512,12 @@ export async function executePurgingDbStage(deps: PurgingDbStageDeps): Promise<P
         }
       }
     }
-    // ⑤ 写批（两批各自锁——kill -9 各步幂等）
-    await applyProjectErasureWrites(prisma, pid, { detachMediaIds: disposition.detach, deleteMediaIds: deletable });
+    // ⑤ 写批（两批各自锁——kill -9 各步幂等）。删除=**窗内算出+release 后批删事务内逐 id in-tx
+    //    recheck 终裁**（P1-1——applyProjectErasureWrites 头注：60s 批删 tx 不入 10s fence 窗的
+    //    spec 可达成等价；中止 id 留 deletedMediaIds 外→remainingExclusive 收敛 pending-review）。
+    const { deletedMediaIds } = await applyProjectErasureWrites(prisma, pid, { detachMediaIds: disposition.detach, deleteMediaIds: deletable });
     // ⑥ sidecar 收敛+未决判定（复核窗内/doc 扫描不可达→停 PURGING_DB 续租等下轮）
-    const remainingExclusive = disposition.exclusive.filter((id) => !deletable.includes(id));
+    const remainingExclusive = disposition.exclusive.filter((id) => !deletedMediaIds.includes(id));
     if (remainingExclusive.length !== disposition.exclusive.length || (disposition.exclusive.length === 0 && sidecar != null)) {
       if (remainingExclusive.length > 0) {
         await writePendingMediaMarker(manifestDir, run.erasureId, { schemaVersion: 1, markAt: sidecar?.markAt ?? new Date().toISOString(), teamId: live.mediaRows[0]?.teamId ?? sidecar?.teamId ?? null, mediaIds: remainingExclusive });
