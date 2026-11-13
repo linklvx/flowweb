@@ -300,10 +300,13 @@ return writeBinding();
 >   三项证据 dev 形态首轮档）。
 > - **移交清单**（各卡注记汇总引用+本卡新增）：
 >   ① C3b-4a M6：barrier ACTIVE 期 flush 撞拒**正向确认观测面**未建（行为锚=deletion-barrier ⑧；
->      弃帧/重托计数锚留待观测加强）；
+>      弃帧/重试计数锚留待观测加强）；
 >   ② C3b-4a M4：SG 1405/1405+persistence 1215/1215 双锚**零余量**（结构性债务——下一位触碰者抬锚）；
->   ③ C3b-4 M2：`restoreMediaToActive` **恢复端点未建**（原语在位——接线时消费）；M4 边界观察/M5
->      双字面注记维持登记（3e6e0241）；
+>   ③ C3b-4 M2：`restoreMediaToActive` **恢复端点未建**（原语在位——接线时消费）；M4 边界观察维持
+>      登记=最坏 sweep 批量时长 50×15s=12.5min>10min 陈旧阈下尾部候选可被接管（后果良性——所有权门
+>      'lost' 跳过+对象删幂等）+claim 用 PG now() 而陈旧判定用 JS Date.now() 的钟偏移平移同量；
+>      M5 双字面维持=runbook 复位 SQL `interval '10 minutes'` 与 MEDIA_DELETING_STALE_MS 双字面
+>      （代码单源注记在位）；
 >   ④ C3b-5 Important-1：shadow 对拍=**预算门控跳过**形态兑现（spec §3.4-8「抽样长期对拍」的字面
 >      采样=后续优化项——对拍出窗或采样优化移交）；非预算 skip 观测完备性（skip 计数在位——长期
 >      完备性随 soak 评估）；
@@ -312,10 +315,13 @@ return writeBinding();
 >   ⑥ 新增（C3b-6 审计）：oracle UUID 叶口径**约定假设**——非 UUID 形态 Media.id（dev 种子串 id）
 >      永不匹配=漏采方向由 binding 并集兜底（oracle-worker.service.ts UUID_LEAF_RE 头注；未来客户端
 >      自定 id/大写形态路径须回头扩口径）；
->   ⑦ loopback 退役+复核窗拆窗**单独立项**（spec §6 登记：前置=oracle 跑满保留期+coverage 零缺口）。
-> - **双评审**：C3b-1..5 双评审已毕（评审修复链 b61308ff→2d9159b6→014fe9bd→3e6e0241→f842c98e→
->   b8664529 在案）；C3b-6 双评审（spec+quality）以本收口 commit 为对象派发——结论若有修复项则
->   后续 commit 折入（E-1 前置=评审通过）。
+>   ⑦ loopback 退役+复核窗拆窗**单独立项**（spec §6 登记：前置=oracle 跑满保留期+coverage 零缺口）；
+>   ⑧ 惯例注记：C2/C3a 卡 checkbox 保留 [ ]=历史落档惯例（当时未随收口翻绿）；两卡均双评审✅
+>      全闭（证据=C2/C3a 各收口 commit 与评审记录）——与 C1/C3b 翻绿惯例不一，特此登记释疑。
+> - **双评审**：C3b-1..5 双评审已毕（评审修复链按卡=C3b-1 ea8c7a76/C3b-2 0f374eb1+5946c322/
+>   C3b-3 99c2be46+dd0ad7e7/C3b-4a 2d9159b6+014fe9bd/C3b-4 3e6e0241/C3b-5 f842c98e+b8664529，
+>   feature commit b61308ff/d2c00ff1 等另在案）；C3b-6 双评审（spec+quality）以本收口 commit 为
+>   对象派发——结论若有修复项则后续 commit 折入（E-1 前置=评审通过）。
 > - **E-1 前置就绪核对**：四卡全闭（本卡后）✓；五门禁 verify 链常驻（负控自测随 scripts-node-test
 >   步）✓；coverage/影子首轮证据（本卡）✓——E-1 本体（bench-smoke 权威档+30min soak+restore drill+
 >   RPO/RTO 四面+呈报包 foundation-exit.txt+部署窗）**不执行**，停等批末用户指令。

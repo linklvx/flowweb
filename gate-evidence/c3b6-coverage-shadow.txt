@@ -71,7 +71,7 @@ MinIO/docs=stub 形态同 int 套件既有裁定——证据面=决策/对拍链
 
 【五】结论
 
-  19/19 checks PASS（exit 0）。三项 C3b-6 卡收口证据全部落定：
+  19/19 checks PASS（exit 0；一次性校验脚本未留存——逐项复核以本文件各节内嵌决定性数字+dev 库留存行为准）。三项 C3b-6 卡收口证据全部落定：
   ① oracle coverage 首轮=10/10 COMPLETE∧verifiedSeq==pgSeq∧coverage_ratio=1（真首轮：前置 0 header）；
   ② decision snapshot 全链 verified（九 bail 腿全通过——第 9 腿 pgseq-moved 即 CAS 复读）；
   ③ shadow 对拍首轮 missing=0 ∧ extra=0（零 skip——预算门控未触发，观测面完备形态）。

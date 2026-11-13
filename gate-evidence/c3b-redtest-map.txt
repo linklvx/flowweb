@@ -1,6 +1,6 @@
 C3b-6 卡收口：spec §3.4 红测全族审计映射（spec 2026-11-11-foundation-batch-design.md §3.4-10 :86 十二条红测面 → 已落地测试锚）
 日期：2026-11-14 · HEAD=b8664529 · 审计口径：spec :86 逐条 → 测试文件:用例；缺口=spec 条目在全测试池无锚
-测试池（C3b-1..5 落地全五文件 + 迁移族门禁）：
+测试池（C3b-1..5 落地六 spec 文件〔deletion-barrier 族=int 8+port.spec 3 两载体〕+ 迁移族门禁）：
   oracle-worker.int（6 用例）/ media-reference.int（6）/ deletion-barrier.int（8）+ deletion-barrier.port.spec（3）
   / media-deleting.int（8）/ media-gc.shadow.c3b5.int（12）/ 存量迁移族（verify 链五门禁+负控自测）
 ──────────────────────────────────────────────────────────────────────────────
@@ -36,7 +36,7 @@ C3b-6 卡收口：spec §3.4 红测全族审计映射（spec 2026-11-11-foundati
 【三】存量迁移族锚（C3b-1 schema+门禁增量——非 spec :86 红测面，C1-6 注记②兑现证据）
 
   - oracle 双表+DeletionBarrier 三新表 → scripts/rebaseline-delta-allowlist.json added 组全登记
-    （tables 3/columns 18〔三新表 15+Media 审计 3〕/constraints 7/indexes 4——C1-2 对象门只读消费，
+    （tables 3/columns 18〔三新表 15+Media 审计 3〕/constraints 7/indexes 4=**三新表辖面口径**——allowlist added 组全量实为 constraints 8/indexes 5〔余 MediaBinding_projectId_fkey+canvas_doc_binding_backfill_partial 属 C3a 前期登记，非 C3b delta〕；C1-2 对象门只读消费，
     gate=verify 链 check-rebaseline-delta〔db〕+负控自测 scripts-node-test check-rebaseline-delta.test.mjs）
   - 迁移 additive+immutability → verify 链 check-migration-additive/check-migration-immutability（含自测）
   - 时间列 tsz → CanvasReferenceOracleScan.scannedAt/DeletionBarrier.expiresAt/Media.deletionRequestedAt
