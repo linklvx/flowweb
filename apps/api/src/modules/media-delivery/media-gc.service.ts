@@ -5,9 +5,10 @@
 //   ②NodeArtifact.mediaId（生成产物权威）
 //   ③VideoWork.videoMediaId（已发布作品）
 //   ④VideoProject.data JSON 深扫（剪辑 timeline clip.mediaId——shared VideoClip/ImageClip/AudioClip 词形）
-//   ⑤doc 引用扫描（mediaRefsOf 词表=shared MEDIA_REF_TARGET_FIELDS 九键——**护栏权威面**：副本/copy
+//   ⑤doc 引用扫描（mediaRefsOf 词表=shared MEDIA_REF_TARGET_FIELDS 九键——**预筛护栏权威面**：副本/copy
 //     的引用可能尚未进 binding 索引〔离线 paste 后 reconcile 未触〕，binding∪NodeArtifact 只是
-//     快速预判，doc 扫描是 GC 前的最终裁决——「副本还在媒体被删」的根防）
+//     快速预判——「副本还在媒体被删」的根防在 doc 扫描面；**最终裁决=删除事务内 isMediaReferenced
+//     recheck**（C3b-4——预筛全并集仍可能有盲区，recheck 五臂闭集兜底）
 //   ∪ grace period（软删期：素材库 deleteFile 仅软删，deletedAt 过 MEDIA_GC_GRACE 才进 GC 候选）。
 // 判定无引用 ⇒ 删除序执行（**C3b-4 DELETING 状态机+删除序**——spec §3.4-5 :81/§3.4-7 :83）：
 //   ①CAS 抢占 ACTIVE→DELETING（审计三列 deletionRequestedAt/RunId/Reason 同拍落值——双 worker/
@@ -327,7 +328,11 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
       } catch (e) {
         const status = (e as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode
           ?? (e as { name?: string }).name;
-        if (status !== 404 && status !== 'NoSuchKey') return 'object-failed';   // 行保留=重试锚（spec §3.4-7）
+        if (status !== 404 && status !== 'NoSuchKey') {
+          // 底层因（503/超时/网络）在此落日志——调用面 outcome 汇总只余 key，排障信息不丢
+          this.logger.warn(`mediaGc 对象删除失败 key=${rows[0]!.key}: ${(e as Error).message ?? e}`);
+          return 'object-failed';   // 行保留=重试锚（spec §3.4-7）
+        }
       }
       await tx.media.delete({ where: { id: c.id } });
       return 'deleted';

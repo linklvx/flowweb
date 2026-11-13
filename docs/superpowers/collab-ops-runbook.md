@@ -649,9 +649,11 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 **人工复位 SQL**（运维通道——按 `deletionReason` 分诊后执行；执行前先查 `media_deletion_conflict_total` 与审计列确认非活持有）：
 
 ```sql
--- 滞留 DELETING 复位（erasure run FAILED 遗留/误判人工放弃删除）：
+-- 滞留 DELETING 复位（主形态=erasure run FAILED 遗留——erasure 无 GC 兜底；谓词收窄到 reason。
+-- GC 遗留下轮 sweep 自愈通常无需人工；确需放弃删除时去掉 reason 谓词或改 'media-gc'）：
 UPDATE "Media" SET "deletionState" = 'ACTIVE'
- WHERE "deletionState" = 'DELETING' AND "deletionRequestedAt" < now() - interval '10 minutes';
+ WHERE "deletionState" = 'DELETING' AND "deletionRequestedAt" < now() - interval '10 minutes'
+   AND "deletionReason" = 'project-erasure';
 -- 审计列保留（最近一次尝试痕迹）；如需彻底清审计（行回到从未尝试形态）：
 UPDATE "Media" SET "deletionRequestedAt" = NULL, "deletionRunId" = NULL, "deletionReason" = NULL
  WHERE "deletionState" = 'ACTIVE' AND "deletionRunId" IS NOT NULL;   -- 仅运维裁量，非默认动作
