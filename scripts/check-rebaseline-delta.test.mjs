@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from './lib/schema-dump.mjs';
 import {
   parseArgs, normalizeCensus, computeDelta, evaluateGate, buildAllowlist, DELTA_GROUPS,
-  checkBaselineAnchors, checkAllowlistMeta, contentSha256, chainSqlPaths, INIT_SQL,
+  checkBaselineAnchors, checkAllowlistMeta, contentSha256, chainSqlPaths, chainInitError, INIT_SQL,
 } from './check-rebaseline-delta.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -307,6 +307,14 @@ test('chainSqlPaths：after 重放面=迁移链目录序全量（init 首位+其
   assert.ok(paths.every((p) => p.endsWith('migration.sql')), '链元素=各迁移目录的 migration.sql');
   const dirs = paths.map((p) => path.basename(path.dirname(p)));
   assert.deepEqual([...dirs].sort(), dirs, '链序=目录名字典序');
+});
+
+test('chainInitError：init 缺位→非空错误（抽迁移/空链 fail-closed 负控）；init 在链→null', () => {
+  const increment = path.join(path.dirname(INIT_SQL), '..', '20269999000000_x_increment', 'migration.sql');
+  assert.equal(chainInitError([INIT_SQL, increment]), null, 'init 在链（任意位）=无错');
+  assert.ok(chainInitError([increment]), '链抽掉 init=非空错误');
+  assert.match(String(chainInitError([increment])), /缺失 init/, '错误文案含「缺失 init」（main exit 2 依据）');
+  assert.match(String(chainInitError([])), /缺失 init/, '空链（init 目录被删）同样 fail-closed');
 });
 
 test('M-6 allowlist 未知组/未知 kind→红（不得静默忽略）', () => {

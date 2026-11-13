@@ -293,6 +293,13 @@ export function chainSqlPaths() {
     .map((d) => path.join(MIG_DIR, d, 'migration.sql'));
 }
 
+/** 链 init 缺位校验（fail-closed 纯函数——抽迁移/删 init 目录即非空错误，main 据此 exit 2）。 */
+export function chainInitError(afterPaths) {
+  return afterPaths.includes(INIT_SQL)
+    ? null
+    : `迁移链缺失 init（${rel(INIT_SQL)} 不在 ${rel(MIG_DIR)} 目录序内）`;
+}
+
 /** 重放阶段错误标记（M-4 归属）：已附文件路径，外层取数 catch 不得二次包装误标阶段。 */
 class ReplayError extends Error {}
 
@@ -427,8 +434,9 @@ async function main() {
   // after=迁移链全量重放（目录序）：init 首位+其后增量（C3b-1 起）——init 缺位=结构性错误（fail-closed，
   // 防基线 init 目录被删后空链静默判定）。allowlist 元数据 init 锚=init 文件（rebaseline 身份不变）。
   const afterPaths = chainSqlPaths();
-  if (!afterPaths.includes(INIT_SQL)) {
-    console.error(`rebaseline-delta FAIL: 迁移链缺失 init（${rel(INIT_SQL)} 不在 ${rel(MIG_DIR)} 目录序内）——结构性错误`);
+  const initError = chainInitError(afterPaths);
+  if (initError) {
+    console.error(`rebaseline-delta FAIL: ${initError}——结构性错误`);
     process.exitCode = 2;
     return;
   }

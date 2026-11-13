@@ -240,7 +240,7 @@ return writeBinding();
 
 ### Task C3b-1：oracle 双表 schema
 
-`CanvasReferenceOracle{projectId,mediaId,verifiedSeq BigInt,@@id([projectId,mediaId]),@@index([mediaId])}`+`CanvasReferenceOracleScan{projectId @id,historyEpoch,**generation Int**,verifiedSeq BigInt,status CHECK(VERIFYING|COMPLETE|FAILED),refCount Int,scannedAt @db.Timestamptz(3),error String?}`+`DeletionBarrier` 表（4a）——**三表均加 project FK Cascade**（项目删除零残留，第七轮 P1-6）；additive+immutability --write+verify:fast+Commit。
+`CanvasReferenceOracle{projectId,mediaId,verifiedSeq BigInt,@@id([projectId,mediaId]),@@index([mediaId])}`+`CanvasReferenceOracleScan{projectId @id,historyEpoch,**generation Int**,verifiedSeq BigInt,status CHECK(VERIFYING|COMPLETE|FAILED),refCount Int,scannedAt @db.Timestamptz(3),error String?}`+`DeletionBarrier` 表（4a）——**oracle 双表加 project FK Cascade**（项目删除零残留。**勘正（7e4d4a90 落地裁定）：原文「三表均加（第七轮 P1-6）」系悬空引用**——spec v5.2 ⑧+§3.4-3 两处均「双表」口径且 §3.4-4 DeletionBarrier 字段清单无 projectId，P1-6 仓内无出处；barrier=team 级 fence，teamId @id 单行无 projectId，挂 Cascade 反会在项目删除时连坐删在飞 fence；C3b-4a appendBatch 查 barrier 经 CanvasProject.teamId 单查解析）；additive+immutability --write+verify:fast+Commit。
 
 ### Task C3b-2：PG oracle worker（候选无关）
 
