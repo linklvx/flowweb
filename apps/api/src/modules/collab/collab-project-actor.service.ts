@@ -57,6 +57,7 @@ import {
   CollabCloseCode,
   DOC_OVER_QUOTA_TERMINAL_REASON,
   DOC_GENERATION_STALE_TERMINAL_REASON,
+  DELETION_BARRIER_REASON,   // C3b-4a 质量评审 M5：appendBatch 拒因分诊字面量单源（与 repo 返回联合类型同步）
   type FlushThroughResult,
 } from '@flowweb/shared';
 import {
@@ -1655,8 +1656,9 @@ export class CollabProjectActorService {
         // C3b-4a：deletion-barrier 拒≠fenced——**禁 selfIsolate**（team 级 fence 窗瞬态拒≠租约失守/
         // 写权 fencing；barrier ≤10s 释放后帧照常落定）。帧留 appliedQueue（WAL 已 fsync=BOI 安全），
         // 维护帧经 pgPending 旗标交退避梯重试——与 breaker-open 短路同族「稍后重试」语义。
-        if (r.reason === 'deletion-barrier') {
-          return { landed: false, errorKind: Object.assign(new Error('appendBatch rejected by deletion barrier'), { deletionBarrier: true }) };
+        // M5：拒因字面量=shared DELETION_BARRIER_REASON 单源（repo 返回联合类型同步面）。
+        if (r.reason === DELETION_BARRIER_REASON) {
+          return { landed: false, errorKind: new Error(`appendBatch rejected by ${DELETION_BARRIER_REASON}`) };
         }
         this.host.logger.error(`actor PG append fenced for ${pid}——帧留 spool（磁盘安全），回灌由恢复链承接`);
         try {

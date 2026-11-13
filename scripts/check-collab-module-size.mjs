@@ -32,7 +32,7 @@ export const SIZE_LIMITS = {
   'apps/api/src/modules/collab/deletion-barrier.service.ts': 280,   // C3b-4a 新文件入锚（P1-2 后实测 204+1.3 余量——spec §4 module-size「新文件入锚」：DeletionBarrier 持久 fence+六步序编排+全程预算复检）
   'apps/api/src/modules/collab/deletion-barrier.port.ts': 130,   // C3b-4a 新文件入锚（P1-1 后实测 100+1.3 余量——DeletionBarrierPort 跨进程端口面 Direct/Http 两形态〔URL=/api/collab/doc/deletion-barrier〕）
   'apps/api/src/modules/collab/deletion-barrier.metrics.ts': 25,   // C3b-4a 新文件入锚（实测 15+1.3 余量——deletion_barrier_active_seconds gauge 单源）
-  'apps/api/src/modules/collab/deletion-barrier.seal.ts': 55,   // C3b-4a 新文件入锚（实测 35+1.3 余量——admission seal 叶子注册表：独立文件根因=SG import 服务本体即环〔di-real-assembly 红〕）
+  'apps/api/src/modules/collab/deletion-barrier.seal.ts': 55,   // C3b-4a 新文件入锚（实测 39+1.3 余量——admission seal 叶子注册表：独立文件根因=SG import 服务本体即环〔di-real-assembly 红〕；质量评审 M4 记账对齐 test.mjs）
 };
 
 /** Z96 计法（plan 钉死）：对齐 wc -l（尾换行文件两口径一致；无尾换行差 1——自测钉）。 */

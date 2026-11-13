@@ -264,6 +264,10 @@ return writeBinding();
 - [ ] **Step 2：实现（顺序）**：①oracle 扫描在 barrier **前**→②CAS 取 barrier（ACQUIRING→ACTIVE+expiresAt）→③flushThrough 至 appliedSeq==pgSeq 且 admission 已封（无新 admitted 帧）→④decision snapshot+recheck→⑤删除（对象先删→行删）在 barrier 持有期内完成→⑥释放（删行）；总预算 10s+逐项目预算+`deletion_barrier_active_seconds` 观测；超时 bail-out 释放。
 - [ ] **Step 3：绿+Commit**。
 
+> **C3b-4a 卡收口注记（质量评审 0 Important/7 Minor——b61308ff+2d9159b6+本折入批）**：维持登记两项——
+> ①M6：⑧ 无「flush 撞拒正向确认」观测面加强（弃帧/重试计数锚），留给 C3b-4/5 顺带；②M4 结构性债务：
+> SG 1405/1405+persistence 1215/1215 双锚**零余量**（下一位触碰者须抬锚并注释依据——非本卡面）。
+
 ### Task C3b-4：DELETING 状态机+删除序（红先行）
 
 **Files:** `media-gc.service.ts`+`project-erasure.stages.ts`；Media 审计列（deletionRequestedAt/RunId/Reason——raw 迁移）

@@ -18,7 +18,9 @@
 //     面封）→④decision snapshot 五步序（C3b-3 decideTeamReferenceSnapshot——决策级校验链+CAS 复读）
 //     ——任一不满足整体 bail-out 释放+**返回 verified 前全程预算复检**（③'-④ 段同受总预算辖制——
 //     P1-2：activate 时未过期≠返回时未过期，过期=围栏已漏）；⑤删除（对象先删→行删）=调用方在
-//     prepare↔release 持有窗内执行（删除事务内 isMediaReferenced recheck 归 C3b-4 消费面）；
+//     prepare↔release 持有窗内执行（**须在剩余预算内完成——fence 在手至 expiresAt∩release 孰先**，
+//     质量评审 M3：过期后 seal 惰性失效+appendBatch 放行，调用方删除事务须自带 budget 自查；
+//     删除事务内 isMediaReferenced recheck 归 C3b-4 消费面）；
 //     ⑥释放（删行+解封+gauge）。
 //
 // ═══ admission 三面（spec :77）═════════════════════════════════════════════════════════════════
@@ -64,8 +66,10 @@ export const DELETION_BARRIER_BUDGET_MS = 10_000;
 /** 逐项目 flush 预算（③——多项目 team 内单项目不得吃尽总预算；覆盖面=opts.perProjectFlushBudgetMs）。 */
 export const DELETION_BARRIER_PROJECT_FLUSH_BUDGET_MS = 5_000;
 
-/** bail-out 原因（机器枚举——lost/timeout/expired/scan 四本地腿+C3b-3 snapshot 校验链九腿）。 */
-export type DeletionBarrierBailOutReason = 'lost-race' | 'flush-timeout' | 'barrier-expired' | 'scan-failed' | TeamReferenceBailOutReason;
+/** bail-out 原因（机器枚举——lost/timeout/expired/scan/unexpected 五本地腿+C3b-3 snapshot 校验链
+ * 九腿；质量评审 M2 拆腿：③'重扫段异常=scan-failed〔精准分诊〕，其余段〔flush/activate/snapshot/
+ * PG infra〕异常=unexpected-error——修前一律折 scan-failed 为误诊）。 */
+export type DeletionBarrierBailOutReason = 'lost-race' | 'flush-timeout' | 'barrier-expired' | 'scan-failed' | 'unexpected-error' | TeamReferenceBailOutReason;
 
 // ── 进程内 admission seal（面 1 消费=SG 热路径）——注册表本体在叶子模块 deletion-barrier.seal.ts
 //    （独立文件根因见彼处头注：SG 不得 import 本服务=防 gateway 求值中段提前拉入 document.service
@@ -141,6 +145,8 @@ export class DeletionBarrierService {
     const acq = await this.acquire(teamId, { budgetMs });
     if (!acq.ok) return { outcome: 'bail-out', reason: 'lost-race' };
     sealAdmission(teamId, acq.barrierId, pids, acq.expiresAt.getTime());
+    // M2 分诊旗：③'重扫段异常→'scan-failed'；其余段（flush/activate/snapshot/PG infra）→'unexpected-error'
+    let inScanSegment = false;
     try {
       // ③flushThrough 至 appliedSeq==pgSeq（ACQUIRING=flush 窗；逐项目预算，总预算余量收口）
       for (const pid of pids) {
@@ -149,8 +155,12 @@ export class DeletionBarrierService {
           return await this.bailOut(teamId, acq.barrierId, 'flush-timeout');
         }
       }
-      // ③'陈旧 header 重扫（flush 落定移动 pgSeq 的项目——常态零项）——ACTIVE 前完成=删除窗最小化
-      for (const pid of pids) await this.oracleScan.scanProject(pid).catch((e) => this.logger.warn(`rescan ${pid}: ${(e as Error).message}`));
+      // ③'陈旧 header 重扫（flush 落定移动 pgSeq 的项目——常态零项）——ACTIVE 前完成=删除窗最小化。
+      // M2：异常不吞（上抛 catch 段按 inScanSegment 分诊 scan-failed——修前折进 scan-failed 的
+      // flush/activate/snapshot 族异常现走 unexpected-error；①pre-scan 在 fence 外维持容错 warn。
+      inScanSegment = true;
+      for (const pid of pids) await this.oracleScan.scanProject(pid);
+      inScanSegment = false;
       // ③''ACTIVATE：appendBatch 面封——决策宇宙冻结（activate 自带 expiresAt>now 门——过期/被接管 0 行）
       if (!(await this.activate(teamId, acq.barrierId))) {
         return await this.bailOut(teamId, acq.barrierId, 'barrier-expired');
@@ -170,8 +180,9 @@ export class DeletionBarrierService {
       }
       return { outcome: 'verified', barrierId: acq.barrierId, projects: snap.projects };
     } catch (err) {
-      this.logger.warn(`prepare ${teamId} 异常 bail-out: ${(err as Error).message}`);
-      return await this.bailOut(teamId, acq.barrierId, 'scan-failed');
+      const reason: DeletionBarrierBailOutReason = inScanSegment ? 'scan-failed' : 'unexpected-error';
+      this.logger.warn(`prepare ${teamId} 异常 bail-out(${reason}): ${(err as Error).message}`);
+      return await this.bailOut(teamId, acq.barrierId, reason);
     }
   }
 

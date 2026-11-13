@@ -268,12 +268,17 @@ maybe('C3b-4a：DeletionBarrier 持久 fence+admission 三面', () => {
     expect(losers[0]).toEqual({ ok: false, reason: 'lost-race' });
     const winner = winners[0];
     if (!winner.ok) return;
-    expect((await prisma.deletionBarrier.findUniqueOrThrow({ where: { teamId: FIXTURE_TEAM } })).barrierId).toBe(winner.barrierId);
-    // 持 barrier 期他者 prepare → lost-race bail-out（零释放动作——未持有者不得动他人 fence 行）
-    expect(await svc.prepare(FIXTURE_TEAM)).toEqual({ outcome: 'bail-out', reason: 'lost-race' });
-    expect(await prisma.deletionBarrier.count({ where: { teamId: FIXTURE_TEAM, barrierId: winner.barrierId } })).toBe(1);
-    expect(await svc.release(FIXTURE_TEAM, winner.barrierId)).toBe(true);
-    expect(await prisma.deletionBarrier.count({ where: { teamId: FIXTURE_TEAM } })).toBe(0);
+    try {
+      expect((await prisma.deletionBarrier.findUniqueOrThrow({ where: { teamId: FIXTURE_TEAM } })).barrierId).toBe(winner.barrierId);
+      // 持 barrier 期他者 prepare → lost-race bail-out（零释放动作——未持有者不得动他人 fence 行）
+      expect(await svc.prepare(FIXTURE_TEAM)).toEqual({ outcome: 'bail-out', reason: 'lost-race' });
+      expect(await prisma.deletionBarrier.count({ where: { teamId: FIXTURE_TEAM, barrierId: winner.barrierId } })).toBe(1);
+      expect(await svc.release(FIXTURE_TEAM, winner.barrierId)).toBe(true);
+      expect(await prisma.deletionBarrier.count({ where: { teamId: FIXTURE_TEAM } })).toBe(0);
+    } finally {
+      // M7 测试纪律：中途 expect 失败不漏 ACTIVE 行连坐后继（与 ①②⑤⑧ 同款——幂等二次 release 零行无害）
+      await svc.release(FIXTURE_TEAM, winner.barrierId).catch(() => undefined);
+    }
   }, 60_000);
 
   it('④超时/失败→整体 bail-out 释放（行清+解封+appendBatch 复通）；过期行接管（TTL 自愈）', async () => {
@@ -381,20 +386,26 @@ maybe('C3b-4a：DeletionBarrier 持久 fence+admission 三面', () => {
     expect(body).toMatchObject({ outcome: 'verified' });
     expect(body.barrierId).toBeTruthy();
     expect((body.projects ?? []).map((p) => p.projectId).sort()).toEqual([...ALL_PIDS].sort());
-    // 错 barrierId release：零行命中不动他人 fence
-    const wrongRelease = await fetch(`${baseUrl}/api/collab/doc/deletion-barrier`, {
-      method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
-      body: JSON.stringify({ action: 'release', teamId: FIXTURE_TEAM, barrierId: randomUUID() }),
-    });
-    expect(((await wrongRelease.json()) as { released: boolean }).released).toBe(false);
-    expect(await prisma.deletionBarrier.count({ where: { teamId: FIXTURE_TEAM } })).toBe(1);
-    // 正 barrierId release：行清
-    const releaseRes = await fetch(`${baseUrl}/api/collab/doc/deletion-barrier`, {
-      method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
-      body: JSON.stringify({ action: 'release', teamId: FIXTURE_TEAM, barrierId: body.barrierId }),
-    });
-    expect(((await releaseRes.json()) as { released: boolean }).released).toBe(true);
-    expect(await prisma.deletionBarrier.count({ where: { teamId: FIXTURE_TEAM } })).toBe(0);
+    let heldBarrierId: string | undefined = body.barrierId;   // M7：finally 兜底释放锚（中途红不漏 ACTIVE 行连坐 ⑦⑧）
+    try {
+      // 错 barrierId release：零行命中不动他人 fence
+      const wrongRelease = await fetch(`${baseUrl}/api/collab/doc/deletion-barrier`, {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
+        body: JSON.stringify({ action: 'release', teamId: FIXTURE_TEAM, barrierId: randomUUID() }),
+      });
+      expect(((await wrongRelease.json()) as { released: boolean }).released).toBe(false);
+      expect(await prisma.deletionBarrier.count({ where: { teamId: FIXTURE_TEAM } })).toBe(1);
+      // 正 barrierId release：行清
+      const releaseRes = await fetch(`${baseUrl}/api/collab/doc/deletion-barrier`, {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
+        body: JSON.stringify({ action: 'release', teamId: FIXTURE_TEAM, barrierId: body.barrierId }),
+      });
+      expect(((await releaseRes.json()) as { released: boolean }).released).toBe(true);
+      expect(await prisma.deletionBarrier.count({ where: { teamId: FIXTURE_TEAM } })).toBe(0);
+      heldBarrierId = undefined;   // 正途已清——finally 兜底熄火
+    } finally {
+      if (heldBarrierId !== undefined) await svc.release(FIXTURE_TEAM, heldBarrierId).catch(() => undefined);
+    }
   }, 60_000);
 
   it('⑦(P1-2) 全程预算：④snapshot 段过 expiresAt → 返回 verified 前复检 bail-out barrier-expired（整体释放+解封）', async () => {

@@ -6,8 +6,10 @@
 //   · Http（worker 进程——erasure 形态）：POST /api/collab/doc/deletion-barrier（collab-write.controller
 //     @Controller('api/collab/doc') 前缀+@Post('deletion-barrier')——与 media-refs/purge-scope 同族
 //     同址；Bearer WORKER_WRITE_TOKEN 传输层——非资金面无 scope 令牌需求，media-refs/purge-scope 同判）。
-// 调用纪律：**prepare↔release 必须配对**（prepare 持有 fence 至 release——⑤删除本体在窗内执行；
-// 进程崩溃=expiresAt TTL 自愈+seal 惰性过期）；release 带 barrierId 守卫（stale release 零行）。
+// 调用纪律：**prepare↔release 必须配对**（prepare 持有 fence 至 release——⑤删除本体在窗内执行且
+// **须在剩余预算内完成**：fence 在手至 expiresAt∩release 孰先〔质量评审 M3——过期后 seal 惰性
+// 失效+appendBatch 放行，删除事务须自带 budget 自查〕；进程崩溃=expiresAt TTL 自愈+seal 惰性
+// 过期）；release 带 barrierId 守卫（stale release 零行）。
 // 消费面接线（GC/erasure 全面改走本面）归 C3b-5——本卡只建机制+最小编排入口。
 // spec 评审 P1-1：URL 与 controller 实际路由对拍锚在 deletion-barrier.port.spec.ts（fetchImpl 假体
 // 断言 URL/方法/载荷/token 头——路径漂移即红）。

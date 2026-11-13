@@ -8,6 +8,9 @@
 // Map O(1) 查——barrier 行翻/清经 deletion-barrier.service 同进程调用）。
 // 生命周期：acquire 后置翻（DeletionBarrierService.prepare）/release 清（barrierId 守卫）/惰性过期
 //（expiresAt 过即不封——api 进程崩溃=seal 随进程灭，DB 行由 acquire 原位接管兜底）。
+// 前视注记（质量评审 M1——单实例 ADR 前提）：**双 api 实例部署时面 1 seal 跨进程不可见**（本注册表
+// 进程内——A 实例 acquire 的 seal 对 B 实例的 SG 恒 false）；面 2 appendBatch DB 探针仍全域有效
+//（正确性底线不破，代价=B 实例帧经面 2 拒后留队重试）——扩实例须把面 1 改 DB 判定（或共享缓存面）。
 
 /** seal 台账：teamId → {barrierId, pids, expiresAt(ms), acquiredAt(ms)}——pid 反查 Map 免全扫。 */
 const sealByTeam = new Map<string, { barrierId: string; pids: ReadonlySet<string>; expiresAt: number; acquiredAt: number }>();
