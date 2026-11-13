@@ -120,7 +120,7 @@ export class MediaReferenceService {
     for (const pid of [...targets].sort()) {
       if (docOf.get(pid)?.pgSeq !== recheckOf.get(pid)) return { outcome: 'bail-out', reason: 'pgseq-moved', projectId: pid };
     }
-    return { outcome: 'verified', historyEpoch: epoch ?? '', projects: targets.map((projectId) => ({ projectId, pgSeq: docOf.get(projectId)!.pgSeq })) };
+    return { outcome: 'verified', historyEpoch: epoch ?? '', projects: [...targets].sort().map((projectId) => ({ projectId, pgSeq: docOf.get(projectId)!.pgSeq })) };
   }
 
   /** 删除保护引用并集判定（spec §3.4-6——任一臂命中→true=保留；db 直供=删除事务内 recheck）。 */

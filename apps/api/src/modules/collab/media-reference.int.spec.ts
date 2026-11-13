@@ -214,6 +214,8 @@ maybe('C3b-3：decision snapshot+isMediaReferenced+referrer registry', () => {
   }, 60_000);
 
   // ── ② oracle 臂 join header 校验（epoch+generation+verifiedSeq+status）+水位两腿+缺位两腿——逐腿腐蚀 ──
+  //（已知缺口：reason 'pgseq-moved' CAS 腿本用例不可测——两读在方法体内无交错 seam 可注入；
+  //  C3b-4a barrier 落地后经 admission 面间接覆盖。九 reason 中八腿在此覆盖。）
   it('②header 逐腿腐蚀→snapshot bail-out+oracle-only 证人失效；复原→verified（oracle 臂在位时证人有效）', async () => {
     // 前置：oracle-only@S 证人在位（header 有效——② 前全体 COMPLETE）
     expect(await svc.isMediaReferenced(prisma, M.oracleS, refOpts)).toBe(true);

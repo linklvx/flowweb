@@ -1917,6 +1917,11 @@ if (isMain()) {
     const entryRe = /table:\s*'(\w+)'\s*,\s*column:\s*'(\w+)'\s*,\s*kind:\s*'(mediaId|objectKey)'/g;
     const entries = block ? [...block[1].matchAll(entryRe)].map((m) => ({ table: m[1], column: m[2], kind: m[3] })) : [];
     if (!block) details.push('registry 缺 MEDIA_REFERRERS 数组（形态漂移——须同步本 census 提取器）');
+    // kind 域对账（M3 加固）：block 内 kind:'…' 字面出现数 ≠ 有效提取数 ⇒ 域外 kind/形态漂移即红
+    //（提取器 kind 组仅 (mediaId|objectKey)——坏 kind 条目不进 entries，无对账则静默逃检、仅条目
+    //  下限兜底；对账使头注「kind 域外红」声明为真）。
+    const kindLiterals = block ? [...block[1].matchAll(/kind:\s*'/g)].length : 0;
+    if (kindLiterals !== entries.length) details.push(`kind 域对账失败：kind 字面 ${kindLiterals} 处 vs 有效提取 ${entries.length} 条（域外 kind/字段形态漂移——修条目或同步提取器）`);
     // schema 模型解析（㊲ 同款）
     const schemaSrc = fs.readFileSync(path.join(ROOT, 'apps/api/prisma/schema.prisma'), 'utf8');
     const schemaModels = new Map();
