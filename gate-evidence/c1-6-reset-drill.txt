@@ -41,9 +41,10 @@ C1-6 卡收口：C1 rebaseline 后 dev reset 全链演练 + seed 行覆盖登记
 
   pnpm --filter @flowweb/api test:int   100 文件 / 716 用例全绿（09:18-09:22，
       .verify-logs/c1-6-test-int.log——实现者轮 reset 库；与【一】同 init 同 seed，状态等价）
-  pnpm verify                          36/36 PASS（check-collab-census 终判；
-      .verify-logs/c1-6-verify-run2.log——上一 TaskStop 截断产物 c1-6-verify.log〔[6/36] exit
-      3221225794〕已由本轮替换：进程树被杀伪红，非真实门红）
+  pnpm verify                          36/36 全绿（verify-chain: PASS 36 步 tier=full；fast 前缀尾=
+      check-collab-census 16/36 36/36 PASS，full 末步=api-eslint；.verify-logs/c1-6-verify-run2.log
+      ——上一 TaskStop 截断产物 c1-6-verify.log〔[6/36] exit 3221225794〕已由本轮替换：进程树被杀
+      伪红，非真实门红）
 
 【五】runbook §16 收口落位（本次编辑）
 

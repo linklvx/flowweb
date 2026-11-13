@@ -873,7 +873,7 @@ C1-1 起新 init 含 `set_updated_at()` 触发器（每 updatedAt 表）——�
 
 **C1 rebaseline 代际切换注记（C1-6 收口，2026-11-12）**：迁移树已切**单一 init `20261112120000_c1_rebaseline_init`**（24 旧链目录退役，git 历史保留）。
 ①**部署形态**=步 6b ⚠ 已注记的 squash 形态：**6a 先行**（上传新树）→步 ⑤ reset-collab 的 migrate 阶段即按新树跑新 init→6b 省略——新 init 在旧 schema 上 CREATE TABLE 必红，不可增量部署。
-②**回滚锚**=步 ④ pre-reset pg_dump **+ 代码树 tag `pre-c1-rebaseline`**（=ab622d60，C1 前末位提交）；回滚序=步 ③ 停消费者→pg_restore 旧 dump→checkout tag 构建部署→步 ⑦ 起序——代码与 DB 必须同代：旧代码跑新 init=补偿谓词（`AT TIME ZONE 'utc'` 族）在 timestamptz 列上语义反转（+8h 漂移族）；新代码跑旧 dump=migrate deploy 对既有 schema 重放 init 必红。
+②**回滚锚**=步 ④ pre-reset pg_dump **+ 代码树 tag `pre-c1-rebaseline`**（=ab622d60，C1 前末位提交）；回滚序=步 ③ 停消费者→整库恢复（**先 DROP SCHEMA public CASCADE 再 pg_restore**——drill-cutover --rollback 确定性形态，裸 restore/-c 依赖 dump 内 DROP 序不可靠）→checkout tag 构建部署→步 ⑦ 起序——代码与 DB 必须同代：旧代码跑新 init=补偿谓词（`AT TIME ZONE 'utc'` 族）在 timestamptz 列上语义反转（+8h 漂移族）；新代码跑旧 dump=migrate deploy 对既有 schema 重放 init 必红。
 ③**reset 后 seed 预期**（八类——dev 全链演练实测，证据 `gate-evidence/c1-6-reset-drill.txt`）：NodeType 8/AIModel 6/ModelResolution 7/ModelDuration 3/PricingRule 16/SystemHistory 1/CollabLease 1/**CollabOpsGate 1**（全局哨兵 `gate='compact' AND "projectId"=''`——int 测试会另插行/短删哨兵行〔c21〕，核对须按此过滤）。
 
 ---
