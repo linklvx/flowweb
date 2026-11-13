@@ -201,7 +201,7 @@ export class CanvasDocUpdateRepository {
   async appendBatch(projectId: string, rows: ReadonlyArray<{
     generation: number; firstWalSeq: bigint; lastWalSeq: bigint; frameCount: number;
     updateHash: string; update: Uint8Array; actorRanges?: unknown;
-  }>, wm?: { expectedPgSeq: bigint | null; newPgSeq: bigint; walCheckpointSeq: bigint }, inTx?: (tx: Prisma.TransactionClient) => Promise<void | { bindingCovered: boolean }>): Promise<{ ok: true; rows: number } | { ok: false, reason: 'fenced' | 'wal-seq-reset' }> {
+  }>, wm?: { expectedPgSeq: bigint | null; newPgSeq: bigint; walCheckpointSeq: bigint }, inTx?: (tx: Prisma.TransactionClient) => Promise<void | { bindingCovered: boolean }>): Promise<{ ok: true; rows: number } | { ok: false, reason: 'fenced' | 'wal-seq-reset' | 'deletion-barrier' }> {   // C3b-4a：deletion-barrier=team 级 fence 拒（非 fenced——调用方禁 selfIsolate，帧留队重试）
     const owner = this.leaseOwner;
     if (owner == null) throw Object.assign(new Error('append blocked: lease owner not set（契约 16 fail-closed）'), { leaseNotHeld: true });
     if (rows.length === 0) return { ok: true, rows: 0 };
@@ -251,6 +251,21 @@ export class CanvasDocUpdateRepository {
         // DELETING 写者）。锁序②位（advisory①→CanvasProject 行②→业务行）。actor 侧对该 throw 按
         // FK 族终态处置（弃置帧+收割——不进熔断/重试梯，见 flushPrefixToPg catch 注）。
         await fenceProject(tx, projectId);
+        // C3b-4a（admission 面 2/3——spec §3.4-4 :77「appendBatch 事务首句查 barrier 行（ACTIVE 即拒）」）：
+        // team 级 DeletionBarrier ACTIVE 行在档即拒（ACQUIRING=barrier 编排 ③ 的 flush 窗放行——已 apply
+        // 帧经本面落 PG；ACTIVE=删除窗封——新 apply 不可达）。**本检查=全部 doc 写路径单收口**（actor
+        // flush/persistence 维护回退/spool replayAll 三调用点——面 3「维护/worker 写同查」由此承载，
+        // 调用方形态：帧 WAL 照写〔BOI〕+拒后留队/退避梯重试，释放后落定零丢失）。team 解析=子查询
+        // 单查 CanvasProject.teamId（plan C3b-1 勘正注记）；性能取舍：每 appendBatch 事务+1 索引探针
+        // （DeletionBarrier teamId @id PK+CanvasProject @id）≈一次 PK 读——本事务已含 advisory+fence+
+        // INSERT 族多语句，边际可忽略；替代案（进程内标志短路）跨进程不可靠被否——worker 进程写路径
+        // 〔replayAll〕必须 DB 级可见。过期门=expiresAt>now（崩溃持有者零阻塞——acquire 原位接管）。
+        const barrier = await tx.$queryRaw<{ teamId: string }[]>`
+          SELECT b."teamId" FROM "DeletionBarrier" b
+          WHERE b.state = 'ACTIVE' AND b."expiresAt" > now()
+            AND b."teamId" = (SELECT "teamId" FROM "CanvasProject" WHERE "id" = ${projectId}::text)
+          LIMIT 1`;
+        if (barrier.length > 0) return { ok: false as const, reason: 'deletion-barrier' as const };
         let n = 0;
         for (const r of rows) {
           // 显式类型 cast（PG 参数类型推断：无 cast 的 unknown 参数在 INSERT..SELECT 列位会折
@@ -330,6 +345,8 @@ export class CanvasDocUpdateRepository {
       },
       { timeout: 5_000, maxWait: 1_000 },
     );
+    // C3b-4a：barrier 拒早出口（事务零业务写——直接透传拒因；下游 watermark 族分支不可达）。
+    if ('ok' in watermarkLanded && watermarkLanded.ok === false) return watermarkLanded;
     // C3a-8：观测点——仅 ① 落定（watermark=advanced）后有实读水位可报；lag=pgSeq−mediaBindingSeq。
     if (watermarkLanded.watermark === 'advanced' && watermarkLanded.mediaSeqAfter != null) {
       mediaBindingWatermarkLag.set(Number(wm!.newPgSeq - watermarkLanded.mediaSeqAfter));

@@ -22,6 +22,9 @@ import { CollabDocumentService } from './collab-document.service';
 import { CollabSpoolService } from './collab-spool.service';
 import { CollectMediaRefsDto } from './dto/collect-media-refs.dto';
 import { PurgeScopeDto } from './dto/purge-scope.dto';
+import { DeletionBarrierDto } from './dto/deletion-barrier.dto';
+import { DeletionBarrierService } from './deletion-barrier.service';
+import { mapPrepareToWire } from './deletion-barrier.port';
 import { WorkerWriteAuthGuard } from './worker-write-auth.guard';
 import { verifyWorkerScopeToken, WORKER_SCOPE_HEADER, type WorkerScopePayload } from './worker-scope-token';
 
@@ -36,6 +39,7 @@ export class CollabWriteController {
     @Inject(CollabDocumentService) private readonly docs: CollabDocumentService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(CollabSpoolService) private readonly spool: CollabSpoolService,
+    @Inject(DeletionBarrierService) private readonly deletionBarrier: DeletionBarrierService,
   ) {}
 
   /** C4-c1（plan C4——project-erasure）：未 reconcile 引用采集端点（erasure worker PURGING_DB
@@ -67,6 +71,27 @@ export class CollabWriteController {
   @UseGuards(WorkerWriteAuthGuard)
   async purgeScope(@Body() body: PurgeScopeDto): Promise<{ purgedSegments: number }> {
     return this.spool.purgeErasureScope(body.projectIds, { docs: this.docs });
+  }
+
+  /** C3b-4a（plan Task C3b-4a——spec §3.4-4 :79）：DeletionBarrier loopback 端点（erasure worker 跨
+   *  进程经 HttpDeletionBarrierPort 调 api——六步序编排在 api 进程执行〔seal 与 DB 行同进程翻/清〕）。
+   *  action 分发：prepare={teamId,excludeProjectId?}→wire 形 verified/bail-out（**verified=fence 在手
+   *  至 release——调用方删除本体在窗内执行+配对 release；bail-out=已整体释放零残留**）；
+   *  release={teamId,barrierId}→{released}（barrierId 守卫——stale release 零行不动后继）。
+   *  Bearer=WORKER_WRITE_TOKEN 传输层（media-refs/purge-scope 同族——非资金面无 scope 令牌）。 */
+  @Post('deletion-barrier')
+  @NoTransform()
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  @UseGuards(WorkerWriteAuthGuard)
+  async postDeletionBarrier(@Body() body: DeletionBarrierDto): Promise<{ outcome: string; barrierId?: string; projects?: { projectId: string; pgSeq: string }[]; reason?: string } | { released: boolean }> {
+    if (body.action === 'prepare') {
+      const r = await this.deletionBarrier.prepare(body.teamId, { excludeProjectId: body.excludeProjectId });
+      return mapPrepareToWire(r);
+    }
+    if (body.barrierId === undefined) {
+      throw new BadRequestException({ code: 'DELETION_BARRIER_BAD_BODY', message: 'action=release 须携 barrierId（barrierId 守卫——stale release 零行）' });
+    }
+    return { released: await this.deletionBarrier.release(body.teamId, body.barrierId) };
   }
 
   /** exec 状态投影写（RuntimeEvent feed——零 doc 写）。body={projectId,nodeId,patch}（patch 键域=

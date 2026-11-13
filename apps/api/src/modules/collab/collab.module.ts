@@ -31,6 +31,9 @@ import { CollabCanvasReadController } from './collab-canvas-read.controller';   
 import { CollabMaintenanceService } from './collab-maintenance.service';   // Y1c T27：维护窗口+世代切换状态机（单换代入口——freeze 4413/行级关闸/SWITCHING 事务后 close）
 import { BindingRebuildService } from './binding-rebuild.service';   // C3a-6：MediaBinding 全量 rebuild（唯一清 dirty+推 mediaBindingSeq——C3a-8 经 BackfillRunner 队列消费）
 import { ProjectionBackfillRunner } from './projection-backfill.runner';   // C3a-8：恢复四路统一入队+全表分页回填（boot/replay/import/vacuum/drift→rebuild；持久 ProjectionBackfillState 行）
+import { MediaReferenceService } from './media-reference.service';   // C3b-3：decision snapshot+isMediaReferenced（本卡接线注册——barrier 编排 ④ 消费）
+import { DeletionBarrierService } from './deletion-barrier.service';   // C3b-4a：持久 fence+admission 编排（seal registry/六步序）
+import { DeletionBarrierPort, DirectDeletionBarrierPort } from './deletion-barrier.port';   // C3b-4a：跨进程端口面（Direct=api 进程 GC 形态；Http=worker erasure 形态——消费接线归 C3b-5）
 import { CollabMaintenanceController } from './collab-maintenance.controller';   // Y1c T27：REST 控制面（admin guard+幂等键）
 import { CollabShrinkService } from './collab-shrink.service';
 import { CollabCompactPoller } from './collab-compact.poller';   // Y1c T12：dev role=all compact 轮询面装配（硬输入 #4）
@@ -81,6 +84,10 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
     CollabMaintenanceService,   // Y1c T27：维护状态机（vacuum 委托单换代入口+REST 控制面载体——gateway 尾参/shrink @Optional 双消费）
     BindingRebuildService,   // C3a-6：binding 全量 rebuild（gateway 尾参注入——单例与 gateway 同 prisma/repo 实例面）
     ProjectionBackfillRunner,   // C3a-8：backfill runner（恢复四路入队+首次启动全表分页枚举；媒体域 reconcile 注入触发 rebuild）
+    MediaReferenceService,   // C3b-3：decision snapshot+isMediaReferenced 并集读面（C3b-4a barrier 编排 ④+controller 端点消费）
+    DeletionBarrierService,   // C3b-4a：barrier 编排（prisma/repo/actor 直注——单例与 gateway 同实例面）
+    DirectDeletionBarrierPort,   // C3b-4a：端口 Direct 形态（api 进程）
+    { provide: DeletionBarrierPort, useExisting: DirectDeletionBarrierPort },   // C3b-4a：端口令牌→Direct（CollabWritePort 同款；Http 形态=worker.module 装配，消费接线归 C3b-5）
     CollabMediaRefsReadAdapter,   // C3a-7：BindMedia doc 源节点兜底端口适配（读活 doc——命令面即时校验允许）
     { provide: MEDIA_REFS_READ_PORT, useExisting: CollabMediaRefsReadAdapter },   // C3a-7：端口令牌→适配器（测试 useValue 注入 mock）
     TelemetryService,   // Y0b-5 T1：sendBeacon 遥测批次 ingest（一律 204——计数族在 store.metrics）

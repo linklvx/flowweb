@@ -1652,6 +1652,12 @@ export class CollabProjectActorService {
         }
       }
       if (!r.ok) {
+        // C3b-4a：deletion-barrier 拒≠fenced——**禁 selfIsolate**（team 级 fence 窗瞬态拒≠租约失守/
+        // 写权 fencing；barrier ≤10s 释放后帧照常落定）。帧留 appliedQueue（WAL 已 fsync=BOI 安全），
+        // 维护帧经 pgPending 旗标交退避梯重试——与 breaker-open 短路同族「稍后重试」语义。
+        if (r.reason === 'deletion-barrier') {
+          return { landed: false, errorKind: Object.assign(new Error('appendBatch rejected by deletion barrier'), { deletionBarrier: true }) };
+        }
         this.host.logger.error(`actor PG append fenced for ${pid}——帧留 spool（磁盘安全），回灌由恢复链承接`);
         try {
           await this.host.onFencedByWrite();   // 必办①承接：fenced→selfIsolate（closeAll1012+listener 释放+lost{cause} 单点）

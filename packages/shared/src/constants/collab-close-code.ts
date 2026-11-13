@@ -89,6 +89,10 @@ export const FRAME_MALFORMED_REASON = 'frame-malformed' as const;
 export const RESYNC_REQUIRED_REASON = 'resync-required' as const;
 /** 4413：维护冻结（Retry-After 可重试——非终态，载荷带 retryAfterMs）。 */
 export const MAINTENANCE_FREEZE_REASON = 'maintenance-freeze' as const;
+/** 4413（C3b-4a 码复用裁定）：DeletionBarrier admission 拒（team 级删除窗——同 4413 retry 档族：
+ *  服务端瞬态写冻结+Retry-After 自愈，码与 maintenance-freeze 复用〔resolveCloseAction 对 4413 不分
+ *  reason——客户端零改动零新码〕，reason 字面量分型诊断。barrier 窗≤总预算 10s。 */
+export const DELETION_BARRIER_REASON = 'deletion-barrier' as const;
 /** 4406：版本硬门（protocolVersion+schemaVersion+historyId 任一不匹配/缺失——客户端强刷）。 */
 export const CLIENT_OUTDATED_REASON = 'client-outdated' as const;
 /** 1011 EIO fail-stop（WAL fsync EIO 档关全部连接——与 SLOW_CONSUMER 同码异 reason 分型）。 */

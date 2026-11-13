@@ -1087,6 +1087,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - collab_write_session_release_timeout_total
 - collab_ws_close_total
 - compact_gate_skip_total
+- deletion_barrier_active_seconds
 - doc_append_gap_total
 - doc_compaction_duration_seconds
 - doc_delivery_applied_unpersisted

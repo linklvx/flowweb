@@ -26,6 +26,7 @@ import { CollabSpoolService } from './collab-spool.service';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabWriteController } from './collab-write.controller';
+import { DeletionBarrierService } from './deletion-barrier.service';   // C3b-4a：controller 构造参数四（deletion-barrier 端点——exec-status 用例零消费 stub）
 import { PrismaService } from '../../prisma/prisma.service';
 import { mintWorkerScopeToken } from './worker-scope-token';
 import { HttpCollabWritePort } from './collab-write.port';
@@ -111,6 +112,7 @@ maybe('Y1c T32 exec-status 端点（端到端真链+三探针——RuntimeEvent 
         { provide: CollabDocumentService, useValue: docSvc },
         { provide: PrismaService, useValue: prisma },   // T13：scope 全档绑定校验读点（intent 行）
         { provide: CollabSpoolService, useValue: new CollabSpoolService() },   // C4-c1：media-refs 端点面（exec-status 用例零消费——裸构造即可）
+        { provide: DeletionBarrierService, useValue: {} as DeletionBarrierService },   // C3b-4a：deletion-barrier 端点面（exec-status 用例零消费——裸 stub 即可）
       ],
     }).compile();
     app = moduleRef.createNestApplication();

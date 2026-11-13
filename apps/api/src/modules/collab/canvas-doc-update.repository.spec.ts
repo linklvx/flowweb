@@ -37,10 +37,11 @@ describe('CanvasDocUpdateRepository', () => {
   it('appendBatch（Y1c T9 新表形态）：锁内多行 INSERT ON CONFLICT DO NOTHING，返回实插行数；不经 canvasDocUpdate.create；V8 事务上界 5s/1s', async () => {
     // mock $transaction 直接执行回调（tx 即 prisma 自身——同 compact 三例先例）
     prisma.$transaction.mockImplementation(async (fn: any) => fn(prisma));
-    prisma.$queryRaw.mockResolvedValue([{ seq: 7n }]);
+    // C3b-4a：barrier 检（SELECT DeletionBarrier）按 SQL 形状答 []（无 fence 行——其余恒 [{seq}]）
+    prisma.$queryRaw.mockImplementation(async (strings: any) => (Array.isArray(strings) ? strings.join('?') : String(strings)).includes('"DeletionBarrier"') ? [] : [{ seq: 7n }]);
     const r = await repo.appendBatch('p1', [seedRow(new Uint8Array([1, 2]), 7n), seedRow(new Uint8Array([3]), 8n)]);
     expect(r).toEqual({ ok: true, rows: 2 });
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(4);   // C4-b fence 读（lifecycleState）+C1② tripwire 前置 SELECT pgSeq（docPg=undefined 缝跳过）+每行一条 INSERT（同事务）
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(5);   // C4-b fence 读（lifecycleState）+C3b-4a barrier 检（DeletionBarrier ACTIVE 探针）+C1② tripwire 前置 SELECT pgSeq（docPg=undefined 缝跳过）+每行一条 INSERT（同事务）
     expect(prisma.canvasDocUpdate.create).not.toHaveBeenCalled();
     // V8（Y0a-2 复审 I-1）：append 批交互式事务——5s 上界/maxWait 1s（挂起的 PG append 不得无上界持 actor drain）
     expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 5_000, maxWait: 1_000 });
@@ -395,8 +396,9 @@ describe('Y0a-3 fence 下沉（契约 2/15/16——owner-only SV1+advisory lock 
     return { repo: new CanvasDocUpdateRepository(prisma as any), prisma, txq, exec, query };
   }
 
-  it("appendBatch：Y1c T27 收尾 I-3' 恢复锁先行（首语句 advisory xact lock——Controller 裁定 (a)）+owner-only EXISTS（形状无 TTL 项）+ON CONFLICT DO NOTHING（updateHash 幂等）+水位 CAS 同事务", async () => {
-    const txq = vi.fn().mockResolvedValue([{ seq: 1n }]);
+  it("appendBatch：Y1c T27 收尾 I-3' 恢复锁先行（首语句 advisory xact lock——Controller 裁定 (a)）+C3b-4a barrier 检（fence 后、INSERT 前）+owner-only EXISTS（形状无 TTL 项）+ON CONFLICT DO NOTHING（updateHash 幂等）+水位 CAS 同事务", async () => {
+    // C3b-4a：barrier 检（SELECT DeletionBarrier）按 SQL 形状答 []；fence 读借 INSERT 同答 [{seq}]（lifecycleState 缺省→ACTIVE 分义）
+    const txq = vi.fn(async (strings: any) => ((Array.isArray(strings) ? strings.join('?') : String(strings)).includes('"DeletionBarrier"') ? [] : [{ seq: 1n }]));
     const exec = vi.fn().mockResolvedValue([]);
     const { repo, exec: e } = buildRepo({ txQuery: txq, txExec: exec });
     repo.setLeaseOwner('me');
@@ -410,7 +412,9 @@ describe('Y0a-3 fence 下沉（契约 2/15/16——owner-only SV1+advisory lock 
     // C4-b（R15 fence 补位）：lockProject 后 fenceProject FOR SHARE——$queryRaw 首语句=lifecycleState 读
     expect(shape(txq.mock.calls[0])).toContain('FROM "CanvasProject"');
     expect(shape(txq.mock.calls[0])).toContain('FOR SHARE');
-    const insert = txq.mock.calls[1];   // 锁+fence 后——$queryRaw 第二语句=INSERT
+    // C3b-4a：fence 后 barrier 检（第二语句=DeletionBarrier ACTIVE 探针——team 维子查询解析）
+    expect(shape(txq.mock.calls[1])).toContain('FROM "DeletionBarrier"');
+    const insert = txq.mock.calls[2];   // 锁+fence+barrier 后——$queryRaw 第三语句=INSERT
     expect(shape(insert)).toContain('EXISTS (SELECT 1 FROM "CollabLease"');
     expect(shape(insert)).not.toContain('"expiresAt" >= now()');      // SV1：fence 去 TTL
     expect(shape(insert)).toContain('ON CONFLICT DO NOTHING');        // Y1c T9：重试/重组批幂等
@@ -608,6 +612,7 @@ describe('C1 水位 UPDATE lease fence（全 fenced/部分 fenced 两 facet）',
   it('形状锚：CAS/adopt 两 UPDATE 的 WHERE 均含 CollabLease EXISTS fence+adopt 补 generation 谓词（Q-M8）', async () => {
     const txq = vi.fn()
       .mockResolvedValueOnce([{ lifecycleState: 'ACTIVE' }])   // C4-b fenceProject FOR SHARE 读
+      .mockResolvedValueOnce([])               // C3b-4a barrier 检（无 fence 行）
       .mockResolvedValueOnce([{ seq: 1n }])   // INSERT → 1 行
       .mockResolvedValueOnce([]);             // UPDATE CAS → 0 行（cas-miss）
     const query = vi.fn()

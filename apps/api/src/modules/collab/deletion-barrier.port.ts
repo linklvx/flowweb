@@ -1,0 +1,95 @@
+// apps/api/src/modules/collab/deletion-barrier.port.ts
+// C3b-4a（plan v3 Task C3b-4a——spec §3.4-4 :79「erasure（worker 进程）经 loopback 端口调 api
+// （DeletionBarrierPort+WORKER_WRITE_TOKEN 同族）」）：DeletionBarrier 跨进程端口面。
+// 两形态（CollabWritePort 同族体例）：
+//   · Direct（api 进程内——GC/测试形态）：直调 DeletionBarrierService（seal 与 DB 行同进程翻/清）；
+//   · Http（worker 进程——erasure 形态）：POST /api/collab/deletion-barrier（Bearer WORKER_WRITE_TOKEN
+//     传输层——非资金面无 scope 令牌需求，media-refs/purge-scope 同判）。
+// 调用纪律：**prepare↔release 必须配对**（prepare 持有 fence 至 release——⑤删除本体在窗内执行；
+// 进程崩溃=expiresAt TTL 自愈+seal 惰性过期）；release 带 barrierId 守卫（stale release 零行）。
+// 消费面接线（GC/erasure 全面改走本面）归 C3b-5——本卡只建机制+最小编排入口。
+import { Injectable } from '@nestjs/common';
+import { DeletionBarrierService, type DeletionBarrierPrepareResult } from './deletion-barrier.service';
+
+/** wire 形 prepare 结果（loopback JSON 契约——pgSeq 序列化为 string；bigint 经 JSON.stringify 即 throw，
+ *  端点/Http 形态统一经 mapPrepareToWire 收口）。 */
+export type DeletionBarrierPrepareWireResult =
+  | { outcome: 'verified'; barrierId: string; projects: { projectId: string; pgSeq: string }[] }
+  | { outcome: 'bail-out'; reason: Extract<DeletionBarrierPrepareResult, { outcome: 'bail-out' }>['reason'] };
+
+/** wire 映射单点（controller/Direct 形态共用——pgSeq bigint→string）。 */
+export function mapPrepareToWire(r: DeletionBarrierPrepareResult): DeletionBarrierPrepareWireResult {
+  return r.outcome === 'verified'
+    ? { outcome: 'verified', barrierId: r.barrierId, projects: r.projects.map((p) => ({ projectId: p.projectId, pgSeq: p.pgSeq.toString() })) }
+    : { outcome: 'bail-out', reason: r.reason };
+}
+
+/** barrier 端口（两方法抽象面——wire 契约：prepare 返回 pgSeq string 形）。 */
+export abstract class DeletionBarrierPort {
+  /** 六步序编排 ①-④+持有（verified 返回=fence 在手至 release；bail-out=已整体释放）。 */
+  abstract prepare(teamId: string, opts?: { excludeProjectId?: string }): Promise<DeletionBarrierPrepareWireResult>;
+  /** ⑥释放（barrierId 守卫；true=本持有已清）。 */
+  abstract release(teamId: string, barrierId: string): Promise<boolean>;
+}
+
+/** Direct 形态（api 进程内直调）：prepare 经 wire 映射（与 Http 形态同契约）+release 1 行委托。 */
+@Injectable()
+export class DirectDeletionBarrierPort extends DeletionBarrierPort {
+  constructor(private readonly svc: DeletionBarrierService) {
+    super();
+  }
+
+  override async prepare(teamId: string, opts?: { excludeProjectId?: string }): Promise<DeletionBarrierPrepareWireResult> {
+    return mapPrepareToWire(await this.svc.prepare(teamId, opts));
+  }
+
+  override release(teamId: string, barrierId: string): Promise<boolean> {
+    return this.svc.release(teamId, barrierId);
+  }
+}
+
+/** Http 形态构造选项（baseUrl/token/fetch 注入——测试缝；HttpCollabWritePort 同族）。 */
+export interface HttpDeletionBarrierPortOptions {
+  baseUrl?: string;
+  token?: string;
+  fetchImpl?: (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ status: number; json(): Promise<unknown> }>;
+  /** 单请求上界（默认 20s——prepare 全链=pre-scan+flush+rescan+snapshot，须覆盖 barrier 总预算 10s）。 */
+  requestTimeoutMs?: number;
+}
+
+/** Http 形态（worker 进程）：单端点 action 分发（prepare/release）；非 2xx=throw（调用方退避重试——
+ *  prepare 幂等方向=bail-out 非错误，错误档只剩传输/鉴权面）。 */
+export class HttpDeletionBarrierPort extends DeletionBarrierPort {
+  private readonly baseUrl: string;
+  private readonly token?: string;
+  private readonly doFetch: NonNullable<HttpDeletionBarrierPortOptions['fetchImpl']>;
+  private readonly requestTimeoutMs: number;
+
+  constructor(opts: HttpDeletionBarrierPortOptions = {}) {
+    super();
+    this.baseUrl = (opts.baseUrl ?? 'http://127.0.0.1:3000').replace(/\/+$/, '');
+    this.token = opts.token;
+    this.doFetch = opts.fetchImpl ?? ((globalThis as any).fetch.bind(globalThis));
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? 20_000;
+  }
+
+  /** 单点：POST action 载荷→2xx body 直返（wire 契约=Direct 形态同形——网络边界单 cast）。 */
+  private async request(body: Record<string, unknown>): Promise<unknown> {
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (this.token) headers.authorization = `Bearer ${this.token}`;
+    const r = await this.doFetch(`${this.baseUrl}/api/collab/deletion-barrier`, {
+      method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(this.requestTimeoutMs),
+    });
+    if (!(r.status >= 200 && r.status < 300)) throw new Error(`deletion-barrier endpoint ${r.status}`);
+    return r.json();
+  }
+
+  override async prepare(teamId: string, opts?: { excludeProjectId?: string }): Promise<DeletionBarrierPrepareWireResult> {
+    return this.request({ action: 'prepare', teamId, excludeProjectId: opts?.excludeProjectId }) as Promise<DeletionBarrierPrepareWireResult>;
+  }
+
+  override async release(teamId: string, barrierId: string): Promise<boolean> {
+    const body = (await this.request({ action: 'release', teamId, barrierId })) as { released: boolean };
+    return body.released;
+  }
+}

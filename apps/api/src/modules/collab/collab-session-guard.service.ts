@@ -40,6 +40,8 @@ import type { CollabConnection, FreezeReason } from './collab.gateway';   // W3b
 import { deriveCollabLimits, type CollabLimits } from './collab-limits';
 import { OutboundBudget } from './collab-outbound-budget';
 import { CollabHeartbeat } from './collab-heartbeat';   // R6'：保活心跳独立模块（B15 缓解）
+import { isDeletionBarrierSealed } from './deletion-barrier.seal';   // C3b-4a：admission 面 1 seal 判定（叶子模块零本地 import——SG 不得 import barrier 服务本体：经 media-reference→media-gc→collab-document 链会在 gateway 求值中段把 @Inject(CollabGateway) 拉成 undefined）
+import { DELETION_BARRIER_REASON } from '@flowweb/shared';   // C3b-4a：4413 码族 reason 字面量单源
 import { collabAuthRejectTotal, collabAuthTimeoutTotal, collabUpgradeRejectedTotal, collabLoadRejectedTotal, collabVersionNegotiationRejectTotal, collabOverloadState, collabWsCloseTotal, collabSweepCloseTotal, collabAwarenessRejectTotal, collabAwarenessRateExceededTotal, collabAwarenessStrippedTotal, collabMsgRateExceededTotal, collabQuotaFrameRejectedTotal, memberRevokedConns } from './store.metrics';
 
 /** Y0b-4 T6（Q-K/H-4）：awareness 入站帧闸 64KB——解码前拦（beforeHandleMessage 判型后帧字节判；
@@ -528,6 +530,14 @@ export class CollabSessionGuardService {
    *  无 cookie ⇒ cacheKey=null ⇒ 本轮拒绝不落缓存（anon 键会使不同来源的状态拒绝互相覆盖——写入侧短路）。
    *  拒绝一律带 reason（客户端 authenticationFailed 原样收到）；断连由库 30s 超时自然完成（桶超限不主动 close）。 */
   async authenticate(payload: onAuthenticatePayload) {
+    // C3b-4a admission 面 1b（onAuthenticate）：DeletionBarrier seal——sealed team 的新连接拒
+    //（spec §3.4-4 :77）。置最前=零 refusalCache 写入（瞬态窗 ≤barrier 总预算 10s——缓存 15s 会
+    // 过期滞后）/零信号量/桶消耗（Map O(1) 查）；reason=SERVER_OVERLOADED 瞬态档复用（裁定：不扩
+    // wire 协议 reason 域——barrier 短窗退避重连自愈，与信号量溢出同 UX 面）。
+    const sealedPid = parseDocName(payload.documentName)?.projectId;
+    if (sealedPid && isDeletionBarrierSealed(sealedPid)) {
+      throw this.denyAuth(CollabAuthReason.SERVER_OVERLOADED, `deletion-barrier: team doc admission sealed（${DELETION_BARRIER_REASON}，project=${sealedPid}）`, 'state');
+    }
     const credential = parseSessionToken(payload.requestHeaders?.get('cookie'));
     const fingerprint = credential ? `t:${createHash('sha256').update(credential).digest('hex').slice(0, 16)}` : null;
     const cacheKey = fingerprint ? `${payload.documentName}|${fingerprint}` : null;   // 唯一声明（读写两侧均 if(cacheKey) 短路）
@@ -805,6 +815,19 @@ export class CollabSessionGuardService {
    *  throw 兜底语义同 T4：code 权威投递=hardClose.webSocket.close 先行，throw 清空同批后续帧。 */
   async guardMessageFrame({ update, socketId, connection }: beforeHandleMessagePayload): Promise<void> {
     const conn = connection as unknown as CollabConnection;
+    // C3b-4a admission 面 1a（beforeHandleMessage）：DeletionBarrier seal——sealed team doc 的一切
+    // 入站帧拒（spec §3.4-4 :77「对该 team doc 帧拒」——awareness+sync 全帧面；throw 同批后续帧清空）
+    //。投递=4413 码族（retry 档——码复用 maintenance-freeze，reason 字面量分型；barrier ≤10s 窗，
+    // 客户端 Retry-After 自愈零新码）。维护 freeze（⓪‴ actor 面）同族两段式：stateless 载荷尽力+
+    // hardClose 码权威。
+    const barrierPid = conn.document?.name ? parseDocName(conn.document.name)?.projectId : undefined;
+    if (barrierPid && isDeletionBarrierSealed(barrierPid)) {
+      try {
+        conn.sendStateless?.(JSON.stringify({ code: CollabCloseCode.MAINTENANCE_FREEZE, reason: DELETION_BARRIER_REASON }));
+      } catch { /* 已断——close 权威投递仍在 */ }
+      this.hardClose(conn, CollabCloseCode.MAINTENANCE_FREEZE, DELETION_BARRIER_REASON);   // collabWsCloseTotal{code=4413,reason=deletion-barrier}=本面观测单点
+      throw Object.assign(new Error(`deletion-barrier: team doc admission sealed（project=${barrierPid}）`), { code: CollabCloseCode.MAINTENANCE_FREEZE, reason: DELETION_BARRIER_REASON });
+    }
     if (update.length > AWARENESS_FRAME_LIMIT_BYTES && readFrameType(update) === MessageType.Awareness) {   // 长度前置短路（T6 外审 M2）——常规帧（≤64KB 全量）免解析，语义恒等
       collabQuotaFrameRejectedTotal.inc({ reason: 'frame-too-large' });
       this.hardClose(conn, CollabCloseCode.LIB_MESSAGE_TOO_BIG, 'frame-too-large');

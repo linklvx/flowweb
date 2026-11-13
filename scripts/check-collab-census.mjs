@@ -916,6 +916,10 @@ if (isMain()) {
     'apps/api/src/modules/collab/binding-rebuild.service.ts': {
       applyUpdate: { n: 2, until: '片D' },
     },
+    // C3b-4a 注记：deletion-barrier.service（经 collab.module/collab-write.controller import 链）一度把
+    // oracle-worker.service 拉入 processor 闭包（scanUuidLeaves applyUpdate×2）；seal 注册表下沉叶子
+    // 模块 deletion-barrier.seal（SG 改 import 叶子——根修 gateway 求值中段 @Inject(CollabGateway)
+    // 空值环）后该路径消失——oracle-worker 仅余 worker.module 直注形态（不在 processor 闭包），无登记。
   };
   // 纯函数白名单（Z43 允许面——离线 yjs 纯函数；闭包内逐文件逐符号列名，漂移/越界即红）：
   const WORKER_PUREFN_WHITELIST = {
@@ -1860,7 +1864,7 @@ if (isMain()) {
       'apps/api/src/modules/collab/project-erasure.ts': 1,                 // openProjectErasure FOR SHARE（tombstone 事务内）
       'apps/api/src/modules/collab/project-erasure.poller.ts': 2,          // team run 批选择（ACTIVE 谓词=游标）+批置 tombstone UPDATE（C4-b Minor#5 扩 UPDATE 面——worker 写点 ErasureContext 域）
       'apps/api/src/modules/collab/project-governance.service.ts': 1,      // governance origin 写 UPDATE ... IS DISTINCT FROM（C4-b Minor#5 扩 UPDATE 面——创建路径写点，行集=刚建 ACTIVE 行）
-      'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 1,    // readLifecycleState（装载门分义读——C4-b）
+      'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 2,    // readLifecycleState（装载门分义读——C4-b）+C3b-4a appendBatch 事务首段 barrier 检（teamId 子查询单查——ACTIVE 拒；DeletionBarrier teamId @id PK 探针）
       'apps/api/src/modules/collab/collab-append-audit.worker.ts': 1,      // C3 审计 skip 面（inactive 判定列）
       'apps/api/src/modules/collab/projection-backfill.runner.ts': 1,      // C3a-8 修复批 I2：lifecycleState 分义读（非 ACTIVE/行缺=bail-out——delegate 读过滤见不到非 ACTIVE 行，故 raw 必要）
       'apps/api/src/modules/collab/collab-replay-canary.poller.ts': 2,     // canary active 计数+候选批（ACTIVE 谓词）
