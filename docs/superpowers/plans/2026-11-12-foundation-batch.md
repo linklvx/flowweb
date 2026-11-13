@@ -253,7 +253,7 @@ return writeBinding();
 
 **Files:** Create `media-reference.service.ts`+`media-referrer.registry.ts`
 
-- [ ] **Step 1：红测**：①`decideTeamReferenceSnapshot(teamId,{excludeProjectId?})`——**GC 不传全计入（含其他 DELETING 项目）；erasure 传被擦项目（其自身引用不算保护——第七轮 P0-4，对齐现 resolveMediaDisposition 的 projectId not pid）**；②oracle 臂 join header 校验 epoch+generation+verifiedSeq；③referrer registry 每条 `{table,column,kind:mediaId|objectKey,resolve}`（ObjectManifest/VideoTrim/coverKey 是**对象键**需 key→mediaId 映射）；每个 referrer 单独保护（binding-only/oracle-only/structured-only/objectKey-only 四组）；④erasure scope（A 擦 B 引用→detach；仅 A 自引用→删；A 擦时 B 为 DELETING→B 仍计入保护）。
+- [ ] **Step 1：红测**：①`decideTeamReferenceSnapshot(teamId,{excludeProjectId?})`——**GC 不传全计入（含其他 DELETING 项目）；erasure 传被擦项目（其自身引用不算保护——第七轮 P0-4，对齐现 resolveMediaDisposition 的 projectId not pid）**；②oracle 臂 join header 校验 epoch+generation+verifiedSeq；③referrer registry 每条 `{table,column,kind:mediaId|objectKey,resolve}`（ObjectManifest/VideoWork.coverKey 是**对象键**需 key→mediaId 映射；**VideoTrim 勘正〔bcf31e9c〕：VideoTrimTask.{sourceFileId,outputFileId} 实为 mediaId 非 objectKey——第六轮修正归类错，spec §3.4-6 已同批勘正**）；每个 referrer 单独保护（binding-only/oracle-only/structured-only/objectKey-only 四组）；④erasure scope（A 擦 B 引用→detach；仅 A 自引用→删；A 擦时 B 为 DELETING→B 仍计入保护）。
 - [ ] **Step 2：实现+绿+Commit**。
 
 ### Task C3b-4a：DeletionBarrier——持久 fence+admission（第七轮重设计）

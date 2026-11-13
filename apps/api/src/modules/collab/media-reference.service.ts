@@ -13,8 +13,9 @@
 //    registry 全条目（media-referrer.registry 单源）∪ Binding 臂（MediaBinding.mediaId——投影证人）
 //    ∪ Oracle 臂（CanvasReferenceOracle join header **决策级校验**：epoch+generation+verifiedSeq
 //    +status——coverage 只认决策级证人，spec §3.4-2「coverage 只认 COMPLETE∧verifiedSeq===决策
-//    pgSeq」；陈旧 header 的 oracle 行不作证人=误保留方向由 snapshot bail-out 纪律兜底〔删除流先
-//    snapshot 后 recheck——spec §3.4-4 删除序〕）。任一命中→保留。
+//    pgSeq」；陈旧 header 的 oracle 行不作证人——单看本臂该方向是**漏保护（误删）向**，删除流的
+//    安全由时序兜底：先 snapshot（陈旧即 bail-out）后 recheck，陈旧 header 流根本到不了本臂
+//    〔spec §3.4-4 删除序〕）。任一命中→保留。
 //
 // 【epoch 校验语义裁定（卡文「header 非陈旧〔当前 worker epoch〕」——跨进程可观测化）】
 //   worker epoch=OracleWorkerService 进程内 UUID，消费进程（api GC/worker erasure）不可读其内存。
@@ -110,13 +111,14 @@ export class MediaReferenceService {
       if (doc.bindingsDirty) return { outcome: 'bail-out', reason: 'binding-dirty', projectId: pid };
     }
     // ③ 扫描后 CAS 校验（复读 pgSeq——spec :80「逐项目 oracle+扫描后 CAS 校验」的 JS 面等价：
-    //    枚举读点后被并发 append 移动即 bail；删除流 barrier（C3b-4a admission 封帧）后此窗闭合）
-    const recheck = await this.prisma.canvasDoc.findMany({
+    //    枚举读点后被并发 append 移动/项目行消失即 bail；遍历 targets 而非复读行集——缺行即失配，
+    //    两读间并发删除的项目不得逃检。删除流 barrier（C3b-4a admission 封帧）后此窗闭合）
+    const recheckOf = new Map((await this.prisma.canvasDoc.findMany({
       where: { projectId: { in: targets } },
       select: { projectId: true, pgSeq: true },
-    });
-    for (const r of recheck) {
-      if (docOf.get(r.projectId)?.pgSeq !== r.pgSeq) return { outcome: 'bail-out', reason: 'pgseq-moved', projectId: r.projectId };
+    })).map((r) => [r.projectId, r.pgSeq] as const));
+    for (const pid of [...targets].sort()) {
+      if (docOf.get(pid)?.pgSeq !== recheckOf.get(pid)) return { outcome: 'bail-out', reason: 'pgseq-moved', projectId: pid };
     }
     return { outcome: 'verified', historyEpoch: epoch ?? '', projects: targets.map((projectId) => ({ projectId, pgSeq: docOf.get(projectId)!.pgSeq })) };
   }

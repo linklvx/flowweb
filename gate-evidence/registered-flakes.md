@@ -177,3 +177,10 @@
   单红，失败签名=**ENOTEMPTY: directory not empty, rmdir `%TEMP%\t9-actor-*`**（用例收尾目录清理竞态，
   非断言面）——同族先例=2026-10-24 首登/2026-11-05 T33 复现条；文件隔离跑 23/23 绿（5.3s）定性环境态
   非回归。处置=隔离重跑绿即过；C1-5 变更面（scripts/ gate+int spec+docs）与本 spec 零交叠。
+- 2026-11-13（C3b-3 spec 评审补登——申报无凭转正式登记）：collab-lifecycle-observer.t26.int.spec
+  两用例（「两项目同 nodeId 不互串」/「wal-append-failed」）于实现者红测阶段全 int 池满载轮红一例
+  （实现者申报隔离复跑 16/16 绿但未落盘未登记——spec 评审 P1-2 指出无凭）；族先例=2026-10-28 台账
+  原条目同套件同两用例（复发第三次）；本登记收口证据=评审收口后全 int 池重跑 719 passed+9 skipped
+  （728 总）全绿含 t26（18:53-18:58，.verify-logs/c3b3-media-reference-r2.log——同码同库）；
+  C3b-3 变更面（media-reference/registry/门㊴/size 锚）与 t26 DeliveryFence 域零代码交叠；
+  处置=复现时单独复跑收口（禁调判据——承 2026-10-28 原条目口径）。
