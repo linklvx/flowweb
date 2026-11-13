@@ -1,0 +1,52 @@
+C1-6 卡收口：C1 rebaseline 后 dev reset 全链演练 + seed 行覆盖登记（plan C1-6 两条验收）
+日期：2026-11-12 · HEAD=e9f34b5c（fix(c1): C1-5 质量评审收口）· 机器=win32 本地（PG 16.13，会话时区 Asia/Shanghai）
+回滚锚=tag pre-c1-rebaseline（=ab622d60，C1 前末位提交——runbook §16 C1 代际注记②）
+──────────────────────────────────────────────────────────────────────────────
+【一】reset 全链演练（fresh——上一轮成功链后状态文件已删，本次=全新七阶段全链）
+
+  命令：node scripts/reset-collab.mjs --rebuild-db --confirm
+  退出：exit 0 · 日志=.verify-logs/c1-6-reset-drill.log
+  七阶段全绿摘要：
+    precheck          DSN/owner/消费者在线断言/租约/inflight-stranded（decideResetGuard）全过
+    drop-recreate     DROP SCHEMA public CASCADE + CREATE SCHEMA public
+    migrate           prisma migrate deploy——**单一 init 20261112120000_c1_rebaseline_init**
+                      （squash 后无旧链目录；空 schema 上只重放新 init——部署形态=runbook §16 步 6b
+                       ⚠ squash 注记：服务器形态 6a 先行，reset 的 migrate 即新树迁移，6b 省略）
+    seed              seed.ts+gate-seed.ts 完成（"Gate fixtures ready: user/canvas/template/videoWork"）
+    quarantine-spool  apps/api/.data/collab-spool → .quarantine-2026-11-13T01-38-26-665Z（保证据不删）
+    bump-history      historyId=a6ec6a3b-dd23-4aa2-a98e-43a6d2d23845 epochStartedAt=2026-11-13T01:38:26.699Z
+                      （裸 now() 写 timestamptz(3) 列——C1-3 语义，无补偿式时区转换）
+    verify            SystemHistory id=1 非零 + 核心表 4/4（CanvasDoc/CanvasDocUpdate/CanvasDocSnapshot/
+                      SystemHistory）+ spool 目录净
+    收尾              状态文件已删（下次=全新全链；"reset 可重复执行"语义）
+
+【二】seed 八类计数（reset 后立即实测；查询日志=.verify-logs/c1-6-seed-counts.txt）
+
+  NodeType=8 · AIModel=6 · ModelResolution=7 · ModelDuration=3 · PricingRule=16 ·
+  SystemHistory=1 · CollabLease=1 · CollabOpsGate_sentinel=1（gate='compact' AND "projectId"=''）
+  CollabOpsGate_total=1（=纯全局哨兵；int 测试会另插行——核对必须按 sentinel 过滤，
+  实现者上午轮 reset 后实测 total=3=1 哨兵+2 测试行，同库不同时点非矛盾）
+
+【三】reset 后对象门/触发器门（同库同刻链上复跑；日志=.verify-logs/c1-6-{delta,trigger}-gate.log）
+
+  check-rebaseline-delta     exit 0——removed 21 / added 51 / changed 0；
+                             列 census：期望转换 161 列 / 删除 naive 4 列；八组三向闭合
+  check-updated-at-triggers  exit 0——48/48 updatedAt 表已覆盖（public 触发器 50=本族 48+ledger_guard 2）；
+                             每表恰 1 个 set_updated_at_<表>（BEFORE INSERT OR UPDATE FOR EACH ROW，
+                             tgenabled='O'，无条件 WHEN）
+
+【四】全套件旁证（同 HEAD、同 init 的 reset 库实例上）
+
+  pnpm --filter @flowweb/api test:int   100 文件 / 716 用例全绿（09:18-09:22，
+      .verify-logs/c1-6-test-int.log——实现者轮 reset 库；与【一】同 init 同 seed，状态等价）
+  pnpm verify                          36/36 PASS（check-collab-census 终判；
+      .verify-logs/c1-6-verify-run2.log——上一 TaskStop 截断产物 c1-6-verify.log〔[6/36] exit
+      3221225794〕已由本轮替换：进程树被杀伪红，非真实门红）
+
+【五】runbook §16 收口落位（本次编辑）
+
+  C1 rebaseline 代际切换注记（新增）：①部署形态=squash（6a 先行→reset migrate 即新树→6b 省略）
+  ②回滚锚=步④ pre-reset dump + tag pre-c1-rebaseline（代码与 DB 必须同代：旧代码跑新 init=补偿谓词
+  在 tsz 列语义反转；新代码跑旧 dump=init 重放必红）③seed 预期八类（CollabOpsGate 按 sentinel 过滤）
+  ——bump 裸 now 注释〔§16 阶段 6，C1-3 已落〕与状态文件重置清单+skip_updated_at 通道+
+  `--rebaseline --confirm` 运维注记〔§16 状态文件清单，C1-1 已落〕在档不重写。

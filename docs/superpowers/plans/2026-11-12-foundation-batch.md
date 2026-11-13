@@ -230,8 +230,9 @@ return writeBinding();
 
 ### Task C1-6：卡收口
 
-- [ ] dev reset 全链演练+对象门绿+`pnpm verify`+双评审+runbook §16（bump 注释/回滚=旧备份+旧代码树/状态文件重置/skip_updated_at 通道/`--rebaseline` 运维注记）。
-- [ ] seed 行覆盖登记：schema-only 基线（`schema-before-v2.sql`）无法比对 seed 行（NodeType/AIModel/ModelResolution/ModelDuration/PricingRule/SystemHistory/CollabLease/CollabOpsGate 的计数与内容）——由本卡 reset 全链演练覆盖（或届时补 seed census 门）；不入 C1-2 对象门。
+- [x] dev reset 全链演练+对象门绿+`pnpm verify` 36/36+runbook §16 收口（C1 rebaseline 代际注记：squash 部署形态 6a 先行/回滚锚=步 ④ dump+tag `pre-c1-rebaseline`=ab622d60 同代回滚/seed 预期八类；bump 裸 now 注释〔C1-3 已落〕与状态文件重置清单+skip_updated_at 通道+`--rebaseline --confirm` 运维注记〔C1-1 已落〕）——证据 `gate-evidence/c1-6-reset-drill.txt`（reset 七阶段全链输出+seed 八类计数+对象门/触发器门绿+test:int 100 文件/716 用例+verify full）。
+- [x] seed 行覆盖登记：reset 全链演练实测八类——NodeType 8/AIModel 6/ModelResolution 7/ModelDuration 3/PricingRule 16/SystemHistory 1/CollabLease 1/CollabOpsGate 1（全局哨兵 `gate='compact' AND "projectId"=''`；int 测试会另插行，核对须过滤）；不入 C1-2 对象门。
+- **卡注记（C3b/下一批移交）**：①「persistence 结构性收口」（importPending 标记/维护帧申报/settle/discard/onProjectGone 五点收敛为独立 tracker，解 persistence 1215/1215 零余量结构警号）=**下一批候选**（C1-1 评估②裁定独立立项，须带独立 TDD 切片走既有 `collab-persistence.service.spec.ts` C1 恢复链红测，不夹带）；②**C3b 边界**：C3b-1 落 DeletionBarrier/oracle 双表三迁移后，C1-2 对象门 allowlist（`scripts/rebaseline-delta-allowlist.json`）须同批增量登记 added 组+列 census（new-only 对象未登记即红）；三新表 updatedAt 须挂 `set_updated_at` 触发器（C1-5 coverage 门自红——新表漏挂即 exit 1）。
 
 ---
 
