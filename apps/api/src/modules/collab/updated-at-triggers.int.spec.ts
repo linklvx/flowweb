@@ -29,7 +29,7 @@ const maybe = hasDb ? describe : describe.skip;
 const PID = 'c15-updated-at-triggers';
 // VideoTag.name=VarChar(32)——短前缀（c15-+base36 时间戳≈12 字符，后缀均 <32）。
 const TAG = `c15-${Date.now().toString(36)}`;
-const CLOCK_TOLERANCE_MS = 5_000;   // now() 落定断言窗（触发器写库钟——机器钟偏差不参与判别）
+const CLOCK_TOLERANCE_MS = 5_000;   // now() 落定断言窗（**本机同钟前提**：DB 与 Node 同宿主）
 
 /** 节点相异载荷（同字节帧被 updateHash 幂等吞——④ 需两帧内容可区分）。 */
 const frameOf = (key: string, model: string): Uint8Array => {
@@ -144,7 +144,10 @@ maybe('C1-5：updatedAt 触发器语义（真 PG——spec §3.3-2）', () => {
           now() + make_interval(secs => 900), now() + make_interval(secs => 900))`;
       const pin0 = await prisma.canaryPin.findUniqueOrThrow({ where: { projectId: PID } });
 
-      // 窗内第二帧：pgSeq 1→2 的 raw 水位 UPDATE 不带 updatedAt——触发器是 updatedAt 唯一写者
+      // 窗内第二帧：pgSeq 1→2 的 raw 水位 UPDATE 不带 updatedAt——触发器是 updatedAt 唯一写者。
+      // Timestamptz(3)=毫秒精度：与首帧同毫秒时 now() 等值会假红——前移 3ms 消歧（缺触发器时仍等值红，
+      // 判别力不损）。
+      await new Promise((r) => setTimeout(r, 3));
       const f2 = frameOf('c15-b', 'm2');
       expect(await repo.appendBatch(PID, [seedRow(f2, 2n)], { expectedPgSeq: 1n, newPgSeq: 2n, walCheckpointSeq: 2n }))
         .toEqual({ ok: true, rows: 1 });

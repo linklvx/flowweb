@@ -77,6 +77,9 @@ export const VERIFY_STEPS = [
   // introspection〔information_schema.columns+pg_trigger/pg_get_triggerdef〕实测目标库已挂且启用——
   // schema 文本无法证「已挂」；db:true 真库目录依赖，fast 外惯例同款邻位）=36 步。
   { id: 'check-updated-at-triggers', cmd: 'node scripts/check-updated-at-triggers.mjs', db: true },
+  // 登记（C1-5 质量评审 M8，不修）：本步 db:false 但列举集含 DB 用例（check-updated-at-triggers.test.mjs
+  //   的真实 DB/CLI scratch/exit 2 面）——既有形态：full verify 恒带 DB（前方 db:true 门先失败），fast 前缀
+  //   不含本步（FAST_PREFIX_LEN=16）；无 DB 时用例按 skip 自跳且 coverage 门本体在 [34] 步独立执行，无假绿面。
   { id: 'scripts-node-test', cmd: 'node --test scripts/check-collab-census.test.mjs scripts/check-collab-health.test.mjs scripts/check-collab-module-size.test.mjs scripts/check-collab-test-facade.test.mjs scripts/check-ecosystem.test.mjs scripts/check-exact-pins.test.mjs scripts/check-gate-evidence.test.mjs scripts/check-ledger-single-writer.test.mjs scripts/check-media-binding-writers.test.mjs scripts/check-migration-additive.test.mjs scripts/check-migration-immutability.test.mjs scripts/check-plan-anchors.test.mjs scripts/check-plan-census.test.mjs scripts/check-raw-sql-time.test.mjs scripts/check-rebaseline-delta.test.mjs scripts/check-schema-timestamptz.test.mjs scripts/check-spec-consistency.test.mjs scripts/check-updated-at-triggers.test.mjs scripts/collab-renumber-layer.test.mjs scripts/collab-rebuild-gen.test.mjs scripts/deploy-sh-pgrestore.test.mjs scripts/dev-reset-canvas.test.mjs scripts/deploy-guard.test.mjs scripts/drill-fault.test.mjs scripts/env-file.test.mjs scripts/load-bench.test.mjs scripts/verify-chain.test.mjs apps/api/scripts/collab-soak-metrics.test.mjs apps/api/scripts/provider-late-reconnect-guard.test.mjs', db: false },
   // Y1c T20 出口前置根修：glob 对齐实际布局 "{src,test}/**/*.ts"→"src/**/*.ts"——apps/api 无 test/
   // 目录（api 测试=src/**/*.spec.ts 同仓共置），原 glob 模式不匹配即步红（ESLint fatal——任何环境

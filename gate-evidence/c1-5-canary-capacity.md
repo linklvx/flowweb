@@ -10,8 +10,8 @@
 |---|---|---|
 | pin 行模型 | `apps/api/prisma/schema.prisma:1772` `CanaryPin` | `projectId @id` → **每项目至多 1 pin**（窗不重叠）；列=坐标 3×BigInt + 两 hash 64B + SV + 两时间戳（≈1–2KB 上界） |
 | 捕获排程 | `collab-replay-canary.poller.ts:104-114` | `active`=CanvasDoc.updatedAt>now−7d∧ACTIVE；`n=ceil(active×1.25/24)`；每项目 `nextDueAt≈ceil(active/n)h≈19.2h`；tick=60s；每 tick 捕获 cap 8 |
-| 捕获冻结预算 | 同上 `:45-47` + `withFrozenPrefix`（gateBudget 500ms） | 最坏 8×0.5s=4s 冻结临界区/分钟/api 实例 |
-| pin TTL | `collab-replay-canary.service.ts:34` `CANARY_PIN_TTL_MS` | 15min；`expiresAt` 建立时定死**不续**；`leaseUntil` 由 worker 选择批续租（`collab-canary-verify.worker.ts:179-182`） |
+| 捕获冻结预算 | 同上 `:45-47` + `withFrozenPrefix`（`collab-project-actor.service.ts:1754-1766`） | **gate 预算 500ms**（`EXEC_FREEZE_BUDGET_MS`，`packages/shared/src/collab/execution-request.ts:226`）**+ flush 等待上限 2s**（`EXEC_ADMISSION_TIMEOUT_MS`，同文件 `:224`）=单项目 ≤2.5s；单实例最坏 8×2.5s=20s/分钟，**逐项目独立**（非全局冻结） |
+| pin TTL | `collab-replay-canary.service.ts:34` `CANARY_PIN_TTL_MS` | 15min；`expiresAt` 建立时定死**不续**；`leaseUntil` 由 worker 选择批续租（`collab-canary-verify.worker.ts:179-182`）；skip 档保 pin 至 TTL（`skip-generation`/`skip-stale-pin` 主动删 pin 不占位） |
 | 过期清扫 | `collab-replay-canary.poller.ts:98` | 每 tick（不论是否 serving）`DELETE FROM "CanaryPin" WHERE expiresAt < now()` |
 | verify 消费 | `collab-canary-verify.worker.ts:56-60,143-160,179-183` | tick=60s（env `CANARY_VERIFY_INTERVAL_MS`）；**单飞**（`running` 守卫：批未完时下一 tick 直接返回）；**每批 ≤8 pin 且 `for..await` 串行**；单 pin 重放预算 10s；正常/mismatch 档 compare-and-delete，skip 档保 pin 至 TTL |
 | 游标 | `CollabCanaryCursor`（`projectId @id`） | 每项目 1 行 upsert；行数=项目基数（非时间） |
@@ -22,8 +22,8 @@
 
 1. **增长速率（稳态）**：pin 创建率=active/19.2h；存活 pin 上界=active×min(TTL,消费时延)/19.2h≈
    **active×1.3%**（最坏 skip 档滞留 15min）；**绝对上界=项目基数**（近期转非 ACTIVE 的项目的 pin 仍存活
-   至 TTL 由清扫回收——捕获侧只对 ACTIVE 建 pin）。**无按时间累积**：过期恒被 tick 清扫，正常路径
-   ≤2 tick 内被 compare-and-delete。
+   至 TTL 由清扫回收——捕获侧只对 ACTIVE 建 pin；项目删除窗内 pin 行存活至 erasure 批删或 TTL 到期，
+   **+≤15min 删除窗**）。**无按时间累积**：过期恒被 tick 清扫，正常路径 ≤2 tick 内被 compare-and-delete。
 2. **吞吐上界 vs 需求**：需求≈active/19.2h（≈52/h @1000 项目，即 0.87/min）。verify worker 单飞+整批 8
    串行（tick 60s；批跨过下一 tick 时该 tick 被 `running` 跳过）：
    - 批在 60s 内完成（平均重放 ≪10s）：≤8 pin/60s＝480/h → 打平点 active≈**9,216**；
@@ -40,7 +40,8 @@
    - **多 api 实例捕获竞争**：`CanaryPin` PK=projectId → 同项目并发捕获的 INSERT 冲突折
      `capture-failed`+`collab_canary_pin_retry_total`（TTL 清扫兜底不误删他 pin）；事件有界、无跨实例互锁。
    - **候选查询全扫成本**：poller 的 `CanvasProject JOIN CanvasDoc`（active 计数/候选）与 worker 的
-     `CanaryPin JOIN CanvasProject/CanvasDoc` 无专用索引，按表基数全扫；两表行数=项目基数（非事件量），
+     `CanaryPin JOIN CanvasProject/CanvasDoc` **仅有 `CanvasProject.lifecycleState` 单列索引，候选 JOIN/
+     `CanvasDoc.updatedAt` 无覆盖索引**（PG 16 实测索引面）——按表基数全扫；行数=项目基数（非事件量），
      每 60s 一次的常量级扫描；规模化后按 EXPLAIN 评估加索引（不改判定）。
 5. **表扫描成本**：`CanaryPin`/`CollabCanaryCursor` 无 `expiresAt`/`status` 索引，但行数按构造 ≤项目基数
    （非事件表），每 60s 全表 DELETE/批读为 O(项目基数)，当前与可预见规模无瓶颈（零索引=写入零放大）。
@@ -55,3 +56,6 @@
   超限处置=调 interval/批建或独立立项扩容。
 - **观测缺口（登记，不阻塞）**：`CanaryPin` 现存行数/年龄无专用 gauge（`last_check_age` 只反映游标侧）；
   大规模 skip 滞留时需 SQL 查表分诊（runbook §14 处置序）。
+- **capture 自清跨实例同坐标删 pin 竞态（M7 登记不修）**：`deleteOwnPin` 按坐标（projectId+snapshotRev+
+  pgSeqAt+status='CAPTURING'）删行——双实例同坐标并发捕获时后到者可能删先到者的 CAPTURING pin
+  （下轮重捕+TTL 清扫兜底）；窗口有界（单轮）、不产生无界增长，归 C2-2a 既有形态。

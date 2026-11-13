@@ -14,7 +14,8 @@
 //   无 updatedAt 列的表上）→ exit 1。
 // 退出码（verify db 步语义=非零）：0=PASS；1=coverage 违规；2=结构性错误（DATABASE_URL 缺失/DB 不可达/
 //   表集为空〔未迁移或错库——扫零即假绿，fail-closed〕）。
-// 负控 = scripts/check-updated-at-triggers.test.mjs（纯函数六族+真实 DB 事务内 DROP→红→ROLLBACK→绿）。
+// 负控 = scripts/check-updated-at-triggers.test.mjs（纯函数六族+真实 DB 事务内 DROP→红→ROLLBACK→绿
+//   +CLI 端到端 scratch 库 exit 0/1/0+DB 不可达 exit 2）。
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';

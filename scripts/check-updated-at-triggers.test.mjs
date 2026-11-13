@@ -2,7 +2,8 @@
 // 零副作用；verify 链 scripts-node-test 步列举）。
 // 负控（plan Task C1-5）：纯函数六族（缺挂/多挂/错名/错函数/错时机/多余）+真实 DB 三用例
 // （48/48 绿；事务内 DROP 一个触发器→红→ROLLBACK→绿——零持久变更；**CLI 端到端 scratch 库**
-// 重放新 init→exit 0 / DROP→exit 1 / 恢复→exit 0——评审 Minor-6 可复跑红证）。无 DB 时 DB 用例 skip。
+// 重放新 init→exit 0 / DROP→exit 1 / 恢复→exit 0——评审 Minor-6 可复跑红证）+CLI exit 2（DB 不可达
+// ——无 DB 依赖恒跑）。无 DB 时 DB 用例 skip。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -89,7 +90,7 @@ test('负控⑥多余：set_updated_at_* 挂在无 updatedAt 列的表上 → �
   assert.match(r.violations.join('\n'), /多余：触发器 Ghost\.set_updated_at_Ghost/);
 });
 
-// ── 真实 DB 两用例（无 DATABASE_URL 且无 apps/api/.env → skip；plan「可选 db 用例 skip 无 DB」）──
+// ── 真实 DB 三用例（无 DATABASE_URL 且无 apps/api/.env → skip；plan「可选 db 用例 skip 无 DB」）──
 const dbUrl = (() => {
   try { return resolveDatabaseUrl(); } catch { return null; }
 })();
@@ -161,7 +162,7 @@ test('真实 DB CLI 端到端：scratch 重放新 init→exit 0（48/48）；DRO
 
     const green1 = runGate(scratchUrl);
     assert.equal(green1.status, 0, green1.stderr);
-    assert.match(green1.stdout, /updated-at-triggers OK: \d+\/\d+ 表已覆盖/);
+    assert.match(green1.stdout, /updated-at-triggers OK: 48\/48 表已覆盖/);
 
     await scratch.query(`DROP TRIGGER "${TRIGGER_PREFIX}${target}" ON "${target}"`);
     const red = runGate(scratchUrl);
@@ -171,10 +172,18 @@ test('真实 DB CLI 端到端：scratch 重放新 init→exit 0（48/48）；DRO
     await scratch.query(`CREATE TRIGGER "${TRIGGER_PREFIX}${target}" BEFORE INSERT OR UPDATE ON "${target}" FOR EACH ROW EXECUTE FUNCTION set_updated_at()`);
     const green2 = runGate(scratchUrl);
     assert.equal(green2.status, 0, green2.stderr);
-    assert.match(green2.stdout, /updated-at-triggers OK: \d+\/\d+ 表已覆盖/);
+    assert.match(green2.stdout, /updated-at-triggers OK: 48\/48 表已覆盖/);
   } finally {
     if (scratch) await scratch.end().catch(() => {});
-    await admin.query(`DROP DATABASE IF EXISTS ${scratchName}`).catch(() => {});
+    await admin.query(`DROP DATABASE IF EXISTS ${scratchName} WITH (FORCE)`)
+      .catch((e) => console.warn(`updated-at-triggers 自测 WARNING: scratch 库 ${scratchName} 删除失败（${e.message}）——残留下次同名不会复用（名含 pid+时间戳）`));
     await admin.end().catch(() => {});
   }
+});
+
+test('CLI exit 2：DB 不可达 → 结构性非零（fail-closed，不误判 coverage 绿；毫秒级）', () => {
+  const unreachable = 'postgresql://flowweb:flowweb_dev@127.0.0.1:1/flowweb';
+  const r = runGate(unreachable);
+  assert.equal(r.status, 2, `须 exit 2（实际 ${r.status}）: ${r.stdout}${r.stderr}`);
+  assert.match(r.stderr, /DB 不可达/);
 });
