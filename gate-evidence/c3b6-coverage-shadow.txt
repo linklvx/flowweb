@@ -1,0 +1,79 @@
+C3b-6 卡收口：oracle coverage 首轮 + decision snapshot 全链 + shadow 对拍首轮零 mismatch（真 dev 库实跑证据）
+日期：2026-11-14 · HEAD=b8664529（C3b-5 质量评审收口后）· 机器=win32 本地（PG 16.13/Redis/MinIO dev 栈；dev 库 flowweb）
+前置形态：C1-6 reset 全链演练后 dev 库（11 ACTIVE 项目/10 CanvasDoc；oracle 双表 0 行=**真首轮**——worker 从未扫过）
+装置形态：oracle-worker.int / media-gc.shadow.c3b5.int 同款服务直构（真 PG+真 DeletionBarrierService
+Direct port 全链 prepare 六步序〔pre-scan→acquire→flushThrough→重扫→activate→decision snapshot〕；
+MinIO/docs=stub 形态同 int 套件既有裁定——证据面=决策/对拍链，非对象存储面）。一次性 tsx 脚本跑后即删。
+──────────────────────────────────────────────────────────────────────────────
+
+【一】oracle worker 全宇宙首轮（coverage_ratio=1——spec §3.5「PG oracle coverage 证据」）
+
+  ACTIVE 宇宙=10 doc（gate-canvas-1 种子 pgSeq=0 + t33-p0..p8 bench 残留 pgSeq∈[4,139]，全部
+  mediaBindingSeq==pgSeq ∧ bindingsDirty=false）。OracleWorkerService.tick() 直调循环（批 4/tick）：
+
+  tick#1 scanned=4 · tick#2 scanned=4 · tick#3 scanned=2 · tick#4 scanned=0
+
+  全 10 项目逐项（header 状态机落定形态）：
+    gate-canvas-1:        COMPLETE verifiedSeq=0   pgSeq=0   refCount=0 oracleRows=0
+    t33-p0-1794543313188: COMPLETE verifiedSeq=11  pgSeq=11  refCount=0 oracleRows=0
+    t33-p1-1794543313188: COMPLETE verifiedSeq=6   pgSeq=6   refCount=0 oracleRows=0
+    t33-p2-1794543313188: COMPLETE verifiedSeq=109 pgSeq=109 refCount=0 oracleRows=0
+    t33-p3-1794543313188: COMPLETE verifiedSeq=109 pgSeq=109 refCount=0 oracleRows=0
+    t33-p4-1794543313188: COMPLETE verifiedSeq=109 pgSeq=109 refCount=0 oracleRows=0
+    t33-p5-1794543313188: COMPLETE verifiedSeq=4   pgSeq=4   refCount=0 oracleRows=0
+    t33-p6-1794543313188: COMPLETE verifiedSeq=33  pgSeq=33  refCount=0 oracleRows=0
+    t33-p7-1794543313188: COMPLETE verifiedSeq=34  pgSeq=34  refCount=0 oracleRows=0
+    t33-p8-1794543313188: COMPLETE verifiedSeq=139 pgSeq=139 refCount=0 oracleRows=0
+
+  coverage_ratio 指标=1 · scan_age_seconds=0s · DB 侧 covered/total=10/10（指标面与 DB 侧双证）
+  （零引用项目也写 COMPLETE refCount=0 行——spec §3.4-2 字面兑现；种子项目 pgSeq=0 空态照扫。）
+  首轮 header/oracle 行保留在 dev 库=真 worker 首轮状态（下轮 worker 实例 epoch 变更即全量重扫——
+  复用条件语义自洽）。
+
+【二】小宇宙 oracle 扫描（UUID 叶 JOIN Media id∧teamId 过滤——真引用命中证据面）
+
+  宇宙：team TID（projects A=引用形态 doc〔fileId=M_DOC + ghostRef=无行 UUID + crossRef=跨队媒体〕
+  / B=零引用 doc）· 跨队宿主 team OTID（M_CROSS 行）· media：M_DOC/M_UNREF 软删 8d（GC 候选）
+  + M_CROSS ACTIVE。
+
+  scanProject(A)={outcome:complete, verifiedSeq:1n, refCount:1}
+  scanProject(B)={outcome:complete, verifiedSeq:1n, refCount:0}
+  A oracle 行恰=[M_DOC]：ghost（无 Media 行）/M_CROSS（跨队——JOIN teamId 滤除）/nodeId 键均不入表；
+  M_DOC 软删媒体照采=删除中止证人形态（spec §3.4-3）。
+
+【三】decision snapshot 全链（§3.5 口径——decideTeamReferenceSnapshot verified）
+
+  decideTeamReferenceSnapshot(TID)
+    = {outcome:'verified', historyEpoch:'c033ef15-…', projects:[{A, pgSeq:1n},{B, pgSeq:1n}]}
+  （epoch〔freshest-scannedAt〕/COMPLETE/verifiedSeq===pgSeq/generation/binding 水位===pgSeq/
+   非 dirty/CAS 复读九腿全通过——C3b-3 校验链全绿。）
+  isMediaReferenced：M_DOC=true（oracle 臂证人）/M_UNREF=false（五臂闭集零命中）。
+
+【四】GC sweep+shadow 对拍首轮（真 barrier Direct port——零 mismatch 证据）
+
+  sweep 耗时=117ms · summary={candidates:2, deleted:1, guarded:1, conflicted:1, objectDeleteFailed:0}
+  metrics（本进程首轮——零基线）：
+    media_ref_shadow_mismatch_total{consumer=media-gc,dir=missing}=0
+    media_ref_shadow_mismatch_total{consumer=media-gc,dir=extra}  =0
+    media_ref_shadow_skip_total{consumer=media-gc}                =0
+    media_gc_outcome_total{outcome=deleted}=1 · {outcome=guarded}=1
+    media_deletion_conflict_total{reason=media-gc}=1 · {outcome=valve-bailout}=0
+
+  判定链实跑形态：
+    M_UNREF（零引用）→ barrier prepare verified（六步序全链）→ shadow 旧面 miss ∧ 新面
+      （registry∪Oracle 证人面，skipBindingArm）miss=零差 → 放行删（对象先删〔stub 404 容忍档〕
+      →行删）→ deleted=1；
+    M_DOC（doc-only 引用）→ 旧面 doc 扫描腿 hit（PG 重建 doc+collectMediaRefs——与 residency 读面
+      同内容的忠实适配）∧ 新面 oracle 臂 hit=零差 → 决策面并集命中 → 中止回 ACTIVE
+      +conflict 计数+审计留痕（deletionRunId/deletionReason='media-gc'）→ guarded=1/conflicted=1。
+  终态核验：M_DOC 行在且回 ACTIVE+审计三列落值 · M_UNREF 行已硬删 · DeletionBarrier 行=0
+  （prepare↔release 配对纪律——零残留）。
+
+【五】结论
+
+  19/19 checks PASS（exit 0）。三项 C3b-6 卡收口证据全部落定：
+  ① oracle coverage 首轮=10/10 COMPLETE∧verifiedSeq==pgSeq∧coverage_ratio=1（真首轮：前置 0 header）；
+  ② decision snapshot 全链 verified（九腿校验链+CAS 复读）；
+  ③ shadow 对拍首轮 missing=0 ∧ extra=0（零 skip——预算门控未触发，观测面完备形态）。
+  附注：宇宙内 bench 残留 t33-* doc 均零媒体 UUID 叶（bench 负载无 fileId 面）→refCount=0 全档；
+  真引用命中面由【二】小宇宙承载（JOIN 过滤三形态：真引用/无行/跨队）。

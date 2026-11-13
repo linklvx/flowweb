@@ -1,0 +1,68 @@
+C3b-6 卡收口：spec §3.4 红测全族审计映射（spec 2026-11-11-foundation-batch-design.md §3.4-10 :86 十二条红测面 → 已落地测试锚）
+日期：2026-11-14 · HEAD=b8664529 · 审计口径：spec :86 逐条 → 测试文件:用例；缺口=spec 条目在全测试池无锚
+测试池（C3b-1..5 落地全五文件 + 迁移族门禁）：
+  oracle-worker.int（6 用例）/ media-reference.int（6）/ deletion-barrier.int（8）+ deletion-barrier.port.spec（3）
+  / media-deleting.int（8）/ media-gc.shadow.c3b5.int（12）/ 存量迁移族（verify 链五门禁+负控自测）
+──────────────────────────────────────────────────────────────────────────────
+
+【一】spec §3.4-10 :86 十二条 → 测试锚映射表
+
+| # | spec :86 红测条目 | 测试锚（文件:用例） |
+|---|---|---|
+| 1 | 零引用项目 coverage 通过 | oracle-worker.int ③（零引用项目 COMPLETE refCount=0——原子替换）；运行时首轮佐证 gate-evidence/c3b6-coverage-shadow.txt【一】（10/10 含种子空 doc） |
+| 2 | verifiedSeq=100,pgSeq=110 bail-out | oracle-worker.int ②（锚读后并发 append 移动 pgSeq⇒CAS miss：无行写入+header 停 VERIFYING 非 COMPLETE）+ media-reference.int ②（header 逐腿腐蚀含 header-stale-verified-seq→snapshot bail-out）——扫描层+决策层双锚 |
+| 3 | 扫描中途崩溃不得 COMPLETE | oracle-worker.int ⑤（typed error→header FAILED（error 非空）+不写行+不 COMPLETE；扫描中断不得 COMPLETE；预算恢复→COMPLETE） |
+| 4 | DELETING/erased 项目不永久阻塞 | media-reference.int ①（erasure exclude=被擦项目出列/GC 不传全计入含 B2 DELETING）+ media-deleting.int ③c（对象失败→行保留 DELETING+陈旧化后下轮重试成功=接管归还面）+ shadow ⑧（erasure barrier bail-out→pending-review 保守不删+恢复后收敛） |
+| 5 | DELETING 媒体+doc 帧新引用（apply 未 append）→删除保留/中止 | deletion-barrier.int ①（已 apply 未 flush 的引用帧：barrier flushThrough 落定后决策可见→保留；负控：无 barrier 直判=不可见）+ media-deleting.int ②a/②b（recheck 命中→中止回 ACTIVE+conflict+审计） |
+| 6 | 未知字段含 media UUID→oracle 命中保留 | oracle-worker.int ①（未知字段捕获——候选无关扫描面）+ shadow ⑤（全链真 barrier：doc-only 引用 fileId 帧无 binding→oracle 臂保留；引消+重扫→放行删） |
+| 7 | 每个 referrer 单独保护（binding-only/oracle-only/structured-only 三组） | media-reference.int ③（四组单独保护：binding-only/oracle-only/structured-only/+objectKey-only——第六轮修正超集）+ ③b（registry sweep 其余 referrer 逐条独立命中：LightingTask/ArtifactProjection/GenerationIntent.resultRef/VideoTrim source+output/VideoProject.data/ObjectManifest claim/VideoWork.videoMediaId；过期 claim 不算） |
+| 8 | 双 GC worker 抢占 | deletion-barrier.int ③（barrier CAS：并发 acquire 恰一者得一者零行；持 barrier 期他者 prepare=lost-race）+ media-deleting.int ①（DELETING claim 双 worker 一者零行+同 run 幂等+陈旧行接管） |
+| 9 | DELETING→ACTIVE 回退+审计 | media-deleting.int ②a/②b（回退+conflict 计数+审计留痕 guarded 桶）+ ④（用户恢复 deletedAt=null→回 ACTIVE+下轮不再候选） |
+| 10 | 大团队/大 doc/超时→保守保留 | oracle-worker.int ⑤（单 doc 扫描预算超时 bail-out=大 doc 形态）+ shadow ④（大团队超时保守保留 valve-bailout 桶+禁删）+ deletion-barrier.int ⑦（全程预算过期→verified 返回前复检 bail-out）+ shadow ⑩⑪⑫（逐候选预算自查/对拍预算门控地板——观测面不挤占删除窗） |
+| 11 | oracle 全类型覆盖（五种容器各一用例） | oracle-worker.int ①（Map/Array/Text/XmlElement(属性)/XmlText 五容器各一形态——单用例五断言族+nodeId 键不入表/非 UUID/跨队/无行滤除/DELETING 照采） |
+| 12 | shadow extra→rebuild 清理 | shadow ②（GC：stale binding→mismatch{extra}+media_binding_stale_total+受控 rebuild 清行+下轮对拍零差+放行删）+ ⑥（erasure 删除窗同形 consumer=project-erasure） |
+
+【二】plan 卡面红测清单（C3b-2..C3b-5 各 Step 1）→ 文件级归属（全数落地）
+
+  C3b-2 ①-⑤+指标面 → oracle-worker.int ①-⑤+⑥（tick 枚举 scope 缝+coverage_ratio/scan_age）
+  C3b-3 ①-④ → media-reference.int ①-④+registry 载体条（十条目 table/column/kind 三元登记）
+  C3b-4a ①-⑤（P0 锚） → deletion-barrier.int ①-⑤；评审折入 ⑥⑦⑧（loopback 端点/全程预算/flush 撞拒
+    禁 selfIsolate）+ deletion-barrier.port.spec 3 用例（Http 端口 wire 契约 URL /doc 段+非 2xx throw）
+  C3b-4 ①-⑤ → media-deleting.int ①②a②b③a③b③c④⑤
+  C3b-5（shadow 注入双向/回滚开关/大团队超时） → media-gc.shadow.c3b5.int ①-⑫
+    （①②=GC 双向 mismatch/③=MEDIA_REF_ORACLE_ONLY 回滚开关/④=大团队超时/⑤=真 barrier 全链 E2E/
+     ⑥⑦=erasure 双向/⑧=bail-out/⑨=release→行删竞窗 in-tx recheck/⑩⑪⑫=预算门控三面）
+
+【三】存量迁移族锚（C3b-1 schema+门禁增量——非 spec :86 红测面，C1-6 注记②兑现证据）
+
+  - oracle 双表+DeletionBarrier 三新表 → scripts/rebaseline-delta-allowlist.json added 组全登记
+    （tables 3/columns 18〔三新表 15+Media 审计 3〕/constraints 7/indexes 4——C1-2 对象门只读消费，
+    gate=verify 链 check-rebaseline-delta〔db〕+负控自测 scripts-node-test check-rebaseline-delta.test.mjs）
+  - 迁移 additive+immutability → verify 链 check-migration-additive/check-migration-immutability（含自测）
+  - 时间列 tsz → CanvasReferenceOracleScan.scannedAt/DeletionBarrier.expiresAt/Media.deletionRequestedAt
+    均 @db.Timestamptz(3)（allowlist def 实证 timestamp with time zone）——gate=check-schema-timestamptz
+    +负控自测 check-schema-timestamptz.test.mjs
+  - 触发器 coverage 门（C1-5）：三新表**无 updatedAt 列**（scannedAt/expiresAt 非 updatedAt 语义列）
+    ——不在「每 updatedAt 表必挂」辖面，C1-6 注记②条件不触发（实测 48 表 48 触发器维持不变档）
+  - 单写者门禁（C3a-7）→ check-media-binding-writers（C3b 面=media-gc/erasure 走 barrier+claim 形态
+    不新增 MediaBinding 直写——白名单零变更）+负控自测
+
+【四】缺口裁定（诚实登记）
+
+  零硬缺口：spec :86 十二条全部有锚（12/12）。三项口径注记：
+  ①「verifiedSeq=100,pgSeq=110」字面数值=示意——语义=扫描后 pgSeq 前进未重扫即 bail-out，
+    oracle-worker.int ②（扫描层 CAS miss）+media-reference.int ②（决策层 header-stale-verified-seq）
+    两层承载，无数值缺口；
+  ②「大团队/大 doc/超时」三形态分锚（非单用例）：大 doc=oracle-worker ⑤/大团队=shadow ④/
+    超时（预算族）=deletion-barrier ⑦+shadow ⑩⑪⑫——spec 一条多形态，四锚分承；
+  ③「三组 referrer」在 media-reference.int ③ 扩为四组（+objectKey-only——第六轮修正：
+    ObjectManifest/VideoWork.coverKey 是对象键非 mediaId）——超集非缺口（spec §3.4-6 正文以
+    registry 全条目口径为准，:86 为缩写）。
+  已在卡注记的观测面登记（非红测缺口）：shadow 对拍「抽样长期」字面采样=预算门控跳过形态兑现
+    （C3b-5 质量评审 Important-1——中大团队对拍恒超窗时跳过=观测面不挤占删除窗，采样优化移交）。
+
+【五】运行时首轮证据交叉引用
+
+  gate-evidence/c3b6-coverage-shadow.txt：oracle coverage 首轮 10/10（coverage_ratio=1 指标+DB 双证）
+  +decision snapshot 全链 verified+shadow 首轮零 mismatch（missing=0∧extra=0∧skip=0）——
+  spec §3.5 出口门三项证据的 dev 形态首轮档。

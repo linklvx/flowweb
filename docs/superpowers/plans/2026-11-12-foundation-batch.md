@@ -246,23 +246,23 @@ return writeBinding();
 
 **Files:** Create `oracle-worker.service.ts`（**worker 进程装配**——第六轮 P2；入锚）；Test `oracle-worker.int.spec.ts`
 
-- [ ] **Step 1：红测**：①**候选无关+JOIN 过滤**：重建 doc 遍历全 Yjs 容器（Map/Array/Text/XmlElement/XmlText 五类型各一用例）string 叶，UUID 形态经 `INSERT..SELECT unnest(${uuids}) JOIN "Media" m ON m.id=u.value AND m."teamId"=$teamId` 过滤写入（**nodeId 不入表**——第七轮 P1-1；未知字段 media UUID 仍捕获）；②短事务纪律（RR 短读→事务外扫描→另事务 CAS pgSeq 未变写行/header）；③header 状态机+oracle 行按 project 原子替换；④复用条件=epoch+generation+verifiedSeq 三同∧非 dirty∧`CanvasDoc.bindingsDirty=false`；⑤单 doc 预算超时 bail-out。
-- [ ] **Step 2：实现+绿+`--write-metric-names`（scan_age/coverage_ratio）+Commit**。
+- [x] **Step 1：红测**：①**候选无关+JOIN 过滤**：重建 doc 遍历全 Yjs 容器（Map/Array/Text/XmlElement/XmlText 五类型各一用例）string 叶，UUID 形态经 `INSERT..SELECT unnest(${uuids}) JOIN "Media" m ON m.id=u.value AND m."teamId"=$teamId` 过滤写入（**nodeId 不入表**——第七轮 P1-1；未知字段 media UUID 仍捕获）；②短事务纪律（RR 短读→事务外扫描→另事务 CAS pgSeq 未变写行/header）；③header 状态机+oracle 行按 project 原子替换；④复用条件=epoch+generation+verifiedSeq 三同∧非 dirty∧`CanvasDoc.bindingsDirty=false`；⑤单 doc 预算超时 bail-out。
+- [x] **Step 2：实现+绿+`--write-metric-names`（scan_age/coverage_ratio）+Commit**。
 
 ### Task C3b-3：decision snapshot+isMediaReferenced+referrer registry
 
 **Files:** Create `media-reference.service.ts`+`media-referrer.registry.ts`
 
-- [ ] **Step 1：红测**：①`decideTeamReferenceSnapshot(teamId,{excludeProjectId?})`——**GC 不传全计入（含其他 DELETING 项目）；erasure 传被擦项目（其自身引用不算保护——第七轮 P0-4，对齐现 resolveMediaDisposition 的 projectId not pid）**；②oracle 臂 join header 校验 epoch+generation+verifiedSeq；③referrer registry 每条 `{table,column,kind:mediaId|objectKey,resolve}`（ObjectManifest/VideoWork.coverKey 是**对象键**需 key→mediaId 映射；**VideoTrim 勘正〔bcf31e9c〕：VideoTrimTask.{sourceFileId,outputFileId} 实为 mediaId 非 objectKey——第六轮修正归类错，spec §3.4-6 已同批勘正**）；每个 referrer 单独保护（binding-only/oracle-only/structured-only/objectKey-only 四组）；④erasure scope（A 擦 B 引用→detach；仅 A 自引用→删；A 擦时 B 为 DELETING→B 仍计入保护）。
-- [ ] **Step 2：实现+绿+Commit**。
+- [x] **Step 1：红测**：①`decideTeamReferenceSnapshot(teamId,{excludeProjectId?})`——**GC 不传全计入（含其他 DELETING 项目）；erasure 传被擦项目（其自身引用不算保护——第七轮 P0-4，对齐现 resolveMediaDisposition 的 projectId not pid）**；②oracle 臂 join header 校验 epoch+generation+verifiedSeq；③referrer registry 每条 `{table,column,kind:mediaId|objectKey,resolve}`（ObjectManifest/VideoWork.coverKey 是**对象键**需 key→mediaId 映射；**VideoTrim 勘正〔bcf31e9c〕：VideoTrimTask.{sourceFileId,outputFileId} 实为 mediaId 非 objectKey——第六轮修正归类错，spec §3.4-6 已同批勘正**）；每个 referrer 单独保护（binding-only/oracle-only/structured-only/objectKey-only 四组）；④erasure scope（A 擦 B 引用→detach；仅 A 自引用→删；A 擦时 B 为 DELETING→B 仍计入保护）。
+- [x] **Step 2：实现+绿+Commit**。
 
 ### Task C3b-4a：DeletionBarrier——持久 fence+admission（第七轮重设计）
 
 **Files:** `DeletionBarrier` 表（C3b-1 迁移收编：teamId @id+barrierId+state CHECK(ACQUIRING,ACTIVE,RELEASING,FAILED)+expiresAt）；api 侧 `DeletionBarrierPort` 实现+**loopback 端点** `POST /api/collab/deletion-barrier`（WORKER_WRITE_TOKEN——erasure worker 跨进程调用）；**admission 三面接线**：gateway `beforeHandleMessage/onAuthenticate`（barrier ACTIVE 时该 team doc 帧拒/排队 4413 族）+`appendBatch` 事务首句查 barrier 行+维护/worker 写路径同查；Test `deletion-barrier.int.spec.ts`
 
-- [ ] **Step 1：红测（P0 锚）**：①media 进 DELETING→客户端 doc 帧写引用已 apply 未 flush→GC 删除决策→**保留/中止**；②**barrier ACTIVE 期间新 WS 帧/appendBatch 被拒**（barrier 后、删除完成前的新 apply 不可达——第六轮红测缺此条）；③双 GC worker CAS 抢 barrier 一者零行；④barrier 超时/失败→整体 bail-out+释放；⑤flush 与锁解耦（barrier 不持 lockProject 等 flush——自锁形态必红）。
-- [ ] **Step 2：实现（顺序）**：①oracle 扫描在 barrier **前**→②CAS 取 barrier（ACQUIRING→ACTIVE+expiresAt）→③flushThrough 至 appliedSeq==pgSeq 且 admission 已封（无新 admitted 帧）→④decision snapshot+recheck→⑤删除（对象先删→行删）在 barrier 持有期内完成→⑥释放（删行）；总预算 10s+逐项目预算+`deletion_barrier_active_seconds` 观测；超时 bail-out 释放。
-- [ ] **Step 3：绿+Commit**。
+- [x] **Step 1：红测（P0 锚）**：①media 进 DELETING→客户端 doc 帧写引用已 apply 未 flush→GC 删除决策→**保留/中止**；②**barrier ACTIVE 期间新 WS 帧/appendBatch 被拒**（barrier 后、删除完成前的新 apply 不可达——第六轮红测缺此条）；③双 GC worker CAS 抢 barrier 一者零行；④barrier 超时/失败→整体 bail-out+释放；⑤flush 与锁解耦（barrier 不持 lockProject 等 flush——自锁形态必红）。
+- [x] **Step 2：实现（顺序）**：①oracle 扫描在 barrier **前**→②CAS 取 barrier（ACQUIRING→ACTIVE+expiresAt）→③flushThrough 至 appliedSeq==pgSeq 且 admission 已封（无新 admitted 帧）→④decision snapshot+recheck→⑤删除（对象先删→行删）在 barrier 持有期内完成→⑥释放（删行）；总预算 10s+逐项目预算+`deletion_barrier_active_seconds` 观测；超时 bail-out 释放。
+- [x] **Step 3：绿+Commit**。
 
 > **C3b-4a 卡收口注记（质量评审 0 Important/7 Minor——b61308ff+2d9159b6+本折入批）**：维持登记两项——
 > ①M6：⑧ 无「flush 撞拒正向确认」观测面加强（弃帧/重试计数锚），留给 C3b-4/5 顺带；②M4 结构性债务：
@@ -272,19 +272,53 @@ return writeBinding();
 
 **Files:** `media-gc.service.ts`+`project-erasure.stages.ts`；Media 审计列（deletionRequestedAt/RunId/Reason——raw 迁移）
 
-- [ ] **Step 1：红测**：①CAS 抢占（双 worker 一者零行）；②recheck 命中→中止回 ACTIVE+conflict 计数+审计；③**删除序=对象先删（404 容忍）→行删（第六轮 P0-7：行先删则对象失败无重试锚）；对象失败→行保留 DELETING 下轮重试**；④用户恢复→ACTIVE；⑤facts 过滤 DELETING+content 可读。
-- [ ] **Step 2：实现+绿+runbook §13（复位/人工/审计语义）+Commit**。
+- [x] **Step 1：红测**：①CAS 抢占（双 worker 一者零行）；②recheck 命中→中止回 ACTIVE+conflict 计数+审计；③**删除序=对象先删（404 容忍）→行删（第六轮 P0-7：行先删则对象失败无重试锚）；对象失败→行保留 DELETING 下轮重试**；④用户恢复→ACTIVE；⑤facts 过滤 DELETING+content 可读。
+- [x] **Step 2：实现+绿+runbook §13（复位/人工/审计语义）+Commit**。
 
 ### Task C3b-5：消费面切换+shadow+回滚开关
 
 **Files:** `media-gc.service.ts:112-201`+`project-erasure.stages.ts:194-254`（并集单源+复核窗保留+Barrier 接线）；`media_ref_shadow_mismatch_total{consumer,dir}`（missing=阻断；extra=告警+触发 rebuild 清理）；回滚开关（config：binding 候选降级纯 oracle）；**shadow 对拍用 decision snapshot 同快照**（第六轮 P1-7——同 pgSeq/epoch 对拍防假 mismatch）。
 
-- [ ] **Step 1：红测**（shadow 注入双向/开关降级/大团队超时保守保留）→绿→`pnpm verify`（full）→Commit。
+- [x] **Step 1：红测**（shadow 注入双向/开关降级/大团队超时保守保留）→绿→`pnpm verify`（full）→Commit。
 
 ### Task C3b-6：卡收口+批末出口门
 
-- [ ] spec §3.4 红测全族+coverage 首轮证据+抽样影子首轮零 mismatch（或处置留痕）+`pnpm verify`+双评审。
+- [x] spec §3.4 红测全族+coverage 首轮证据+抽样影子首轮零 mismatch（或处置留痕）+`pnpm verify`+双评审。
 - [ ] **批末 E-1**：四卡全闭+`pnpm verify` full 全绿+五门禁负控红证（三向 allowlist/schema/raw-SQL/单写者/触发器）+**`pnpm bench:load:smoke`+30min soak（dev 形态；full 权威档维持部署窗）+restore drill 一次（旧备份恢复→binding/oracle/facts 重建+verify）**（第六轮 P1-15）+RPO/RTO 四面成文+呈报包 `gate-evidence/foundation-exit.txt`+**部署窗停等用户指令**（reset-collab §16）。
+
+> **C3b-6 卡收口注记（2026-11-14）**：
+> - **红测全族审计**：`gate-evidence/c3b-redtest-map.txt`——spec §3.4-10 :86 十二条红测面→测试锚
+>   逐条映射（12/12 全锚**零硬缺口**+三项口径注记：数值示意形态/大团队大 doc 超时三形态分锚/
+>   referrer 三组扩四组超集）；C3b-2..5 卡面红测清单全数落地（oracle-worker 6/media-reference 6/
+>   deletion-barrier 8+port 3/media-deleting 8/shadow 12）；存量迁移族锚=C1-2 allowlist 三新表全登记
+>   （tables 3/columns 18/constraints 7/indexes 4）+tsz 三列+additive/immutability——三新表无
+>   updatedAt 列不在触发器辖面（C1-6 注记②条件不触发）。
+> - **coverage/shadow 首轮证据**：`gate-evidence/c3b6-coverage-shadow.txt`——dev 库真首轮（前置 0
+>   header）：oracle 全宇宙 10/10 COMPLETE∧verifiedSeq==pgSeq∧coverage_ratio=1（指标+DB 双证）；
+>   小宇宙 JOIN 过滤三形态（真引用/无行/跨队）；decision snapshot 全链 verified（九腿+CAS 复读）；
+>   GC sweep 真 barrier 全链 shadow 首轮 **missing=0∧extra=0∧skip=0**（19/19 checks——spec §3.5
+>   三项证据 dev 形态首轮档）。
+> - **移交清单**（各卡注记汇总引用+本卡新增）：
+>   ① C3b-4a M6：barrier ACTIVE 期 flush 撞拒**正向确认观测面**未建（行为锚=deletion-barrier ⑧；
+>      弃帧/重托计数锚留待观测加强）；
+>   ② C3b-4a M4：SG 1405/1405+persistence 1215/1215 双锚**零余量**（结构性债务——下一位触碰者抬锚）；
+>   ③ C3b-4 M2：`restoreMediaToActive` **恢复端点未建**（原语在位——接线时消费）；M4 边界观察/M5
+>      双字面注记维持登记（3e6e0241）；
+>   ④ C3b-5 Important-1：shadow 对拍=**预算门控跳过**形态兑现（spec §3.4-8「抽样长期对拍」的字面
+>      采样=后续优化项——对拍出窗或采样优化移交）；非预算 skip 观测完备性（skip 计数在位——长期
+>      完备性随 soak 评估）；
+>   ⑤ C3b-5 Minor-2：`MEDIA_REF_ORACLE_ONLY` **辖面=仅 GC 全效**（erasure 旧面 binding 快判腿常驻=
+>      过度保留向无安全损失——runbook §13.3）；
+>   ⑥ 新增（C3b-6 审计）：oracle UUID 叶口径**约定假设**——非 UUID 形态 Media.id（dev 种子串 id）
+>      永不匹配=漏采方向由 binding 并集兜底（oracle-worker.service.ts UUID_LEAF_RE 头注；未来客户端
+>      自定 id/大写形态路径须回头扩口径）；
+>   ⑦ loopback 退役+复核窗拆窗**单独立项**（spec §6 登记：前置=oracle 跑满保留期+coverage 零缺口）。
+> - **双评审**：C3b-1..5 双评审已毕（评审修复链 b61308ff→2d9159b6→014fe9bd→3e6e0241→f842c98e→
+>   b8664529 在案）；C3b-6 双评审（spec+quality）以本收口 commit 为对象派发——结论若有修复项则
+>   后续 commit 折入（E-1 前置=评审通过）。
+> - **E-1 前置就绪核对**：四卡全闭（本卡后）✓；五门禁 verify 链常驻（负控自测随 scripts-node-test
+>   步）✓；coverage/影子首轮证据（本卡）✓——E-1 本体（bench-smoke 权威档+30min soak+restore drill+
+>   RPO/RTO 四面+呈报包 foundation-exit.txt+部署窗）**不执行**，停等批末用户指令。
 
 ---
 
