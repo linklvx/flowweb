@@ -15,7 +15,9 @@ test('真实 schema 零违规（非空转：DateTime 字段计数 >0 且全带 @
 });
 
 test('负控①：真实 schema 副本抹掉某 DateTime 的 @db.Timestamptz(3) → 恰一条红（model.field 定位）', () => {
-  const line = /^\s*createdAt\s+DateTime\s+@default\(now\(\)\) @db\.Timestamptz\(3\)$/m;
+  // C3b-5 修复批（2026-11-13 实锚）：锚字符类用 [空格/Tab] 禁跨行——\s* 可吞前一行的换行（matched
+  // repr 首字符=换行实证），replace 后夹具行与前一行黏连=FIELD 不认=负控静默零红（0!==1 恒红于 HEAD）。
+  const line = /^[ \t]*createdAt[ \t]+DateTime[ \t]+@default\(now\(\)\)[ \t]+@db\.Timestamptz\(3\)[ \t]*$/m;
   assert.ok(line.test(realSchema), '真实 schema 缺 createdAt 基准行——负控夹具漂移');
   const mutated = realSchema.replace(line, '  createdAt DateTime @default(now())');
   const { problems } = scanSchema(mutated);
