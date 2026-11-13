@@ -66,3 +66,14 @@ export const mediaBindingStaleTotal = new Counter({
   help: 'C3b-5：shadow extra 处置发现的 stale binding 行计数（doc 无引用但 MediaBinding 行在——受控 rebuild 清理面；持续增长=投影漂移分诊锚；spec §3.4-8）',
   registers: [register],
 });
+
+/** shadow 对拍预算跳过计数（C3b-5 质量评审 Important-1：对拍=观测面不得挤占删除窗——窗内剩余预算
+ *  低于地板〔MEDIA_REF_SHADOW_MIN_BUDGET_MS〕即跳过本轮对拍，决策/删除照常推进）。consumer=
+ *  media-gc|project-erasure（两删除流闭集）。持续增长=中大团队对拍成本常态超预算形态（对拍实际
+ *  采样化=后续优化项）——与 valve-bailout 分桶（valve=保留/中止档；skip=删除照常档）。 */
+export const mediaRefShadowSkipTotal = new Counter({
+  name: 'media_ref_shadow_skip_total',
+  help: 'C3b-5：shadow 对拍预算门控跳过计数（consumer=media-gc/project-erasure——窗内剩余预算低于地板跳过本轮对拍，决策/删除照常；持续增长=对拍成本超预算/团队规模分诊锚）',
+  labelNames: ['consumer'],
+  registers: [register],
+});

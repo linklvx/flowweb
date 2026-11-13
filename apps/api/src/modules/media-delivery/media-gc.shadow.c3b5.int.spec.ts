@@ -22,7 +22,10 @@
 //  ⑨(P1-1) erasure release→行删竞窗：release 后新引用（投影照写 binding 形态——appendBatch 复通帧
 //    落定投影）→批删事务内逐 id in-tx recheck 终裁拦下→该 id 保留（挂起 DELETING 收敛 pending-review）
 //    +下轮 disposition 重判→漂移释放+detach 保留（悬挂引用根修锚——变异 if(false)→误删即红）；
-//  ⑩(Minor-1) GC 逐候选预算自查：删除事务跨 expiresAt 后未处理尾段保守保留出循环（已处理段不回卷）。
+//  ⑩(Minor-1) GC 逐候选预算自查：删除事务跨 expiresAt 后未处理尾段保守保留出循环（已处理段不回卷）；
+//  ⑪(Important-1) GC shadow 预算门控跳过：短预算钳制下对拍跳过（skip 计数）但决策/删除照常推进
+//    （对拍=观测面不得挤占删除窗——变异 if(false)→skip 观测断言红）；
+//  ⑫(Important-1) erasure 同地板：删除窗短预算下对拍跳过+union 终裁/删除照常（skip 计数）。
 // 对拍形态（第六轮 P1-7）：两决策面在 barrier ACTIVE 持有窗内求值（appendBatch 封帧=pgSeq/epoch 冻结
 // ——同快照防假 mismatch）；新面=**registry∪Oracle 证人面（Binding 臂除外——两面共有投影证人，纳入
 // 即互掩：stale binding 永不显形）**；决策面=完整并集（含 Binding——回滚开关=决策面降至此证人面）。
@@ -47,7 +50,7 @@ import { openProjectErasure } from '../collab/project-erasure';
 import { executePurgingDbStage, type MediaRefsCollector } from '../collab/project-erasure.stages';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { MediaGcService } from './media-gc.service';
-import { mediaRefShadowMismatchTotal, mediaBindingStaleTotal, mediaGcOutcomeTotal } from './binding-reconcile.metrics';
+import { mediaRefShadowMismatchTotal, mediaRefShadowSkipTotal, mediaBindingStaleTotal, mediaGcOutcomeTotal } from './binding-reconcile.metrics';
 import { ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import { seedRow } from '../../test-utils/canvas-doc-row';
 
@@ -135,8 +138,10 @@ maybe('C3b-5：消费面切换+shadow 对拍+回滚开关（真 PG）', () => {
       },
     });
 
-  /** 残留 GC 候选清扫（共享 dev 库——跨文件残留软删行会混入 sweep 扰动精确 delta）。 */
-  const purgeStrayCandidates = () => prisma.media.deleteMany({ where: { deletedAt: { lt: GRACE_OLD } } });
+  /** 残留 GC 候选清扫（共享 dev 库——跨文件残留软删行会混入 sweep 扰动精确 delta）。lte 含等号：
+   *  前用例按 deletedAt=GRACE_OLD 字面种子的保留残留〔⑩ 尾段保守保留形态〕恰压等值线——lt 会漏扫
+   *  （⑪ 实锚：混入第三候选致 deleted 计数漂移）。 */
+  const purgeStrayCandidates = () => prisma.media.deleteMany({ where: { deletedAt: { lte: GRACE_OLD } } });
 
   const seedDoc = async (pid: string, frame: Uint8Array): Promise<void> => {
     await prisma.canvasDoc.create({ data: { projectId: pid, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false } });
@@ -163,6 +168,7 @@ maybe('C3b-5：消费面切换+shadow 对拍+回滚开关（真 PG）', () => {
   const mismatchOf = (consumer: string, dir: string) => metricOf(mediaRefShadowMismatchTotal, { consumer, dir });
   const staleOf = () => metricOf(mediaBindingStaleTotal, {});
   const valveOf = () => metricOf(mediaGcOutcomeTotal, { outcome: 'valve-bailout' });
+  const shadowSkipOf = (consumer: string) => metricOf(mediaRefShadowSkipTotal, { consumer });
 
   /** 环境开关 save/restore 对（③ 回滚开关用例）。 */
   const withEnv = async (key: string, value: string, fn: () => Promise<void>): Promise<void> => {
@@ -470,5 +476,48 @@ maybe('C3b-5：消费面切换+shadow 对拍+回滚开关（真 PG）', () => {
     const row2 = await prisma.media.findUniqueOrThrow({ where: { id: m2.id } });
     expect(row2.deletionState).toBe('ACTIVE');   // 未处理尾段：回 ACTIVE 释放持有+保守保留（下轮重判）
     expect(s.guarded).toBeGreaterThanOrEqual(1);
+  }, 90_000);
+
+  it('⑪(Important-1) GC shadow 预算门控跳过：短预算钳制→对拍跳过（skip 计数）但决策/删除照常推进', async () => {
+    await purgeStrayCandidates();
+    const skipBefore = await shadowSkipOf('media-gc');
+    const mFree = await seedMedia({ deletedAt: GRACE_OLD });                            // 零引用→放行删
+    const mRef = await seedMedia({ deletedAt: new Date(GRACE_OLD.getTime() - 2_000) }); // 引用命中→guarded（决策照常）
+    await prisma.mediaBinding.create({
+      data: { mediaId: mRef.id, projectId: P2, nodeId: 'n-skip', teamId: TID, role: 'primary', targetField: 'fileId', targetItemId: '' },
+    });
+    // 短预算钳制：expiresAt=now+2s——前期 expired() 检查全过（决策面快）但低于对拍地板 3s→对拍跳过
+    const skimBarrier = (): DeletionBarrierPort => ({
+      prepare: async () => ({ outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 2_000 }),
+      release: async () => true,
+    }) as unknown as DeletionBarrierPort;
+    const svc = new MediaGcService(prismaService, makeMinioStub(), makeDocsStub(), skimBarrier());
+    const s = await svc.sweep();
+    expect(s.deleted).toBe(1);                                   // 决策照常：零引用删除推进（非饥饿）
+    expect(await prisma.media.findUnique({ where: { id: mFree.id } })).toBeNull();
+    expect(s.guarded).toBeGreaterThanOrEqual(1);                 // 决策照常：引用命中保留
+    expect(await prisma.media.findUnique({ where: { id: mRef.id } })).toBeTruthy();
+    expect(await shadowSkipOf('media-gc')).toBeGreaterThan(skipBefore);   // skip 观测（对拍被门控跳过）
+  }, 90_000);
+
+  it('⑫(Important-1) erasure 同地板：删除窗短预算→对拍跳过（skip 计数）+union 终裁/删除照常', async () => {
+    const pid = await seedErProject('e');
+    const mExc = await seedErMedia(pid, 'skim');
+    const skipBefore = await shadowSkipOf('project-erasure');
+    await tombstone(pid);
+    await poller.tick();
+    await poller.tick();   // 标记
+    const run = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
+    const skimBarrier = (): DeletionBarrierPort => ({
+      prepare: async () => ({ outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 2_000 }),
+      release: async () => true,
+    }) as unknown as DeletionBarrierPort;
+    const r = await executePurgingDbStage({
+      prisma: prismaService, run, collectMediaRefs: collector, manifestDir,
+      spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0, barrier: skimBarrier(),
+    });
+    expect(r.outcome).toBe('purging-objects');                          // union 终裁/删除照常推进
+    expect(await prisma.media.findUnique({ where: { id: mExc.id } })).toBeNull();
+    expect(await shadowSkipOf('project-erasure')).toBeGreaterThan(skipBefore);   // 对拍跳过观测
   }, 90_000);
 });

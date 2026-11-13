@@ -4,10 +4,13 @@
 // **C3b-5 起删除决策=并集单源（isMediaReferenced 五臂闭集——Binding+Oracle+registry）**，流经
 // 「barrier prepare（持有窗——Direct port，api 进程）→窗内决策+shadow 对拍→删除序（in-tx recheck
 //  终裁）→release」；软删 Media 的硬删候选=引用图判定+grace period（软删期 deletedAt 过 MEDIA_GC_GRACE
-//  才进 GC 候选）。旧引用图四源+doc 扫（下方 shadowOldFaceReferenced）=**shadow 对拍面**（spec §3.4-8
-//  抽样长期对拍——同 barrier 窗同快照：missing=新面独有证人〔旧面漏保护向〕计数+决策面已阻断保留；
-//  extra=旧面独有〔stale binding 过度保留向〕计数+告警+受控 rebuild 清行）；其读失败/超阀不再作决策门
-//  （决策面保守性由 decision snapshot 校验链+barrier 预算承载——bail-out=保守保留）。
+//  才进 GC 候选）。旧引用图四源+doc 扫（下方 shadowOldFaceReferenced）=**shadow 对拍面**（C3b-5 质量
+//  评审 Important-1 措辞钉准：**全量对拍+预算门控跳过**——窗内剩余预算低于地板
+//  MEDIA_REF_SHADOW_MIN_BUDGET_MS 即跳过本轮对拍〔决策/删除照常，skip 计数+log〕；spec §3.4-8
+//  「抽样长期对拍」的字面采样=后续优化项非现实现。对拍同 barrier 窗同快照：missing=新面独有证人
+//  〔旧面漏保护向〕计数+决策面已阻断保留；extra=旧面独有〔stale binding 过度保留向〕计数+告警+
+//  受控 rebuild 清行）；其读失败/超阀不再作决策门（决策面保守性由 decision snapshot 校验链+barrier
+//  预算承载——bail-out=保守保留）。
 // 判定无引用 ⇒ 删除序执行（**C3b-4 DELETING 状态机+删除序**——spec §3.4-5 :81/§3.4-7 :83）：
 //   ①CAS 抢占 ACTIVE→DELETING（审计三列 deletionRequestedAt/RunId/Reason 同拍落值——双 worker/
 //     他删除流〔erasure〕并发恰一者得，一者零行）；
@@ -41,7 +44,7 @@ import { MediaReferenceService } from '../collab/media-reference.service';
 import { DeletionBarrierPort, type DeletionBarrierPrepareWireResult } from '../collab/deletion-barrier.port';
 import { controlledRebuildForMedia } from '../collab/binding-rebuild.service';
 import {
-  mediaGcOutcomeTotal, mediaDeletionConflictTotal, mediaRefShadowMismatchTotal,
+  mediaGcOutcomeTotal, mediaDeletionConflictTotal, mediaRefShadowMismatchTotal, mediaRefShadowSkipTotal,
 } from './binding-reconcile.metrics';
 
 /** 软删 grace（素材库删除后悔窗——副本护栏外的用户意图缓冲；spec :25「grace period」）。 */
@@ -64,6 +67,13 @@ export const MEDIA_GC_TIMELINE_SCAN_PAGE = 500;
 export const MEDIA_DELETING_STALE_MS = 10 * 60_000;
 /** 删除序事务上界（对象删〔网络 IO〕在事务内——MinIO 挂起由本超时兜底回滚：行保留 DELETING 重试）。 */
 export const MEDIA_DELETING_TX_TIMEOUT_MS = 15_000;
+/** shadow 对拍预算地板（C3b-5 质量评审 Important-1：对拍=观测面不得挤占删除窗——窗内剩余预算低于
+ *  本地板即跳过本轮对拍，决策/删除照常）。取值依据：barrier 总预算 10s 的 30% 绝对档 3s——覆盖删除段
+ *  典型成本（逐候选 tx+404 容忍对象删，百 ms 量级×批量）+in-tx recheck 余量；对拍面（旧面逐项目
+ *  withSession doc 重扫≤MEDIA_GC_DOC_SCAN_PAGE+faceB 逐 id 重判+extra 触发 rebuild 串行）中大团队
+ *  恒超窗——跳过=删除流保护（对拍实际采样化=后续优化项，spec §3.4-8「抽样长期对拍」的预算门控
+ *  兑现形态）。GC/erasure 两消费面同地板单源。 */
+export const MEDIA_REF_SHADOW_MIN_BUDGET_MS = 3_000;
 
 /** 删除流审计载荷（CAS 抢占时落值——reason=两消费面闭集）。 */
 export interface MediaDeletionAudit { runId: string; reason: 'media-gc' | 'project-erasure' }
@@ -176,7 +186,8 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** 一轮 GC（busy 防重入；destroyed 后零动作）。测试直调入口。候选跨 team→逐 team 删除窗
-   *  （barrier=team 维——顺序 prepare，每 team ≤总预算）。 */
+   *  （barrier=team 维——顺序 prepare；**每 team 独立一份总预算**〔非共享池〕：最坏整轮时长上界
+   *  =team 数×10s 窗，team 数 ≤ MEDIA_GC_PAGE=50 有界〔M2 注记〕）。 */
   async sweep(): Promise<MediaGcSweepSummary> {
     const summary: MediaGcSweepSummary = { candidates: 0, deleted: 0, guarded: 0, conflicted: 0, objectDeleteFailed: 0 };
     if (this.sweeping || this.destroyed) return summary;
@@ -247,10 +258,14 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
         await this.conservativeRetain(ids, runId, summary, 'barrier 已过期（决策段后）');
         return;
       }
-      // ── shadow 对拍（spec §3.4-8——同快照：ACTIVE 窗内 appendBatch 封帧=pgSeq/epoch 冻结，两面
-      //    读同一冻结宇宙〔第六轮 P1-7〕）。新面=registry∪Oracle 证人面（skipBindingArm——Binding
-      //    臂两面共有，纳入即互掩）；旧面读失败/超阀=对拍跳过（非决策门）。──
-      const shadowOld = await this.shadowOldFaceReferenced(teamId, ids);
+      // ── shadow 对拍（C3b-5 质量·Important-1：**预算门控**——对拍=观测面不得挤占删除窗。窗内
+      //    剩余预算低于地板即跳过本轮对拍〔决策/删除照常，skip 计数+log〕：对拍面〔旧面逐项目
+      //    withSession doc 重扫+faceB 逐 id 重判+extra 触发 rebuild 串行〕中大团队恒超窗，不门控=
+      //    逐轮 valve-bailout 删除饥饿。跳过时同 barrier ACTIVE 窗同快照语义不变〔第六轮 P1-7〕；
+      //    新面=registry∪Oracle 证人面〔skipBindingArm——Binding 臂两面共有，纳入即互掩〕；旧面读
+      //    失败/超阀=对拍跳过（非决策门）。──
+      const shadowBudgeted = Date.now() + MEDIA_REF_SHADOW_MIN_BUDGET_MS < prep.expiresAt;
+      const shadowOld = shadowBudgeted ? await this.shadowOldFaceReferenced(teamId, ids) : null;
       if (shadowOld != null && !expired()) {
         const faceB = new Set<string>();
         for (const id of ids) {
@@ -269,6 +284,9 @@ export class MediaGcService implements OnModuleInit, OnApplicationShutdown {
             await controlledRebuildForMedia(this.prisma, id).catch(() => undefined);   // 受控（内部计数+日志）
           }
         }
+      } else if (!shadowBudgeted && ids.length > 0) {
+        mediaRefShadowSkipTotal.inc({ consumer: 'media-gc' });   // 观测面：跳过≠bail-out（删除照常推进）
+        this.logger.warn(`mediaGc shadow 对拍跳过（剩余预算 < ${MEDIA_REF_SHADOW_MIN_BUDGET_MS}ms 地板）——${ids.length} 候选本轮未对拍（决策/删除照常）`);
       }
       if (expired()) {
         await this.conservativeRetain(ids, runId, summary, 'barrier 已过期（对拍段后）');

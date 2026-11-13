@@ -54,8 +54,8 @@ import {
 } from './project-erasure.manifest';
 import { assertProjectErasureDbComplete, type ErasureAssertDb } from './project-erasure.assert';
 import { ERASURE_MEDIA_REFS_BATCH } from './collab-spool.service';
-import { collectJsonMediaIds, claimMediaForDeletion, releaseMediaDeletionClaim } from '../media-delivery/media-gc.service';
-import { mediaDeletionConflictTotal, mediaRefShadowMismatchTotal } from '../media-delivery/binding-reconcile.metrics';
+import { collectJsonMediaIds, claimMediaForDeletion, releaseMediaDeletionClaim, MEDIA_REF_SHADOW_MIN_BUDGET_MS } from '../media-delivery/media-gc.service';
+import { mediaDeletionConflictTotal, mediaRefShadowMismatchTotal, mediaRefShadowSkipTotal } from '../media-delivery/binding-reconcile.metrics';
 import { MediaReferenceService } from './media-reference.service';   // C3b-5：并集单源决策面
 import { controlledRebuildForMedia } from './binding-rebuild.service';   // C3b-5：shadow extra 受控 rebuild
 import { DeletionBarrierPort, HttpDeletionBarrierPort, type DeletionBarrierPrepareWireResult } from './deletion-barrier.port';   // C3b-5：删除窗 barrier（worker=Http loopback）
@@ -471,18 +471,27 @@ export async function executePurgingDbStage(deps: PurgingDbStageDeps): Promise<P
                 rest.push(row);
               }
               const restTeamId = rest[0]?.teamId ?? teamId;
+              // 决策面（union 终裁——逐 id 判定恒跑）。M3 性能注记：逐 id isMediaReferenced〔~13 索引
+              // 查询/ id〕+批一逐 id recheck=N+1 形态——独占/引用候选典型规模=个位数（单项目 media
+              // 域非 team 域），可接受；无界批形态出现时再议批化（迁移/回滚项）。
               const unionFace = new Set<string>();
-              const faceB = new Set<string>();
               for (const m of rest) {
                 if (await mediaRef.isMediaReferenced(prisma, m.id, { teamId: restTeamId, excludeProjectId: pid })) unionFace.add(m.id);
-                if (await mediaRef.isMediaReferenced(prisma, m.id, { teamId: restTeamId, excludeProjectId: pid, skipBindingArm: true })) faceB.add(m.id);
               }
-              // ── shadow 同快照对拍（spec §3.4-8——ACTIVE 窗内两面读同一冻结宇宙）：新面=registry∪
-              //    Oracle 证人面（skipBindingArm）；旧面=erasureOldFaceReferenced（null=collector
-              //    不可达=对拍跳过——决策不受影响）。missing=新面独有证人（决策已 detach 保留）；
-              //    extra=旧面独有 stale binding→受控 rebuild 清行（被擦项目自身 binding 随批删非对象）。──
-              const shadowOld = await erasureOldFaceReferenced(prisma, pid, rest, deps.collectMediaRefs);
+              // ── shadow 同快照对拍（C3b-5 质量·Important-1：**预算门控**——对拍=观测面不得挤占
+              //    删除窗：剩余预算低于地板即跳过本轮对拍〔union 终裁/删除照常，skip 计数+log〕；
+              //    GC 同地板单源 MEDIA_REF_SHADOW_MIN_BUDGET_MS。跳过时同 barrier ACTIVE 窗同快照
+              //    语义不变）：新面=registry∪Oracle 证人面（skipBindingArm）；旧面=
+              //    erasureOldFaceReferenced（null=collector 不可达=对拍跳过——决策不受影响）。
+              //    missing=新面独有证人（决策已 detach 保留）；extra=旧面独有 stale binding→受控
+              //    rebuild 清行（被擦项目自身 binding 随批删非对象）。──
+              const shadowBudgeted = Date.now() + MEDIA_REF_SHADOW_MIN_BUDGET_MS < prep.expiresAt;
+              const faceB = new Set<string>();
+              const shadowOld = shadowBudgeted ? await erasureOldFaceReferenced(prisma, pid, rest, deps.collectMediaRefs) : null;
               if (shadowOld != null) {
+                for (const m of rest) {
+                  if (await mediaRef.isMediaReferenced(prisma, m.id, { teamId: restTeamId, excludeProjectId: pid, skipBindingArm: true })) faceB.add(m.id);
+                }
                 for (const m of rest) {
                   const newHit = faceB.has(m.id);
                   const oldHit = shadowOld.has(m.id);
@@ -493,6 +502,9 @@ export async function executePurgingDbStage(deps: PurgingDbStageDeps): Promise<P
                     await controlledRebuildForMedia(prisma, m.id, { excludeProjectIds: [pid] }).catch(() => undefined);
                   }
                 }
+              } else if (!shadowBudgeted && rest.length > 0) {
+                mediaRefShadowSkipTotal.inc({ consumer: 'project-erasure' });   // 观测面：跳过≠bail-out（删除照常推进）
+                logger.warn(`erasure shadow 对拍跳过（剩余预算 < ${MEDIA_REF_SHADOW_MIN_BUDGET_MS}ms 地板）——${rest.length} 候选本轮未对拍（union 终裁/删除照常）`);
               }
               // ── union 终裁（窗内漂移=首扫后新引用——sidecar 离集候选中止回 ACTIVE+conflict；
               //    与 ④ 复核集漂移同语义：窗内重判的漂移腿）──
