@@ -48,11 +48,11 @@ test('checkSizes：文件缺失=结构性错误（structural 点名——exit 2 
   assert.equal(structural, 'missing.ts');
 });
 
-// ── 锚表结构（T42 B3 执法面钉死四文件+CI 双故障根修批 T10 扩三新文件=七文件+C3a-5/6/8 三新文件=十文件+C3b-2 oracle worker=十一文件；residency 不入锚=片 A 文件非片 B 产物，设计 §7.2 口径） ──
+// ── 锚表结构（T42 B3 执法面钉死四文件+CI 双故障根修批 T10 扩三新文件=七文件+C3a-5/6/8 三新文件=十文件+C3b-2 oracle worker=十一文件+C3b-3 media-reference 两新文件=十三文件；residency 不入锚=片 A 文件非片 B 产物，设计 §7.2 口径） ──
 
-test('SIZE_LIMITS：恰十一文件（gateway B3 实测终标+SG/DR/persistence 偏离 65/74 锚+CI 修复批三新文件+C3a-5 projector+C3a-6 binding-rebuild+C3a-8 backfill runner+C3b-2 oracle worker），residency 不入锚', () => {
+test('SIZE_LIMITS：恰十三文件（gateway B3 实测终标+SG/DR/persistence 偏离 65/74 锚+CI 修复批三新文件+C3a-5 projector+C3a-6 binding-rebuild+C3a-8 backfill runner+C3b-2 oracle worker+C3b-3 media-reference 两新文件），residency 不入锚', () => {
   const keys = Object.keys(SIZE_LIMITS);
-  assert.equal(keys.length, 11);
+  assert.equal(keys.length, 13);
   assert.ok(keys.every((k) => k.startsWith('apps/api/src/modules/collab/')));
   assert.ok(!keys.some((k) => k.includes('residency')), 'residency=片 A 文件非片 B 产物——不入锚');
   assert.ok(keys.some((k) => k.endsWith('collab.gateway.ts')));
@@ -66,6 +66,8 @@ test('SIZE_LIMITS：恰十一文件（gateway B3 实测终标+SG/DR/persistence 
   assert.ok(keys.some((k) => k.endsWith('binding-rebuild.service.ts')));
   assert.ok(keys.some((k) => k.endsWith('projection-backfill.runner.ts')));
   assert.ok(keys.some((k) => k.endsWith('oracle-worker.service.ts')));
+  assert.ok(keys.some((k) => k.endsWith('media-reference.service.ts')));
+  assert.ok(keys.some((k) => k.endsWith('media-referrer.registry.ts')));
 });
 
 test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑现——plan ≤600 字面为防倒退锚非可达值〕；SG 1238/DR 1082=任务卡钉死值；persistence T14 实测重标 950→1037）+CI 修复批三新文件（T10 实测+1.3 余量：limits 42→55/budget 119→155/heartbeat 31→40）', () => {
@@ -80,9 +82,11 @@ test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑�
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/binding-rebuild.service.ts'], 192);   // C3a-6 新文件入锚（实测 147+1.3 余量）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/projection-backfill.runner.ts'], 271);   // C3a-8 新文件入锚（实测 208+1.3 余量）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/oracle-worker.service.ts'], 380);   // C3b-2 新文件入锚（实测 295+定档 380 余量）
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/media-reference.service.ts'], 231);   // C3b-3 新文件入锚（实测 177+1.3 余量）
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/media-referrer.registry.ts'], 207);   // C3b-3 新文件入锚（实测 159+1.3 余量）
 });
 
-test('现状实测：十一文件全部限内（端到端触盘——真锚真文件，门禁 PASS 前提自证）', () => {
+test('现状实测：十三文件全部限内（端到端触盘——真锚真文件，门禁 PASS 前提自证）', () => {
   const { structural, results } = checkSizes(SIZE_LIMITS, (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8'));
   assert.equal(structural, null);
   for (const r of results) assert.ok(r.pass, `${r.file} 实测 ${r.lines} > 锚 ${r.limit}`);

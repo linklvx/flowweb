@@ -1892,6 +1892,73 @@ if (isMain()) {
     report('㊳', `CanvasProject raw SQL 白名单（C4-b read census——Proxy 旁路面 ${Object.values(occurrences).reduce((a, b) => a + b, 0)} 点/${Object.keys(occurrences).length} 文件全登记；新增即红）`, details.length === 0, details);
   }
 
+  // ── ㊴ C3b-3（plan Task C3b-3——spec 2026-11-11-foundation-batch-design.md §3.4-6：「新增 mediaId
+  //    列必须登记否则 census 红」）：media-referrer.registry ↔ schema.prisma 联动门——
+  //    A. registry 条目 {table,column,kind} 三元提取（MEDIA_REFERRERS 数组字面）→ schema 实存校验
+  //       （模型/列缺=拼写/改名漂移红；kind 域外红；重复登记红；条目数下限 10=spec §3.4-6 枚举面）；
+  //    B. 反向：schema 全部 **mediaId 命名列**（/[mM]ediaId$/）必须 registry 登记 ∥ 见证人/伴随列
+  //       白名单（MediaBinding.mediaId/CanvasReferenceOracle.mediaId=service 两臂〔registry 形状外的
+  //       并集成员——join header 决策级校验非三元可表达〕；MediaFact.mediaId=media 自身事实行 FK 随行
+  //       级联非引用；StorageReservation.mediaId=@unique 上传配额预留锚〔1:1 生命周期伴随列〕非引用）。
+  //       objectKey/键面（coverKey/objectKey 等）无通用命名律——经 A 条目实存校验+条目数下限钉住
+  //       （裁定记录 C3b-3 汇报：mediaId 命名面机器执法，键面=登记存在性执法）。
+  //    registry 文件本体存在性=防扫描腐烂锚（载体迁移须同步本路径）。──
+  {
+    const REGISTRY_PATH = 'apps/api/src/modules/collab/media-referrer.registry.ts';
+    const details = [];
+    const registryAbs = path.join(ROOT, REGISTRY_PATH);
+    if (!fs.existsSync(registryAbs)) {
+      console.error(`check-collab-census: 结构性错误（exit 2）——${REGISTRY_PATH} 加载失败：referrer registry 载体消失`);
+      process.exit(2);
+    }
+    const registrySrc = fs.readFileSync(registryAbs, 'utf8');
+    // A. registry 三元提取（resolve 闭包体不参与——table/column/kind 字面序固定）
+    const block = registrySrc.match(/export const MEDIA_REFERRERS[^=]*=\s*\[([\s\S]*?)\]\s*;/);
+    const entryRe = /table:\s*'(\w+)'\s*,\s*column:\s*'(\w+)'\s*,\s*kind:\s*'(mediaId|objectKey)'/g;
+    const entries = block ? [...block[1].matchAll(entryRe)].map((m) => ({ table: m[1], column: m[2], kind: m[3] })) : [];
+    if (!block) details.push('registry 缺 MEDIA_REFERRERS 数组（形态漂移——须同步本 census 提取器）');
+    // schema 模型解析（㊲ 同款）
+    const schemaSrc = fs.readFileSync(path.join(ROOT, 'apps/api/prisma/schema.prisma'), 'utf8');
+    const schemaModels = new Map();
+    for (const m of schemaSrc.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)) {
+      schemaModels.set(m[1], new Set([...m[2].matchAll(/^\s*(\w+)\s+\w+/gm)].map((f) => f[1])));
+    }
+    const seen = new Set();
+    for (const e of entries) {
+      const key = `${e.table}.${e.column}`;
+      const cols = schemaModels.get(e.table);
+      if (!cols) details.push(`registry 条目 ${key}：模型不在 schema（stale）`);
+      else if (!cols.has(e.column)) details.push(`registry 条目 ${key}：列不在 schema（拼写/改名漂移）`);
+      if (seen.has(key)) details.push(`registry 条目重复登记 ${key}`);
+      seen.add(key);
+    }
+    if (entries.length < 10) details.push(`registry 条目数 ${entries.length} < 10（spec §3.4-6 枚举面——条目删减须同步本下限）`);
+    // B. mediaId 命名列反向闭包（登记 ∥ 见证人/伴随列白名单）
+    const WITNESS_OR_COMPANION_MEDIAID_COLUMNS = {
+      'MediaBinding.mediaId': 'isMediaReferenced Binding 臂（media-reference.service——投影证人）',
+      'CanvasReferenceOracle.mediaId': 'isMediaReferenced Oracle 臂（join header 决策级校验——PG 证人）',
+      'MediaFact.mediaId': 'media 自身事实行 FK（随行级联非引用）',
+      'StorageReservation.mediaId': '上传配额预留锚（@unique 1:1 生命周期伴随列非引用）',
+    };
+    const registeredCols = new Set(entries.map((e) => `${e.table}.${e.column}`));
+    for (const [model, cols] of schemaModels) {
+      for (const col of cols) {
+        if (!/[mM]ediaId$/.test(col)) continue;
+        const key = `${model}.${col}`;
+        if (!registeredCols.has(key) && !(key in WITNESS_OR_COMPANION_MEDIAID_COLUMNS)) {
+          details.push(`schema 列 ${key}（mediaId 命名）未登记 MEDIA_REFERRERS（新增 mediaId 引用列必须同批登记——spec §3.4-6；非引用面入白名单须带语义注记）`);
+        }
+      }
+    }
+    for (const key of Object.keys(WITNESS_OR_COMPANION_MEDIAID_COLUMNS)) {
+      const [model, col] = key.split('.');
+      const cols = schemaModels.get(model);
+      if (!cols || !cols.has(col)) details.push(`白名单条目 ${key} 在 schema 消失（stale——列删除须同步本白名单）`);
+    }
+    const mediaIdEntries = entries.filter((e) => e.kind === 'mediaId').length;
+    report('㊴', `media-referrer registry↔schema 联动（C3b-3——条目 ${entries.length} 全实存+kind 域校验（mediaId ${mediaIdEntries}/objectKey ${entries.length - mediaIdEntries}）；schema mediaId 命名列=registry ∪ ${Object.keys(WITNESS_OR_COMPANION_MEDIAID_COLUMNS).length} 见证人/伴随列白名单双向闭合；新增 mediaId 列未登记即红）`, details.length === 0, details);
+  }
+
   const failed = results.filter((r) => !r.pass);
   console.log(`\ncheck-collab-census: ${results.length - failed.length}/${results.length} PASS`);
   if (failed.length) { console.error(`check-collab-census FAIL: ${failed.map((f) => f.id).join(' ')}`); process.exit(1); }
