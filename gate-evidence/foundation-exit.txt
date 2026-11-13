@@ -61,7 +61,7 @@ quality✅）全闭后的批末出口门。**本包≠部署授权**——全环
      本档）；maxRSS=376.2MB 稳态平台（~340-376MB）/maxHeap=183.3MB；spool 零增长
      （0.0B/min）；**容量无拐点（storeP99≤1s 判据）→ 容量上限 ≥4×8（单档下界——正式档多档跑归 T18）**；durable-ack 健康面
      lag 三族全零（appliedUnpersistedMax=0/docDeliveryLag max=0/projectionPendingAge
-     max=0）；持久化实证=actor PG 腿 yjs_store_payload_bytes 14284 观测（逐 append 成功，
+     max=0）；持久化实证=actor PG 腿 yjs_store_payload_bytes 14284 观测（逐 append 成功=14280 edits+4 初始 doc store；数字内在自洽，现场 scrape 无落档——离线复核以 edits/connErrors/spool 轴为准，
      storeP99=n/a=saveMutex noop 形态非持久化缺席）；soak 后指标 gap_seq=0/watermark_lag=0/
      backfill_remaining=0（呈报口径注记：三零无独立 soak 后落盘——等价事实由 03:40 restore drill
      A 腿等值核验承载〔10 doc 全 mediaBindingSeq==pgSeq∧非 dirty，.verify-logs/e1-restore-drill.log〕）。
@@ -92,9 +92,9 @@ quality✅）全闭后的批末出口门。**本包≠部署授权**——全环
      shadow 首轮 missing=0∧extra=0∧skip=0（19/19 checks）。
   ⑦ 指标面清单核对（spec §3.5 低基数口径——全部在册）：
      durable-ack 延迟=yjs_store_duration_seconds（store.metrics.ts:116）+bench saveBarrier
-     p95；恢复耗时=doc_recovery_total/wal_recovery_suspect_total（:507/:558）+bench
+     p95；恢复耗时=doc_recovery_total（:558）/wal_recovery_suspect_total（:507）+bench
      recoveryRto 场景+yjs_load_duration_seconds；投影 lag+gap_seq=
-     media_binding_watermark_lag+media_binding_gap_seq（media-binding.metrics.ts:72/51——
+     media_binding_watermark_lag（:51）+media_binding_gap_seq（:72）（media-binding.metrics.ts——
      E-1 soak 后实测双零）；oracle coverage_ratio+scan_age=oracle_coverage_ratio+
      oracle_scan_age_seconds（oracle-worker.metrics.ts:13/20）；拒绝更新=
      collab_write_rejected_total（写路径拒绝含 barrier admission 4413 族）；GC fail-closed
