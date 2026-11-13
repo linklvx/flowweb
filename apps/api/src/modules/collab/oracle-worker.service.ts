@@ -22,6 +22,8 @@
 //   backfillEpoch 同体例）。CAS miss/失败=header 不认 COMPLETE，下轮重扫。
 // 扫描域=nodes+edges 两根（canonicalDocView 同族根单源——新增可写根必须同步扩 SCAN_ROOTS）。
 // 指标=oracle-worker.metrics.ts 单源（coverage_ratio/scan_age——低基数）。
+// 部署前提=worker 单实例（canary verify 同族 ADR）：双实例下行为安全——CAS 串行化使陈旧者必
+// cas-miss、同锚双实例收敛同集合（DELETE+INSERT 原子替换），唯一代价=重复扫描工作浪费。
 import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -42,7 +44,10 @@ const ORACLE_SCAN_BATCH = 4;
 const SCAN_MAX_DEPTH = 32;
 
 /** UUID 形态（小写 canonical——randomUUID/Media.id @default(uuid()) 同形态，collab-sentry 断言同款
- *  正则；整串匹配=spec「string 叶子值保留 UUID 形态」字面口径，长文本内嵌子串不采）。 */
+ *  正则；整串匹配=spec「string 叶子值保留 UUID 形态」字面口径，长文本内嵌子串不采。**约定假设**：
+ *  全部生产创建面不供 id（DB @default(uuid()) 实证）——非 UUID 形态 Media.id〔如 dev 种子串 id〕
+ *  永不匹配=漏采方向，由删除保护引用并集（binding 证人）兜底；未来引入客户端自定 id/大写形态
+ *  路径须回头扩本口径。） */
 export const UUID_LEAF_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** 扫描域根（nodes+edges 两根——canonicalDocView 根单源同族；新增可写根必须同步扩本列表）。 */
