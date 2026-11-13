@@ -118,6 +118,11 @@ import { CollabCanaryVerifyWorker } from './modules/collab/collab-canary-verify.
 //    census ⑰ 不破。saga 完整态机〔PURGING_DB/OBJECTS/CACHE/VERIFYING+介质 manifest〕归 C4-c 扩展） ──
 import { ErasureContextService } from './modules/collab/project-lock';
 import { ProjectErasureRunPoller } from './modules/collab/project-erasure.poller';
+// ── C3b-2（地基修复批·PG oracle 证人）：oracle worker DB poller——CanvasDocSnapshot+CanvasDocUpdate
+//    在 pgSeq 重建 doc 候选无关 UUID 叶扫描（短事务纪律：RR 短读→事务外扫描→另事务 CAS 写
+//    CanvasReferenceOracle/Scan header）；api 进程零注册（canary verify 同族平铺先例；闭包纯度=
+//    prisma/repo 族+metrics——零 controller/Http 面，census ⑰ 不破） ──
+import { OracleWorkerService } from './modules/collab/oracle-worker.service';
 
 const env = validateEnv();
 
@@ -224,6 +229,9 @@ const env = validateEnv();
     // tombstone+会合判定；CreditLedgerService 通行证消费已平铺在位）
     ErasureContextService,
     ProjectErasureRunPoller,
+    // C3b-2：PG oracle 证人 worker（DB poller——候选无关 UUID 叶扫描+coverage header 状态机；
+    // 依赖 PrismaService/CanvasDocUpdateRepository 均已平铺在位）
+    OracleWorkerService,
     // ── recharge 域（PAYMENT_PROVIDER 工厂=RechargeModule 同款 verbatim——close-expired/active-query 消费面） ──
     {
       provide: 'PAYMENT_PROVIDER',

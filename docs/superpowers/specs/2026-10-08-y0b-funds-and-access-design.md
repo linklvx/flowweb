@@ -1140,6 +1140,8 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - media_gc_outcome_total
 - media_materialize_lag
 - member_revoked_conns
+- oracle_coverage_ratio
+- oracle_scan_age_seconds
 - provider_redrive_blocked_total
 - retention_backlog_rows
 - retention_deleted_rows_total

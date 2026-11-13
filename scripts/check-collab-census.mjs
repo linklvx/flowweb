@@ -1196,6 +1196,9 @@ if (isMain()) {
       CANARY_VERIFY_INTERVAL_MS: 1,
       CANARY_FREEZE_ENABLED: 1,
     },
+    'apps/api/src/modules/collab/oracle-worker.service.ts': {   // C3b-2（地基修复批·PG oracle 证人）：worker oracle 扫描轮询周期键（ORACLE_SCAN_INTERVAL_MS——CANARY_VERIFY_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、Number()||默认缺省档 60_000、消费面=worker 轮询周期非部署档位）
+      ORACLE_SCAN_INTERVAL_MS: 1,
+    },
     'apps/api/src/modules/collab/project-lock.ts': {   // C1-0 写锁门禁激活判据（函数内 writeGateActive 惰性——测试态判定非部署档位：VITEST=vitest 进程标记、NODE_ENV=test 档；消费面=PrismaService 测试态自包裹+门禁断言直通判别）
       VITEST: 1, NODE_ENV: 1,
     },
@@ -1580,6 +1583,9 @@ if (isMain()) {
     // C3a-6（水位不变量闭环）load 档两点：rebuild 定代重放 doc@S（loadForHydrationAt state 铺底+
     // 增量尾按序应用——PG 前缀重放非 inbound 非写回 live；与 canary verify readAt 重放同语义）
     'apps/api/src/modules/collab/binding-rebuild.service.ts': 2,
+    // C3b-2（地基修复批·PG oracle 证人）load 档两点：scanUuidLeaves 定代重放 doc@S（state 铺底+
+    // 增量尾按序应用——PG 前缀重放非 inbound 非写回 live；与 binding-rebuild collectRefsAt 同语义）
+    'apps/api/src/modules/collab/oracle-worker.service.ts': 2,
     // C3a-6 genesis 种子含引用判定：seedState apply 进 scratch doc 扫 collectMediaIds（读侧判定
     // ——非装载非写回；零长 buffer 守卫直返）
     'apps/api/src/modules/collab/canvas-doc-genesis.ts': 1,
@@ -1859,6 +1865,7 @@ if (isMain()) {
       'apps/api/src/modules/collab/projection-backfill.runner.ts': 1,      // C3a-8 修复批 I2：lifecycleState 分义读（非 ACTIVE/行缺=bail-out——delegate 读过滤见不到非 ACTIVE 行，故 raw 必要）
       'apps/api/src/modules/collab/collab-replay-canary.poller.ts': 2,     // canary active 计数+候选批（ACTIVE 谓词）
       'apps/api/src/modules/collab/collab-canary-verify.worker.ts': 2,     // pin 候选 join（inactive 判定列）
+      'apps/api/src/modules/collab/oracle-worker.service.ts': 3,          // C3b-2 oracle worker：候选批 join（ACTIVE 谓词）+CAS 写事务内 teamId 读（DELETING 项目照扫——删除序 oracle 在 barrier 前）+coverage/scan_age 指标 join（ACTIVE 谓词）
       'apps/api/src/modules/collab/runtime-feed.retention.service.ts': 2,  // retention 扫 join ACTIVE（C1 scope 过滤）
       'apps/api/src/modules/execution/execution-request.retention.service.ts': 7, // 同上（两扫面+过期扫/stuck 扫族 raw joins）
       'apps/api/src/modules/project/project.service.ts': 1,                // cleanDrafts FOR UPDATE 选择（ACTIVE 谓词）
