@@ -5,7 +5,9 @@
 // 对比对象（两侧均为临时库真实重放——不依赖 dev 库现态，防快照腐烂）：
 //   before = `gate-evidence/schema-before-v2.sql`（pre-batch 旧链 24 迁移全量重放——C1-1 证据；
 //            重放结果先与 `schema-before-v2.objects.json` 五组逐行核对，基线证据漂移=结构性 exit 2）
-//   after  = `apps/api/prisma/migrations/20261112120000_c1_rebaseline_init/migration.sql`（新终态 init）
+//   after  = 迁移链全量重放（目录序：init `20261112120000_c1_rebaseline_init` + 其后增量迁移——C3b-1
+//            起 init 后出现增量（首笔=oracle 双表+DeletionBarrier），新迁移对象未登记 allowlist 即红
+//            ——C1-6 卡注记②「new-only 对象未登记即红」；C1-2 落地时链=单一 init，行为不变）
 // 八类对象（八组）：tables（pg_class relkind='r'——表存在性；空壳表残留可检出）/columns（键
 // table.column）/constraints/indexes/sequences/enums（schema-dump 六组复用）+ functions（键
 // name(args)，pg_get_functiondef 原文）与 triggers（键 table.tgname，pg_get_triggerdef 原文）——
@@ -42,6 +44,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const BASELINE_SQL = path.join(ROOT, 'gate-evidence/schema-before-v2.sql');
 export const BASELINE_OBJECTS = path.join(ROOT, 'gate-evidence/schema-before-v2.objects.json');
 export const INIT_SQL = path.join(ROOT, 'apps/api/prisma/migrations/20261112120000_c1_rebaseline_init/migration.sql');
+export const MIG_DIR = path.join(ROOT, 'apps/api/prisma/migrations');
 export const ALLOWLIST_FILE = path.join(ROOT, 'scripts/rebaseline-delta-allowlist.json');
 const BASELINE_GROUPS = ['columns', 'constraints', 'indexes', 'sequences', 'enums'];
 // 三向分类的八组（columns 走列分类器，其余七组走通用分类器；tables=表存在性）
@@ -282,13 +285,24 @@ const ALLOWLIST_META = {
   adr: 'gate-evidence/schema-baseline-adr.md',
 };
 
+/** 迁移链 SQL 文件（目录序全量——init 首位+其后增量）：after 重放面=C3b-1 起 init 后有增量迁移。 */
+export function chainSqlPaths() {
+  return fs.readdirSync(MIG_DIR, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && /^\d+_/.test(e.name))
+    .map((e) => e.name).sort()
+    .map((d) => path.join(MIG_DIR, d, 'migration.sql'));
+}
+
+/** 重放阶段错误标记（M-4 归属）：已附文件路径，外层取数 catch 不得二次包装误标阶段。 */
+class ReplayError extends Error {}
+
 /**
  * 在临时库重放 SQL 后取全量 census（八组 + 时间列）。
  * 失败路径纪律（I-1）：admin 连接/建库/DROP/CREATE 全在 try 内，finally 必删临时库并 end admin
  * （活 socket 不撑事件循环——任何失败都干净 exit 2 不挂起）；`pg_try_advisory_lock` 序列化并发
  * 实例——拿不到锁立即 exit 2 并提示（临时库单名，并发 DROP/CREATE 互踩=评审实测挂起面）。
  */
-async function replayCensus(databaseUrl, sqlPath, label) {
+async function replayCensus(databaseUrl, sqlPaths, label) {
   const admin = new Client({ connectionString: toDb(databaseUrl, 'postgres') });
   let created = false;
   try {
@@ -302,9 +316,16 @@ async function replayCensus(databaseUrl, sqlPath, label) {
     try {
       try {
         await c.connect();
-        // psql 元命令（pg_dump \restrict/\unrestrict 安全 token）driver 不可执行——按行剥除；其余逐字重放
-        const sql = fs.readFileSync(sqlPath, 'utf8').split(/\r?\n/).filter((l) => !l.startsWith('\\')).join('\n');
-        await c.query(sql);
+        for (const sqlPath of sqlPaths) {
+          try {
+            // psql 元命令（pg_dump \restrict/\unrestrict 安全 token）driver 不可执行——按行剥除；其余逐字重放
+            const sql = fs.readFileSync(sqlPath, 'utf8').split(/\r?\n/).filter((l) => !l.startsWith('\\')).join('\n');
+            await c.query(sql);
+          } catch (e) {
+            // M-4：重放错误附阶段+文件路径（锁占用/建库错误保持原语义，不误标"重放失败"）
+            throw new ReplayError(`${label} 重放失败（${rel(sqlPath)}）：${errorText(e)}`);
+          }
+        }
         // pg_dump 输出 SET search_path=''（会话级）——schema-dump 的 collabLeaseRows 查询需 public 可解析
         await c.query('SET search_path TO public');
         const six = await dump(c);
@@ -322,8 +343,9 @@ async function replayCensus(databaseUrl, sqlPath, label) {
           WHERE table_schema='public' AND table_name NOT LIKE '\\_prisma%' AND data_type LIKE 'timestamp%'`)).rows;
         return normalizeCensus({ ...six, functions, triggers, tables, tsColumns });
       } catch (e) {
-        // M-4：重放/取数错误附阶段+文件路径（锁占用/建库错误保持原语义，不误标"重放失败"）
-        throw new Error(`${label} 重放失败（${rel(sqlPath)}）：${errorText(e)}`);
+        if (e instanceof ReplayError) throw e;   // 已附文件路径——不二次包装误标阶段
+        // M-4：取数阶段错误附阶段名（重放错误已在逐文件处附路径——此处不再误标具体文件）
+        throw new Error(`${label} 取数失败：${errorText(e)}`);
       }
     } finally {
       await c.end().catch(() => {});
@@ -400,11 +422,20 @@ async function main() {
     }
   }
 
-  const before = await replayCensus(databaseUrl, BASELINE_SQL, 'baseline');
+  const before = await replayCensus(databaseUrl, [BASELINE_SQL], 'baseline');
   assertBaselineSnapshot(before, BASELINE_OBJECTS);
-  const after = await replayCensus(databaseUrl, INIT_SQL, 'init');
+  // after=迁移链全量重放（目录序）：init 首位+其后增量（C3b-1 起）——init 缺位=结构性错误（fail-closed，
+  // 防基线 init 目录被删后空链静默判定）。allowlist 元数据 init 锚=init 文件（rebaseline 身份不变）。
+  const afterPaths = chainSqlPaths();
+  if (!afterPaths.includes(INIT_SQL)) {
+    console.error(`rebaseline-delta FAIL: 迁移链缺失 init（${rel(INIT_SQL)} 不在 ${rel(MIG_DIR)} 目录序内）——结构性错误`);
+    process.exitCode = 2;
+    return;
+  }
+  const after = await replayCensus(databaseUrl, afterPaths, 'chain');
   const delta = computeDelta(before, after);
-  console.log(`rebaseline-delta: baseline(${path.basename(BASELINE_SQL)} 重放) → init(${path.basename(path.dirname(INIT_SQL))} 重放) 三向分类`);
+  const incrementCount = afterPaths.length - 1;
+  console.log(`rebaseline-delta: baseline(${path.basename(BASELINE_SQL)} 重放) → chain(init ${path.basename(path.dirname(INIT_SQL))} + ${incrementCount} 增量迁移重放) 三向分类`);
   console.log(`  removed ${counts(delta.removed)}`);
   console.log(`  added   ${counts(delta.added)}`);
   console.log(`  changed ${counts(delta.changed)}`);

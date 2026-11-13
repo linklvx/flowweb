@@ -62,6 +62,9 @@ export const PROJECT_COLUMN_MODELS = [
   'CollabOpsGate',   // C 档（compact 哨兵行——A 档发布事务带 gate FOR SHARE；擦除归 C4-c）
   'ProjectionBackfillState',   // C 档（C3a-2 backfill 持久状态行——projectId @id 独立状态行无 FK〔spec §0
   //   钉形〕，项目删除清行=本 registry 批删承载；零写点期=空集批删幂等，runner 写点归 C3a-8）
+  'CanvasReferenceOracle',   // C 档（C3b-1 oracle 当前态证人——projectId FK Cascade+本 registry 批删
+  //   双承载〔MediaBinding C1-1 同形〕；零写点期=空集批删幂等，写点归 C3b-2 oracle worker）
+  'CanvasReferenceOracleScan',   // C 档（C3b-1 oracle coverage header——同上双承载；写点归 C3b-2）
 ] as const;
 
 /** 字面 teamId 列模型闭包（同 CI ㊲ diff 面。Team 自身=fence 行本体非引用列）。 */
@@ -88,6 +91,8 @@ export const TEAM_COLUMN_MODELS = [
   'NodeArtifact',
   'MediaBinding',
   'ProjectErasureRun',   // teamId 冗余索引列（team run→子 run 会合查询面）
+  'DeletionBarrier',   // C3b-1 team 级持久 fence 行（teamId @id 无 FK——瞬态行：acquire/release+expiresAt
+  //   TTL 生命周期归 C3b-4a；零写点期=零行，释放/TTL 清扫接线随 C3b-4a）
 ] as const;
 
 /** 别名列（列名扫描找不到的项目关联列——plan ㉓：registry 与 schema 列存在性 CI diff；

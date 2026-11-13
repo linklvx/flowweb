@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from './lib/schema-dump.mjs';
 import {
   parseArgs, normalizeCensus, computeDelta, evaluateGate, buildAllowlist, DELTA_GROUPS,
-  checkBaselineAnchors, checkAllowlistMeta, contentSha256,
+  checkBaselineAnchors, checkAllowlistMeta, contentSha256, chainSqlPaths, INIT_SQL,
 } from './check-rebaseline-delta.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -297,6 +297,16 @@ test('M-5 allowlist 元数据与实际路径一致（不一致=结构性错误 e
   assert.ok(bad.some((v) => v.includes('init') && v.includes('old_init')), bad.join('\n'));
   const missing = checkAllowlistMeta({}, expected);
   assert.ok(missing.some((v) => v.includes('缺失')), missing.join('\n'));
+});
+
+// C3b-1 起迁移链含 init 后增量——after 重放面=全链（C1-6 卡注记②：新迁移 new-only 对象未登记即红）
+test('chainSqlPaths：after 重放面=迁移链目录序全量（init 首位+其后增量 migration.sql）', () => {
+  const paths = chainSqlPaths();
+  assert.ok(paths.length >= 1, '迁移链至少含 init');
+  assert.equal(paths[0], INIT_SQL, '目录序首位=init（rebaseline 锚——init 缺位=gate 结构性 exit 2）');
+  assert.ok(paths.every((p) => p.endsWith('migration.sql')), '链元素=各迁移目录的 migration.sql');
+  const dirs = paths.map((p) => path.basename(path.dirname(p)));
+  assert.deepEqual([...dirs].sort(), dirs, '链序=目录名字典序');
 });
 
 test('M-6 allowlist 未知组/未知 kind→红（不得静默忽略）', () => {

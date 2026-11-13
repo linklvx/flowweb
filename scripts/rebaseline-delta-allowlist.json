@@ -176,8 +176,178 @@
     ]
   },
   "added": {
-    "columns": [],
+    "columns": [
+      {
+        "key": "CanvasReferenceOracle.mediaId",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "CanvasReferenceOracle.projectId",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "CanvasReferenceOracle.verifiedSeq",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "bigint",
+          "column_default": null
+        }
+      },
+      {
+        "key": "CanvasReferenceOracleScan.error",
+        "def": {
+          "is_nullable": "YES",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "CanvasReferenceOracleScan.generation",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "integer",
+          "column_default": null
+        }
+      },
+      {
+        "key": "CanvasReferenceOracleScan.historyEpoch",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "CanvasReferenceOracleScan.projectId",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "CanvasReferenceOracleScan.refCount",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "integer",
+          "column_default": null
+        }
+      },
+      {
+        "key": "CanvasReferenceOracleScan.scannedAt",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "timestamp with time zone",
+          "column_default": null
+        }
+      },
+      {
+        "key": "CanvasReferenceOracleScan.status",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "CanvasReferenceOracleScan.verifiedSeq",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "bigint",
+          "column_default": null
+        }
+      },
+      {
+        "key": "DeletionBarrier.barrierId",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "DeletionBarrier.expiresAt",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "timestamp with time zone",
+          "column_default": null
+        }
+      },
+      {
+        "key": "DeletionBarrier.state",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "DeletionBarrier.teamId",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      }
+    ],
     "constraints": [
+      {
+        "key": "CanvasReferenceOracleScan_pkey",
+        "def": {
+          "contype": "p",
+          "def": "PRIMARY KEY (\"projectId\")"
+        }
+      },
+      {
+        "key": "CanvasReferenceOracleScan_projectId_fkey",
+        "def": {
+          "contype": "f",
+          "def": "FOREIGN KEY (\"projectId\") REFERENCES \"CanvasProject\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+        }
+      },
+      {
+        "key": "CanvasReferenceOracleScan_status_check",
+        "def": {
+          "contype": "c",
+          "def": "CHECK ((status = ANY (ARRAY['VERIFYING'::text, 'COMPLETE'::text, 'FAILED'::text])))"
+        }
+      },
+      {
+        "key": "CanvasReferenceOracle_pkey",
+        "def": {
+          "contype": "p",
+          "def": "PRIMARY KEY (\"projectId\", \"mediaId\")"
+        }
+      },
+      {
+        "key": "CanvasReferenceOracle_projectId_fkey",
+        "def": {
+          "contype": "f",
+          "def": "FOREIGN KEY (\"projectId\") REFERENCES \"CanvasProject\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+        }
+      },
+      {
+        "key": "DeletionBarrier_pkey",
+        "def": {
+          "contype": "p",
+          "def": "PRIMARY KEY (\"teamId\")"
+        }
+      },
+      {
+        "key": "DeletionBarrier_state_check",
+        "def": {
+          "contype": "c",
+          "def": "CHECK ((state = ANY (ARRAY['ACQUIRING'::text, 'ACTIVE'::text, 'RELEASING'::text, 'FAILED'::text])))"
+        }
+      },
       {
         "key": "MediaBinding_projectId_fkey",
         "def": {
@@ -187,6 +357,30 @@
       }
     ],
     "indexes": [
+      {
+        "key": "CanvasReferenceOracleScan_pkey",
+        "def": {
+          "indexdef": "CREATE UNIQUE INDEX \"CanvasReferenceOracleScan_pkey\" ON public.\"CanvasReferenceOracleScan\" USING btree (\"projectId\")"
+        }
+      },
+      {
+        "key": "CanvasReferenceOracle_mediaId_idx",
+        "def": {
+          "indexdef": "CREATE INDEX \"CanvasReferenceOracle_mediaId_idx\" ON public.\"CanvasReferenceOracle\" USING btree (\"mediaId\")"
+        }
+      },
+      {
+        "key": "CanvasReferenceOracle_pkey",
+        "def": {
+          "indexdef": "CREATE UNIQUE INDEX \"CanvasReferenceOracle_pkey\" ON public.\"CanvasReferenceOracle\" USING btree (\"projectId\", \"mediaId\")"
+        }
+      },
+      {
+        "key": "DeletionBarrier_pkey",
+        "def": {
+          "indexdef": "CREATE UNIQUE INDEX \"DeletionBarrier_pkey\" ON public.\"DeletionBarrier\" USING btree (\"teamId\")"
+        }
+      },
       {
         "key": "canvas_doc_binding_backfill_partial",
         "def": {
@@ -396,7 +590,20 @@
         "def": "CREATE TRIGGER set_updated_at_subscription_banner BEFORE INSERT OR UPDATE ON public.subscription_banner FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
       }
     ],
-    "tables": []
+    "tables": [
+      {
+        "key": "CanvasReferenceOracle",
+        "def": null
+      },
+      {
+        "key": "CanvasReferenceOracleScan",
+        "def": null
+      },
+      {
+        "key": "DeletionBarrier",
+        "def": null
+      }
+    ]
   },
   "changed": {
     "columns": [],

@@ -167,6 +167,9 @@ model CanvasProject {
   videoProjects  VideoProject[]
   // C1-1（v5.2 终态）：MediaBinding.projectId FK Cascade 反向关系——项目删除零残留
   mediaBindings  MediaBinding[]
+  // C3b-1（spec §3.4-2/v5.2 ⑧）：oracle 双表 project FK Cascade 反向关系——项目删除零残留
+  referenceOracles    CanvasReferenceOracle[]
+  referenceOracleScan CanvasReferenceOracleScan?
   createdAt      DateTime            @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime            @updatedAt @db.Timestamptz(3)
 
@@ -1793,4 +1796,61 @@ model CollabCanaryCursor {
   lastCheckedAt DateTime @db.Timestamptz(3)
   lastResult    String
   nextDueAt     DateTime @db.Timestamptz(3)
+}
+
+// ══════ C3b-1（spec 2026-11-11-foundation-batch-design.md §3.4-2/§3.4-4）：PG oracle 证人双表+DeletionBarrier ══════
+// 本卡只落表（零写点——写点归 C3b-2 oracle worker / C3b-3 decision snapshot / C3b-4a barrier admission）。
+// 纪律：最小面=spec 字段清单即全列（无 createdAt/updatedAt——RuntimeFeedCursor/CollabOpsGate 先例；
+// 无 updatedAt 列故无 set_updated_at 触发器义务〔C1-5 门只对 updatedAt 表强制〕）；状态列=String+raw
+// 迁移 CHECK（Prisma 不可表达——ProjectionBackfillState_state_check 同款体例）；DateTime 自第一天即
+// timestamptz(3)（C1-4 schema 门）；写点单源（状态/水位列无 DB 默认——ProjectionBackfillState 同款）。
+
+/// CanvasReferenceOracle（当前态证人，spec §3.4-2）：每 (project,media) 一行——按 mediaId 直查证人；
+/// 旧行随重扫原子替换（不累积历史行）。mediaId=标量纯列无 FK（MediaBinding C1-1 同体例——fence 承担
+/// 时序后 FK 锁价值消失）；projectId FK Cascade=项目删除零残留（spec §3.4-2 末句/v5.2 ⑧——双表同律）。
+model CanvasReferenceOracle {
+  projectId   String
+  mediaId     String
+  verifiedSeq BigInt
+
+  project CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, mediaId])
+  @@index([mediaId])
+}
+
+/// CanvasReferenceOracleScan（coverage header，spec §3.4-2）：projectId 即主键=每项目一行（零引用项目
+/// 也写 COMPLETE/refCount=0 行——coverage 只认 COMPLETE∧verifiedSeq===决策时 pgSeq）。generation=doc
+/// 换代（增量复用条件=historyEpoch+generation+verifiedSeq 全同∧非 dirty∧CanvasDoc.bindingsDirty=false）；
+/// historyEpoch=历史轮次锚（String——ProjectionBackfillState.backfillEpoch 同体例）；status 域 CHECK
+/// IN ('VERIFYING','COMPLETE','FAILED') 为 raw 迁移附（Prisma 不可表达）；写点=C3b-2 worker（扫描单
+/// RR 事务同快照+另事务 CAS——本卡只落表）。
+model CanvasReferenceOracleScan {
+  projectId    String
+  historyEpoch String
+  generation   Int
+  verifiedSeq  BigInt
+  status       String
+  refCount     Int
+  scannedAt    DateTime @db.Timestamptz(3)
+  error        String?
+
+  project CanvasProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([projectId])
+}
+
+/// DeletionBarrier（持久 fence 行——spec §3.4-4 第七轮重设计）：teamId 即主键=每 team 至多一行
+/// （双 GC worker CAS 抢 barrier 一者零行）；state 域 CHECK IN ('ACQUIRING','ACTIVE','RELEASING','FAILED')
+/// 为 raw 迁移附；expiresAt=barrier 总预算 TTL（超时/失败整体 bail-out 释放——消费归 C3b-4a）。
+/// 无 project FK：barrier=team 级 fence（teamId @id 一行无法指 team 内多项目之一；spec v5.2 ⑧ 只裁
+/// oracle 双表挂 project FK Cascade——plan 卡文「三表同律」与 spec/C3b-4a 字段清单冲突，按卡文裁定序
+/// spec 文件头 v5.2 changelog 为权威）。
+model DeletionBarrier {
+  teamId    String
+  barrierId String
+  state     String
+  expiresAt DateTime @db.Timestamptz(3)
+
+  @@id([teamId])
 }

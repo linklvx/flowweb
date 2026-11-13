@@ -1,5 +1,8 @@
 {
   "20261112120000_c1_rebaseline_init": {
     "migration.sql": "915d14158faca799921fb56ea7301a9853f07e7891212dcf4626942e03dbae89"
+  },
+  "20261113021304_c3b1_oracle_barrier": {
+    "migration.sql": "e5dfa75d9eb32a65640e691622d1aecb7c2a3d0d1caed0a094684fa703695fd1"
   }
 }
