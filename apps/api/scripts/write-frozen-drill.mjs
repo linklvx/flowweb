@@ -28,7 +28,6 @@ import { execSync, spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { killProviderLateReconnect } from './lib/provider-late-reconnect-guard.js';   // R5'：@hocuspocus/provider v4 迟到重连定时器兜底（共享——禁内联副本）
 
 config({ path: fileURLToPath(new URL('../.env', import.meta.url)), quiet: true });   // apps/api/.env——collab-smoke B3′ 同序；不覆盖已设 env
 const here = fileURLToPath(import.meta.url);
@@ -167,7 +166,7 @@ function connectClient(h, projectId, { ydoc, tag } = {}) {
     destroy: () => {   // R2'：registry 注销先判——幂等（二次 destroy 短路）
       if (!liveClients.delete(entry)) return;
       try { provider.destroy(); } catch { /* 同步 void——smoke B4 */ }
-      killProviderLateReconnect(provider);   // R5'：provider v4 迟到重连定时器兜底（lib 共享——缺陷形态与退役判据见 provider-late-reconnect-guard.js 头注）
+      // 4.8.0 destroy 契约：迟到重连定时器由库清理（三连掐兜底已退役——契约测试在位）
     } };
   liveClients.add(entry);
   return entry;

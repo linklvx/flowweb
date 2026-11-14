@@ -260,7 +260,7 @@ export const collabVersionNegotiationRejectTotal = new Counter({
  *  类故障的可观测出口（owner-limit>0=单连接 clientId 泄漏，客户端版本核对——runbook 巡检项）。 */
 export const collabAwarenessRejectTotal = new Counter({
   name: 'collab_awareness_reject_total',
-  help: 'awareness states 丢弃次数（reason=forged 伪造他人 clientId 整帧丢弃/owner-limit 单连接上限 4 触发/ghost 空态首见帧剔除/frame-too-large 解码后 states 字节>4KB 整帧丢弃——光标消失类故障观测出口）',
+  help: 'awareness states 丢弃次数（reason=forged 伪造他人 clientId 整帧丢弃/forged-remove 伪造删除他人 clientId（4.8.0 removedClients 面）/owner-limit 单连接上限 4 触发/ghost 空态首见帧剔除/frame-too-large 解码后 states 字节>4KB 整帧丢弃——光标消失类故障观测出口）',
   labelNames: ['reason'],
   registers: [register],
 });

@@ -169,7 +169,8 @@ describe('connection-supervisor：单连接所有权（真实库装置）', () =
     lastSocket().readyState = FakeWebSocketBase.CLOSED;
     expect(d.supervisor.connectOnce()).toBe(true);
     expect(FakeWebSocketBase.instances.length).toBe(3);
-    // 失败复置：connect() reject（maxAttempts:1 ladder 用尽）→ catch → setConfiguration 归零
+    // 失败复置（4.8.0 形态）：ladder 用尽 → connect 尾链吞 reject 转 ws 层 maxAttemptsFailed 事件
+    // → attach 监听 → zeroNow 归零 shouldConnect（reject 透传形态已随 4.6.0 废止）
     expect(d.ws.shouldConnect).toBe(true);                     // connect 置位（esm:225）
     lastSocket().serverError();
     await vi.advanceTimersByTimeAsync(0);                      // flush 微任务（retry 无 sleep——maxAttempts:1）

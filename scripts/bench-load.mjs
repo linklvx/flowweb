@@ -219,8 +219,9 @@ function loadClientLibs() {
   };
   return LIBS;
 }
-const { killProviderLateReconnect } = requireApi('./scripts/lib/provider-late-reconnect-guard.js');
-function destroyProvider(p) { try { p.destroy(); } catch { /* 已闭 */ } try { killProviderLateReconnect(p); } catch { /* 已净 */ } }
+// 4.8.0 destroy 契约：迟到重连定时器由库清理（disconnect→clearReconnectTimeout）——三连掐兜底已退役，
+// 库行为由 apps/api/scripts/hocuspocus-destroy-contract.test.mjs 守住
+function destroyProvider(p) { try { p.destroy(); } catch { /* 已闭 */ } }
 /** ws 层字节数据面（echo_bytes/SS2 扇出真值口径——doc 层对自身回声 no-op 不 emit update〔S1 契约
  *  行为，yjs 实证：全已知 update apply 零 update 事件〕，wire 层才是发送者回声流量的观测面）。 */
 function mkWsSink() { return { downBytes: 0, msgCount: 0, _waiters: [] }; }

@@ -1,5 +1,5 @@
 {
-  "_comment": "批1-7（G24）库行为锚 fixture——真协议观测转录（2026-09-30，@hocuspocus/server+provider 4.6.0、y-protocols 1.0.7）。clientID 已归一为 <client>。由 collab.behavior-anchors.gate.spec.ts 逐锚 toEqual 双向锁：行为漂移（库升级/环境变化）即红。各键语义：anchor1=4408 强关入口事件集（不发 close+布尔陈旧）；anchor1b=服务端关停事件集（Y0b-5 T3a 重录：pin+归零装置——CLOSE 控制消息半边只 close(1000)，app disconnect 终局半边补 status:disconnected+disconnect 且库零定时器）；anchor2=destroy 双推 clock（本地 N+1 已发布/N+2 未发布；服务端 scratch 重编码丢纯删除帧——meta 停 M，终态为关停自有清理不 bump clock）；anchor3=send() !isAttached 静默 return（handler 照跑零 Update 帧；detach 唯一出站=ws 层 farewell CLOSE）；anchor4=SS1 应答帧序（先 SS1 后 SS2 两帧+客户端回 SS2+SyncStatus ack）；anchor5=首个 synced 计数恒 1+decrement 归零（SyncStatus 驱动）；anchor6a..6f=Y0b-5 T3 库行为锚六条（fake WebSocket 装置——真实库零服务器：6a open 归零后掉线库零定时器/6b cancelWebsocketRetry 生命周期/6c checkConnection 三击互斥分支/6d maxAttempts:1 ladder 形态/6e 在飞槽位双 connect/6f disconnect 镜像守卫基面）。",
+  "_comment": "批1-7（G24）库行为锚 fixture——真协议观测转录（2026-09-30，@hocuspocus/server+provider 4.6.0、y-protocols 1.0.7；2026-11-14 升级批重转录 4.8.0：anchor2/6a/6b/6d 随 removedClients 转发/cancelWebsocketRetry 清空时机移至 onMessage/ladder 失败转事件三差异更新）。clientID 已归一为 <client>。由 collab.behavior-anchors.gate.spec.ts 逐锚 toEqual 双向锁：行为漂移（库升级/环境变化）即红。各键语义：anchor1=4408 强关入口事件集（不发 close+布尔陈旧）；anchor1b=服务端关停事件集（Y0b-5 T3a 重录：pin+归零装置——CLOSE 控制消息半边只 close(1000)，app disconnect 终局半边补 status:disconnected+disconnect 且库零定时器）；anchor2=destroy 双推 clock（本地 N+1 已发布/N+2 未发布；4.8.0：removedClients 并入重编码——删除帧转发应用，meta 随客户端推进+关停自有清理）；anchor3=send() !isAttached 静默 return（handler 照跑零 Update 帧；detach 唯一出站=ws 层 farewell CLOSE）；anchor4=SS1 应答帧序（先 SS1 后 SS2 两帧+客户端回 SS2+SyncStatus ack）；anchor5=首个 synced 计数恒 1+decrement 归零（SyncStatus 驱动）；anchor6a..6f=Y0b-5 T3 库行为锚六条（fake WebSocket 装置——真实库零服务器：6a open 归零后掉线库零定时器/6b cancelWebsocketRetry 生命周期/6c checkConnection 三击互斥分支/6d maxAttempts:1 ladder 形态/6e 在飞槽位双 connect/6f disconnect 镜像守卫基面）。",
   "anchor1": [
     "events=[\"status:disconnected\",\"disconnect\"]",
     "isSynced-stale=true"
@@ -11,14 +11,14 @@
     "sockets=null"
   ],
   "anchor6a": [
-    "openZeroing=true",
+    "openZeroing=true cancelHeld=true",
     "events=[\"disconnect\",\"close(1006)\"]",
     "timersDelta=0 socketsAfter1500ms=1"
   ],
   "anchor6b": [
     "afterConnect=function",
     "failedCloseGuardSockets=1",
-    "afterOpen=undefined"
+    "afterOpenHeld=false afterServerMessage=true"
   ],
   "anchor6c": [
     "strike1LibraryClose=true queueCleared=true",
@@ -27,7 +27,7 @@
   ],
   "anchor6d": [
     "maxAttempts=1 delay=1000 maxDelay=30000 mrt=30000 autoConnect=false",
-    "rejected=true singleAttemptSockets=1"
+    "maxAttemptsFailed=true rejected=true singleAttemptSockets=1"
   ],
   "anchor6e": [
     "sockets=2 firstClosed=true attemptSlot=second"
@@ -42,8 +42,8 @@
     "update origin=local a/u/r=0/0/1 clock=3",
     "outgoingAwarenessFramesDuringDestroy=1",
     "postDestroyLocalClock=3",
-    "serverCleanup=server added=[] updated=[] removed=[<client>] meta={<client>@1} states=0",
-    "serverSawRemovalFrameClockN1=false"
+    "serverCleanup=server added=[] updated=[] removed=[<client>] meta={<client>@2} states=0",
+    "serverSawRemovalFrameClockN1=true"
   ],
   "anchor3": [
     "edit1 isAttached=true outgoing=[Authentication,First sync step,Awareness states update,raw,A document update] serverChanges=1 unsynced=[1,0,1,0]",

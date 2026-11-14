@@ -244,9 +244,10 @@ describe('批1-7 库行为锚（G24 fixture 回放）', () => {
       provider.destroy(); // ①removeAwarenessStates(+1, 已发布) ②off(update) ③awareness.destroy()→setLocalState(null)(+1, 未发布)
       const postDestroyLocalClock = awareness.meta.get(clientID).clock;
 
-      // 服务端收不到 N+1 删除帧：入站 awareness 先解码进 scratch 再按 states 键重编码——纯删除条目被丢弃
-      // （㉖ 终裁"服务端 meta 停在 M"）。等服务端关停驱动的自有清理行（removed 含本 client 且 states=0——对远端 clientID 不 bump clock）。
-      await waitUntil(() => serverAwareness.some((l) => l.includes(`removed=[${clientID}]`)), 5000, 'server close-driven cleanup');
+      // 4.8.0：删除帧经 removedClients 并入重编码转发——服务端 awareness 收到 N+1 删除帧并应用
+      // （4.6.0 形态"重编码丢弃纯删除条目=meta 停在 M〔㉖ 终裁〕"已废——server meta clock 随客户端推进）。
+      // 服务端关停驱动的自有清理行（removed 含本 client 且 states=0——对远端 clientID 不 bump clock）仍在。
+      await waitUntil(() => serverAwareness.some((l) => l.includes(`removed=[${clientID}]`)), 5000, 'server cleanup');
       await new Promise((r) => setTimeout(r, 300)); // 文档卸载侧后续（若有）落齐
       const cleanupLine = serverAwareness.find((l) => l.includes(`removed=[${clientID}]`))!;
       const serverSawN1Clock = serverAwareness.some((l) => l.includes(`${clientID}@2`));
@@ -261,12 +262,13 @@ describe('批1-7 库行为锚（G24 fixture 回放）', () => {
       ], clientID);
       console.log([...lines, ...norm(serverAwareness.map((l, i) => `raw[${i}] ${l}`), clientID)].join('\n'));
       // 锚②语义：本地双推 clock（origin 依次 provider destroy/local——N+1 已发布、N+2 未发布仅 1 帧出站）；
-      // 服务端：N+1 删除帧被 scratch 重编码丢弃（meta 停在 M=1），终态=关停驱动自有清理（removed、不 bump clock、states=0）
+      // 服务端：4.8.0 removedClients 转发——N+1 删除帧被应用（serverSawRemovalFrameClockN1=true、meta 推进），
+      // 终态=关停驱动自有清理行（removed、states=0）
       expect(preDestroyLocalClock).toBe(1);
       expect(outgoingAwareness).toBe(1);
       expect(postDestroyLocalClock).toBe(3);
-      expect(serverSawN1Clock).toBe(false);
-      expect(cleanupLine).toContain(`${clientID}@1`);
+      expect(serverSawN1Clock).toBe(true);
+      expect(cleanupLine).toContain(`${clientID}@2`);
       expect(cleanupLine).toContain('states=0');
       expect(lines).toEqual(fixture.anchor2);
     } finally {
@@ -479,7 +481,7 @@ describe('Y0b-5 T3 库行为锚（fake WebSocket 装置）', () => {
       expect(FakeWebSocketBase.instances.length).toBe(1);
       lastSocket().serverOpen();
       expect(ws.shouldConnect).toBe(false);                                  // ★open 归零已落
-      expect(ws.cancelWebsocketRetry).toBeUndefined();                       // onOpen 清空（esm:191）
+      expect(typeof ws.cancelWebsocketRetry).toBe('function');               // 4.8.0：onOpen 不清（resolveConnectionAttempt〔onMessage 首条服务端消息〕才清——保守守卫增强）
       lastSocket().serverClose(1006, '');
       const timersAtClose = vi.getTimerCount();
       await vi.advanceTimersByTimeAsync(1_500);                              // >库 delay=1s——自持定时器若在必已触发
@@ -487,7 +489,7 @@ describe('Y0b-5 T3 库行为锚（fake WebSocket 装置）', () => {
       expect(vi.getTimerCount()).toBe(timersAtClose);                        // 零定时器排程增量
       expect(events).toEqual(['disconnect', 'close(1006)']);                 // 实录序：ws 层 own onClose（disconnect）先于 attach 的 forwardClose
       const lines = [
-        `openZeroing=${ws.shouldConnect === false && ws.cancelWebsocketRetry === undefined}`,
+        `openZeroing=${ws.shouldConnect === false} cancelHeld=${typeof ws.cancelWebsocketRetry === 'function'}`,
         `events=${JSON.stringify(events)}`,
         `timersDelta=${vi.getTimerCount() - timersAtClose} socketsAfter1500ms=${FakeWebSocketBase.instances.length}`,
       ];
@@ -513,11 +515,13 @@ describe('Y0b-5 T3 库行为锚（fake WebSocket 装置）', () => {
       void ws.connect()?.catch?.(() => {});                                  // 显式重连
       expect(FakeWebSocketBase.instances.length).toBe(2);
       lastSocket().serverOpen();
-      expect(ws.cancelWebsocketRetry).toBeUndefined();                       // ★onOpen 清空（esm:191）
+      expect(typeof ws.cancelWebsocketRetry).toBe('function');               // 4.8.0：onOpen 不清（保守守卫）
+      lastSocket().serverMessage(new Uint8Array([9]));                       // 首条服务端消息（Ping）→ resolveConnectionAttempt → 清空
+      expect(ws.cancelWebsocketRetry).toBeUndefined();                       // ★onMessage 清空（esm:315/:335）
       const lines = [
         'afterConnect=function',
         'failedCloseGuardSockets=1',
-        `afterOpen=${String(ws.cancelWebsocketRetry)}`,
+        `afterOpenHeld=${String(typeof ws.cancelWebsocketRetry === 'function')} afterServerMessage=${String(ws.cancelWebsocketRetry === undefined)}`,
       ];
       console.log(lines.join('\n'));
       expect(lines).toEqual(fixture.anchor6b);
@@ -580,23 +584,27 @@ describe('Y0b-5 T3 库行为锚（fake WebSocket 装置）', () => {
     }
   }, A6_TIMEOUT);
 
-  // ④库内 ladder 形态锚（maxAttempts:1）：单次尝试+用尽即 reject（esm:242-244 rethrow）——
-  //   supervisor connectOnce 必 catch 的结构依据；pin 值实录。
-  it('A6d ladder 形态：maxAttempts:1 下 socket error→connect() reject（单次尝试零第二击）', async () => {
+  // ④库内 ladder 形态锚（maxAttempts:1）：单次尝试+用尽经 maxAttemptsFailed 事件承载（4.8.0：connect
+  //   尾链 .catch 吞 reject 转事件——4.6.0 esm:242-244 rethrow 形态已废；supervisor attach 监听归零
+  //   的结构依据）；pin 值实录。
+  it('A6d ladder 形态：maxAttempts:1 下 socket error→maxAttemptsFailed 事件（单次尝试零第二击、reject 不透传）', async () => {
     vi.useFakeTimers();
     try {
       FakeWebSocketBase.reset();
       const { provider, ws } = makeFakePinnedProvider('anchor:6d', new Y.Doc());
       const pinLine = `maxAttempts=${ws.configuration.maxAttempts} delay=${ws.configuration.delay} maxDelay=${ws.configuration.maxDelay} mrt=${ws.configuration.messageReconnectTimeout} autoConnect=${ws.configuration.autoConnect}`;
       let rejected: unknown = 'pending';
+      let maxAttemptsFailed = false;
+      ws.on?.('maxAttemptsFailed', () => { maxAttemptsFailed = true; });
       void ws.connect()?.catch?.((e: unknown) => { rejected = e; });
       expect(FakeWebSocketBase.instances.length).toBe(1);
-      lastSocket().serverError();                                            // 立即 error——attempt reject
+      lastSocket().serverError();                                            // 立即 error——attempt 用尽
       await vi.advanceTimersByTimeAsync(0);                                  // flush 微任务
-      expect(rejected).toBeInstanceOf(Error);                                // ★ladder 用尽 rethrow（吞 ATTEMPT_ABORTED 外全部）
+      expect(maxAttemptsFailed).toBe(true);                                  // ★ladder 用尽转事件（4.8.0 形态）
+      expect(rejected).toBe('pending');                                      // ★reject 不透传（尾链吞）
       await vi.advanceTimersByTimeAsync(30_000);                             // 越过 delay+maxDelay——零第二击
       expect(FakeWebSocketBase.instances.length).toBe(1);                    // ★单次尝试（maxAttempts:1）
-      const lines = [pinLine, `rejected=${rejected instanceof Error} singleAttemptSockets=${FakeWebSocketBase.instances.length}`];
+      const lines = [pinLine, `maxAttemptsFailed=${maxAttemptsFailed} rejected=${rejected === 'pending'} singleAttemptSockets=${FakeWebSocketBase.instances.length}`];
       console.log(lines.join('\n'));
       expect(lines).toEqual(fixture.anchor6d);
     } finally {

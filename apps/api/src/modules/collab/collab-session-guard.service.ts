@@ -1182,9 +1182,18 @@ export class CollabSessionGuardService {
    *  onAwarenessUpdate 是观测钩子禁改写（E73 钉死）——本钩子=唯一改写点。
    *  W3b verdict 纯函数化：档位判定=decideAwarenessStrip、归属三分支=decideClientOwnership（§5）；
    *  distinctUsers 并集/states.delete-set/计数/登记/剪枝/漂移探针留壳按 verdict 分支执行（副作用序逐字保持）。 */
-  guardAwareness({ states, socketId, context, connection, document }: beforeHandleAwarenessPayload): void {
+  guardAwareness({ states, socketId, context, connection, document, removedClients }: beforeHandleAwarenessPayload): void {
     try {
       if (!connection || !context || !socketId) return;   // P0-1：非连接来源放行（空串含）
+      // 4.8.0 删除帧直通面（removedClients——4.6.0 重编码不含删除条目=整体丢弃，无此面）：归属判定，
+      // 非本 socket 名下的删除=伪造删除他人 → removedClients.delete 剔除（d.ts 官方契约口）；
+      // owned 放行（自身正常删除——server awareness 移除+meta clock 随客户端推进）。未登记 id 同剔除。
+      for (const cid of [...(removedClients ?? [])]) {
+        if (this.clientIdOwner.get(cid) !== socketId) {
+          removedClients!.delete(cid);
+          collabAwarenessRejectTotal.inc({ reason: 'forged-remove' });
+        }
+      }
       // Y0b-4 T6/T13（Q-L 剔字段三档统一）：readOnly（连接级）→ solo/over-8（文档级）——三档同一
       // 原语 stripTransientFields：浅拷贝剔 cursor/selection（条目永不删：回显=保活链前提，剥空态
       // 会撞 T10 真身误杀形态）。保持原 meta.clock（禁递增——T0 探针⑤：等时钟回显不覆盖发送者本地

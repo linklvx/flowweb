@@ -154,10 +154,29 @@ describe('Y0b-3 T7 awareness 覆写+归属三分支（E73/spec §3.3）', () => 
       before = next;
     }
     sendAwareness(a, 555, {});   // 空态首见=幽灵形态指纹（库构造器 setLocalState({}) 同款）
-    await pollUntil(async () => (await ghostCount()) === before + 2);
-    expect((await ghostCount()) - before).toBe(2);   // 每帧恰两条空态剔除：scratch 构造幽灵+555 真条目（改前：剔除无计数→轮询超时必红）
+    await pollUntil(async () => (await ghostCount()) === before + 1);
+    // 4.8.0：server scratch 构造后显式自清幽灵（getStates().delete(scratch.clientID)+meta.delete——
+    // 4.6.0 构造器 setLocalState({}) 的随机 client 空态混入每帧=恒 +2；4.8.0 库自清后仅 555 真条目 +1。
+    // guard 幽灵剔除防御仍在位：真身空态首见帧（客户端播种退化形态）同判据剔除+计数
+    expect((await ghostCount()) - before).toBe(1);
     expect(b.awareness!.getStates().get(555)).toBeUndefined();   // 幽灵帧不进广播
     expect(gatewayFacade(kit.gateway).clientIdOwnerHas(555)).toBe(false);   // 不登记（不吃上限槽位）
+  });
+
+  it('removedClients 归属判定（4.8.0 删除帧直通面）：伪造删除他人 client 帧→剔除不应用（d.ts 官方契约口 removedClients.delete；4.6.0 重编码不含删除条目=该帧整体丢弃无此面）', async () => {
+    const a = await connect('tokA');
+    const b = await connect('tokB');
+    sendAwareness(b, 707, { user: { id: 'u2' }, presence: true });   // b 名下登记 707（广播不含发送者——观察面=a 侧）
+    await pollUntil(() => (a.awareness!.getStates().get(707) as any)?.user?.id === 'u2');
+    // a 伪造删除 b 的 707（state=null+clock 播种过 y-protocols 时钟门——4.8.0 removedClients 直通面）
+    sendAwareness(a, 707, null as any);
+    const rejected = await metricDelta('collab_awareness_reject_total', { reason: 'forged-remove' }, () => sleep(300));
+    expect(rejected).toBe(1);                                       // ★剔除必计数
+    expect(a.awareness!.getStates().get(707)).toBeDefined();        // ★远端观察者侧他人态不被伪造删除帧剔除
+    expect(gatewayFacade(kit.gateway).clientIdOwnerHas(707)).toBe(true);   // 归属表不动
+    // 对照：owner 自删放行（removedClients 保留——server awareness 正常移除+广播删除）
+    sendAwareness(b, 707, null as any);
+    await pollUntil(() => a.awareness!.getStates().get(707) === undefined);
   });
 
   it('DirectConnection/服务端内部写（connection undefined 或 context undefined 或 socketId 空串）→整体放行禁删禁改（P0-1）', async () => {

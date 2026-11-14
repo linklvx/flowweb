@@ -32,7 +32,6 @@ import { HocuspocusProvider } from '@hocuspocus/provider';
 import WebSocket from 'ws';
 import { CanvasDocUpdateRepository } from '../src/modules/collab/canvas-doc-update.repository';
 import { CLIENT_PROTOCOL_VERSION, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
-import { killProviderLateReconnect } from './lib/provider-late-reconnect-guard';   // R5'：@hocuspocus/provider v4 迟到重连定时器兜底（共享——禁内联副本；类型面经 .d.ts）
 
 const DATABASE_URL = process.env.DATABASE_URL ?? '';
 const PID = process.env.DRILL_PROJECT ?? `y0a2-drill-${Date.now()}`;
@@ -166,7 +165,8 @@ async function connectWrite(h: DrillHandle, projectId: string, nodes: number): P
     destroy: () => {   // R2'：registry 注销先判——幂等（二次 destroy 短路）
       if (!liveClients.delete(entry)) return;
       try { provider.destroy(); } catch { /* 同步 void——A 已死/已隔离时 destroy 同步抛（socket 已闭） */ }
-      killProviderLateReconnect(provider);   // R5'：provider v4 迟到重连定时器兜底（lib 共享——缺陷形态与退役判据见 provider-late-reconnect-guard.js 头注）
+      // 4.8.0 destroy 契约：迟到重连定时器已由库清理（disconnect→clearReconnectTimeout）——三连掐兜底已退役，
+      // 库行为由 scripts/hocuspocus-destroy-contract.test.mjs 守住
     },
   };
   liveClients.add(entry);

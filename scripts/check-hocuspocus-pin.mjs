@@ -1,6 +1,10 @@
-// 契约锁㉗/F9：spec 全部行号引证基于 4.6.0——版本漂移=契约锁整表重验前置。CI 必跑。
-// 正则锚定 lockfile packages 段条目键形态（'@hocuspocus/provider@4.6.0':）；
-// snapshots 段带 peer 后缀的键（@4.6.0(y-protocols@...)）不匹配——引号紧跟版本号收口，天然排除。
+// 契约锁㉗/F9：spec 行号引证基于 pin 版本——版本漂移=契约锁整表重验前置。CI 必跑。
+// 2026-11-14 升级批 4.6.0→4.8.0（Z123「4.6.0 不升级」由用户当批指令推翻——重验已履行：
+// 锚清单 library-anchors 18/18〔含 4.8.0 快照差异注记〕+verify FULL+CI collab-core；迟到重连
+// 定时器缺陷 4.8.0 已修复=destroy 契约测试 hocuspocus-destroy-contract.test.mjs 在位）。
+const TARGET = '4.8.0';
+// 正则锚定 lockfile packages 段条目键形态（'@hocuspocus/provider@4.8.0':）；
+// snapshots 段带 peer 后缀的键（@4.8.0(y-protocols@...)）不匹配——引号紧跟版本号收口，天然排除。
 import { readFileSync } from 'node:fs';
 const lock = readFileSync('pnpm-lock.yaml', 'utf8');
 // 批0e 评审 #2：逐包存在性断言——任一包从 lockfile 消失时，版本断言只扫"找到的"条目会静默绿，先锁存在再锁版本。
@@ -30,9 +34,9 @@ if (missing.length) {
   console.error('契约锁：条目缺失（provider/server/common/yjs 必须都在 lockfile）:', missing);
   process.exit(1);
 }
-const bad = [...found].filter((s) => !s.startsWith('yjs@') && !s.endsWith('@4.6.0'));
+const bad = [...found].filter((s) => !s.startsWith('yjs@') && !s.endsWith('@' + TARGET));
 if (bad.length) {
-  console.error('契约锁：@hocuspocus 版本漂移（必须 pin 4.6.0 且跑契约锁全量用例）:', bad);
+  console.error(`契约锁：@hocuspocus 版本漂移（必须 pin ${TARGET} 且跑契约锁全量用例）:`, bad);
   printRerunChecklist(console.error);
   process.exit(1);
 }
@@ -43,7 +47,7 @@ if (badYjs.length) {
   process.exit(1);
 }
 console.log('pinned ✓', [...found]);
-console.log('版本目标（Z123）：4.6.0 不升级——本批全部行为结论源码实证绑定 4.6.0 实现细节；任何漂移（含 ≥4.7.1）必须重跑下方锚清单+契约锁全量用例。');
+console.log(`版本目标：${TARGET}（2026-11-14 升级批裁定；行号引证快照=各立项时版本——重跑按语义定位〔Z95〕）；任何漂移必须重跑下方锚清单+契约锁全量用例。`);
 printRerunChecklist(console.log);
 
 // Z18/Z123（Y0c T5）：版本变化时必须重跑的锚清单——版本漂移=清单内全部行为结论失效。

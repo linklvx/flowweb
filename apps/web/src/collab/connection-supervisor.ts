@@ -4,7 +4,8 @@
 //   结构性所有权非注释约定）——瞬态退避/终态/1012/普通掉线全归；库内重试被双重禁用：
 //   ①open 归零 shouldConnect（runtime createProvider pin autoConnect:false + 本模块 open 监听 setConfiguration
 //   归零——库 onClose 1s 定时器守卫 `!cancelWebsocketRetry && shouldConnect`（esm:411-413）结构性永不排程）；
-//   ②maxAttempts:1 关单次 connect 内部 retry ladder（esm:242-244 ladder 用尽 reject——connectOnce 必吞）。
+//   ②maxAttempts:1 关单次 connect 内部 retry ladder——失败信号=ws 层 maxAttemptsFailed 事件（4.8.0
+//   形态：connect 尾链吞 reject 转事件〔4.6.0 esm:242-244 rethrow 已废〕——attach 监听归零 shouldConnect）。
 // watchdog 降级纯观测（裁定 23⑴）：零 kick 路径——卡死兜底=assertHealthy 单向边（裁定 24⑩，恢复权唯一）。
 // 排程五档穷尽（T0 单源 resolveBackoffPlan）：terminal→none（永久断线）｜silent-renew→500ms 一次+闩锁｜
 // short→1s+full jitter 0-60s（裁定 23⑶ NAT 部署窗算术）｜backoff/normal→指数表 TRANSIENT_BACKOFF_STEPS_MS。
@@ -115,6 +116,10 @@ export class CollabConnectionSupervisor {
         this.routeClose(code, reason);
       }, 0);
     });
+    // 4.8.0 失败信号（升级批 2026-11-14）：connect() 尾链 .catch 吞 ladder 失败转本事件——reject 不再
+    // 透传（4.6.0 esm:242-244 rethrow 形态已废）。失败归零由本事件承载（与 open 归零同锚 zeroNow）。
+    // on?.()：mock 装置 websocketProvider 为 plain object（零事件面）——静默跳过，真库装置承载本锚测试。
+    provider.configuration?.websocketProvider?.on?.('maxAttemptsFailed', () => this.zeroNow());
   }
 
   /** ★归零锚本体（open 监听消费；公开=不变量自愈复跑入口）：shouldConnect===true 时重放归零。
@@ -134,8 +139,8 @@ export class CollabConnectionSupervisor {
    *  - 无 ws → false；terminal → false（复发防线——终态零 connect）；
    *  - 槽位守卫：webSocket.readyState∈{CONNECTING,OPEN} → false（锚⑤在飞双 connect 必炸第二 socket；
    *    锚⑥"非空即退"在 CLOSED 残留/webSocket===null 时永不重连=死锁——守卫必须按 readyState 判）；
-   *  - connect() reject 必吞（maxAttempts:1 ladder 用尽 rethrow，esm:242-244）+失败复置 shouldConnect=false
-   *    （open 前失败窗内一致性——防任何残余路径排库定时器）；
+   *  - connect() 同步抛必吞+失败归零走 attach 的 maxAttemptsFailed 监听（4.8.0：ladder 失败经事件
+   *    不经 reject——失败窗内 shouldConnect 一致性归 zeroNow 锚）；
    *  - connect 后武装 AUTH_WAIT 定时器（Step④ 显式超时）。 */
   connectOnce(): boolean {
     const ws = this.wsOf();
@@ -146,10 +151,7 @@ export class CollabConnectionSupervisor {
     this.lastDecision = null;
     this._phase = 'waiting';   // attempt 在飞=waiting（connect 成功后由 open 事件转 connected）
     try {
-      const r: unknown = ws.connect?.();
-      if (r && typeof (r as Promise<void>).catch === 'function') {
-        (r as Promise<void>).catch(() => { ws.setConfiguration?.({ autoConnect: false }); });
-      }
+      ws.connect?.();
     } catch {
       ws.setConfiguration?.({ autoConnect: false });
     }

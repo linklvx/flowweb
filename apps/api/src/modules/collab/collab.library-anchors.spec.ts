@@ -241,9 +241,14 @@ describe('Z80 正例② 谓词=唯一卸载决策者（源码级结构锚——u
     const src = readFileSync(serverCjs.replace(/hocuspocus-server\.cjs$/, 'hocuspocus-server.esm.js'), 'utf8');
     // ① 谓词体单源（esm:1571-1573）：debouncer 二态+saveMutex+连接计数四态一行定真假——外部无第二决策点
     expect(src).toContain("shouldUnloadDocument(document) {\n\t\treturn (this.debouncer.isDebounced(`onStoreDocument-${document.name}`) || this.debouncer.isCurrentlyExecuting(`onStoreDocument-${document.name}`) || document.saveMutex.isLocked()) === false && document.getConnectionsCount() === 0;");
-    // ② 全库卸载调用点 census：this.unloadDocument 恰 4 处（Z59 四入口中的三处 :1386/:1543/:1551
-    // +装载失败清理 :1483——Z59 快照口径 4 入口未含 :1483）+ direct 断开 this.instance.unloadDocument 1 处（:1171）=5 处全汇入
-    expect((src.match(/this\.unloadDocument\(/g) ?? []).length).toBe(4);
+    // ② 全库卸载调用点 census：this.unloadDocument 恰 3 处（Z59 入口三处——WS 关连 else 分支
+    // +store SkipFurtherHooksError setTimeout+store 成功 setTimeout，全部经 shouldUnloadDocument 谓词）
+    // +direct 断开 this.instance.unloadDocument 1 处=4 处全汇入。
+    // 4.8.0 快照差异（2026-11-14 升级批 4.6.0→4.8.0）：4.6.0 装载失败清理（loadDocument catch）
+    // 走 this.unloadDocument（旧计数第 4 处）——4.8.0 改 document.destroy() 直接销毁（不经谓词/
+    // beforeUnloadDocument hook：装载失败 doc 未注册完成且无阻止卸载理由，语义等价非劣化；
+    // A 系行为用例全绿佐证）。
+    expect((src.match(/this\.unloadDocument\(/g) ?? []).length).toBe(3);
     expect((src.match(/this\.instance\.unloadDocument\(/g) ?? []).length).toBe(1);
     // ③ unloadDocument 双校验：首道守卫先于 unloading 判定（:1576）、第二道守卫先于 documents.delete（:1589）
     const body = src.match(/async unloadDocument\(document\) \{([\s\S]*?)\n\t\}/)?.[1] ?? '';

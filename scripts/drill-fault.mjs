@@ -290,12 +290,10 @@ const synced = (p, ms = 15_000) => new Promise((res, rej) => {
   const t = setTimeout(() => { destroyProvider(p); rej(new Error('provider synced 超时')); }, ms);
   p.on('synced', () => { clearTimeout(t); res(); });
 });
-/** provider 销毁统一收口（R5' 消费约定：destroy 后必经 killProviderLateReconnect 三连掐——
- *  provider v4 迟到重连定时器不拆=装置进程永生；禁内联副本——apps/api/scripts/lib 共享单源）。 */
-const { killProviderLateReconnect } = requireApi('./scripts/lib/provider-late-reconnect-guard.js');
+/** provider 销毁统一收口（4.8.0 destroy 契约：迟到重连定时器由库清理——三连掐兜底已退役，
+ *  库行为由 apps/api/scripts/hocuspocus-destroy-contract.test.mjs 守住）。 */
 function destroyProvider(p) {
   try { p.destroy(); } catch { /* 已闭 */ }
-  try { killProviderLateReconnect(p); } catch { /* 已净 */ }
 }
 /** provider 底层 ws close 码等待（terminal close 断言面——drill-cutover rawWsExpectClose 的 provider 形态；
  *  实例发现=mkProvider 的 __wsOf 捕获〔p.websocket 暴露不稳——CONNECTING 期 close 时序〕）。 */
