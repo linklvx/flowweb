@@ -221,12 +221,12 @@ export const WORKER_METRIC_CHECKS = {
   process_tree_rss_bytes: { level: 'P1', value: 480 * 1024 * 1024, note: '〔待校准——T30 worker 480M 口径〕worker 进程树 RSS 上界' },
 };
 
-/** Y0c T29-II（Z130①②/R6c）：/api/ready token 档 workers 维度阈值——三付费队列 registered≥1
- *  （任一 0/维度缺失/探测 null ⇒ P0）+waiting>5 ⇒ P1（消费滞后）。队列名单 api 侧单源=
- *  config/queue.constants.ts QUEUE_NAMES（脚本独立不引 api 代码——resolveSpoolCapacityBytes 同款
- *  惯例）。两侧手抄（无机器断言绑定）；漂移⇒ready-workers-missing/registered fail-loud P0 非静默。 */
+/** Y0c T29-II（Z130①②/R6c）：/api/ready token 档 workers 维度阈值——付费队列 registered≥1
+ *  （任一 0/维度缺失/探测 null ⇒ P0）+waiting>5 ⇒ P1（消费滞后）。队列名单权威=api 侧
+ *  PAID_QUEUE_NAMES（QUEUE_NAMES 派生）——本表与它由 check-collab-health.test.mjs it 1b 源码文本
+ *  断言机器绑定（2026-11-14 根修：T12 退役 ai-result-download 漏改本名单⇒服务器恒 P0 假阳性）。 */
 export const WORKER_PRESENCE_CHECK = {
-  queues: ['execution', 'ai-image-edit', 'ai-result-download'],
+  queues: ['execution', 'ai-image-edit'],
   minRegistered: 1,
   maxWaiting: 5,
 };

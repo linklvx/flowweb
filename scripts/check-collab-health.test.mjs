@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectMetricFiles, extractMetricNames } from './check-spec-consistency.mjs';
-import { THRESHOLDS, resolveSpoolCapacityBytes, AUDIT_WORKER_CHECKS, OPS_GATE_CHECKS, CANARY_CHECKS } from './collab-health-thresholds.mjs';
+import { THRESHOLDS, resolveSpoolCapacityBytes, AUDIT_WORKER_CHECKS, OPS_GATE_CHECKS, CANARY_CHECKS, WORKER_PRESENCE_CHECK } from './collab-health-thresholds.mjs';
 import { parsePromText, evaluate, runCheck } from './check-collab-health.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -52,6 +52,25 @@ test('阈值表单源断言：THRESHOLDS 键 ⊆ 实际注册指标名（*.metri
   assert.equal(OPS_GATE_CHECKS.p0Ms, 21_600_000, 'P0 阈=6h');
 });
 
+// ===== it 1b：付费队列名单单源断言（2026-11-14 巡检 P0 假阳性事故根修——T12 退役 ai-result-download
+// 时漏改本名单，服务器自部署起每 5min 恒 P0。名单唯一权威=api 侧 PAID_QUEUE_NAMES（QUEUE_NAMES
+// 派生），本表禁手抄双源——退役/新增队列必须同批同步） =====
+
+test('WORKER_PRESENCE_CHECK.queues ≡ api 侧 PAID_QUEUE_NAMES（queue.constants 派生禁手抄）', () => {
+  const svc = fs.readFileSync(path.join(ROOT, 'apps', 'api', 'src', 'modules', 'worker-presence', 'worker-presence.service.ts'), 'utf8');
+  const paidBlock = svc.match(/export const PAID_QUEUE_NAMES = \[([\s\S]*?)\]/)?.[1] ?? '';
+  const keys = [...paidBlock.matchAll(/QUEUE_NAMES\.(\w+)/g)].map((m) => m[1]);
+  assert.ok(keys.length > 0, 'PAID_QUEUE_NAMES 源文本提取零命中（worker-presence.service.ts 形态漂移——正则随形态更新）');
+  const consts = fs.readFileSync(path.join(ROOT, 'apps', 'api', 'src', 'config', 'queue.constants.ts'), 'utf8');
+  const values = keys.map((k) => {
+    const m = consts.match(new RegExp(`${k}:\\s*'([^']+)'`));
+    assert.ok(m, `QUEUE_NAMES.${k} 在 queue.constants.ts 未找到（键漂移——两侧同批同步）`);
+    return m[1];
+  });
+  assert.deepEqual(WORKER_PRESENCE_CHECK.queues, values,
+    '巡检付费队列名单与 api 侧 PAID_QUEUE_NAMES 双源漂移（T12 退役漏改形态——恒 P0 假阳性；必须同批同步）');
+});
+
 // ===== it 2：P0 命中→exit 2+SMS 恰一条+per-check 节流 =====
 
 /** 健康基线 prom 文本（叠加 overrides：{seriesId: value}——缺席序列按 0 处理） */
@@ -91,11 +110,11 @@ function promText(overrides = {}) {
   return Object.entries(base).map(([k, v]) => `${k} ${v}`).join('\n') + '\n';
 }
 
-/** Y0c T29-II（Z130）：ready token 档 workers 维度健康基线（三付费队列 registered≥1+waiting 0） */
+/** Y0c T29-II（Z130）：ready token 档 workers 维度健康基线（付费队列 registered≥1+waiting 0；
+ *  名单随 T12 退役对齐双队列——it 1b 单源断言绑定） */
 const HEALTHY_WORKERS = {
   execution: { registered: 1, waiting: 0 },
   'ai-image-edit': { registered: 1, waiting: 0 },
-  'ai-result-download': { registered: 1, waiting: 0 },
 };
 
 /** worker 3002 端点健康 prom 文本（Z116 分集：所读族样本恒带 role="worker"；
@@ -555,10 +574,10 @@ test('T29-II R6c：ready workers 维度（token 档）——registered=0/维度�
   const nul = { ...HEALTHY_WORKERS, 'ai-image-edit': null };
   const e3 = evaluate({ metricsOk: true, metrics: parsePromText(promText()), readyOk: true, ready: { ready: true, workers: nul }, workerOk: true, workerMetrics: parsePromText(workerPromText()), workerSkipped: false }, null, 1_000_000, {});
   assert.ok(e3.findings.some((f) => f.level === 'P0' && f.check === 'ready-workers[ai-image-edit].registered'), 'registered=null → P0');
-  // waiting 阈值 5（消费滞后——worker 活但吞吐不足）
-  const wait = { ...HEALTHY_WORKERS, 'ai-result-download': { registered: 1, waiting: 6 } };
+  // waiting 阈值 5（消费滞后——worker 活但吞吐不足；T12 后名单双队列——用 execution 触发）
+  const wait = { ...HEALTHY_WORKERS, execution: { registered: 1, waiting: 6 } };
   const e4 = evaluate({ metricsOk: true, metrics: parsePromText(promText()), readyOk: true, ready: { ready: true, workers: wait }, workerOk: true, workerMetrics: parsePromText(workerPromText()), workerSkipped: false }, null, 1_000_000, {});
-  assert.ok(e4.findings.some((f) => f.level === 'P1' && f.check === 'ready-workers[ai-result-download].waiting'), 'waiting=6>5 → P1');
+  assert.ok(e4.findings.some((f) => f.level === 'P1' && f.check === 'ready-workers[execution].waiting'), 'waiting=6>5 → P1');
   assert.ok(!e4.findings.some((f) => f.level === 'P0' && f.check.startsWith('ready-workers')), 'waiting 超阈不升 P0（worker 在场）');
 });
 
