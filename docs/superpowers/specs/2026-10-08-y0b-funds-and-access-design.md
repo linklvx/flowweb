@@ -1206,6 +1206,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_spool_capacity_total
 - yjs_spool_depth_bytes
 - yjs_spool_depth_files
+- yjs_spool_owner_dir_reclaimed_total
 - yjs_spool_quarantined_total
 - yjs_spool_truncated_total
 - yjs_spool_write_failures_total

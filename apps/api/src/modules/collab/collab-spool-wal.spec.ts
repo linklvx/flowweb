@@ -31,6 +31,8 @@ import {
   decodeWalSegmentHeader,
 } from './collab-spool.service';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
+import { buildOwnerName } from './owner-name';
+import { hostname } from 'node:os';
 import { createMockRepo } from '../../test-utils/mock-repo';
 
 // M1 红测前置：truncate 故障注入缝（globalThis 钩子缺省失活——仅 M1 用例窗口内指向段路径；
@@ -56,8 +58,13 @@ afterEach(async () => { await cleanup(); });
 
 const OWNER = 't8-owner';
 const HISTORY = 'h-t8-2026-10-24';
+/** TD-33 T5 红迁移：外来 owner 目录=合法 `o-` 名（同 host+pid 明确死判定经 seam 注入）。 */
+const FOREIGN_OWNER = buildOwnerName(hostname(), 424231);
+class PidSeamSpool extends CollabSpoolService {
+  protected isPidAlive(): boolean | 'unknown' { return false; }   // 明确死——收录面放行
+}
 function svc(): CollabSpoolService {
-  const s = new CollabSpoolService(dir);
+  const s = new PidSeamSpool(dir);
   s.setOwner(OWNER);
   s.setWalHistory(HISTORY);
   return s;
@@ -561,9 +568,9 @@ describe('Y1c T8 收口 I1/I4：chain-stopped 前缀可重放+外来段禁物理
     const corpus = buildWalFaultCorpus({ historyId: HISTORY });
     const badCrc = corpus.find((f) => f.expectedBadTier === 'bad-crc')!;
     const s = svc();
-    await mkdir(join(dir, 'predecessor'), { recursive: true });
+    await mkdir(join(dir, FOREIGN_OWNER), { recursive: true });
     const name = walSegmentFileName(badCrc.header.projectId, badCrc.header.generation, 0);
-    const path = join(dir, 'predecessor', name);
+    const path = join(dir, FOREIGN_OWNER, name);
     await writeFile(path, encodeWalSegmentBytes(badCrc.header, badCrc.frames, badCrc.fault));
     const preSize = (await stat(path)).size;
     const report = await s.recoverScan({ systemHistory: sysHistory(), pgSeq: () => 0n });
@@ -763,11 +770,11 @@ describe('Y1c T13 双评审收口 C1/I1/M1：外来 chain-stopped 段收养保�
   async function seedForeignGapSeg(): Promise<{ path: string; name: string; segKey: string }> {
     const corpus = buildWalFaultCorpus({ historyId: HISTORY });
     const gap = corpus.find((f) => f.expectedBadTier === 'missing-seq')!;
-    await mkdir(join(dir, 'predecessor'), { recursive: true });
+    await mkdir(join(dir, FOREIGN_OWNER), { recursive: true });
     const name = walSegmentFileName(gap.header.projectId, gap.header.generation, 0);
-    const path = join(dir, 'predecessor', name);
+    const path = join(dir, FOREIGN_OWNER, name);
     await writeFile(path, encodeWalSegmentBytes(gap.header, gap.frames));
-    return { path, name, segKey: `predecessor/${name}` };
+    return { path, name, segKey: `${FOREIGN_OWNER}/${name}` };
   }
 
   it('C1①：gap 段收养后 peek=裁定前缀 [1,2]（非 [1,2,4,5]——链后未证帧不复活）+quarantineTruncatedFrames 走链缺陷档非 no-op+replayAll 仅前缀两帧+段回收闭环', async () => {

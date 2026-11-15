@@ -13,11 +13,10 @@
 // （失守/释放均不清 spool owner——残余批次仍落本实例目录供 reconciler 收养）。
 // isServing() 仅供租约状态机内部（acquireLoop/rejoinLoop/看门狗）——对外服务判据唯一源=gateway.collabState（V12）。
 import { Injectable, Inject, Logger } from '@nestjs/common';
-import { hostname } from 'node:os';
-import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabSpoolService } from './collab-spool.service';
+import { buildOwnerName } from './owner-name';
 import { collabLeaseDeniedTotal, collabLeaseEpoch, collabStartFailureTotal } from './store.metrics';
 import { captureCollabException } from '../../utils/sentry-scrub';
 
@@ -42,8 +41,9 @@ const sleep = (ms: number) => new Promise<void>((r) => { const t = setTimeout(r,
 export class CollabLeaseService {
   private readonly logger = new Logger(CollabLeaseService.name);
   /** W4/V4：owner 同时是 spool 子目录名——文件系统安全形态（Windows 禁 ':'）且**长度有界**
-   *  （host 段 ≤24：K8s 长 pod 名不得撞 setOwner 的 64 上限 throw=半 held 僵尸）；唯一性=pid+ts+rand。 */
-  readonly owner = `${hostname().replace(/[^A-Za-z0-9_-]/g, 'x').slice(0, 24)}-${process.pid}-${Date.now().toString(36)}-${randomBytes(3).toString('hex')}`;
+   *  （host 段 ≤24：K8s 长 pod 名不得撞 setOwner 的 64 上限 throw=半 held 僵尸）；唯一性=pid+ts+rand。
+   *  T1：名字只出自 owner-name 单源（`o-` 前缀=GC/boot 回收面的 owner 判据）。 */
+  readonly owner = buildOwnerName();
   private state: CollabLeaseState = 'not-acquired';
   private epoch: bigint | null = null;
   private renewedAt: Date | null = null;

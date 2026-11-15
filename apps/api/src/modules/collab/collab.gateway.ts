@@ -23,6 +23,7 @@ import { requireSystemHistory } from './canvas-doc-head';   // Y1c T9（T8 接�
 import { createCollabServer } from './collab-server.factory';   // B3 手段①：Server 构造 options 块单源工厂（canvas-doc.factory 同址先例）
 import { wireCollabMetricsReaders } from './collab-observability-wiring';   // B3 手段②：metrics reader 注册块单源（unregister×9 关停面留本体）
 import { parseDocName } from './doc-name.util';
+import { isPortError } from './collab-start-failure';   // TD-33/C1a T6：端口错误判据自 gateway 迁出（锚净零）
 import { CollabCloseCode } from '@flowweb/shared';
 import type { TryReleaseMotive, TryReleaseOutcome } from './collab-residency.service';
 
@@ -620,11 +621,6 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.watchdogTimer.unref?.();
   }
 
-  private isPortError(e: unknown): boolean {
-    const code = (e as { code?: string })?.code;
-    return code === 'EADDRINUSE' || code === 'DOCS_NOT_UNLOADED' || /EADDRINUSE/i.test((e as Error)?.message ?? '');
-  }
-
   private drainAutoReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   /** SV9：POST /api/drain 动作体——置 draining+冻结既有连接（readOnly+doc-status 冻结通告）+刷新 60s
    *  deadline（幂等=刷新非 no-op：慢排空部署链续 POST 续窗）。**不触发关停流程**——只停写、等去抖
@@ -992,6 +988,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
         // 审查 I-1（X5 必修漏落）：回灌失败残帧必须落梯——listen 前调用=先备恢复路径后受理。
         // 幂等安全：schedulePersistRetry 对已有 timer return。
         this.persistence.rearmQueues();
+        // TD-33 T6：owner 目录显式 GC（唯一目录回收入口——写路径零 rmdir；幂等，rejoin reinit 同跑）
+        await this.spool.reclaimStaleOwnerDirs();
         // Y1c T27（**重启从 PG stage 继续**——spec §6.6）：活跃维护行重 freeze（listen 前置位=freeze 窗口
         // 新帧 4413，重启空窗不放进新写）+续跑状态机（fire-and-forget——run 内部逐段幂等+失败 FAILED 持久化）。
         if (this.maintenanceService) {
@@ -1005,7 +1003,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       this.transition('start-failed');
       collabStartFailureTotal.inc();
       this.watchdogFired = true;   // V14：episode 标志——看门狗不再对同一 episode 双计
-      const portErr = this.isPortError(e);
+      const portErr = isPortError(e);
       this.logger.error(JSON.stringify({ event: 'collab_start_failed', error: (e as Error).message, portError: portErr }));
       // V10/N2③ 失败分型：端口类（EADDRINUSE/documents 未卸载）=**本地瞬态、与租约无关**——持锁
       // 有界重试 ≤2 次（旧持有者 ≤1 心跳让位）；非端口类或耗尽 → release（不占租约不服务）

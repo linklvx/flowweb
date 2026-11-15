@@ -14,6 +14,13 @@ export const yjsStoreAppendFailureTotal = new Counter({
   registers: [register],
 });
 
+/** TD-33 T6：boot GC 回收的空 owner 目录数（delta 断言——死 owner 目录回收观测面）。 */
+export const yjsSpoolOwnerDirReclaimedTotal = new Counter({
+  name: 'yjs_spool_owner_dir_reclaimed_total',
+  help: 'boot GC 回收的过期 owner 目录数（空∧明确死 pid∧mtime>10min 或异 host∧mtime>24h）',
+  registers: [register],
+});
+
 /** Y0a-2（Y8）：取批后队列被并发改动的探测计数（splice 前 length<n 或批尾引用不符）；
  *  真对账=storeDocument 成功路径自检（collect 注册模式归 Task 4 观测批——定义先行供 Task 3 编译）。 */
 export const yjsStoreTailAnomalyTotal = new Counter({

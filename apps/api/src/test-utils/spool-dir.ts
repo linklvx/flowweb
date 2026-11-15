@@ -5,5 +5,6 @@ import { join } from 'node:path';
 
 export async function makeSpoolDir(prefix = 'y0a2-spool-'): Promise<{ dir: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), prefix));
-  return { dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
+  // TD-33 T7：teardown 与并发写回竞态（t9-actor ENOTEMPTY）——重试退避缓解（Windows EBUSY 同族）。
+  return { dir, cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }) };
 }

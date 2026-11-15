@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CollabLeaseService } from './collab-lease.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { parseOwnerName } from './owner-name';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 
 function buildService(query: ReturnType<typeof vi.fn>, spool: CollabSpoolService) {
@@ -36,10 +37,12 @@ describe('CollabLeaseService', () => {
     expect(() => buildService(vi.fn(), spool)).toThrow(/不变式/);
   });
 
-  it('owner 有界+fs-safe（V4）：host 段 ≤24、总长 ≤64、仅 [A-Za-z0-9_-]——同时是 spool 子目录名（Windows 禁冒号；长 hostname 不得致 setOwner throw）', () => {
+  it('owner 有界+fs-safe（V4）：host 段 ≤24、总长 ≤64、仅 [A-Za-z0-9_-]——同时是 spool 子目录名（Windows 禁冒号；长 hostname 不得致 setOwner throw）；T1：名字出自 owner-name 单源（o- 前缀可被 parse 认出）', () => {
     const { svc } = buildService(vi.fn(), spool);
     expect(svc.owner.length).toBeLessThanOrEqual(64);
     expect(svc.owner).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(svc.owner.startsWith('o-')).toBe(true);
+    expect(parseOwnerName(svc.owner)).toEqual({ pid: process.pid, hostKey: expect.stringMatching(/^[0-9a-f]{8}$/) });
     expect(() => spool.setOwner(svc.owner)).not.toThrow();
   });
 

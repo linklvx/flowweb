@@ -142,9 +142,6 @@ describe('Y1c T9 所有权切换（偏离 38①——P1 入口条件）', () => 
     const { gateway, repo, eventEmitter } = buildGateway({ lease });
     await gateway.onModuleInit();   // project.gone/team.disbanded 订阅注册（本用例锚事件链）
     gatewayFacade(gateway).forceCollabState('serving');   // onModuleInit 置 acquiring（fast=false 不 listen）——回播种放行态
-    // PG 腿恒失败：帧留 spool 未 confirm——owner 目录不回收（规避 confirm rmdir×并发 append 的
-    // ENOENT 竞态，本用例锚 states 清理链非 WAL 写面；竞态本体已登记 T33 收口）
-    repo.appendBatch.mockImplementation(async () => { throw new Error('pg down'); });
     // 两项目各装载+提交一帧（actor states 建键）
     for (const pid of ['pa', 'pb']) {
       const doc = new Y.Doc();

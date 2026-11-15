@@ -19,7 +19,7 @@
 // 修正 #6 铁律：时间戳栅栏=recoverySuspect 恢复怀疑态（自动扫描零重放），永不直接 quarantine。
 import { BadRequestException, Injectable, Logger, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { FileHandle, open, readFile, readdir, rmdir, stat, truncate, unlink, mkdir, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { isAbsolute, basename, join, relative, resolve, sep } from 'node:path';
 import { crc32 } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import * as Y from 'yjs';
@@ -63,12 +63,18 @@ import {
   docPrefixGapTotal,
   lifecycleFencesStaledTotal,
   lifecycleReplayDeriveFailureTotal,
+  yjsSpoolOwnerDirReclaimedTotal,
 } from './store.metrics';
 import { isFkGone } from './pg-error.util';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { projectDocName } from './doc-name.util';
+import { parseOwnerName, currentHostKey } from './owner-name';
 
 export interface SpoolFrame { frameId: string; payload: Uint8Array; walSeq: bigint }
+
+/** TD-33 T6：owner 目录 GC 年龄下限（空目录=无证据；下限防「刚删完最后一段」与 owner 目录重建竞态）。 */
+const STALE_OWNER_DIR_MIN_AGE_MS = 10 * 60_000;
+const STALE_FOREIGN_OWNER_DIR_MIN_AGE_MS = 24 * 3600_000;
 /** T9 actor/维护通道单帧追加结果（walSeq 随帧返回——PG 批行 seq 口径）。
  *  T30b 根修 A2：dedup=true ⇒ 本结果为去重命中（返回**原帧 frameId/walSeq**，零新写零烧号）——
  *  跨重启 adoption 形态下旧 walSeq 可能≤CanvasDoc.pgSeq（原帧已落定/行已被 compact 回收），消费方
@@ -333,7 +339,7 @@ export interface WalRecoveryProjectReport {
   truncated: Array<{ segKey: string; lastGoodOffset: number }>;
 }
 
-export interface WalRecoveryReport { projects: WalRecoveryProjectReport[] }
+export interface WalRecoveryReport { projects: WalRecoveryProjectReport[]; foreignSkipped?: number }
 
 /** 段头七字段+帧区记账（scan 重建与运行期同构维护）。
  *  frameCount=**可解析**帧数（scan 只数好帧；运行期追加恒好帧）；goodBytes=已证干净字节上界
@@ -637,55 +643,112 @@ export class CollabSpoolService {
     return out;
   }
 
+  /** TD-33 T5：擦除感知过滤（C1a 默认恒 false；C1b T9 接线 ErasureRegistry——blocked pid 不收养）。 */
+  erasureBlocked: (projectId: string) => boolean = () => false;
+
+  /** TD-33 T5：进程存活判据（ESRCH=明确死；EPERM/unknown=保守跳过——EPERM 可能是活的其他用户进程）。 */
+  protected isPidAlive(pid: number): boolean | 'unknown' {
+    try { process.kill(pid, 0); return true; }
+    catch (e) { return (e as NodeJS.ErrnoException).code === 'ESRCH' ? false : 'unknown'; }
+  }
+
+  /** TD-33 T5③：外来 owner 目录收录判据（adopt/recoverScan 同判）——parse 成功∧同 host∧pid 明确死
+   *  才收录/收养；EPERM/unknown/parse fail/跨 host 一律 false（不收录不收养不 unlink 不写 sidecar）。 */
+  private admitForeignDir(dir: string): boolean {
+    const parsed = parseOwnerName(basename(dir));
+    if (!parsed) return false;
+    if (parsed.hostKey !== currentHostKey()) return false;
+    return this.isPidAlive(parsed.pid) === false;
+  }
+
+  /** TD-33 T6：owner 目录显式 GC（boot 每次 init/reinit 一次，幂等）——**唯一**目录回收入口（写路径零
+   *  rmdir）。判据：严格 parse 成功∧空目录∧（同 host:pid 明确死∧mtime>10min ∨ 异 host:mtime>24h）；
+   *  其余一律保留（未知/parse fail/非空/活/EPERM——宁可漏回收不可误删活 owner）。顶层 catch 永不抛。 */
+  async reclaimStaleOwnerDirs(): Promise<number> {
+    let reclaimed = 0;
+    try {
+      const names = await readdir(this.dir).catch(() => null);
+      if (!names) return 0;   // 根 ENOENT
+      for (const name of names) {
+        try {
+          const path = join(this.dir, name);
+          const st = await stat(path);
+          if (!st.isDirectory()) continue;
+          const parsed = parseOwnerName(name);
+          if (!parsed) continue;
+          if ((await readdir(path)).length > 0) continue;   // 非空=证据/在写，保留
+          const ageMs = Date.now() - st.mtimeMs;
+          if (parsed.hostKey === currentHostKey()) {
+            if (this.isPidAlive(parsed.pid) !== false || ageMs <= STALE_OWNER_DIR_MIN_AGE_MS) continue;
+          } else if (ageMs <= STALE_FOREIGN_OWNER_DIR_MIN_AGE_MS) continue;
+          await rmdir(path);
+          yjsSpoolOwnerDirReclaimedTotal.inc();
+          reclaimed += 1;
+        } catch { /* per-dir catch（ENOTEMPTY=并发写回等——静默跳过） */ }
+      }
+    } catch { /* 顶层兜底：GC 永不抛 */ }
+    return reclaimed;
+  }
+
   /** W21/Z11（SV4）：收养静默外来段（boot 后新出现者；mtime ≥silentMs 无写入=其进程已死）。
-   *  完整重扫（帧循环单源）；收养后 foreign=false 纳入 own 口径；整段隔离段不收养（sidecar 裁定优先）。 */
+   *  完整重扫（帧循环单源）；收养后 foreign=false 纳入 own 口径；整段隔离段不收养（sidecar 裁定优先）。
+   *  TD-33 T5：①读在链外（readSegmentFile 缝），index/floor/dedup 提交入 per-project 链+链内复核；
+   *  ②两分支都抬 floor+入 dedup（干净分支旧漏=外来高 seq 段→新 append 重复 seq）；
+   *  ③收录面统一防护（admitForeignDir——活 owner/未知/跨 host 一律不收养）。 */
   async adoptSilentForeignSegments(silentMs: number): Promise<{ projectId: string; dir: string; name: string }[]> {
     const now = Date.now();
     const adopted: { projectId: string; dir: string; name: string }[] = [];
     for (const [pid, segs] of [...this.index.entries()]) {
+      if (this.erasureBlocked(pid)) continue;
       for (const [key, m] of [...segs.entries()]) {
         // Y1c T13（G6a）：chain-stopped 外来段（recoverScan 帧级 fatal/坏尾裁定——**帧前缀可重放**档
         // I1）可收养：own 化+坏尾归 reconciler quarantineTruncatedFrames 处置（回收闭环保持——旧链
         // scan 的 truncated sealed 段同语义）；其余隔离档（bad-header/history-mismatch/violation/
         // truncate-failed/unproven-tail）=证据保全或不可证——不收养。
         if (!m.foreign || (m.segQuarantined != null && m.segQuarantined !== 'chain-stopped')) continue;
-        const path = join(m.dir, segFileNameOf(pid, m.generation, m.seq));
-        const st = await stat(path).catch(() => null);
+        if (!this.admitForeignDir(m.dir)) continue;
+        const name = segFileNameOf(pid, m.generation, m.seq);
+        const st = await stat(join(m.dir, name)).catch(() => null);
         if (!st || now - st.mtimeMs < silentMs) continue;
-        const buf = await readFile(path).catch(() => null);
+        const buf = await this.readSegmentFile(m.dir, name);   // 读在链外（大文件 IO 不占串行域）
         if (!buf) continue;
         const hdr = decodeWalSegmentHeader(buf);
         if ('badHeader' in hdr) continue;   // 坏头段不收养（隔离裁定归 scan/recoverScan）
-        if (m.segQuarantined === 'chain-stopped') {
-          // C1（T13 双评审 Critical）：chain-stopped 段保留 recoverScan 链式裁定的 seqs/frameCount/
-          // goodBytes——收养面与 boot 链两通道裁定一致。旧实现 permissive 重算对非字节缺陷段
-          // （gap/恶性 dup-seq/hash-mismatch/generation-mismatch——len/CRC 网全过）=干净段假象：
-          // ①quarantineTruncatedFrames 判干净段 no-op（坏尾零处置+段永不回收）；②peek 帧集=
-          // permissive 全集≠裁定前缀（链后未证帧复活进 replay 通道）；③收养不推进计数器/去重索引
-          // （新帧 walSeq 与收养段 seq 碰撞→PG 落行违反密集前缀→下次 boot dup-seq fatal 级联）。
-          // 计数器按裁定前缀 maxSeq 上抬（max 语义同 seedWalSeqFromPg 不回拨——reconciler 回拨/
-          // 索引清理后收养窗也安全）+裁定前缀帧入去重索引（同字节重发命中 dedup 返回原 frameId
-          // ——ACK 铁律）；坏尾归 quarantineTruncatedFrames 处置（reconciler 注记②——meta.goodBytes
-          // =链式 lastGoodOffset 即其隔离界）。
-          const maxSeq = m.seqs.reduce((mx, sq) => (sq > mx ? sq : mx), 0n);
+        const committed = await this.chainWalIo(pid, async () => {
+          const cur = this.index.get(pid)?.get(key);
+          // 链内复核（Q 评审）：同一 meta 快照∧未 confirm∧仍外来——重连 reinit 换 meta 后旧快照不得覆盖新裁定
+          if (!cur || cur !== m || cur.confirmedCount > 0 || !cur.foreign) return null;
+          // chain-stopped 段保留 recoverScan 链式裁定的 seqs/frameCount/goodBytes——收养面与 boot 链
+          // 两通道裁定一致：permissive 重算对非字节缺陷段（gap/恶性 dup-seq/hash-mismatch/
+          // generation-mismatch——len/CRC 网全过）=干净段假象→坏尾零处置+链后未证帧复活进 replay。
+          const next: SegmentMeta = m.segQuarantined === 'chain-stopped'
+            ? {
+              frameCount: m.frameCount, goodBytes: m.goodBytes, bytes: buf.byteLength,
+              confirmed: new Set(), confirmedCount: 0, sealed: true, quarantinedRange: null,
+              quarantinedBytes: 0, dir: m.dir, seq: m.seq, foreign: false, generation: m.generation,
+              seqs: m.seqs, frameHashes: m.frameHashes, header: hdr.header, segQuarantined: null,
+            }
+            : (() => {
+              const { frameCount, goodBytes, truncated, seqs, frameHashes } = parseSegmentFramesPermissive(buf);
+              return {
+                frameCount, goodBytes, bytes: buf.byteLength, confirmed: new Set(), confirmedCount: 0,
+                sealed: truncated, quarantinedRange: null, quarantinedBytes: 0, dir: m.dir, seq: m.seq,
+                foreign: false, generation: m.generation, seqs, frameHashes, header: hdr.header, segQuarantined: null,
+              };
+            })();
+          // T5②：floor 上抬（max 语义不回拨）+裁定前缀帧入去重索引（重发命中原帧=ACK 铁律）。
+          const maxSeq = next.seqs.reduce((mx, sq) => (sq > mx ? sq : mx), 0n);
           const floor = maxSeq + 1n;
-          const cur = this.walSeqCounters.get(pid) ?? 1n;
-          if (floor > cur) this.walSeqCounters.set(pid, floor);
-          for (let i = 0; i < m.frameCount && i < m.frameHashes.length; i++) {
-            this.dedupInsert(pid, m.frameHashes[i]!, `${key}:${i}`, m.seqs[i] ?? 0n);
+          if (floor > (this.walSeqCounters.get(pid) ?? 1n)) this.walSeqCounters.set(pid, floor);
+          for (let i = 0; i < next.frameCount && i < next.frameHashes.length; i++) {
+            this.dedupInsert(pid, next.frameHashes[i]!, `${key}:${i}`, next.seqs[i] ?? 0n);
           }
-          segs.set(key, { frameCount: m.frameCount, goodBytes: m.goodBytes, bytes: buf.byteLength,
-            confirmed: new Set(), confirmedCount: 0, sealed: true, quarantinedRange: null,
-            quarantinedBytes: 0, dir: m.dir, seq: m.seq, foreign: false, generation: m.generation,
-            seqs: m.seqs, frameHashes: m.frameHashes, header: hdr.header, segQuarantined: null });
-          adopted.push({ projectId: pid, dir: m.dir, name: segFileNameOf(pid, m.generation, m.seq) });
-          continue;
-        }
-        const { frameCount, goodBytes, truncated, seqs, frameHashes } = parseSegmentFramesPermissive(buf);
-        segs.set(key, { frameCount, goodBytes, bytes: buf.byteLength, confirmed: new Set(), confirmedCount: 0,
-          sealed: truncated, quarantinedRange: null, quarantinedBytes: 0, dir: m.dir, seq: m.seq, foreign: false,
-          generation: m.generation, seqs, frameHashes, header: hdr.header, segQuarantined: null });
-        adopted.push({ projectId: pid, dir: m.dir, name: segFileNameOf(pid, m.generation, m.seq) });
+          const bucket = this.index.get(pid);
+          if (!bucket) return null;
+          bucket.set(key, next);
+          return name;
+        });
+        if (committed) adopted.push({ projectId: pid, dir: m.dir, name: committed });
       }
     }
     return adopted;
@@ -867,6 +930,36 @@ export class CollabSpoolService {
     walFsyncLatency.observe(Date.now() - t0);
   }
 
+  /** 段文件读口单点（TD-33 T4：adopt/quarantine/peek 共用；ENOENT=段已被外部 unlink——
+   *  跳过不抛；测试暂停缝同 syncSegmentHandle/writeNewSegmentFile 族）。 */
+  protected async readSegmentFile(dir: string, name: string): Promise<Buffer | null> {
+    try {
+      return await readFile(join(dir, name));
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw e;
+    }
+  }
+
+  /** TD-33 T3：新建段唯一实现（'wx' 排他建+EEXIST 段号递增重试——绝不覆写未知字节）。
+   *  返回终值 seq/path：调用方以返回值更新 meta/segKey/isNewSegment（重试递增不外泄）。
+   *  测试缝=protected 覆写（在段头落盘前暂停——并发交错用例确定性复现）。 */
+  protected async writeNewSegmentFile(
+    dir: string, projectId: string, generation: number, startSeq: number, header: WalSegmentHeader,
+  ): Promise<{ seq: number; path: string }> {
+    let seq = startSeq;
+    for (let attempt = 0; ; attempt++) {
+      const path = join(dir, segFileNameOf(projectId, generation, seq));
+      try {
+        await writeFile(path, encodeWalSegmentHeader(header), { flag: 'wx', mode: 0o600 });
+        return { seq, path };
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'EEXIST' && attempt < 1024) { seq += 1; continue; }
+        throw e;
+      }
+    }
+  }
+
   /** 帧写入唯一实现（V2 封段守卫+X14 耐久性+WAL 帧协议 v1.7）。
    *  R3：写路径只落 activeDir（owner 子目录）；滚段计算只看同活动目录同 generation 段
    *  （换代=namespace 切代——旧代/legacy 段不参与追加候选）。
@@ -917,18 +1010,10 @@ export class CollabSpoolService {
         projectId, generation: gen, historyId: this.walHistoryId,
         createdAtMs: Date.now(), lastWriteAtMs: Date.now(),
       };
-      // C1 双保险：新建段 'wx' 排他建——maxSeq 计入隔离段后仍可能撞盘上幻影段（index 未记账的
-      // 崩溃残留/外部写入）：EEXIST=段号递增重试，绝不覆写未知字节。
-      for (let attempt = 0; ; attempt++) {
-        try {
-          // 新建段：段头先落（头+首帧一次 fsync 后父目录 fsync——spike appendBatch 同款单 fsync 纪律）
-          await writeFile(join(adir, segFileNameOf(projectId, gen, segSeq)), encodeWalSegmentHeader(header), { flag: 'wx', mode: 0o600 });
-          break;
-        } catch (e) {
-          if ((e as NodeJS.ErrnoException).code === 'EEXIST' && attempt < 1024) { segSeq += 1; continue; }
-          throw e;
-        }
-      }
+      // C1 双保险：新建段 'wx' 排他建（TD-33 T3：单点 writeNewSegmentFile——maxSeq 计入隔离段后仍可能
+      // 撞盘上幻影段〔index 未记账的崩溃残留/外部写入〕：EEXIST=段号递增重试，绝不覆写未知字节；
+      // 段头先落，头+首帧一次 fsync 后父目录 fsync——spike appendBatch 同款单 fsync 纪律）。
+      segSeq = (await this.writeNewSegmentFile(adir, projectId, gen, segSeq, header)).seq;
       meta = { frameCount: 0, goodBytes: WAL_SEGMENT_HEADER_SIZE, bytes: WAL_SEGMENT_HEADER_SIZE,
         confirmed: new Set(), confirmedCount: 0, sealed: false, quarantinedRange: null, quarantinedBytes: 0,
         dir: adir, seq: segSeq, foreign: false, generation: gen, seqs: [], frameHashes: [],
@@ -1059,15 +1144,7 @@ export class CollabSpoolService {
           projectId, generation: gen, historyId: this.walHistoryId,
           createdAtMs: Date.now(), lastWriteAtMs: Date.now(),
         };
-        for (let attempt = 0; ; attempt++) {
-          try {
-            await writeFile(join(adir, segFileNameOf(projectId, gen, segSeq)), encodeWalSegmentHeader(header), { flag: 'wx', mode: 0o600 });
-            break;
-          } catch (e) {
-            if ((e as NodeJS.ErrnoException).code === 'EEXIST' && attempt < 1024) { segSeq += 1; continue; }
-            throw e;
-          }
-        }
+        segSeq = (await this.writeNewSegmentFile(adir, projectId, gen, segSeq, header)).seq;   // TD-33 T3：单点（重试递增不外泄）
         meta = { frameCount: 0, goodBytes: WAL_SEGMENT_HEADER_SIZE, bytes: WAL_SEGMENT_HEADER_SIZE,
           confirmed: new Set(), confirmedCount: 0, sealed: false, quarantinedRange: null, quarantinedBytes: 0,
           dir: adir, seq: segSeq, foreign: false, generation: gen, seqs: [], frameHashes: [],
@@ -1275,9 +1352,9 @@ export class CollabSpoolService {
       .filter(([, m]) => m.segQuarantined == null || m.segQuarantined === 'chain-stopped')
       .sort(([, a], [, b]) => a.seq - b.seq || (a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : 0));
     for (const [segKey, meta] of ordered) {
-      let buf: Buffer;
-      try { buf = await readFile(join(meta.dir, segFileNameOf(projectId, meta.generation, meta.seq))); }
-      catch { continue; }   // 段文件消失（已 unlink）——跳过
+      // TD-33 T4：共用 readSegmentFile 读口；段文件消失（已 unlink）——跳过（非 ENOENT 亦吞，保持既有 peek 容错）
+      const buf = await this.readSegmentFile(meta.dir, segFileNameOf(projectId, meta.generation, meta.seq)).catch(() => null);
+      if (!buf) continue;
       let off = WAL_SEGMENT_HEADER_SIZE; let idx = 0;
       while (idx < meta.frameCount) {
         if (off + WAL_FRAME_FIXED_BYTES > buf.byteLength) { this.reportTruncation(projectId, meta.seq); break; }
@@ -1327,7 +1404,7 @@ export class CollabSpoolService {
       const file = join(meta.dir, segFileNameOf(projectId, meta.generation, meta.seq));
       try { await unlink(file); } catch { /* 已消失 */ }
       try { await unlink(`${file}.quarantine`); } catch { /* 无 sidecar */ }
-      if (meta.dir !== this.dir) await rmdir(meta.dir).catch(() => {});   // R3：空 owner 目录回收
+      // TD-33 T2：owner 目录生命周期归进程；boot GC 回收；禁止项目级 rmdir
       segs.delete(segKey);
     }
     if (segs.size === 0) this.index.delete(projectId);
@@ -1343,18 +1420,23 @@ export class CollabSpoolService {
 
   /** V3：坏帧段处置=字节区间隔离（坏帧起始偏移→EOF）；sidecar 记偏移区间；
    *  quarantinedBytes = byteLength - off（含坏帧头）；重复调用不重复递增计数。
-   *  R3：枚举走 listSpoolFiles 单源；整段隔离段跳过（sidecar 裁定优先——不重复隔离）。 */
+   *  TD-33 T4：①入 per-project WAL 链（与 append/confirm 同串行域）；②枚举改 index 驱动
+   *  （不扫根——共享根×局部锁下同项目 confirm unlink 与读取并发可打出 ENOENT；index 天然
+   *  per-pid 一致+O(该项目)）；③foreign 段 skip 零 sidecar（外来 owner 段不越权处置）。 */
   async quarantineTruncatedFrames(projectId: string): Promise<number> {
+    return this.chainWalIo(projectId, () => this.quarantineTruncatedFramesInner(projectId));
+  }
+
+  private async quarantineTruncatedFramesInner(projectId: string): Promise<number> {
     const segs = this.index.get(projectId);
     if (!segs) return 0;
     let newQuarantined = 0;
-    for (const { dir, name: f } of await listSpoolFiles(this.dir)) {
-      if (!f.endsWith('.spool')) continue;
-      const parsed = parseSegFileName(f);
-      if (!parsed || parsed.projectId !== projectId) continue;
-      const meta = segs.get(this.segKeyOf(dir, f));
-      if (!meta || meta.quarantinedRange != null || meta.segQuarantined != null) continue;
-      const buf = await readFile(join(dir, f));
+    for (const meta of [...segs.values()]) {
+      if (meta.foreign) continue;
+      if (meta.quarantinedRange != null || meta.segQuarantined != null) continue;
+      const f = segFileNameOf(projectId, meta.generation, meta.seq);
+      const buf = await this.readSegmentFile(meta.dir, f);
+      if (!buf) continue;   // ENOENT：段已消失——跳过不抛
       let off: number;
       let reason = 'truncated-or-crc';
       const hdr = decodeWalSegmentHeader(buf);
@@ -1376,8 +1458,8 @@ export class CollabSpoolService {
         if (off >= buf.byteLength) continue;                     // 干净段
       }
       // I1：sidecar 先落盘后记账——写失败即异常上抛且 meta 三字段未动（保守正确可重试）。
-      const line = JSON.stringify({ segSeq: parsed.segSeq, quarantinedFromOffset: off, toOffset: buf.byteLength, reason, firstSeenAt: new Date().toISOString() }) + '\n';
-      await appendSidecarLineRaw(dir, f, line);
+      const line = JSON.stringify({ segSeq: meta.seq, quarantinedFromOffset: off, toOffset: buf.byteLength, reason, firstSeenAt: new Date().toISOString() }) + '\n';
+      await appendSidecarLineRaw(meta.dir, f, line);
       meta.quarantinedRange = { fromOffset: off };
       meta.sealed = true;                                      // V2：含坏尾的段封禁
       meta.quarantinedBytes = buf.byteLength - off;
@@ -1392,7 +1474,10 @@ export class CollabSpoolService {
    *  收口2：零字节残片段直接回收；坏段头（magic/version/头 CRC 不符）=segQuarantined 'bad-header'
    *  （自明缺陷——每轮扫描自证，无需 sidecar）；整段隔离 sidecar 在位段禁重放（跨重启）；
    *  P18 截尾分档：本 owner 段坏尾=truncated 报告+计数；外来段坏尾=静默截断（sealed 置位）。
-   *  V3 临时 map 末尾整体 swap——中途抛错不留半截索引（P19 幂等重建不变量）。 */
+   *  V3 临时 map 末尾整体 swap——中途抛错不留半截索引（P19 幂等重建不变量）。
+   *  @deprecated TD-33 T5：test/runbook-only（生产 boot 唯一扫描=recoverScan——本方法无收录面防护；
+   *  运行时新调用方禁用；回滚 runbook 工具 scripts/collab-spool-import.ts 显式接管租约后全量重扫=
+   *  唯一豁免面；不给 scan 加过滤=防误用面扩大）。 */
   async scan(): Promise<{ truncatedSegments: string[] }> {
     await mkdir(this.dir, { recursive: true, mode: 0o700 });
     const adir = this.activeDir();   // Z13：owner 必填断点
@@ -1462,6 +1547,10 @@ export class CollabSpoolService {
    *  消费方=vacuum ⑥ 后置（gateway.switchWalGeneration——事务提交后；事务内禁切：提交前切段=新代
    *  帧落隔离旧段语义颠倒）；T27 换代状态机接管后=SWITCHING 事务后同点调用。 */
   async switchGeneration(projectId: string, generation: number): Promise<void> {
+    return this.chainWalIo(projectId, () => this.switchGenerationInner(projectId, generation));
+  }
+
+  private async switchGenerationInner(projectId: string, generation: number): Promise<void> {
     this.projectGeneration.set(projectId, generation);
     const segs = this.index.get(projectId);
     const pgSeq = this.watermarks.get(projectId)?.pgSeq ?? 0n;
@@ -1471,10 +1560,10 @@ export class CollabSpoolService {
         const maxSeq = m.seqs.reduce((mx, sq) => (sq > mx ? sq : mx), 0n);
         // M3（T12 双评审，T13 落地）：空段（零帧且无既有隔离裁定）换代即删——零帧零证据价值，
         // sidecar 滞留=多次 vacuum 无界累积面；既有隔离段（bad-header 等）保留 sidecar 证据形态。
+        // TD-33 T2：段清理不删 owner 目录（生命周期归进程；boot GC 回收；禁止项目级 rmdir）。
         if (m.segQuarantined == null && maxSeq === 0n) {
           await unlink(join(m.dir, name)).catch(() => {});
           await unlink(join(m.dir, `${name}.quarantine`)).catch(() => {});
-          if (m.dir !== this.dir) await rmdir(m.dir).catch(() => {});
           segs.delete(segKey);
           continue;
         }
@@ -1487,7 +1576,6 @@ export class CollabSpoolService {
           // 滞留为隔离证据形态，scan/recoverScan 幂等重裁定〔sidecar 在=整段隔离〕，无正确性影响）
           await unlink(join(m.dir, name)).catch(() => {});
           await unlink(join(m.dir, `${name}.quarantine`)).catch(() => {});
-          if (m.dir !== this.dir) await rmdir(m.dir).catch(() => {});
           segs.delete(segKey);
           continue;
         }
@@ -1524,12 +1612,16 @@ export class CollabSpoolService {
     const report: WalRecoveryReport = { projects: [] };
     // 枚举+读入（单次 IO； projectId 分组）
     const byProject = new Map<string, Array<{ dir: string; name: string; parsed: { projectId: string; segSeq: number; generation: number | null }; buf: Buffer }>>();
+    let foreignSkipped = 0;
     for (const { dir, name: f } of await listSpoolFiles(this.dir)) {
       if (!f.endsWith('.spool')) continue;
       const parsed = parseSegFileName(f);
       if (!parsed) continue;
+      // TD-33 T5③：收录面统一防护（与 adopt 同判）——未收录外来段零写入（不 sidecar 不 truncate 不 unlink）；
+      // 根平铺 legacy 段（dir=this.dir≠adir）同判 fail-closed 跳过（旧格式一律保留，处置走 runbook 手工）
+      if (dir !== adir && !this.admitForeignDir(dir)) { foreignSkipped += 1; continue; }
       if (parsed.projectId === '__probe__') { await unlink(join(dir, f)).catch(() => {}); continue; }
-      const buf = await readFile(join(dir, f)).catch(() => null);
+      const buf = await this.readSegmentFile(dir, f);
       if (buf == null) continue;
       if (buf.byteLength === 0) { await unlink(join(dir, f)).catch(() => {}); continue; }
       const list = byProject.get(parsed.projectId) ?? [];
@@ -1720,6 +1812,10 @@ export class CollabSpoolService {
     }
     this.index = next;   // 恢复裁定落 index（整段隔离档+unproven-tail 零帧；chain-stopped 段前缀帧 peek 可取回——两类均与 replayPrefix 一致，I1/复核 R1）
     this.rebuildRuntimeStateFromIndex();
+    if (foreignSkipped > 0) {
+      report.foreignSkipped = foreignSkipped;
+      this.logger.warn(`spool recoverScan 跳过未收录外来段 ${foreignSkipped} 个（owner 未知/活/跨 host——零写入，处置留其 owner 或 GC）`);
+    }
     return report;
   }
 

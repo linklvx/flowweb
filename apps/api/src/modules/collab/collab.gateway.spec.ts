@@ -32,8 +32,18 @@ import { createMockRepo, type MockRepo } from '../../test-utils/mock-repo';
 import { pollUntil } from '../../test-utils/poll-until';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b B0：内部状态访问经 façade（check-collab-test-facade 门禁——cast∧私有成员违规替换）
-import { appendFile, stat, utimes } from 'node:fs/promises';
+import { appendFile, stat, utimes, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { hostname } from 'node:os';
+import { buildOwnerName } from './owner-name';
+
+/** TD-33 T5 红迁移：kit 启动后租约改写 spool owner——预置段成为「前任死 owner」目录；
+ *  合法 `o-` 名+pid 明确死 seam（收录面防护放行；旧写法 'test-owner'/'owner-A' 现按未知目录跳过）。 */
+class DeadOwnerSpool extends CollabSpoolService {
+  protected isPidAlive(): boolean | 'unknown' { return false; }
+}
+const DEAD_OWNER = buildOwnerName(hostname(), 424241);
 
 
 function buildDocState(): Buffer {
@@ -1085,8 +1095,8 @@ describe('Y1c T11 复核 round-2：boot 三元组播种接线（generation+walSe
   it("C1' 接线：startCollabAfterLease 读 pgSeqFloors→setProjectGeneration+seedWalSeqFromPg→replayAll 回灌行落当代（红=不播种→行落 g1×compact ② 代辖滤除）+无段项目计数器自 PG 抬底", async () => {
     const { dir, cleanup } = await makeSpoolDir('y1c-c1p-');
     try {
-      const spool = new CollabSpoolService(dir);
-      spool.setOwner('test-owner');
+      const spool = new DeadOwnerSpool(dir);
+      spool.setOwner(DEAD_OWNER);
       spool.setWalHistory('spec-history-id');   // Y1c T13（G6a）：段头栅栏装置对齐（kit mock historyId——缺省 '' 会被 boot recoverScan 判 history-mismatch 隔离）
       spool.setProjectGeneration('p-gen', 7);   // 运行中形态：帧属 g7（真空纪后当代）
       spool.seedWalSeqFromPg('p-gen', 3n);      // 运行中形态：计数器=pgSeq+1=4（帧 walSeq=4>已发布基线 3）
@@ -1121,8 +1131,8 @@ describe('Y0a-2 审查修复：I-1 回灌后 rearm / I-2 per-doc 在飞集合 / 
   it('审查 I-1 红相（回灌后 rearm 漏排）：启动回灌失败（PG down）→ spool 残帧必须有退避梯排程——旧实现仅 seam 注入不调用=梯空转（R1 自愈承诺破约）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y0a2-i1-');
     try {
-      const spool = new CollabSpoolService(dir);
-      spool.setOwner('test-owner');   // R3：早于 kit 的直接 append 需自设 owner（kit 装置只覆盖 start 之后的路径）
+      const spool = new DeadOwnerSpool(dir);
+      spool.setOwner(DEAD_OWNER);   // R3：早于 kit 的直接 append 需自设 owner（kit 装置只覆盖 start 之后的路径）
       spool.setWalHistory('spec-history-id');   // Y1c T13（G6a）：段头栅栏装置对齐（kit mock historyId——缺省 '' 会被 boot recoverScan 判 history-mismatch 隔离）
       await spool.append('p-i1', Y.encodeStateAsUpdate(new Y.Doc()));   // 预投帧：kit onModuleInit 的恢复扫描+replayAll 读它（append 永败→3 次尝试≈400ms 后 failed=1，帧保留）
       const kit = await startDualClientServer({ appendBatch: vi.fn(async () => { throw new Error('pg down'); }) }, 200, spool);
@@ -1810,11 +1820,11 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
   it('I4/reconciler 收养回收闭环：静默外来段（含坏尾）收养→隔离→回灌→confirm→整段 unlink（契约注记②——adopt 重建 meta 的 quarantinedRange=null ∧ goodBytes<bytes ⇒ tailSettled 恒 false=段永不回收）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y0a3-rec-');
     try {
-      const spoolA = new CollabSpoolService(dir);
-      spoolA.setOwner('owner-A');
+      const spoolA = new DeadOwnerSpool(dir);
+      spoolA.setOwner(DEAD_OWNER);
       spoolA.setWalHistory('spec-history-id');   // Y1c T13（G6a）：段头栅栏装置对齐（kit mock historyId——缺省 '' 会被 boot recoverScan 判 history-mismatch 隔离而失去收养资格）
       await spoolA.append('prc', Y.encodeStateAsUpdate(new Y.Doc()));
-      const segPath = join(dir, 'owner-A', 'prc.g1.0.spool');   // T8 v1.7：g 域文件名
+      const segPath = join(dir, DEAD_OWNER, 'prc.g1.0.spool');   // T8 v1.7：g 域文件名
       await appendFile(segPath, Buffer.alloc(7, 0xAB));   // 1-7B 残尾=truncated（parseSegmentFrames 收口2 同判）
       const past = new Date(Date.now() - 120_000);
       await utimes(segPath, past, past);                  // 静默窗（≥60s 无写入=前任已死）
@@ -1825,6 +1835,24 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
         await expect(stat(segPath)).rejects.toMatchObject({ code: 'ENOENT' });
         await expect(stat(`${segPath}.quarantine`)).rejects.toMatchObject({ code: 'ENOENT' });   // sidecar 随段回收
         expect(kit.repo.appendBatch).toHaveBeenCalledWith('prc', expect.anything(), expect.objectContaining({ expectedPgSeq: null }), expect.any(Function));   // 好帧已回灌 PG（Y1c T10：回灌带水位 catch-up——expectedPgSeq=null 单调追赶形态；Y1c T27 收尾 M-b 第四参=派生 persist inTx 闭包〔boot 直构无 observer=stale 面 absent+persist 面代 no-op 形——派生在场即闭包，修前=undefined〕）
+      } finally { await kit.dispose(); }
+    } finally { await cleanup(); }
+  });
+});
+
+describe('TD-33 T6：boot GC 接线（startCollabAfterLease 的 !initDone 块内——每次 init/reinit 幂等）', () => {
+  it('过期空 owner 目录（明确死 pid∧mtime>10min）在 boot 后消失', async () => {
+    const { dir, cleanup } = await makeSpoolDir('td33-gc-');
+    try {
+      const staleOwner = buildOwnerName(hostname(), 424242);
+      const staleDir = join(dir, staleOwner);
+      await mkdir(staleDir, { recursive: true });
+      const past = new Date(Date.now() - 30 * 60_000);
+      await utimes(staleDir, past, past);
+      const spool = new DeadOwnerSpool(dir);
+      const kit = await startDualClientServer({}, 100, spool);
+      try {
+        expect(existsSync(staleDir)).toBe(false);
       } finally { await kit.dispose(); }
     } finally { await cleanup(); }
   });
