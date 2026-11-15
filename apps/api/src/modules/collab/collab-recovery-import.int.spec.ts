@@ -119,7 +119,7 @@ maybe('Y1c T25 recovery import REST 服务面（真 gateway+真 PG——唯一�
       resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
       resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }),
     };
-    const port = 20000 + Math.floor(Math.random() * 20000);
+    const port = 0;   // TD-32/C3 T23：ephemeral（构造期 0；本文件不建客户端 URL）
     observer = new CollabLifecycleObserverService(prisma as unknown as PrismaService);
     feed = new RuntimeFeedService(prisma as unknown as PrismaService);
     // closeout I-5：actor 经 11 参注入带 observer（module DI 面等价——播种/重对齐链在位）

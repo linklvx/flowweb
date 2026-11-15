@@ -26,7 +26,7 @@ function buildGateway(opts?: { debounce?: number; timeout?: number }) {
   return new CollabGateway(
     {} as any, new EventEmitter2() as any, {} as any, createLeaseStub() as any,   // Y0a-3 T5：参数 4=租约 stub
     { resolve: vi.fn() } as any,
-    48000 + Math.floor(Math.random() * 4000),
+    0,
     opts?.debounce, opts?.timeout, undefined, spoolForTest(spoolDir),
   );
 }

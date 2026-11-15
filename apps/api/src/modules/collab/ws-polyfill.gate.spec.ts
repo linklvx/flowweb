@@ -6,7 +6,6 @@
 // 通过 ⇒ 批1 恢复原语改 transport.reconnect()（㉕/㉝ 契约约束大半消失）；不通过 ⇒ kick 方案（合理退路）。
 // Y0b-5 T3a：第二用例（批1-0 close(1000) 库自持重连裁决）随归零模型改写——见用例处注释。
 import { describe, it, expect } from 'vitest';
-import * as net from 'net';
 import { Server } from '@hocuspocus/server';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import * as Y from 'yjs';
@@ -22,18 +21,11 @@ class PinnedWebSocket extends WebSocket {
   }
 }
 
-function freePort(): Promise<number> {
-  return new Promise((r) => {
-    const n = net.createServer();
-    n.listen(0, () => { const p = (n.address() as any).port; n.close(() => r(p)); });
-  });
-}
-
 describe('F6 WebSocketPolyfill spike', () => {
   it('自定义类全程可用：连接/同步/注入 onClose 触发重连/销毁无泄漏', async () => {
-    const port = await freePort();
-    const server = new Server({ port, async onAuthenticate() { return {}; } });
+    const server = new Server({ port: 0, async onAuthenticate() { return {}; } });   // TD-32/C3 T24：ephemeral
     await server.listen();
+    const port = (server.httpServer!.address() as { port: number }).port;
     const log: string[] = [];
     const provider = new HocuspocusProvider({
       url: `ws://127.0.0.1:${port}`,
@@ -84,9 +76,9 @@ describe('F6 WebSocketPolyfill spike', () => {
       createReconnectingWebSocket: (_url: string) => { WebSocketClass: any };
       activeSocketCount: () => number;
     };
-    const port = await freePort();
-    const server = new Server({ port, async onAuthenticate() { return {}; } });
+    const server = new Server({ port: 0, async onAuthenticate() { return {}; } });   // TD-32/C3 T24：ephemeral
     await server.listen();
+    const port = (server.httpServer!.address() as { port: number }).port;
     let provider: HocuspocusProvider | null = null;
     try {
       // 注册表装置：真 transport 注入类（构造期强关不变量在册）+计数子类

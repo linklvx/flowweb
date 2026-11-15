@@ -275,7 +275,7 @@ const txOf = async (intentRowId: string, type: string) =>
   let submitCount = 0;
   let submitHeaders: Record<string, string | string[] | undefined> = {};
   let queriedIds: string[] = [];
-  const PORT = 3890 + Math.floor(Math.random() * 90);
+  let PORT = 0;   // TD-32/C3 T23：listen(0) 后读实报口
   let MODEL_ID = '';
 
   beforeAll(async () => {
@@ -301,7 +301,8 @@ const txOf = async (intentRowId: string, type: string) =>
         res.statusCode = 404; res.end();
       });
     });
-    await new Promise<void>((r) => server.listen(PORT, '127.0.0.1', r));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    PORT = (server.address() as { port: number }).port;   // T23：实报口（apiUrl 单源）
     const nodeType = await prisma.nodeType.findFirstOrThrow({ where: { key: 'image' } });
     const model = await prisma.aIModel.create({
       data: { id: `t9-model-${randomUUID().slice(0, 8)}`, nodeTypeId: nodeType.id, name: 't9-model', provider: 'tencent', apiUrl: `http://127.0.0.1:${PORT}`, apiModelName: 't9-m', apiKey: 't9-key', active: true },

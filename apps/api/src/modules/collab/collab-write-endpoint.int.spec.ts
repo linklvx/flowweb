@@ -98,7 +98,7 @@ maybe('Y1c T32 exec-status 端点（端到端真链+三探针——RuntimeEvent 
       resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
       resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }),
     };
-    const port = 20000 + Math.floor(Math.random() * 20000);
+    const port = 0;   // TD-32/C3 T23：ephemeral（构造期 0；本文件不建客户端 URL）
     gateway = new CollabGateway(
       prisma as any, new EventEmitter2() as any, repo,
       createLeaseStub({}, { repo: repo as any, spool: spool as any }) as any,

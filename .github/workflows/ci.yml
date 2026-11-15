@@ -280,22 +280,49 @@ jobs:
       # 注入 MINIO 占位（双保险）。
       - name: kill -9/SIGTERM/handover 演练（G-1 双模式+G-2a 双档+Z25 三变体——RPO/接管契约的唯一测试证明）
         timeout-minutes: 8
+        # TD-32/C3 T25：set -euo pipefail+tee（管道吞退出码防线）+日志留档（failure() 上传诊断）
         run: |
-          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=kill9-normal
-          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=kill9-fault
-          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=sigterm
-          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=sigterm --spool-fail
-          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=handover
-          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=handover --graceful
-          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=handover --usurp
+          set -euo pipefail
+          mkdir -p /tmp/drill-logs
+          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=kill9-normal 2>&1 | tee -a /tmp/drill-logs/kill9.log
+          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=kill9-fault 2>&1 | tee -a /tmp/drill-logs/kill9.log
+          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=sigterm 2>&1 | tee -a /tmp/drill-logs/kill9.log
+          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=sigterm --spool-fail 2>&1 | tee -a /tmp/drill-logs/kill9.log
+          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=handover 2>&1 | tee -a /tmp/drill-logs/kill9.log
+          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=handover --graceful 2>&1 | tee -a /tmp/drill-logs/kill9.log
+          pnpm --filter @flowweb/api exec tsx scripts/collab-kill9-drill.ts --mode=handover --usurp 2>&1 | tee -a /tmp/drill-logs/kill9.log
+      - name: kill9 演练日志上传（失败诊断——TD-32/C3 T25 证据面）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kill9-drill-logs
+          path: |
+            /tmp/drill-logs/kill9.log
+            apps/api/int.json
+          if-no-files-found: ignore
       # Y0b-5 T9：write-frozen 全链演练（spec §5.3 验收链——drain 冻结/权威快照重放/shrink 解除锚+编辑中
       # kill9 RPO 档〔裁定 23⑮/24⑸尾〕）。kill9 族旁追加同款条件/环境：node 直跑 mjs（驱动无 DI——
       # 首跑自带 tsconfig.drill.json 编译，上一步 kill9 已产出 dist-drill 则增量）；两模式串行（随机端口+租约行全局资源）。
       - name: write-frozen 全链演练（T9——drain 冻结+权威快照重放+shrink 解除+编辑中 kill9 双断言）
         timeout-minutes: 10
         run: |
-          pnpm --filter @flowweb/api exec node scripts/write-frozen-drill.mjs --mode=frozen-chain
-          pnpm --filter @flowweb/api exec node scripts/write-frozen-drill.mjs --mode=mid-edit-kill9
+          set -euo pipefail
+          mkdir -p /tmp/drill-logs
+          pnpm --filter @flowweb/api exec node scripts/write-frozen-drill.mjs --mode=frozen-chain 2>&1 | tee -a /tmp/drill-logs/write-frozen.log
+          pnpm --filter @flowweb/api exec node scripts/write-frozen-drill.mjs --mode=mid-edit-kill9 2>&1 | tee -a /tmp/drill-logs/write-frozen.log
+      - name: write-frozen 演练日志上传（失败诊断——TD-32/C3 T25 证据面）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: write-frozen-drill-logs
+          path: |
+            /tmp/drill-logs/write-frozen.log
+            apps/api/int.json
+          if-no-files-found: ignore
+      - name: 端口残留诊断（ss -ltnp——失败面证据；command -v 守卫）
+        if: failure()
+        run: |
+          if command -v ss >/dev/null 2>&1; then sudo ss -ltnp || true; else echo 'ss 不可用（跳过端口诊断）'; fi
 
   # C1-4（plan v3 Task C1-4；spec 2026-11-11-foundation-batch §3.3-5「CI +8 矩阵」）：时区维度最小化
   # job——只跑双时区 claim 面 spec（time-semantics.dual-tz.int.spec），不重复 test job 的 full verify

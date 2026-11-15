@@ -4,8 +4,10 @@
   复现条件=Windows 全池并发下偶现（2026-10-24 两次全池一次复现，单跑恒绿）；归因=collab-spool
   临时目录清理竞态存量（fs.rm/rmdir 与并发句柄释放窗口——非 Y1c T19 引入，T9 actor 落地起在库）；
   处置=CI 复现时单独收口（本批零动作——登记留痕防误判回归）。
+  **2026-11-15 TD-33/C1a 核销注记**：写路径项目级 rmdir 已清零（owner 目录生命周期归进程+boot GC+收养保护），本族根因链关闭；`makeSpoolDir` maxRetries 保留为测试侧缓冲，观察期=CI 无复现后销案。
 
 - 2026-10-26（Y1c T21 收口批登记）：apps/api collab-harness 系 spec 偶发端口竞态（`collab_state: starting→start-failed`——多套件并行抢 COLLAB_PORT/监听窗；净跑全绿〔api 全池 2957/2957 复验〕；quality 复核裁定=可接受环境 flake 需登记非回归）。
+  **2026-11-15 判据更新（TD-32/C2 核销）**：随机端口段已清零（port 0+IPC 实报），固定端口=handover 唯一例外（[31001..31003]+typed 回退）；本形态（随机段抢口）判据作废，后续复现按新门禁（`check-no-random-ports`）与 typed 启动面定位。
 
 - 2026-10-26（Y1c T22 G5 末轮小收口登记①）：web 池 stale-transform-cache flake——陈旧 vitest transform 缓存间歇供给旧版
   `@flowweb/shared`（症状=read-model-census compose 用例/runtimeStore 乱序·墓碑三例「undefined」形态=旧 merge/词表在跑）；
@@ -48,6 +50,7 @@
   collab-lifecycle-observer.t26.int「两项目同 nodeId 不互串」用例
   间歇红——T25b 终验轮单文件隔离态亦间歇（2 红 3 绿）；1caaaf6f 池轮同爆、与 T25b 三 commit 零代码
   交叠=先置时序/负载 flake 非回归。处置=隔离重跑绿即过（禁以环境态调阈值——与 soak 族同款口径）。
+  **2026-11-15 指针**：spool ENOENT 根因链已随 TD-33/C1a 核销（`ce655ff8`）；本行为族观察期=push CI 绿+无复现。
 
 - 2026-10-28（Y1c T27 首跑批登记；双评审 M-4(spec) 收口并入 mr4-1 枚举）：web canvasCollabRuntime.t25.spec
   **文件级顺序敏感间歇红**——单文件跑 closeout-1/closeout-2c/mr1-2/mr4-1/b1-1/b4-1 六例（mr4-1=T25b 批
@@ -191,3 +194,4 @@
   （728 总）全绿含 t26（18:53-18:58，.verify-logs/c3b3-media-reference-r2.log——同码同库）；
   C3b-3 变更面（media-reference/registry/门㊴/size 锚）与 t26 DeliveryFence 域零代码交叠；
   处置=复现时单独复跑收口（禁调判据——承 2026-10-28 原条目口径）。
+  **2026-11-15 指针**：同 TD-33/C1a 核销（写路径 rmdir 清零+boot GC）；ENOENT 形态观察期=push CI 绿+无复现。残余文件级交叉见 spec §7.1。

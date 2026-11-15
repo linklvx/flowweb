@@ -163,7 +163,7 @@ d('T31 发现②：clientID 单活跃接管——真 WS 栈中间层（真 gatew
     await restoreLeaseRow(prisma as never);
     spoolDir = await mkdtemp(join(tmpdir(), 't24sa-e2e-'));
     const spool = spoolForTest(spoolDir);
-    serverPort = 20000 + Math.floor(Math.random() * 20000);
+    serverPort = 0;   // TD-32/C3 T23：构造期 ephemeral，listen 后读实报口
     lease = new CollabLeaseService(prisma as never, repo, spool);
     gateway = new CollabGateway(
       prisma as never, new EventEmitter2() as never, repo, lease,
@@ -171,6 +171,7 @@ d('T31 发现②：clientID 单活跃接管——真 WS 栈中间层（真 gatew
       new SessionService(prisma as never), spool,
     );
     await gateway.onModuleInit();
+    serverPort = (gateway.server.httpServer!.address() as { port: number }).port;   // T23：实报口（URL 单源）
     expect(lease.isServing()).toBe(true);
     residency = new CollabResidencyService(gateway);
   }, 60_000);

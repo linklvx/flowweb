@@ -38,7 +38,7 @@ function buildGateway(): CollabGateway {
   return new CollabGateway(
     {} as any, new EventEmitter2() as any, {} as any, createLeaseStub() as any,
     { resolve: vi.fn() } as any,
-    49000 + Math.floor(Math.random() * 4000),
+    0,
     undefined, undefined, undefined, spoolForTest(spoolDir),
   );
 }

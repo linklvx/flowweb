@@ -899,15 +899,15 @@ describe('TD-33 T10：assertNotErased 双层+typed 错误+计账单源', () => {
   });
 
   it('链内层闭环：外层过检→持链暂停→期间 mark→链尾断言拒，磁盘零幽灵段', async () => {
-    let state: 'ERASING' | undefined;
+    const state = { now: undefined as 'ERASING' | undefined };   // 可变态盒（外层闭包读→链中改写；let 触发 prefer-const 误报）
     const s = new PausableSpool(dir);
-    s.setErasureGuard({ isBlocked: () => state });
+    s.setErasureGuard({ isBlocked: () => state.now });
     let release!: () => void;
     s.gate = new Promise<void>((r) => { release = r; });
     const p1 = s.append('p1', new Uint8Array([1]));
     await s.entered;                                   // #1 已过两层检查，暂停在新建段
     const p2 = s.append('p1', new Uint8Array([2]));    // 外层检查此刻通过；排队等链
-    state = 'ERASING';
+    state.now = 'ERASING';
     release();
     await p1;
     await expect(p2).rejects.toBeInstanceOf(SpoolProjectBlockedError);   // 链内层拒（幽灵段窗闭环）

@@ -14,7 +14,6 @@
 // fixture：collab.behavior-anchors.fixture.json（手写落库；测试逐锚 toEqual 校验——库升级行为漂移即时红）。
 // 注意：每用例 try/finally 保证 server/provider 销毁——否则失败路径句柄泄漏会挂住 vitest 退出。
 import { describe, it, expect, vi } from 'vitest';
-import * as net from 'net';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Server } from '@hocuspocus/server';
@@ -28,13 +27,6 @@ const fixture = JSON.parse(
     'utf8',
   ),
 ) as Record<string, string[]>;
-
-function freePort(): Promise<number> {
-  return new Promise((r) => {
-    const n = net.createServer();
-    n.listen(0, () => { const p = (n.address() as any).port; n.close(() => r(p)); });
-  });
-}
 
 async function waitUntil(cond: () => boolean, timeoutMs = 5000, what = ''): Promise<void> {
   const t0 = Date.now();
@@ -117,9 +109,9 @@ describe('批1-7 库行为锚（G24 fixture 回放）', () => {
   // 与 A4 解码崩溃同族的 vitest(2.1.9)/tinypool 环境特异问题；重连自愈域已由 health-carrier ㉝ 锁定，
   // 本锚只需事件集对照——两半边各自干净会话）。
   it('A1 库 websocket 层 onClose（4408 强关入口）只发 status:disconnected+disconnect 不发 close（布尔陈旧）', async () => {
-    const port = await freePort();
-    const server = new Server({ port, async onAuthenticate() { return {}; } });
+    const server = new Server({ port: 0, async onAuthenticate() { return {}; } });   // TD-32/C3 T24：ephemeral
     await server.listen();
+    const port = (server.httpServer!.address() as { port: number }).port;
     let provider: HocuspocusProvider | null = null;
     try {
       provider = makeProvider(port, 'anchor:1a', new Y.Doc());
@@ -150,9 +142,9 @@ describe('批1-7 库行为锚（G24 fixture 回放）', () => {
   }, 30000);
 
   it('A1b 服务端关停走 close（forwardClose 链）不走库 websocket 层 onClose；归零模型下 app 侧 disconnect 终局补发 disconnect 且库零定时器', async () => {
-    const port = await freePort();
-    const server = new Server({ port, async onAuthenticate() { return {}; } });
+    const server = new Server({ port: 0, async onAuthenticate() { return {}; } });   // TD-32/C3 T24：ephemeral
     await server.listen();
+    const port = (server.httpServer!.address() as { port: number }).port;
     let provider: HocuspocusProvider | null = null;
     try {
       // Y0b-5 T3a 重录：装置换 pin+归零（与 runtime createProvider 同构）——原"无 status/disconnect"
@@ -202,9 +194,8 @@ describe('批1-7 库行为锚（G24 fixture 回放）', () => {
 
   it('A2 destroy 双推 clock：removeAwarenessStates +1 已发布 → off(update) → destroy() 内 setLocalState(null) +1 未发布', async () => {
     const serverAwareness: string[] = [];
-    const port = await freePort();
     const server = new Server({
-      port,
+      port: 0,   // TD-32/C3 T24：ephemeral
       async onAuthenticate() { return {}; },
       async onAwarenessUpdate({ awareness, added, updated, removed }: any) {
         // 只记远端 client 的 meta（服务端自身 awareness clientID 每次运行随机——过滤保 fixture 稳定）
@@ -218,6 +209,7 @@ describe('批1-7 库行为锚（G24 fixture 回放）', () => {
       },
     });
     await server.listen();
+    const port = (server.httpServer!.address() as { port: number }).port;   // T24：ephemeral 实报口
     let provider: HocuspocusProvider | null = null;
     try {
       const doc = new Y.Doc();
@@ -279,13 +271,13 @@ describe('批1-7 库行为锚（G24 fixture 回放）', () => {
 
   it('A3 send() 在 !isAttached 静默 return：detach 后 doc 更新零出站帧、服务端零变更', async () => {
     let serverChanges = 0;
-    const port = await freePort();
     const server = new Server({
-      port,
+      port: 0,   // TD-32/C3 T24：ephemeral
       async onAuthenticate() { return {}; },
       async onChange() { serverChanges++; },
     });
     await server.listen();
+    const port = (server.httpServer!.address() as { port: number }).port;   // T24：ephemeral 实报口
     let provider: HocuspocusProvider | null = null;
     try {
       const doc = new Y.Doc();
@@ -327,9 +319,9 @@ describe('批1-7 库行为锚（G24 fixture 回放）', () => {
   }, 30000);
 
   it('A4 SS1 应答帧序：先 SS1 后 SS2（两帧）', async () => {
-    const port = await freePort();
-    const server = new Server({ port, async onAuthenticate() { return {}; } });
+    const server = new Server({ port: 0, async onAuthenticate() { return {}; } });   // TD-32/C3 T24：ephemeral
     await server.listen();
+    const port = (server.httpServer!.address() as { port: number }).port;
     let provider: HocuspocusProvider | null = null;
     try {
       const wire: WireFrame[] = [];
@@ -354,9 +346,9 @@ describe('批1-7 库行为锚（G24 fixture 回放）', () => {
   }, 30000);
 
   it('A5 首个 synced 时计数恒 1；decrement 归零置 synced=true（SyncStatus 驱动）', async () => {
-    const port = await freePort();
-    const server = new Server({ port, async onAuthenticate() { return {}; } });
+    const server = new Server({ port: 0, async onAuthenticate() { return {}; } });   // TD-32/C3 T24：ephemeral
     await server.listen();
+    const port = (server.httpServer!.address() as { port: number }).port;
     let provider: HocuspocusProvider | null = null;
     try {
       const doc = new Y.Doc();

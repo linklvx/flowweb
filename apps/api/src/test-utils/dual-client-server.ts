@@ -1,7 +1,6 @@
 // apps/api/src/test-utils/dual-client-server.ts
 // Y0a-1：双 client+单进程单 Server 装置——构造形态自 collab.gateway.spec.ts beforeEach 移植
-// （位置参数构造+随机端口段 20000+random(20000)=既有惯例 spec:81——port=0 时库不回写 configuration.port，
-// 必用随机段）。Y2/Y1a 复用地基。
+// （位置参数构造；TD-32/C3 T23：port 0=ephemeral，listen 后读 address() 实报口——原随机段惯例退役）。Y2/Y1a 复用地基。
 // T1.5：provider 改注入式 ws（Node ws 包 headers 选项）——URL 不带 query token，凭据经
 // `Cookie: flowweb.session_token=` 头承载（gateway 现状 fallback 分支认证通过=行为等价），
 // 并显式发 Origin 头（T2 Origin 校验的注入面）。undici 全局 WebSocket 不支持自定义 header，
@@ -86,7 +85,7 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
     resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }),
   };
   const emitter = new EventEmitter2();
-  const port = 20000 + Math.floor(Math.random() * 20000);
+  let port = 0;   // TD-32/C3 T23：构造期 0=ephemeral，listen 后读实报口（库不回写 configuration.port）
   const ownedSpoolDir = spool ? null : await mkdtemp(join(tmpdir(), 'y0a2-kit-'));
   const spoolSvc = spool ?? spoolForTest(ownedSpoolDir!);
   // Y0a-3 T5：lease stub 第四参（缺省契约形态 stub——V1 三件套：tryAcquireFast 成功 ⇒ repo/spool
@@ -94,6 +93,8 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
   const leaseSvc = lease ?? createLeaseStub({}, { repo: repo as any, spool: spoolSvc });
   const gateway = new CollabGateway(prisma as any, emitter as any, repo as any, leaseSvc as any, permSvc as any, port, debounce, undefined, undefined, spoolSvc, quota);
   await gateway.onModuleInit();   // async+await listen——无端口竞态
+  const addr = gateway.server.httpServer?.address();
+  port = addr && typeof addr === 'object' ? addr.port : 0;   // T23：ephemeral 实报口；未 listen（拒启档直调用例）→0（不建 URL）
   const url = `ws://127.0.0.1:${port}`;
   const providers: HocuspocusProvider[] = [];
   const residency = new CollabResidencyService(gateway);   // Y0c T15：显式实例（docService 注入同实例——dispose 释放面）

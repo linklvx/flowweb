@@ -144,7 +144,7 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
       resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
       resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 'y0a-fixture-team' }),
     };
-    const port = 20000 + Math.floor(Math.random() * 20000);
+    const port = 0;   // TD-32/C3 T23：ephemeral（构造期 0；本文件不建客户端 URL）
     lease = new CollabLeaseService(prisma as any, repo, spool);   // 真 lease（epoch 语义红锚面）
     gateway = new CollabGateway(
       prisma as any, new EventEmitter2() as any, repo, lease,

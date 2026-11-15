@@ -36,7 +36,7 @@ function buildGateway(opts: { lease?: ReturnType<typeof createLeaseStub> } = {})
   const eventEmitter = new EventEmitter2();
   const gateway = new CollabGateway(
     prisma as any, eventEmitter as any, repo as any, lease as any,
-    perm as any, 48000 + Math.floor(Math.random() * 2000),
+    perm as any, 0,
     undefined, undefined, undefined, spool,
   );
   gatewayFacade(gateway).forceCollabState('serving');
@@ -181,7 +181,7 @@ function buildGatewayWithGen(generation: number) {
   const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'), resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }) };
   const spool = spoolForTest(spoolDir.dir);
   spool.setOwner('t9-owner');
-  const gateway = new CollabGateway(prisma as any, new EventEmitter2() as any, repo as any, lease as any, perm as any, 49000 + Math.floor(Math.random() * 1000), undefined, undefined, undefined, spool);
+  const gateway = new CollabGateway(prisma as any, new EventEmitter2() as any, repo as any, lease as any, perm as any, 0, undefined, undefined, undefined, spool);
   gatewayFacade(gateway).forceCollabState('serving');
   return { gateway, spool, repo };
 }

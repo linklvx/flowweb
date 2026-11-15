@@ -55,7 +55,7 @@ function buildGateway() {
   spool.setOwner('test-owner');   // R3：onModuleInit 的 scan（Z13）与写路径必先 setOwner
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, lease as any,
-    perm as any, 43000 + Math.floor(Math.random() * 20000),
+    perm as any, 0,   // TD-32/C3 T23：ephemeral（URL 读 address() 实报口）
     undefined, undefined, undefined, spool,
   );
   gatewayFacade(gateway).forceCollabState('serving');   // Y0a-3：纯态门下直构网关须显式播种放行态（生产由 onModuleInit 状态机驱动）
@@ -177,7 +177,7 @@ describe('批3-1 DENY reason 真协议透传（组④）', () => {
     gatewayFacade(gateway).forceCollabState('initializing');   // 本用例走真实 onModuleInit 启动链——复位直构播种态，让状态机完整合法驱动（listen 单点）
     await gateway.onModuleInit();
     try {
-      const url = `ws://127.0.0.1:${(gateway as any).server.configuration.port}`;
+      const url = `ws://127.0.0.1:${(gateway.server.httpServer!.address() as { port: number }).port}`;   // T23：实报口（configuration.port 不回写 0）
       // T1.5：注入式 ws（Origin+Cookie header）——token 语义=cookie 值，URL 无 query token；
       // Y0b-3 T5 版本门：csv 必带（本用例测 session-expired 透传——须过版本门）
       const provider = new HocuspocusProvider({

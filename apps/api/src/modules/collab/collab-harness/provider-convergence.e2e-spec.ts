@@ -204,7 +204,7 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     spoolDir = await mkdtemp(join(tmpdir(), 't19-e2e-'));
     const spool = spoolForTest(spoolDir);
     const perm = new ProjectPermissionService(prisma as any);
-    serverPort = 20000 + Math.floor(Math.random() * 20000);
+    serverPort = 0;   // TD-32/C3 T23：构造期 ephemeral，listen 后读实报口
     emitter = new EventEmitter2();
     lease = new CollabLeaseService(prisma as any, repo, spool);
     gateway = new CollabGateway(
@@ -212,6 +212,7 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
       perm, serverPort, DEBOUNCE_MS, undefined, new SessionService(prisma as any), spool,
     );
     await gateway.onModuleInit();
+    serverPort = (gateway.server.httpServer!.address() as { port: number }).port;   // T23：实报口（URL 单源）
     expect(lease.isServing()).toBe(true);
     residency = new CollabResidencyService(gateway);
     // Y1c T22（G5 切交付）：deliverArtifact 改 PG 写——真 feed+真 lifecycle observer（fence 权威）

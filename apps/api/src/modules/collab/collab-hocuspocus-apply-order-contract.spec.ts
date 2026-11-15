@@ -42,7 +42,7 @@
 // 的替身；崩溃恢复「截断至 appliedSeq」属 actor 管线，见结论文档）。
 //
 // 【层级选择】主池（vitest.config.ts 默认集）：真 Server+真 ws 先例=collab.gateway.spec（主池），
-// 本套件零 DB、freePort() 真空闲端口（net listen(0)——collab.behavior-anchors.gate.spec:33-38 先例，
+// 本套件零 DB、Server port 0=ephemeral（TD-32/C3 T24：listen 后读 address() 实报口——freePort 装置退役），
 // 主池文件级并行下随机段抽取有碰撞面）——int 池=e2e/DB 前提、heavy 池=实时等待≥10s 级（本套件单测
 // 0.4-2s）均不适用。
 import { describe, it, expect } from 'vitest';
@@ -130,16 +130,7 @@ interface HarnessOpts {
 
 const zeroOrigin = (): Record<OriginClass, number> => ({ gate: 0, connection: 0, load: 0, local: 0, other: 0 });
 
-/** 真空闲端口（net listen(0)——collab.behavior-anchors.gate.spec:33-38 先例；主池文件级并行下随机段
- *  抽取有碰撞面，OS 分配零竞争）。 */
-function freePort(): Promise<number> {
-  return new Promise((r) => {
-    const n = net.createServer();
-    n.listen(0, () => { const p = (n.address() as net.AddressInfo).port; n.close(() => r(p)); });
-  });
-}
-
-/** 最小插桩 harness：真 Server（freePort 空闲端口）+telemetry-only 钩子+T9 形态 gate（beforeSync 预 apply）。 */
+/** 最小插桩 harness：真 Server（port 0=ephemeral）+telemetry-only 钩子+T9 形态 gate（beforeSync 预 apply）。 */
 async function startContractServer(opts: HarnessOpts = {}) {
   const c: HarnessCounters = {
     hooks: {
@@ -153,11 +144,10 @@ async function startContractServer(opts: HarnessOpts = {}) {
     docUpdates: zeroOrigin(), walDuplicates: 0, walNoops: 0, wal: [], log: [],
   };
   let walSeq = 0;
-  const port = await freePort();
   // 防抖 50/75ms（⑨ 可等窗落地）；flush 族/timeout/stopOnSignals/address 与生产工厂 pin 同值
   // （collab-server.factory.ts:34-80——flushDelay:0+flushMaxBytes:1MiB=库默认原值 pin）。
   const server = new Server({
-    port, address: '127.0.0.1', quiet: true, stopOnSignals: false,
+    port: 0, address: '127.0.0.1', quiet: true, stopOnSignals: false,
     debounce: 50, maxDebounce: 75, timeout: 30_000,
     flushDelay: 0, flushMaxBytes: 1_048_576,
     onConnect: async () => { c.hooks.onConnect++; },
@@ -237,7 +227,8 @@ async function startContractServer(opts: HarnessOpts = {}) {
     beforeUnloadDocument: async () => { c.hooks.beforeUnloadDocument++; },
     afterUnloadDocument: async () => { c.hooks.afterUnloadDocument++; },
   });
-  await server.listen(port);
+  await server.listen();
+  const port = (server.httpServer!.address() as { port: number }).port;   // T24：ephemeral 实报口
   const url = `ws://127.0.0.1:${port}`;
   const clients: Array<{ destroy: () => void }> = [];
   return {

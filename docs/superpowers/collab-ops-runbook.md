@@ -921,3 +921,12 @@ C1-1 起新 init 含 `set_updated_at()` 触发器（每 updatedAt 表）——�
 **固定 runner 与绝对阈值口径**（T0-S4 spike §1 平台注记承接）：Windows NTFS fsync（FlushFileBuffers）与 Linux fsync 语义/时延不同——**硬门绝对阈值（fsync p95≤20ms 判据）的生产裁定以固定 Linux runner 档为权威**；本地实弹档（win32，机器形态注记随证据落档）数字=开发基线+外推校准源（容量评估衔接），两档独立登记不混算。首次本地实弹记录=`gate-evidence/t33-load-benchmark.txt`（T33 阶段③产物）。
 
 **错误率口径与观测面**：装置侧 5xx=HTTP 观测面（ready/metrics/feed/exec-status 轮询计数）；未处理异常=api 日志 ring 正则扫描；非预期 close 码=ws 层计数（1011 单列+其它非预期码→断言失败账；1005/1006=provider destroy/SIGKILL 断连预期形态单列不计入）；数据断言失败=装置内收敛/隔离/完整性断言。**预期 4412=pending 区间拒绝**（TTL 驱逐后重连的差量帧——协议预期）单列不计入。
+
+## §18 擦除一致性与端口根修批运维约束（TD-32/TD-33——2026-11-15 落档；spec 2026-11-14 §7.4）
+
+1. **`ProjectErasureRun` 行=墓碑记录，禁清理**：blocked/purgeable 集合由 DB 事实派生；手工 DELETE 行会令擦除屏障回退。未来 retention 需求→`ProjectErasureTombstone` 立项卡（spec §7.6；tech-debt TD-34），不直接删 run 行。
+2. **restore 必须走 restore-reerase 重擦后开流量，且为离线操作**：registry 放行≠spool 残段已清；端点 check 与 mark 之间插行为窄窗，唯一承载=离线纪律。`terminal run ∧ CanvasProject ACTIVE`=restore-pending（拒写不清）。
+3. **旧格式（无 `o-` 前缀）owner 目录=unknown，永久保留**，清理走手工步骤（确认无进程持有后删除），不入自动 GC。自动 GC 只收：空目录∧同 host∧pid 明确死∧mtime>10min，或跨 host∧mtime>24h（`yjs_spool_owner_dir_reclaimed_total` 观测）。
+4. **manifestPath 缺失不阻断清理**：行不存在即 purgeable；缺失计 `erasure_manifest_missing_total`+日志（审计证据链缺口登记，不要求人工裁定）。
+5. **team 恢复两档**：子 run 未建立（无 run 行）→重启即恢复（registry load 按 DB 事实放行）；子 run 已 terminal→必须 restore-reerase+离线重启（terminal∧ACTIVE=restore-pending 拒写不清）。
+6. **端口面（TD-32）**：生产 `COLLAB_PORT=0` 拒启（`COLLAB_ALLOW_EPHEMERAL=1` 仅 drill/test）；本机 drill handover 固定段 `[31001..31003]` 被占时 typed 回退/耗尽（检测在服务就绪后 ≤2s，冷启另计）；生产单实例不受 handover 段约束。端口冲突诊断=失败面 `sudo ss -ltnp`（CI drill 失败步已挂 artifact 路径）。

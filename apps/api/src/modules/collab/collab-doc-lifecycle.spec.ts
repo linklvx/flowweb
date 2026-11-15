@@ -74,7 +74,7 @@ function buildGateway() {
   spool.setOwner('test-owner');
   const gateway = new CollabGateway(
     {} as any, emitter as any, repo as any, lease as any,
-    {} as any, 49300 + Math.floor(Math.random() * 600),
+    {} as any, 0,
     undefined, undefined, undefined, spool, QUOTA_SMALL,   // 位 11=quota 注入（尾参真可选先例）
   );
   const gf = gatewayFacade(gateway);

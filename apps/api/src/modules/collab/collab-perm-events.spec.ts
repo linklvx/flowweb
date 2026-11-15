@@ -49,7 +49,7 @@ function buildGateway() {
   const emitter = new EventEmitter2();
   const gateway = new CollabGateway(
     prisma as any, emitter as any, repo as any, lease as any,
-    perm as any, 47000 + Math.floor(Math.random() * 5000),
+    perm as any, 0,
     undefined, undefined, undefined, spoolForTest(spoolDir),
   );
   return { gateway, prisma, perm, emitter };

@@ -5,23 +5,15 @@
 // 本夹具保留为契约锁夹具常驻 CI：kick 单 socket 锚（㉝）+ 双发事件序锚。
 // 丢弃式真协议夹具：真 Server + 真 provider（R12 手法），无 Prisma——onAuthenticate 直接放行。
 import { describe, it, expect, vi } from 'vitest';
-import * as net from 'net';
 import { Server } from '@hocuspocus/server';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import * as Y from 'yjs';
 
-function freePort(): Promise<number> {
-  return new Promise((r) => {
-    const n = net.createServer();
-    n.listen(0, () => { const p = (n.address() as any).port; n.close(() => r(p)); });
-  });
-}
-
 describe('F11 健康判据载体裁决夹具', () => {
   it('4408 形态：记录 status/message/authenticated/synced 事件序与 connectionAttempt 取值', async () => {
-    const port = await freePort();
-    const server = new Server({ port, async onAuthenticate() { return {}; } });
+    const server = new Server({ port: 0, async onAuthenticate() { return {}; } });   // TD-32/C3 T24：ephemeral
     await server.listen();
+    const port = (server.httpServer!.address() as { port: number }).port;
     const log: string[] = [];
     const doc = new Y.Doc();
     const provider = new HocuspocusProvider({

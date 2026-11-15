@@ -81,7 +81,7 @@ maybe('Y0c T22 Z144：耐久用例双向（真 PG——守卫两种结果全覆�
       resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
       resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }),
     };
-    const port = 20000 + Math.floor(Math.random() * 20000);   // kit 同款随机端口段（port=0 库不回写 configuration.port）
+    const port = 0;   // TD-32/C3 T23：ephemeral（构造期 0；本文件不建客户端 URL）
     gateway = new CollabGateway(
       prisma as any, new EventEmitter2() as any, repo,
       createLeaseStub({}, { repo: repo as any, spool: spool as any }) as any,

@@ -54,7 +54,7 @@ function buildGateway(repoOver: Partial<MockRepo> = {}) {
   spool.setOwner('test-owner');
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, lease as any,
-    perm as any, 43000 + Math.floor(Math.random() * 20000),
+    perm as any, 0,
     undefined, undefined, undefined, spool,
   );
   gatewayFacade(gateway).forceCollabState('serving');

@@ -301,7 +301,7 @@ function buildGateway() {
   spool.setOwner('t24co-gw');
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, lease as any,
-    perm as any, 48000 + Math.floor(Math.random() * 2000),
+    perm as any, 0,
     undefined, undefined, undefined, spool,
   );
   gatewayFacade(gateway).forceCollabState('serving');

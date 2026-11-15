@@ -178,7 +178,7 @@ maybe('Y1c T12 复核残留 I1.2：era 定格 DB 真值化+expectedGeneration �
     const gateway = new CollabGateway(
       {} as any, new EventEmitter2() as any, repo as any, createLeaseStub() as any,
       { resolve: vi.fn() } as any,
-      48100 + Math.floor(Math.random() * 1500),
+      0,
       undefined, undefined, undefined, spool,
     );
     gatewayFacade(gateway).forceCollabState('serving');

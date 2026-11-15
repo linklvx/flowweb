@@ -80,7 +80,7 @@ beforeEach(async () => {
   // 直构单元组（collab-degraded/collab-auth-defense 先例）——不 listen；矩阵只消费 transition/getCollabState/logger
   gateway = new CollabGateway(
     {} as any, new EventEmitter2() as any, createMockRepo() as any, createLeaseStub() as any,
-    {} as any, 49000 + Math.floor(Math.random() * 1000),
+    {} as any, 0,
     undefined, undefined, undefined, spool,
   );
   gf = gatewayFacade(gateway);

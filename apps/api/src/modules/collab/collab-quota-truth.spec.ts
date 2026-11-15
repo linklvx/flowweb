@@ -37,7 +37,7 @@ function buildGateway(hydration: { state: Buffer | null; updates: Buffer[] }, qu
   const gateway = new CollabGateway(
     {} as any, new EventEmitter2() as any, repo as any, createLeaseStub() as any,
     { resolve: vi.fn() } as any,
-    45500 + Math.floor(Math.random() * 2500),
+    0,
     undefined, undefined, undefined, spool,
     quota,
   );

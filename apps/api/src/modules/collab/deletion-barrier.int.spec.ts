@@ -138,7 +138,7 @@ maybe('C3b-4a：DeletionBarrier 持久 fence+admission 三面', () => {
     dir = await makeSpoolDir('c3b4a-barrier-');
     const spool = spoolForTest(dir.dir);
     const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'), resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: FIXTURE_TEAM }) };
-    const port = 21000 + Math.floor(Math.random() * 20000);
+    const port = 0;   // TD-32/C3 T23：ephemeral（构造期 0；本文件不建客户端 URL）
     gateway = new CollabGateway(
       prisma as never, new EventEmitter2() as never, repo,
       createLeaseStub({}, { repo: repo as never, spool: spool as never }) as never,
