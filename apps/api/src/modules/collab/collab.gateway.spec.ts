@@ -1888,4 +1888,93 @@ describe('TD-33 C1b T14：擦除 source fail-closed + boot 顺序', () => {
       } finally { await kit.dispose(); }
     } finally { await cleanup(); }
   });
+
+  it('pre-serving 终检：init 中 write-fence isolate→不置 initDone/不 listen/不 serving；listener 关+timer 停', async () => {
+    const { dir, cleanup } = await makeSpoolDir('td33-t14-preserve-');
+    try {
+      const spool = spoolForTest(dir);
+      const kit = await startDualClientServer({}, 100, spool);
+      const gf = gatewayFacade(kit.gateway);
+      try {
+        expect(gf.state()).toBe('serving');
+        expect(gf.erasureRuntimeRunning()).toBe(true);
+        gf.forceInitDone(false);
+        gf.forceCollabState('starting');
+        const orig = spool.recoverScan.bind(spool);
+        vi.spyOn(spool, 'recoverScan').mockImplementation(async (opts) => {
+          const r = await orig(opts as never);
+          await gf.selfIsolate('fenced-by-write');   // init 窗内 write-fence（listen 与 transition 之间的 await 窗同构）
+          return r;
+        });
+        await gf.startCollabAfterLease();
+        expect(gf.state()).toBe('isolated');
+        expect(gf.isInitDone()).toBe(false);          // 代际终检：不回写陈旧 initDone
+        expect(kit.gateway.server.httpServer.listening).toBe(false);
+        expect(gf.erasureRuntimeRunning()).toBe(false);
+      } finally { await kit.dispose(); }
+    } finally { await cleanup(); }
+  });
+
+  it('rejoin reinit：isolate 复位 initDone→re-acquire 重跑 recoverScan，append seq 连续零 dup', async () => {
+    const { dir, cleanup } = await makeSpoolDir('td33-t14-rejoin-');
+    try {
+      const spool = spoolForTest(dir);
+      const kit = await startDualClientServer({}, 100, spool);
+      const gf = gatewayFacade(kit.gateway);
+      try {
+        const a = await spool.appendTracked('p-rj', new Uint8Array([1]));
+        const spy = vi.spyOn(spool, 'recoverScan');
+        await gf.selfIsolate('fenced-by-write');
+        expect(gf.isInitDone()).toBe(false);
+        const before = spy.mock.calls.length;
+        await gf.startCollabAfterLease();             // onAcquired rejoin 等价入口
+        expect(spy.mock.calls.length).toBe(before + 1);   // 全链重跑（陈旧 index 失守窗关闭）
+        expect(gf.state()).toBe('serving');
+        const b = await spool.appendTracked('p-rj', new Uint8Array([2]));
+        expect(b.walSeq).toBe(a.walSeq + 1n);         // 重扫后 seq 承接磁盘最大段，零 dup
+      } finally { await kit.dispose(); }
+    } finally { await cleanup(); }
+  });
+
+  it('isolateSettled 屏障：isolate 进行中 re-acquire→recoverScan 等释放完成才跑', async () => {
+    const { dir, cleanup } = await makeSpoolDir('td33-t14-barrier-');
+    try {
+      const spool = spoolForTest(dir);
+      const kit = await startDualClientServer({}, 100, spool);
+      const gf = gatewayFacade(kit.gateway);
+      try {
+        expect(gf.state()).toBe('serving');
+        gf.forceInitDone(false);
+        let releaseIsolate!: () => void;
+        gf.stubReleaseAllResidentSessions(new Promise<void>((r) => { releaseIsolate = r; }));
+        const isolateP = gf.selfIsolate('fenced-by-write');   // 进行中：release 挂起
+        const order: string[] = [];
+        const orig = spool.recoverScan.bind(spool);
+        vi.spyOn(spool, 'recoverScan').mockImplementation(async (opts) => { order.push('recover'); return orig(opts as never); });
+        const startP = gf.startCollabAfterLease();            // re-acquire：须等 isolateSettled
+        await new Promise((r) => setTimeout(r, 50));
+        expect(order).toEqual([]);                            // isolate 未完成→未进 recoverScan
+        releaseIsolate();
+        await isolateP;
+        await startP;
+        expect(order).toEqual(['recover']);                   // 释放完成后才重扫
+      } finally { await kit.dispose(); }
+    } finally { await cleanup(); }
+  });
+
+  it('timer 生命周期：drain 不停（tick 守卫承载）；isolate 停止；shutdown 清', async () => {
+    const { dir, cleanup } = await makeSpoolDir('td33-t14-timers-');
+    try {
+      const spool = spoolForTest(dir);
+      const kit = await startDualClientServer({}, 100, spool);
+      const gf = gatewayFacade(kit.gateway);
+      try {
+        expect(gf.erasureRuntimeRunning()).toBe(true);
+        kit.gateway.beginDraining();
+        expect(gf.erasureRuntimeRunning()).toBe(true);    // drain-auto-release 不经 listenCollab——停=永不重启
+        await gf.selfIsolate('fenced-by-write');
+        expect(gf.erasureRuntimeRunning()).toBe(false);   // isolate 停止
+      } finally { await kit.dispose(); }
+    } finally { await cleanup(); }
+  });
 });

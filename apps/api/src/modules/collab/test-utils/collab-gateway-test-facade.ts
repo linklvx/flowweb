@@ -337,6 +337,22 @@ export class GatewayTestFacade {
     return internals(this.gw).collabState;
   }
 
+  /** T14：initDone 强置（重跑 init 链用例——白盒装置非生产路径） */
+  forceInitDone(v: boolean): void {
+    internals(this.gw).initDone = v;
+  }
+
+  /** T14：擦除双 timer 运行态（isolate/shutdown 停止、drain 不停断言面） */
+  erasureRuntimeRunning(): boolean {
+    const rt = (this.gw as unknown as { erasureRuntime: { running(): boolean } | null }).erasureRuntime;
+    return rt?.running() ?? false;
+  }
+
+  /** T14：常驻释放可注入（isolate 进行中屏障用例——release 挂起期间 re-acquire 不得进 recoverScan） */
+  stubReleaseAllResidentSessions(p: Promise<void>): void {
+    (this.gw as unknown as { releaseAllResidentSessions: (reason?: string) => Promise<void> }).releaseAllResidentSessions = () => p;
+  }
+
   /** 替代 `(gw as any).collabState = state`（测试强置状态机——生产写点唯一 transition()，
    *  本操作=白盒装置非生产路径；M-5 波 1 评审：入参=CollabGateway['collabState'] 联合型——
    *  typo 即编译红=façade 类型面收益兑现，值域单源 collab.gateway.ts CollabState，cast 消失） */

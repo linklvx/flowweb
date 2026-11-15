@@ -344,4 +344,14 @@ describe('TD-33 C1b T13：终态族（擦除）短路面', () => {
     svc.onProjectGone(PID);
     expect((svc as unknown as { persistRetry: Map<string, unknown> }).persistRetry.has(NAME)).toBe(true);   // 对照：非 blocked 排梯
   });
+
+  it('blocked 收割不 confirm：project.gone 后 ready pending 归零（残段留 purge 不计数）且段保留', async () => {
+    await spool.append('p-gone3', new Uint8Array([1]));
+    spool.setErasureGuard({ isBlocked: (pid) => (pid === 'p-gone3' ? 'ERASING' : undefined) });
+    svc.onProjectGone('p-gone3');
+    const p = svc.computePending();
+    expect(p.projects).toBe(0);
+    expect(p.spoolFiles).toBe(0);                    // blocked 残段不计 pending（drain/ready 不挂）
+    expect(spool.hasFrames('p-gone3')).toBe(true);   // 不 confirm 不收割——留 purge 删除
+  });
 });

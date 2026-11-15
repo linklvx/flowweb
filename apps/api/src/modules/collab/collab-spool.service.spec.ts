@@ -23,6 +23,7 @@ import { buildOwnerName } from './owner-name';
 import { hostname } from 'node:os';
 import type { WalSegmentHeader } from '@flowweb/shared';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
+import { pollUntil } from '../../test-utils/poll-until';
 import { createMockRepo } from '../../test-utils/mock-repo';
 
 let dir: string; let cleanup: () => Promise<void>;
@@ -1019,5 +1020,41 @@ describe('TD-33 T14：purge 复检/sweep/recoverScan 排除', () => {
     expect((s2 as any).index.has('p1')).toBe(false);
     expect((await readdir(join(dir, 'test-owner'))).some((f) => f.startsWith('p1.'))).toBe(true);
     expect(((await reg.getSingleMetric('blocked_spool_preserved_total')!.get()).values[0]?.value ?? 0) - before).toBe(1);
+  });
+
+  it('sweep 先 mark：drop 调用时屏障已生效（顺序断言）+残留段清空；boot sweep 同序', async () => {
+    const s = svc();
+    await s.append('p1', new Uint8Array([1]));
+    const { src, blocked } = mkSource({ live: async (pids) => new Set(pids.filter((p) => p === 'p1')), purgeable: ['p1'] });
+    s.setErasureSource(src);
+    const seen: Array<string | undefined> = [];
+    const orig = (s as any).dropSpoolProjectState.bind(s);
+    (s as any).dropSpoolProjectState = async (pid: string, opts: unknown) => { seen.push(blocked.get(pid)); return orig(pid, opts); };
+    await s.sweepPurgeableSpoolLive(src);
+    expect(seen).toEqual(['ERASED']);                 // mark 先于 drop（in-flight append 链内层拒的判据源）
+    expect(s.hasFrames('p1')).toBe(false);
+    expect((await readdir(join(dir, 'test-owner'))).filter((f) => f.startsWith('p1.'))).toHaveLength(0);
+  });
+
+  it('purge 大项目后容量回落：overCapacityFlag→false+onRecovered 唤醒（其他项目 append 放行）', async () => {
+    const s = svc();
+    await s.append('p1', new Uint8Array([1]));
+    (s as any).overCapacityFlag = true;                // 白盒置容量态（V14 同款）
+    const onRecovered = vi.fn();
+    s.onRecovered = onRecovered;
+    const { src } = mkSource();
+    await s.purgeErasureScope(['p1'], { docs: docsStub(), erasure: src });
+    expect((s as any).overCapacityFlag).toBe(false);
+    expect(onRecovered).toHaveBeenCalledTimes(1);
+    await expect(s.append('p2', new Uint8Array([2]))).resolves.toHaveLength(1);   // 容量回落→放行
+  });
+
+  it('DB 权威非 transport 态：503/handover 后同一权威源仍拒写（新 spool 实例不复位屏障）', async () => {
+    const { src, mark } = mkSource();
+    mark('p1', 'ERASED');
+    const a = spoolForTest(dir); a.setErasureSource(src); a.setOwner('test-owner');
+    await expect(a.append('p1', new Uint8Array([1]))).rejects.toBeInstanceOf(SpoolProjectBlockedError);
+    const b = spoolForTest(dir); b.setErasureSource(src); b.setOwner('test-owner');   // handover/重启形态
+    await expect(b.append('p1', new Uint8Array([2]))).rejects.toBeInstanceOf(SpoolProjectBlockedError);
   });
 });

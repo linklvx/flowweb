@@ -50,7 +50,7 @@ import { runWithIncludeDeleted } from '../../prisma/read-path.filter';
 import { ErasureContextService, lockProject, fenceProject } from './project-lock';
 import { PROJECT_COLUMN_MODELS, PROJECT_SCOPE_ALIASES } from './scope-column.registry';
 import {
-  writeErasureManifest, readErasureManifest, collectSpoolSegments, erasureManifestDir, collabSpoolDir, type ErasureManifestInputs,
+  writeErasureManifest, readErasureManifest, collectSpoolSegments, mergeSpoolSegs, erasureManifestDir, collabSpoolDir, type ErasureManifestInputs,
 } from './project-erasure.manifest';
 import { assertProjectErasureDbComplete, type ErasureAssertDb } from './project-erasure.assert';
 import { ERASURE_MEDIA_REFS_BATCH } from './collab-spool.service';
@@ -408,7 +408,7 @@ export async function executePurgingDbStage(deps: PurgingDbStageDeps): Promise<P
       const spoolDir = deps.spoolDir ?? collabSpoolDir();
       // TD-33/C1b T14：spoolSegs 单调保留（spool 清理时点前移后 PURGING_DB 重试窗内段可能已清——
       // 重写取 旧值∪新采集，只增不减；审计证据链缺口不因清理时点产生）
-      const spoolSegs = [...new Map([...manifest.spool, ...(await collectSpoolSegments(spoolDir, [pid]))].map((s) => [`${s.dir}/${s.name}`, s])).values()];
+      const spoolSegs = mergeSpoolSegs(manifest.spool, await collectSpoolSegments(spoolDir, [pid]));
       const rewritten = await writeErasureManifest({
         erasureId: run.erasureId, scopeType: 'project', scopeId: pid, projectIds: [pid],
         requestedAt: run.requestedAt, mediaRows: union.media, workRows: union.work,

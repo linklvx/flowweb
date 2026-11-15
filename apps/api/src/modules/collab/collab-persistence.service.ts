@@ -696,7 +696,7 @@ export class CollabPersistenceService {
     for (const q of this.pendingQueues.values()) {
       if (q.length > 0) { projects += 1; batches += q.length; }
     }
-    const d = this.spool.depth();
+    const d = this.spool.depth((pid) => this.spool.isEraseBlocked(pid));   // T14：blocked 残段不计 pending（段留 purge）
     const stats = this.host.docStats();   // B1 host 缝：库四连接计数（residentDocs=loadedDocs 同源）
     return {
       projects, batches, storeInFlight: this.inFlightProjects.size,

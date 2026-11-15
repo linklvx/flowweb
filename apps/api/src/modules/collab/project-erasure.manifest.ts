@@ -126,6 +126,15 @@ export async function collectSpoolSegments(spoolDir: string, projectIds: readonl
   }
 }
 
+/** TD-33/C1b T14：spoolSegs 单调并集（旧 manifest∪新采集，按 pid/dir/name 去重只增不减）——
+ *  spool 清理时点前移后 PURGING_DB 重试窗内段可能已清，重写不得丢审计证据链。 */
+export function mergeSpoolSegs(
+  prev: readonly { projectId: string; dir: string; name: string }[],
+  next: readonly { projectId: string; dir: string; name: string }[],
+): { projectId: string; dir: string; name: string }[] {
+  return [...new Map([...prev, ...next].map((s) => [`${s.projectId}/${s.dir}/${s.name}`, s])).values()];
+}
+
 /** NDJSON 行写出器（file 全量哈希+shard 局部哈希双喂——行 JSON 紧凑单行）。 */
 class ManifestWriter {
   private readonly fileHash = createHash('sha256');

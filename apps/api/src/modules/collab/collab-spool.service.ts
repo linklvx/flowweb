@@ -645,11 +645,14 @@ export class CollabSpoolService {
   failureStreak(): number { return this.writeFailureStreak; }
 
   /** Y24：depth 排除 `__probe__` 键；quarantinedBytes 含坏帧头（V3）+整段隔离字节。
-   *  R3/P16 双口径：own=本实例 owner 子目录；stranded=外来段；容量核算取 total。 */
-  depth(): { ownFiles: number; ownBytes: number; strandedFiles: number; strandedBytes: number; quarantinedBytes: number } {
+   *  R3/P16 双口径：own=本实例 owner 子目录；stranded=外来段；容量核算取 total。
+   *  TD-33/C1b T14：可选 excludeProject——blocked 残段不计 ready pending（段留 purge 删除，
+   *  收割不 confirm；否则 project.gone 后 pending 恒>0）。 */
+  depth(excludeProject?: (projectId: string) => boolean): { ownFiles: number; ownBytes: number; strandedFiles: number; strandedBytes: number; quarantinedBytes: number } {
     let ownFiles = 0, ownBytes = 0, strandedFiles = 0, strandedBytes = 0, quarantinedBytes = 0;
     for (const [pid, segs] of this.index) {
       if (pid === '__probe__') continue;
+      if (excludeProject?.(pid)) continue;
       for (const m of segs.values()) {
         if (m.foreign) { strandedFiles++; strandedBytes += m.bytes; }
         else { ownFiles++; ownBytes += m.bytes; }
