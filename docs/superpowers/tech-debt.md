@@ -179,7 +179,7 @@
 - **现状**：`apps/api/scripts/collab-kill9-drill.ts:118-119` startServer 端口=`20000 + Math.floor(Math.random() * 20000)` 纯随机、无占用探测无重试；Linux CI 多 job 并行时同段撞口即整腿红（60s 超时+stderr 才见因）。Windows 本地并发度低恒绿。
 - **修复方向**：spawn 前端口预占探测（net.createServer 试绑→close→传子进程）+撞口重试 ≤N 次；不建议改 port=0 内核分配（kit 侧 `collab-residency-durability.int.spec.ts:83` 注释登记 port=0 库不回写 configuration.port 的限制，涉及面大）。
 - **影响**：Y2/Y3（投影统一+真源反转合并批）为重 CI 批次（三门 PR 级必跑+影子双跑跨批验收），drill 高频触面，间歇红污染门禁信号——建议 Y2 立项前或首批内修。
-- **核销（2026-11-15，C2 `48b97e28`）**：drill 驱动改端口 0+IPC 实报（控制库 `scripts/lib/drill-server-control.js`——typed EADDRINUSE 即拒/旧 attempt 不误判/grace 重挂）；handover 固定非临时段 `[31001..31003]`+typed 回退；同批 `resolveCollabPort` 单源+`check-no-random-ports` 门禁清零随机端口。证据=本地 9 腿+usurp×10+预绑回退/三口耗尽 typed（检测 ≤2s，冷启另计）。**观察期=push CI 首轮绿确认后正式销案**。
+- **核销（2026-11-15，C2 `48b97e28`）**：drill 驱动改端口 0+IPC 实报（控制库 `scripts/lib/drill-server-control.js`——typed EADDRINUSE 即拒/旧 attempt 不误判/grace 重挂）；handover 固定非临时段 `[31001..31003]`+typed 回退；同批 `resolveCollabPort` 单源+`check-no-random-ports` 门禁清零随机端口。证据=本地 9 腿+usurp×10+预绑回退/三口耗尽 typed（检测 ≤2s，冷启另计）。**正式销案（2026-11-15：CI 绿两轮〔批头 #125+双审修复批 ab8d96a8 rerun〕+用户签收 spec/plan v16）**。
 - **门禁边界登记（2026-11-15，双审 F7）**：§1 宽正则=历史惯用法绊线非通用随机口检测器——反序形态 `Math.floor(Math.random()*N)+M`/`round`·`ceil`·`~~` 变体/`crypto.randomInt`/跨行拆分不在命中面（probe 实证）。**维持原正则裁定**：扩面会命中合法非端口随机算术（如 `Math.floor(Math.random()*900)+100`），与三 section 零 allowlist 纪律冲突——新写端口代码一律 `listen(0)` 惯用法；§3 同批补字符串口 `listen('3001')` 命中（自测锁）。
 
 ### TD-33 t26 int spec spool ENOENT（appendRaw mkdir→writeFile 窗口竞态）
@@ -188,7 +188,7 @@
 - **现状**：`apps/api/src/modules/collab/collab-spool.service.ts:887-888` appendRawInner 先 `mkdir(adir, {recursive})` 后（:925 起）`writeFile`/追加 open——窗口内 owner 目录被并发删除（跨文件/进程级竞态）即 ENOENT；CI（Linux）间歇复现，本地串行恒绿。归因=装置健壮性债（4.8.0 时序放大），非 4.8.0 引入。
 - **修复方向**：两线择一——①产物侧：appendRaw 对 ENOENT 分类自愈重入（mkdir 幂等重试一次再写，计数器观察）；②装置侧：先定位真删点（int 池清理逻辑/其它 spec 共享 spool 根），按文件隔离 spool 根。修复前先复核现状（间歇形态可能随 CI 池变化）。
 - **影响**：同 TD-32——t26/DeliveryFence 域在 Y2/Y3 触面，建议同批修。
-- **核销（2026-11-15，C1a `ce655ff8`/C1b `4dced28b`）**：owner 目录生命周期归进程（写路径项目级 rmdir 清零+boot GC+收养保护）+WAL 链精确覆盖（`writeNewSegmentFile`/`readSegmentFile` seam+chainWalIo 全覆盖+index 驱动 quarantine）；ENOENT 根因链（并发删 owner 目录窗口）关闭。**残余=文件级面**（旧 owner isolate 后 in-flight 写与新 owner replayAll unlink 交叉）——spec §7.1 登记，观察期=push CI 绿+后续轮次无复现后销案。
+- **核销（2026-11-15，C1a `ce655ff8`/C1b `4dced28b`）**：owner 目录生命周期归进程（写路径项目级 rmdir 清零+boot GC+收养保护）+WAL 链精确覆盖（`writeNewSegmentFile`/`readSegmentFile` seam+chainWalIo 全覆盖+index 驱动 quarantine）；ENOENT 根因链（并发删 owner 目录窗口）关闭。**残余=文件级面**（旧 owner isolate 后 in-flight 写与新 owner replayAll unlink 交叉）——spec §7.1 登记。**正式销案（2026-11-15：CI 绿两轮+用户签收；t26 复现观察移交 registered-flakes 指针条目——复现即经台账重开）**。
 - **登记**：2026-11-14（provider 4.8.0 升级批 CI 三跑间歇面；TD-32/TD-33 为「立卡后续批」裁定补盘）
 
 ### TD-34 ProjectErasureTombstone 立项卡（延后——spec 2026-11-14 §7.6）
