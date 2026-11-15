@@ -34,8 +34,10 @@ test('T24 红②：freePort 残留命中，但注释行不误报（§2）', asyn
 test("T24 红③：测试/harness 固定端口档命中；'0'/listen(0)/测试意图行放行（§3）", async () => {
   const m = await mod();
   assert.equal(m.scanSource('apps/api/src/z.spec.ts', 'await server.listen(3001);', { section: 3 }).length, 1);
+  assert.equal(m.scanSource('apps/api/src/z.spec.ts', 'await server.listen(0);', { section: 3 }).length, 0);
+  assert.equal(m.scanSource('apps/api/src/z.spec.ts', "await server.listen('3001');", { section: 3 }).length, 1);   // 双审 F7：字符串口漏网补
+  assert.equal(m.scanSource('apps/api/src/z.spec.ts', "await server.listen('0');", { section: 3 }).length, 0);
   assert.equal(m.scanSource('apps/api/src/z.spec.ts', "env: { COLLAB_PORT: '3001' }", { section: 3 }).length, 1);
-  assert.deepEqual(m.scanSource('apps/api/src/z.spec.ts', 'await server.listen(0);', { section: 3 }), []);
   assert.deepEqual(m.scanSource('apps/api/src/z.spec.ts', "env: { COLLAB_PORT: '0' }", { section: 3 }), []);
   assert.deepEqual(m.scanSource('apps/api/src/z.spec.ts', "expect(envSchema.safeParse({ ...good, COLLAB_PORT: '3001' }).success).toBe(true);", { section: 3 }), []);
   // 生产入口/drill 配置面不在测试/harness 扫描集（listen(env.PORT) 变量形态亦不命中字面量档）

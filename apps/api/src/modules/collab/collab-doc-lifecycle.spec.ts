@@ -24,7 +24,7 @@ import { register } from 'prom-client';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CollabGateway, TRUTH_COOLDOWN_MS } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
-import { spoolForTest } from '../../test-utils/erasure-fixtures';
+import { spoolForTest, EmptyErasureSource } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -431,6 +431,28 @@ describe('T41 W2 清理点普查表：三入口逐键全断言+键集差异逐�
     expect(gf.persistRetryHas('project:p-gone2'), '终态族不排梯（blocked 判定先于 hasFrames）').toBe(false);
     expect(gf.persistRetryHas('p-gone2')).toBe(false);   // 裸 pid 键禁（历史缺陷形态不回锅）
     expect(spool.hasFrames('p-gone2'), '不 confirm 不收割——段留 purge 删除（v15）').toBe(true);
+  });
+
+  it('TD-28 regression（mark 未生效窗——双审 F3 回植）：收割梯按 documentName 键保排+retryPersist 实耗 spool 帧（裸 pid 键=parseDocName 折空串→探空即 cancel→收割梯空转）', async () => {
+    const { gateway, gf, repo, spool, emitter } = buildGateway();
+    await gateway.onModuleInit();   // project.gone 订阅注册
+    const payload = new Uint8Array([1, 2, 3]);
+    await spool.append('p-gone3', payload);   // spool 帧播种
+    // 双审 F3 裁定：project.gone ⇒ :557 即时 mark ⇒ blocked ⇒ 不排梯为 TD-33 终裁（上例已锁）——TD-28
+    // 分支唯一可达态=mark 未生效窗（防御分支）：换入 mark no-op 源表达，原键口径/实耗断言全量保留
+    class NoMarkSource extends EmptyErasureSource { override mark(): void { /* mark 未生效窗装置 */ } }
+    spool.setErasureSource(new NoMarkSource());
+    emitter.emit('project.gone', { projectIds: ['p-gone3'] });
+    // 收割梯保排：键=documentName 口径族——与 cancelPersistRetry(`project:${pid}`) 同键
+    expect(gf.persistRetryHas('project:p-gone3')).toBe(true);
+    expect(gf.persistRetryHas('p-gone3')).toBe(false);   // 裸 pid 键禁（同函数双键分叉即本缺陷形态）
+    expect(gf.persistRetryEntry('project:p-gone3')?.timer).toBeTruthy();   // 退避梯真定时器在排
+    // 实耗：retryPersist 走 detached spool 帧通道（peek→append→confirm）——帧清+repo 落帧
+    await gf.retryPersist('project:p-gone3');
+    expect(spool.hasFrames('p-gone3')).toBe(false);
+    // Y1c T9 新表形态：帧通道落 PG=appendBatch(pid,[rows])——rows[0].update=payload（单帧行）
+    // Y1c T26：第四参=inTx 闭包位——C3a-5 起恒传（观察器未接线时仍带 binding 投影面——lifecycle 位在闭包内判）
+    expect(repo.appendBatch).toHaveBeenCalledWith('p-gone3', [expect.objectContaining({ update: payload, actorRanges: expect.anything() })], expect.objectContaining({ newPgSeq: 1n }), expect.any(Function));   // Y1c T10：applied-driven flusher（行带 actorRanges 真值+水位 CAS/追赶第三参）
   });
 });
 

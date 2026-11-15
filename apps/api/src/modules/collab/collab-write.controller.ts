@@ -82,6 +82,10 @@ export class CollabWriteController {
       const r = await this.spool.purgeErasureScope(body.projectIds, { docs: this.docs, erasure: this.erasure });
       markedProjectIds = r.markedProjectIds;
       return { purgedSegments: r.purgedSegments };
+    } catch (e) {
+      // F1：mark 后中途失败——已 mark 集随错误对象上抛（spool purgeErasureScope 挂集），finally 仍 emit
+      markedProjectIds = (e as { markedProjectIds?: string[] }).markedProjectIds ?? markedProjectIds;
+      throw e;
     } finally {
       if (markedProjectIds.length > 0 && this.events) {
         try { this.events.emit('project.gone', { projectIds: markedProjectIds }); } catch (e) {

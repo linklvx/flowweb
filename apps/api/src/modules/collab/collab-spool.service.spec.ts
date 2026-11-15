@@ -26,6 +26,10 @@ import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { pollUntil } from '../../test-utils/poll-until';
 import { createMockRepo } from '../../test-utils/mock-repo';
 
+// 双审 F5f：capture 计账断言装置（actor-erased spec 同款模块级 mock——图内仅消费 captureCollabException）
+const spoolCapture = vi.hoisted(() => vi.fn());
+vi.mock('../../utils/sentry-scrub', () => ({ captureCollabException: spoolCapture }));
+
 let dir: string; let cleanup: () => Promise<void>;
 beforeEach(async () => { ({ dir, cleanup } = await makeSpoolDir()); });   // V17①：每用例独立目录
 afterEach(async () => { await cleanup(); });
@@ -216,6 +220,7 @@ describe('spool 熔断与探针解熔断（V14 两态：ioBroken 探针可解 / 
   it('目录不可写（路径被文件占位）→连败累计→第 5 次熔断 isWritable()=false+yjs_spool_write_failures_total 递增', async () => {
     const count = async () => { const m = (await import('prom-client')).register.getSingleMetric('yjs_spool_write_failures_total')!; return (await m.get()).values[0]?.value ?? 0; };   // V17⑥：metric.get() 公开 API（须 await）
     const before = await count();
+    const capBefore = spoolCapture.mock.calls.length;
     const { dir: d2, cleanup: c2 } = await makeSpoolDir('y0a2-spool-fail-');
     try {
       const file = join(d2, 'occupied');      // spool 目录指向一个文件 → mkdir 失败 → 写必败
@@ -234,7 +239,30 @@ describe('spool 熔断与探针解熔断（V14 两态：ioBroken 探针可解 / 
       await expect(s.append('p1', new Uint8Array([1]))).rejects.toBeInstanceOf(Error);
       expect(s.isWritable()).toBe(false);                    // 连续 5 次写失败→ioBroken
       expect((await count()) - before).toBe(5);              // 逐败递增（用例名 metric 口径）
+      expect(spoolCapture.mock.calls.length - capBefore).toBe(5);   // 双审 F5f：薄包装不丢计账——逐败 capture（ioBroken 熔断 Sentry 面不静默）
     } finally { await c2(); }
+  });
+
+  it('双审 F5f：成功重置 streak——4 败→成功→再 4 败不熔断，第 5 败才 ioBroken', async () => {
+    const s = svc();
+    let failsLeft = 4;
+    const orig = (s as any).appendRawInner.bind(s);
+    (s as any).appendRawInner = async (...args: unknown[]) => {
+      if (failsLeft > 0) { failsLeft -= 1; throw new Error('io boom'); }
+      return orig(...args);
+    };
+    for (let i = 0; i < 4; i++) await expect(s.append('p1', new Uint8Array([i]))).rejects.toThrow('io boom');
+    expect(s.failureStreak()).toBe(4);
+    expect(s.isWritable()).toBe(true);                      // 未达熔断阈
+    failsLeft = 0;
+    await s.append('p1', new Uint8Array([100]));            // 成功——streak 归零（payload 互异避 dedup 早退）
+    expect(s.failureStreak()).toBe(0);
+    failsLeft = 4;
+    for (let i = 0; i < 4; i++) await expect(s.append('p1', new Uint8Array([200 + i]))).rejects.toThrow('io boom');
+    expect(s.isWritable()).toBe(true);                      // 重置后再 4 败不熔断（无成功重置=此刻第 4 败已 8 连）
+    failsLeft = 1;                                           // 第 5 败
+    await expect(s.append('p1', new Uint8Array([300]))).rejects.toThrow('io boom');
+    expect(s.isWritable()).toBe(false);                     // 5 连败才 ioBroken
   });
 
   it('探针帧写删成功→isWritable 恢复 true；探针成功不误关 overCapacity（V14：probe 只解 ioBroken）', async () => {
@@ -754,6 +782,28 @@ describe('TD-33 T5：收录面三防护（adopt/recoverScan 同判+floor/dedup+�
     expect(existsSync(join(dir, deadOwner, 'p1.g1.0.spool'))).toBe(false);
   });
 
+  it('双审 F2：adopt×switchGeneration 交叉——读窗内换代隔离（meta 原地 segQuarantined）→链内复核拒收养（sidecar 保留+floor 不抬）', async () => {
+    const deadOwner = buildOwnerName(hostname(), 424214);
+    const a = spoolForTest(dir); a.setOwner(deadOwner);
+    await a.append('p1', new Uint8Array([1]));
+    const b = new AdoptPausableSpool(dir);
+    await b.scan();
+    const floorBefore = (b as any).walSeqCounters.get('p1');   // scan 播种（C1① max 语义）
+    let release!: () => void;
+    b.gate = new Promise<void>((r) => { release = r; });
+    const adoptP = b.adoptSilentForeignSegments(0);
+    await b.entered;
+    await b.switchGeneration('p1', 2);   // 读窗内同 pid 换代：未提交帧段原地隔离（??= null→generation-switch）+sidecar
+    release();
+    await expect(adoptP).resolves.toHaveLength(0);   // 复核见隔离态→拒收养
+    const bucket = (b as any).index.get('p1');
+    const meta = [...bucket.values()][0] as { segQuarantined: string | null; foreign: boolean };
+    expect(meta.segQuarantined).toBe('generation-switch');   // 换代裁定不被收养覆盖成 null
+    expect(meta.foreign).toBe(true);                          // 仍外来（未 own 化）
+    expect((b as any).walSeqCounters.get('p1')).toBe(floorBefore);   // floor 不被收养抬升
+    expect(existsSync(join(dir, deadOwner, 'p1.g1.0.spool.quarantine'))).toBe(true);   // sidecar 证据保留
+  });
+
   it('根平铺 legacy 段（dir=root≠adir）同判：不收录零写入（report.foreignSkipped 计数，处置走 runbook 手工）', async () => {
     await writeFile(join(dir, 'p1.g1.0.spool'), Buffer.alloc(200, 0));
     const s = new PidSeamSpool(dir); s.setOwner('mine');
@@ -1012,6 +1062,7 @@ describe('TD-33 T14：purge 复检/sweep/recoverScan 排除', () => {
     const s = svc();
     await s.append('p1', new Uint8Array([1]));
     await s.append('p2', new Uint8Array([2]));
+    await writeFile(join(dir, 'test-owner', 'p1.g1.9.spool'), Buffer.alloc(48, 7));   // 双审 F5d：坏尾段——blocked 档不判不挡 boot
     const reg = (await import('prom-client')).register;
     const before = (await reg.getSingleMetric('blocked_spool_preserved_total')!.get()).values[0]?.value ?? 0;
     const s2 = svc();
@@ -1019,7 +1070,7 @@ describe('TD-33 T14：purge 复检/sweep/recoverScan 排除', () => {
     expect(report.projects.map((p) => p.projectId)).toEqual(['p2']);
     expect((s2 as any).index.has('p1')).toBe(false);
     expect((await readdir(join(dir, 'test-owner'))).some((f) => f.startsWith('p1.'))).toBe(true);
-    expect(((await reg.getSingleMetric('blocked_spool_preserved_total')!.get()).values[0]?.value ?? 0) - before).toBe(1);
+    expect(((await reg.getSingleMetric('blocked_spool_preserved_total')!.get()).values[0]?.value ?? 0) - before).toBe(2);   // 双审 F5d：好段+坏尾段各计一次（per-segment）
   });
 
   it('sweep 先 mark：drop 调用时屏障已生效（顺序断言）+残留段清空；boot sweep 同序', async () => {
@@ -1056,5 +1107,57 @@ describe('TD-33 T14：purge 复检/sweep/recoverScan 排除', () => {
     await expect(a.append('p1', new Uint8Array([1]))).rejects.toBeInstanceOf(SpoolProjectBlockedError);
     const b = spoolForTest(dir); b.setErasureSource(src); b.setOwner('test-owner');   // handover/重启形态
     await expect(b.append('p1', new Uint8Array([2]))).rejects.toBeInstanceOf(SpoolProjectBlockedError);
+  });
+
+  it('双审 F5a：sweep 失败计数+下轮重试清空+purgeable_spool_bytes 回落', async () => {
+    const s = svc();
+    await s.append('p1', new Uint8Array([1]));
+    await s.append('p2', new Uint8Array([2]));   // 非 purgeable 留守——三轮仍有候选（gauge 重算载体）
+    const { src } = mkSource({ live: async (pids) => new Set(pids.filter((p) => p === 'p1')) });
+    s.setErasureSource(src);
+    const reg = (await import('prom-client')).register;
+    const counter = async () => (await reg.getSingleMetric('purge_sweep_failures_total')!.get()).values[0]?.value ?? 0;
+    const gauge = async () => (await reg.getSingleMetric('purgeable_spool_bytes')!.get()).values[0]?.value ?? 0;
+    const before = await counter();
+    const orig = (s as any).dropSpoolProjectState.bind(s);
+    let boom = true;
+    (s as any).dropSpoolProjectState = async (pid: string, opts: unknown) => {
+      if (boom && pid === 'p1') throw new Error('EACCES 形态 boom');
+      return orig(pid, opts);
+    };
+    await s.sweepPurgeableSpoolLive(src);   // 首轮失败：计数+段留+bytes>0
+    expect((await counter()) - before).toBe(1);
+    expect((await readdir(join(dir, 'test-owner'))).some((f) => f.startsWith('p1.'))).toBe(true);
+    expect(await gauge()).toBeGreaterThan(0);
+    boom = false;
+    await s.sweepPurgeableSpoolLive(src);   // 二轮重试：清空
+    expect((await readdir(join(dir, 'test-owner'))).some((f) => f.startsWith('p1.'))).toBe(false);
+    await s.sweepPurgeableSpoolLive(src);   // 三轮：p2 在盘非 purgeable——bytes 回落 0
+    expect(await gauge()).toBe(0);
+  });
+
+  it('双审 F5b：全状态清后新 projectId——append seq 全新+无 dedup 假命中', async () => {
+    const s = svc();
+    const frame = new Uint8Array([9]);
+    const r1 = await s.appendTracked('p1', frame);
+    expect(r1.dedup).not.toBe(true);                     // 新帧（fresh 返回不带 dedup 命中态）
+    const { src } = mkSource({ live: async (pids) => new Set(pids) });
+    s.setErasureSource(src);
+    await s.purgeErasureScope(['p1'], { docs: docsStub(), erasure: src });   // 全状态清（dropSpoolProjectState）
+    const fresh = await s.appendTracked('p-new', frame);   // 同字节帧、不同 pid
+    expect(fresh.dedup).not.toBe(true);                    // dedup 按 pid 命名空间——零假命中
+    expect(fresh.walSeq).toBe(1n);                         // 新 pid seq 全新
+    const again = await s.appendTracked('p-new', frame);   // 控制组：同 pid 同字节才命中
+    expect(again.dedup).toBe(true);
+  });
+
+  it('双审 F5c：boot index 空+盘上 purgeable 段→sweepPurgeableSpoolOnLoad 扫盘清除（非 no-op）', async () => {
+    const seeder = svc();
+    await seeder.append('p1', new Uint8Array([1]));
+    const { src } = mkSource({ purgeable: ['p1'] });   // load 快照口（boot sweep 消费）
+    const fresh = svc();                               // 新实例——index 空（boot 形态）
+    fresh.setErasureSource(src);
+    await fresh.sweepPurgeableSpoolOnLoad();
+    expect((await readdir(join(dir, 'test-owner'))).filter((f) => f.startsWith('p1.'))).toHaveLength(0);
   });
 });

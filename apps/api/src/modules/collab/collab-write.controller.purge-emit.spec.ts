@@ -29,4 +29,16 @@ describe('TD-33 T13：purgeScope emit project.gone', () => {
     await build(spool, events).purgeScope({ projectIds: [] } as never);
     expect(events.emit).not.toHaveBeenCalled();
   });
+
+  it('双审 F1：mark 后中途失败（错误携带 markedProjectIds）→仍 emit 一次+错误上抛', async () => {
+    const spool = { purgeErasureScope: vi.fn(async () => {
+      const e = new Error('unlink boom');                     // service :2163 同款挂集形态
+      Object.assign(e, { markedProjectIds: ['p1'] });
+      throw e;
+    }) };
+    const events = { emit: vi.fn() };
+    await expect(build(spool, events).purgeScope({ projectIds: ['p1'] } as never)).rejects.toThrow('unlink boom');
+    expect(events.emit).toHaveBeenCalledTimes(1);
+    expect(events.emit).toHaveBeenCalledWith('project.gone', { projectIds: ['p1'] });
+  });
 });

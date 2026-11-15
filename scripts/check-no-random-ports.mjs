@@ -2,7 +2,7 @@
 // scripts/check-no-random-ports.mjs —— TD-32/C3 T24：随机端口清零门禁（三 section，零 allowlist）。
 // ①随机段宽正则零命中（\d{2,5}+Math.floor(Math.random()*\d{1,5})——随机抽口碰撞面）
 // ②freePort 装置零残留（helper 退役；net listen(0) 探口同归）
-// ③测试/harness 固定端口档零命中（listen(<非0字面量>)/COLLAB_PORT:'<非0数字>'；'0' 与 listen(0) 放行；
+// ③测试/harness 固定端口档零命中（listen(<非0字面量>——含字符串口 '3001'）/COLLAB_PORT:'<非0数字>'；'0' 与 listen(0) 放行；
 //   注释行/门禁自身/测试意图行（safeParse/expect 断言）排除；生产入口与 drill 手测配置不在测试扫描集）
 // `--list`：输出全部命中 file:line（附录 A 清单单源=本脚本输出）。
 import fs from 'node:fs';
@@ -17,7 +17,7 @@ const SELF = new Set(['scripts/check-no-random-ports.mjs', 'scripts/check-no-ran
 
 const RANDOM_PORT = /\d{2,5}\s*\+\s*Math\.floor\(Math\.random\(\)\s*\*\s*\d{1,5}/;
 const FREE_PORT = /\bfreePort\b/;
-const FIXED_LISTEN = /\.listen\(\s*[1-9][0-9]{1,4}\s*[,)]/;
+const FIXED_LISTEN = /\.listen\(\s*[1-9][0-9]{1,4}\s*[,)]|\.listen\(\s*['"][1-9][0-9]{1,4}['"]\s*[,)]/;
 const FIXED_COLLAB_ENV = /COLLAB_PORT:\s*'[1-9][0-9]*'/;
 const TESTISH = [/\/test-utils\//, /\/collab-harness\//, /\.(spec|int\.spec|e2e-spec)\.ts$/, /\.test\.mjs$/];
 

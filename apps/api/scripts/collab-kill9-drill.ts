@@ -386,6 +386,10 @@ async function handoverMode(env: Record<string, string>): Promise<void> {
 
   let B: DrillHandle;
   let epochDelta = 1;   // A(CAS +1)→B(CAS +1)；usurp：break-glass 按契约自耗 +1（脚本头注释）→B 后 = +2
+  // 双审 F6：V28 接管计时——非 usurp 分支 terminate 即起表，轮询与 waitExit/waitCollab 并发（graceful
+  // drain 22s 窗内 B 已 CAS〔显式释放 ≤4s〕，串行等 A 退出再测会虚高至 drain 时长；原「waitCollab 后起表」
+  // 恒≈0 空转化——双审 Important 已证）
+  let handoverMeasure: Promise<{ acquireBudget: number; acquiredAt: number; readyAt: number; bEpoch: number }> | null = null;
   if (usurp) {
     // 顺序修正（对计划草案的机制适配——消除 CAS 抢跑竞态，报告登记）：break-glass 先于 B 起。
     // 若 B 先起（1s 重试循环在跑），break-glass 后 B 的 CAS 可能抢在 A 的下一次心跳（≤500ms）之前
@@ -436,6 +440,24 @@ async function handoverMode(env: Record<string, string>): Promise<void> {
     } else {
       A.child.kill('SIGKILL');
     }
+    // V28（双审 F6）：t0=terminate 时刻——「A 死→B 接管」窗度量还原；立即并发起表
+    const t0 = Date.now();
+    handoverMeasure = (async () => {
+      const acquireBudget = graceful ? 4_000 : 3_500;
+      let acquiredAt = 0; let readyAt = 0; let bEpoch = 0;
+      while (Date.now() - t0 < 8_000) {
+        const row = (await leaseRow())[0];
+        if (!acquiredAt && row && row.owner && row.owner !== aOwner && row.owner !== 'revoked') {
+          acquiredAt = Date.now() - t0; bEpoch = Number(row.epoch);
+        }
+        if (acquiredAt) {
+          const body = await readyOf(B).catch(() => null);
+          if (body?.ready === true) { readyAt = Date.now() - t0; break; }
+        }
+        await sleep(100);
+      }
+      return { acquireBudget, acquiredAt, readyAt, bEpoch };
+    })();
     destroy();   // 先断客户端再等 A 退出（graceful drain 窗 provider 重连 vs A 死亡竞态——实测 unhandled ws error）
     await waitExit(A, 30_000);   // T20：A 退出对齐单实例拓扑（graceful drain 22s ≤30s）
     await B.waitCollab(15_000);  // ready 语义=serving 完成+wsPort 可用（T19 契约）
@@ -449,20 +471,7 @@ async function handoverMode(env: Record<string, string>): Promise<void> {
     // （末次续租距关停 ≤HB）才能经过期支路；B 在 ≤4s 获租约 ⟺ CAS 走了 owner IS NULL 支路 ⟺ A 已显式
     // 释放（直接断言"观察到 NULL"反而与 B 抢跑存在 100ms 轮询竞态——删）。
     // kill9 预算=TTL 2s（A 末次续租距 kill ≤HB → 过期 ∈[1.5,2]s）+B 重试格 ≤1s+余量。
-    const t0 = Date.now();
-    const acquireBudget = graceful ? 4_000 : 3_500;
-    let acquiredAt = 0; let readyAt = 0; let bEpoch = 0;
-    while (Date.now() - t0 < 8_000) {
-      const row = (await leaseRow())[0];
-      if (!acquiredAt && row && row.owner && row.owner !== aOwner && row.owner !== 'revoked') {
-        acquiredAt = Date.now() - t0; bEpoch = Number(row.epoch);
-      }
-      if (acquiredAt) {
-        const body = await readyOf(B).catch(() => null);
-        if (body?.ready === true) { readyAt = Date.now() - t0; break; }
-      }
-      await sleep(100);
-    }
+    const { acquireBudget, acquiredAt, readyAt, bEpoch } = await handoverMeasure!;
     if (readyAt === 0) fail(`handover(${variant})：B 未在 8s 内 ready`);
     if (acquiredAt === 0 || acquiredAt > acquireBudget)
       fail(`handover：B 获租约 ${acquiredAt}ms > ${acquireBudget}ms（${graceful ? '显式释放不达 SV12' : 'TTL 接管超预算'}）`);

@@ -1975,6 +1975,10 @@ describe('TD-33 C1b T14：擦除 source fail-closed + boot 顺序', () => {
         expect(gf.erasureRuntimeRunning()).toBe(true);    // drain-auto-release 不经 listenCollab——停=永不重启
         await gf.selfIsolate('fenced-by-write');
         expect(gf.erasureRuntimeRunning()).toBe(false);   // isolate 停止
+        await gf.startCollabAfterLease();                 // 双审 F4：rejoin 重启（isolate 已完成——屏障放行）
+        expect(gf.erasureRuntimeRunning()).toBe(true);
+        await kit.gateway.onApplicationShutdown();        // 双审 F4：shutdown 清（句柄纳入 clear）
+        expect(gf.erasureRuntimeRunning()).toBe(false);
       } finally { await kit.dispose(); }
     } finally { await cleanup(); }
   });
@@ -2024,6 +2028,47 @@ describe('TD-32/C2 T17：listener 后置失败关闭（requireSystemHistory 抛�
         const httpServer = gateway.server.httpServer!;
         await gateway.onApplicationShutdown();
         // 4.8.0 destroyPromise 记忆化不得污染：重试 re-listen 后的新 listener 在 shutdown 真关闭
+        expect(httpServer.listening).toBe(false);
+      }
+    } finally { await cleanup(); }
+  });
+
+  it('双审 F5g：非端口错 release 复位 initDone→B 写同根→re-acquire 重扫+append seq 承接零 dup', async () => {
+    const { dir, cleanup } = await makeSpoolDir('td33-f5g-release-');
+    try {
+      const spool = spoolForTest(dir);
+      spool.setOwner('f5g-owner');   // 直调 startCollabAfterLease（owner 契约 16 前置——T17 同款）
+      let postListenFailure = 0;
+      const gateway = new CollabGateway(
+        {
+          systemHistory: {
+            findUnique: vi.fn()
+              .mockImplementation(async () => {
+                if (!gateway.server.httpServer?.listening) return { historyId: 'f5g-history', epochStartedAt: new Date() };   // listen 前置读面
+                if (postListenFailure++ === 0) throw new Error('boom non-port');   // listen 后置抛非端口错→catch :1045 release 分支
+                return { historyId: 'f5g-history', epochStartedAt: new Date() };
+              }),
+          },
+        } as any,
+        new EventEmitter2() as any, createMockRepo() as any,
+        createLeaseStub() as any, { resolve: vi.fn() } as any, 0, 300, undefined, undefined, spool);
+      const facade = gatewayFacade(gateway);
+      try {
+        await facade.startCollabAfterLease();     // 全链完成（initDone 置真）→listen 后置失败→release
+        expect(facade.state()).toBe('start-failed');
+        expect(facade.isInitDone()).toBe(false);  // release 复位点（非 isolate 路径）——re-acquire 必重扫
+        const b = spoolForTest(dir); b.setOwner('f5g-owner');   // B 形态：同根同 owner 第二句柄——A index 不知情的新段
+        b.setWalHistory('f5g-history');   // 生产拓扑=B 读同 SystemHistory 单行盖章——historyId 匹配 A 重扫栅栏（否则 history-mismatch 隔离不播种 floor，fail-closed 方向正确）
+        await b.append('p-rl', new Uint8Array([5]));
+        const spy = vi.spyOn(spool, 'recoverScan');
+        await facade.startCollabAfterLease();     // re-acquire（读面恢复）——release 后重跑全链
+        expect(spy).toHaveBeenCalledTimes(1);      // 陈旧 index 失守窗关闭
+        expect(facade.state()).toBe('serving');
+        const a = await spool.appendTracked('p-rl', new Uint8Array([6]));   // 字节互异避 dedup
+        expect(a.walSeq).toBe(2n);                // 承接 B 段磁盘最大 seq——零 dup（不重扫=1n 撞 B 段）
+      } finally {
+        const httpServer = gateway.server.httpServer!;
+        await gateway.onApplicationShutdown();
         expect(httpServer.listening).toBe(false);
       }
     } finally { await cleanup(); }

@@ -98,15 +98,21 @@ describe('TD-33 C1b T9：ErasureRegistry', () => {
       if (fail) return Promise.reject(new Error('pg down'));
       return [row({ projectId: 'p1', blocked: 'ERASING' })];
     });
+    const age = async () => { const m = (await import('prom-client')).register.getSingleMetric('erasure_registry_age_ms')!; return (await m.get()).values[0]?.value ?? 0; };
     await s.load();
     const before = await counterValue('erasure_refresh_failures_total');
+    const age0 = await age();
+    await new Promise((r) => setTimeout(r, 30));
     fail = true;
     await s.refresh();
     expect(s.isBlocked('p1')).toBe('ERASING');   // 旧快照保持（清空=新擦除项目短窗放行）
     expect((await counterValue('erasure_refresh_failures_total')) - before).toBe(1);
+    const grown = await age();
+    expect(grown).toBeGreaterThan(age0);         // 双审 F5e：失败不替换——age 继续增长（>3×周期告警判据源）
     fail = false;
     await s.refresh();
     expect(s.isBlocked('p1')).toBe('ERASING');
+    expect(await age()).toBeLessThan(grown);     // 成功才回落（新快照时点）
   });
 
   it('refresh single-flight：在飞即跳过（慢查询重叠不叠发，旧快照不晚归覆盖新状态）', async () => {

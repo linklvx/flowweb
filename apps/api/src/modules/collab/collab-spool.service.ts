@@ -796,8 +796,11 @@ export class CollabSpoolService {
         if ('badHeader' in hdr) continue;   // 坏头段不收养（隔离裁定归 scan/recoverScan）
         const committed = await this.chainWalIo(pid, async () => {
           const cur = this.index.get(pid)?.get(key);
-          // 链内复核（Q 评审）：同一 meta 快照∧未 confirm∧仍外来——重连 reinit 换 meta 后旧快照不得覆盖新裁定
+          // 链内复核（Q 评审）：同一 meta 快照∧未 confirm∧仍外来——重连 reinit 换 meta 后旧快照不得覆盖新裁定；
+          // 双审 F2：隔离态复核（镜像 :788 收录谓词）——读窗内 switchGeneration 原地隔离（??= 不换引用）
+          // 不得按链外快照收养复活（generation-switch 裁定保全优先）
           if (!cur || cur !== m || cur.confirmedCount > 0 || !cur.foreign) return null;
+          if (cur.segQuarantined != null && cur.segQuarantined !== 'chain-stopped') return null;
           // chain-stopped 段保留 recoverScan 链式裁定的 seqs/frameCount/goodBytes——收养面与 boot 链
           // 两通道裁定一致：permissive 重算对非字节缺陷段（gap/恶性 dup-seq/hash-mismatch/
           // generation-mismatch——len/CRC 网全过）=干净段假象→坏尾零处置+链后未证帧复活进 replay。

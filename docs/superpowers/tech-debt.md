@@ -180,6 +180,7 @@
 - **修复方向**：spawn 前端口预占探测（net.createServer 试绑→close→传子进程）+撞口重试 ≤N 次；不建议改 port=0 内核分配（kit 侧 `collab-residency-durability.int.spec.ts:83` 注释登记 port=0 库不回写 configuration.port 的限制，涉及面大）。
 - **影响**：Y2/Y3（投影统一+真源反转合并批）为重 CI 批次（三门 PR 级必跑+影子双跑跨批验收），drill 高频触面，间歇红污染门禁信号——建议 Y2 立项前或首批内修。
 - **核销（2026-11-15，C2 `48b97e28`）**：drill 驱动改端口 0+IPC 实报（控制库 `scripts/lib/drill-server-control.js`——typed EADDRINUSE 即拒/旧 attempt 不误判/grace 重挂）；handover 固定非临时段 `[31001..31003]`+typed 回退；同批 `resolveCollabPort` 单源+`check-no-random-ports` 门禁清零随机端口。证据=本地 9 腿+usurp×10+预绑回退/三口耗尽 typed（检测 ≤2s，冷启另计）。**观察期=push CI 首轮绿确认后正式销案**。
+- **门禁边界登记（2026-11-15，双审 F7）**：§1 宽正则=历史惯用法绊线非通用随机口检测器——反序形态 `Math.floor(Math.random()*N)+M`/`round`·`ceil`·`~~` 变体/`crypto.randomInt`/跨行拆分不在命中面（probe 实证）。**维持原正则裁定**：扩面会命中合法非端口随机算术（如 `Math.floor(Math.random()*900)+100`），与三 section 零 allowlist 纪律冲突——新写端口代码一律 `listen(0)` 惯用法；§3 同批补字符串口 `listen('3001')` 命中（自测锁）。
 
 ### TD-33 t26 int spec spool ENOENT（appendRaw mkdir→writeFile 窗口竞态）
 
