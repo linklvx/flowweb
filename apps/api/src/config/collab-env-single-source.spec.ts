@@ -28,6 +28,9 @@ const EXEMPT = new Map<string, string>([
   // Y0c T0（Z127）：三键一次性注册（T0 只注册不消费——键随读者 T15/T16 同批移出本表）
   ['COLLAB_SESSION_IDLE_TTL_MS', 'Y0c T15 消费（会话空闲 TTL——Z107 默认 120_000 落使用点）'],
   ['COLLAB_MAX_RESIDENT_BYTES', 'Y0c T16 消费（常驻字节主约束——Z142 默认 384MiB 落使用点）'],
+  // TD-32/C2 T16：消费=main.ts assertProductionCollabPort(env)——校验后 env 对象读（结构锚只认
+  // process.env 字面量读点；非死键，production 拒 COLLAB_PORT=0 的显式豁免档）。
+  ['COLLAB_ALLOW_EPHEMERAL', 'C2 T16 消费（main.ts assertProductionCollabPort——env 对象读）'],
 ]);
 
 /** 纯函数抽取（方向一/自测共用同一判定逻辑，防恒真重言式） */

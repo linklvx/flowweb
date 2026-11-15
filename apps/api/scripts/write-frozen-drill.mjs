@@ -24,7 +24,7 @@
 import { config } from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { execSync, spawn } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -32,6 +32,7 @@ import { join, resolve } from 'node:path';
 config({ path: fileURLToPath(new URL('../.env', import.meta.url)), quiet: true });   // apps/api/.env——collab-smoke B3′ 同序；不覆盖已设 env
 const here = fileURLToPath(import.meta.url);
 const req = createRequire(here);
+const { startDrillServer } = req('./lib/drill-server-control.js');   // TD-32/C2 T19/T21：控制库（CJS 形态天然匹配 mjs 驱动）
 const WebSocket = req('ws');
 // yjs/provider 走 await import（collab-smoke yjs#438 同坑——doc↔provider 全 mjs 同侧）
 const Y = await import('yjs');
@@ -91,37 +92,35 @@ function ensureCompiled() {
 }
 
 async function startServer(extraEnv) {
-  const port = 20000 + Math.floor(Math.random() * 20000);
-  const wsPort = port + 1;
-  const token = `wf-drill-${port}`;
-  const child = spawn(process.execPath, [DRILL_ENTRY], {
-    env: {
-      ...process.env, ...extraEnv,
-      DRILL_HTTP_PORT: String(port), COLLAB_PORT: String(wsPort),
-      PROMETHEUS_TOKEN: token, COLLAB_ADMIN_TOKEN: token,   // W23：drain 独立停机令牌（kill9 同款双设）
+  // TD-32/C2 T21：控制库接线（HTTP/WS 恒 0+IPC 实报；ready 语义=serving 完成+wsPort 可用）
+  const ctl = await startDrillServer(
+    {
+      ...extraEnv,
+      DRILL_HTTP_PORT: '0', COLLAB_PORT: '0',
       COLLAB_DEBOUNCE: '300',
       MINIO_INIT: 'skip', MINIO_ENDPOINT: 'http://127.0.0.1', MINIO_ACCESS_KEY: 'drill', MINIO_SECRET_KEY: 'drill-secret',   // X3：skip+占位缺一不可
     },
-    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    { entry: DRILL_ENTRY, expectCollab: true, allowEphemeral: true, timeoutMs: 60_000 },
+  );
+  liveChildren.add(ctl.child);
+  const exit = new Promise((r) => {
+    if (ctl.child.exitCode !== null) return r();
+    ctl.child.once('exit', () => r());
   });
-  liveChildren.add(child);
-  const stdout = [];
-  child.stdout.on('data', (d) => stdout.push(String(d)));
-  child.stderr.on('data', (d) => stdout.push(String(d)));
-  const ready = new Promise((res, rej) => {
-    const t = setTimeout(() => rej(new Error(`drill-server 未在 60s 内 listening\n${stdout.join('').slice(-2000)}`)), 60_000);
-    const check = () => { if (stdout.join('').includes('drill_server_listening')) { clearTimeout(t); res(); } };
-    child.stdout.on('data', check); check();
-  });
-  const h = {
-    child, port, wsPort, token, ready,
+  return {
+    child: ctl.child, port: ctl.httpPort, token: ctl.token, exit,
+    get wsPort() { return ctl.wsPort; },
     stop: async () => {   // 演练外收口——不留孤儿进程（kill9 stopServer 同语义）
-      child.kill('SIGKILL');
-      liveChildren.delete(child);
-      await new Promise((r) => { child.once('exit', () => r()); setTimeout(r, 2_000).unref?.(); });
+      ctl.child.kill('SIGKILL');
+      liveChildren.delete(ctl.child);
+      let timer = null;
+      try {
+        await Promise.race([exit, new Promise((r) => { timer = setTimeout(r, 2_000); timer.unref?.(); })]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
     },
   };
-  return h;
 }
 
 async function shutdownGraceful(h) {   // POSIX=真 SIGTERM；win32=IPC（closeAll1012 经 app.close→onApplicationShutdown）
@@ -263,7 +262,7 @@ async function frozenChainMode(env) {
   let h = null;
   try {
     await createFixture(prisma, S);
-    h = await startServer(hEnv); await h.ready;
+    h = await startServer(hEnv);   // T21：ready=serving+wsPort（控制库）
     // ① 双 EDITOR client 连接——connected 钩子首快照（rev=DOC_STATUS_REV_SEED 播种——初值 0 会被客户端
     // rev<=last 守卫丢首快照=Y0b-4 T5 修复的存在性验证）
     const A = connectClient(h, S.project, { tag: 'A' });
@@ -304,7 +303,7 @@ async function frozenChainMode(env) {
 
     // ④ 重启 + 断线期间服务端 quota 状态翻转（client 不知情）：临时 client C 突发大帧触发真实配额冻结链
     await clearLeaseRow(prisma);
-    h = await startServer(hEnv); await h.ready;   // h2 归位同一 h 槽——中途 fail 的 finally 兜底 SIGKILL 覆盖两代实例
+    h = await startServer(hEnv);   // h2 归位同一 h 槽——中途 fail 的 finally 兜底 SIGKILL 覆盖两代实例
     const C = connectClient(h, S.project, { tag: 'C' });
     await C.synced;
     C.doc.transact(() => C.doc.getMap('nodes').set('big-node', new Y.Map([
@@ -373,7 +372,7 @@ async function midEditKill9Mode(env) {
   try {
     await createFixture(prisma, S);
     await clearLeaseRow(prisma);   // W19：清残留持行——快路径获取（演练焦点=RPO 非接管时序）
-    h = await startServer(env); await h.ready;
+    h = await startServer(env);
     const A = connectClient(h, S.project, { tag: 'A' });
     await A.synced;
     A.doc.transact(() => A.doc.getMap('nodes').set('mid-base', mkDrillNode(1)));
@@ -397,7 +396,7 @@ async function midEditKill9Mode(env) {
 
     // (a) 服务端独存：重启后 ≤8s 视界前的编辑全部可恢复
     await clearLeaseRow(prisma);
-    h = await startServer(env); await h.ready;   // 重启实例归位同一 h 槽——中途 fail 的 finally 兜底覆盖
+    h = await startServer(env);   // 重启实例归位同一 h 槽——中途 fail 的 finally 兜底覆盖
     const replayed = new Set(await replayKeys(prisma, S.project));
     const horizon = stream.filter((k) => k.at <= tKill - RPO_BUDGET_MS);
     if (horizon.length === 0) fail(`⑦a：8s 视界内无样本（流 ${MID_EDIT_STREAM_MS}ms 不足）——断言退化禁过`);

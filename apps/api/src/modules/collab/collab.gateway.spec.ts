@@ -35,6 +35,7 @@ import { createLeaseStub } from './test-utils/lease-stub';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b B0：内部状态访问经 façade（check-collab-test-facade 门禁——cast∧私有成员违规替换）
 import { appendFile, stat, utimes, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import * as net from 'node:net';
 import { join } from 'node:path';
 import { hostname } from 'node:os';
 import { buildOwnerName } from './owner-name';
@@ -1975,6 +1976,56 @@ describe('TD-33 C1b T14：擦除 source fail-closed + boot 顺序', () => {
         await gf.selfIsolate('fenced-by-write');
         expect(gf.erasureRuntimeRunning()).toBe(false);   // isolate 停止
       } finally { await kit.dispose(); }
+    } finally { await cleanup(); }
+  });
+});
+
+describe('TD-32/C2 T17：listener 后置失败关闭（requireSystemHistory 抛错→端口让位→重试 serving）', () => {
+  it('后置失败→listener 关闭（端口可重绑）→重试 serving→shutdown 后 httpServer.listening===false', async () => {
+    const { dir, cleanup } = await makeSpoolDir('td32-t17-postlisten-');
+    try {
+      const spool = spoolForTest(dir);
+      spool.setOwner('t17-owner');   // 直调 startCollabAfterLease（不经 tryAcquireFast）——owner 契约 16 前置
+      const lease = createLeaseStub();
+      let portAtFailure = 0;
+      let postListenFailure = 0;
+      const gateway = new CollabGateway(
+        {
+          systemHistory: {
+            findUnique: vi.fn()
+              .mockImplementation(async () => {
+                if (!gateway.server.httpServer?.listening) return { historyId: 't17-history', epochStartedAt: new Date() };   // listen 前置读面
+                if (postListenFailure++ === 0) {
+                  portAtFailure = (gateway.server.httpServer.address() as { port: number }).port;
+                  throw new Error('system history boom');   // listenCollab 后置步骤：listener 已开时抛错（仅首轮）
+                }
+                return { historyId: 't17-history', epochStartedAt: new Date() };
+              }),
+          },
+        } as any,
+        new EventEmitter2() as any, createMockRepo() as any,
+        lease as any, { resolve: vi.fn() } as any, 0, 300, undefined, undefined, spool);   // port 0=ephemeral（TD-32 语义）
+      const facade = gatewayFacade(gateway);
+      try {
+        await facade.startCollabAfterLease();
+        expect(facade.state()).toBe('start-failed');
+        expect(gateway.server.httpServer.listening).toBe(false);   // catch 关闭 listener（否则重试=ERR_SERVER_ALREADY_LISTEN 半死占口）
+        expect(portAtFailure).toBeGreaterThan(0);
+        // 端口可被下一次 bind——listener 确已让位（半死占口=红）
+        await new Promise<void>((res, rej) => {
+          const probe = net.createServer();
+          probe.once('error', rej);
+          probe.listen(portAtFailure, '127.0.0.1', () => probe.close(() => res()));
+        });
+        await facade.startCollabAfterLease();   // 重试（历史读面恢复）——serving 可达
+        expect(facade.state()).toBe('serving');
+        expect(gateway.server.httpServer.listening).toBe(true);
+      } finally {
+        const httpServer = gateway.server.httpServer!;
+        await gateway.onApplicationShutdown();
+        // 4.8.0 destroyPromise 记忆化不得污染：重试 re-listen 后的新 listener 在 shutdown 真关闭
+        expect(httpServer.listening).toBe(false);
+      }
     } finally { await cleanup(); }
   });
 });

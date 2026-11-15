@@ -158,7 +158,11 @@ export const envSchema = z.object({
   // Y1c T16：L1 扫描 URL allowlist 注入键（XML_ATTR_URL_ALLOWED_HOSTS 消费——逗号分隔 host；
   // 缺省=空表 deny-all http(s) 属性 URL〔修正批#1：image.src=mediaId 后绝对 URL off-spec〕）
   COLLAB_XML_URL_HOSTS: z.preprocess(blankToUnset, z.string().min(1).optional()),
-  COLLAB_PORT: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
+  // TD-32/C2 T16：0=ephemeral 合法（drill 子进程实报口）；上界 65535（R6-5）。production 拒 0 不在
+  // schema 层（全环境合法）——assertProductionCollabPort 纯函数在 main.ts 拒启（显式 opt-in 见下键）。
+  COLLAB_PORT: z.preprocess(blankToUnset, z.coerce.number().int().min(0).max(65535).optional()),
+  // TD-32/C2 T16：ephemeral 口显式豁免档（'0'|'1' 严格枚举——禁裸 env 读）；仅 drill/test 设置。
+  COLLAB_ALLOW_EPHEMERAL: z.preprocess(blankToUnset, z.enum(['0', '1']).optional()),
   COLLAB_DEBOUNCE: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_ERASURE_REFRESH_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),   // TD-33/C1b T14：registry refresh 周期（缺省 10s/上限 60s）
   COLLAB_TIMEOUT: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),

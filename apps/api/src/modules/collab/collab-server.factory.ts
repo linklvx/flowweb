@@ -10,6 +10,7 @@
 import { Server } from '@hocuspocus/server';
 import type { CollabGateway } from './collab.gateway';   // type-only 零运行时边（FreezeReason/W3a 同款先例——hooks 签名面类型单源）
 import { WS_MAX_PAYLOAD_BYTES } from './collab-limits';   // R4b'：maxPayload 值单源（B16）
+import { resolveCollabPort } from '../../config/collab-port';   // TD-32/C2 T16：端口解析单源
 
 /** 批3-4：COLLAB_DEBOUNCE 接线——显式注入（测试缝）> env > dev 1000 / prod 2000（原硬编码 5000
  *  收紧——连续编辑丢失窗口 prod ≤3s 闭环）；maxDebounce 写死 ≤ debounce×1.5（独立配置则窗口仍为旧值）。 */
@@ -32,7 +33,7 @@ export function createCollabServer(opts: {
   const { port, debounce, timeout, hooks } = opts;
   const debounceMs = resolveCollabDebounce(debounce);
   return new Server({
-    port: port ?? (Number(process.env.COLLAB_PORT) || 3001),
+    port: port ?? resolveCollabPort(process.env.COLLAB_PORT, 3001),   // TD-32/C2 T16：解析单源（'0'=ephemeral 保留）
     debounce: debounceMs,
     maxDebounce: Math.ceil(debounceMs * 1.5),
     // 批3-4 COLLAB_TIMEOUT：双语义——同一值既驱动握手/空闲超时，也驱动 ClientConnection 的

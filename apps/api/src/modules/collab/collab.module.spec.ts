@@ -1,23 +1,42 @@
 // apps/api/src/modules/collab/collab.module.spec.ts
-// Y0c T34（Z45③）：COLLAB_* 装配惰性化结构锚——useValue（模块加载期求值，先于 dotenv→
+// Y0c T34（Z45③）：COLLAB_* 装配惰性化——useValue（模块加载期求值，先于 dotenv→
 // validateEnv 写回=Z79 违规面）⇒ useFactory（DI 解析期=NestFactory.create 时求值，恒在
-// main.ts validateEnv 之后⇒写回等价成立）。取值行为等价（同值解析）由 di-smoke int 承担；
-// 本 spec 钉死求值时序形态（源码结构断言——worker.module.spec/偏离 46 case C 同款先例）。
+// main.ts validateEnv 之后⇒写回等价成立）。
+// TD-32/C2 T16：COLLAB_PORT 锚由源码文本改**行为断言**（provider useFactory 调用期解析——
+// 0 保留/blank 回退/非法 fail-fast 三档直接驱动工厂，不再依赖源码形态匹配）。
+import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { CollabModule } from './collab.module';
 
-const src = readFileSync(join(__dirname, 'collab.module.ts'), 'utf8');
+type ProviderEntry = { provide?: unknown; useFactory?: () => unknown };
+const providers = (Reflect.getMetadata('providers', CollabModule) ?? []) as ProviderEntry[];
+const factoryOf = (token: string): (() => unknown) | undefined =>
+  providers.find((p) => p.provide === token)?.useFactory;
 
-describe('T34（Z45③）：COLLAB_PORT/COLLAB_DEBOUNCE/COLLAB_TIMEOUT 装配 useFactory 惰性化', () => {
-  it('三 token 均 useFactory（useValue+直读形态=import 期求值 ⇒ 红）', () => {
-    expect(src).toMatch(/provide: 'COLLAB_PORT', useFactory: \(\) => Number\(process\.env\.COLLAB_PORT\) \|\| 3001/);
-    expect(src).toMatch(/provide: 'COLLAB_DEBOUNCE', useFactory: \(\) => resolveCollabDebounce\(\)/);
-    expect(src).toMatch(/provide: 'COLLAB_TIMEOUT', useFactory: \(\) => Number\(process\.env\.COLLAB_TIMEOUT\) \|\| 30_000/);
+describe('T34（Z45③）/TD-32 T16：collab 装配 useFactory 惰性化（行为断言）', () => {
+  it('COLLAB_PORT useFactory：调用期解析——0 保留/blank 回退 3001/显式值透传/非法 fail-fast', () => {
+    const f = factoryOf('COLLAB_PORT');
+    expect(typeof f).toBe('function');
+    const old = process.env.COLLAB_PORT;
+    try {
+      process.env.COLLAB_PORT = '0';
+      expect(f!()).toBe(0);
+      process.env.COLLAB_PORT = '31001';
+      expect(f!()).toBe(31001);
+      process.env.COLLAB_PORT = '';
+      expect(f!()).toBe(3001);
+      delete process.env.COLLAB_PORT;
+      expect(f!()).toBe(3001);
+      process.env.COLLAB_PORT = '0x10';
+      expect(() => f!()).toThrow(/非法/);
+    } finally {
+      if (old === undefined) delete process.env.COLLAB_PORT;
+      else process.env.COLLAB_PORT = old;
+    }
   });
 
-  it('providers 段 useValue+process.env / useValue+resolveCollabDebounce 直读形态零残留（Z79 违规面）', () => {
-    expect(src).not.toMatch(/useValue:[^\n]*process\.env/);
-    expect(src).not.toMatch(/useValue: resolveCollabDebounce/);
+  it('COLLAB_DEBOUNCE/COLLAB_TIMEOUT 仍 useFactory（Z45③ 形态保持）', () => {
+    expect(typeof factoryOf('COLLAB_DEBOUNCE')).toBe('function');
+    expect(typeof factoryOf('COLLAB_TIMEOUT')).toBe('function');
   });
 });

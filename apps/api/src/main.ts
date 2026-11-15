@@ -3,6 +3,7 @@ import { resolve } from 'path';
 config({ path: resolve(__dirname, '../.env') });
 
 import { applyDatabaseUrlConnectionLimit, validateEnv } from './config/env';
+import { assertProductionCollabPort } from './config/collab-port';   // TD-32/C2 T16：production 拒 COLLAB_PORT=0
 // Y0c T32（Z11/§0.6 偏离 47）：DATABASE_URL connection_limit 显式预算（api=8/worker=4/all=8）——
 // 必须先于一切 PrismaClient 构造执行：authPrisma（auth/auth.ts:12 模块顶层自建）随下方 app.module
 // import 即构造、preload 临时客户端亦先于 validateEnv——「解析后重写」对两者无效。dotenv 后立即
@@ -83,6 +84,7 @@ async function bootstrap() {
   await preloadDbConfig();
 
   const env = validateEnv();
+  assertProductionCollabPort(env);   // TD-32/C2 T16：ephemeral 口仅显式 COLLAB_ALLOW_EPHEMERAL=1 豁免
 
   // Y0c T23（Z67③）：进程角色观测——引导层单点（与 setDefaultLabels 同区）。gauge 值恒 1，
   // role 标签携带值；worker 侧 main-worker.ts 引导归 T26。dev 下 role=api 打 WARN：本地单进程

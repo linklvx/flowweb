@@ -148,6 +148,23 @@ describe('Y0a-4 env zod 收口：COLLAB_* 全族（P3 校验层不写默认+B13 
     expect(envSchema.safeParse({ ...good, COLLAB_SWEEP_ENABLED: '' }).success).toBe(true);
   });
 
+  // TD-32/C2 T16（spec §4.2.1）：COLLAB_PORT 0=ephemeral 全环境 schema 合法（原 .positive() 无条件拒 0
+  // ——drill 子进程 COLLAB_PORT=0 被 env 校验直接拒启）；上界 65535（R6-5）。production 拒 0 不在此层，
+  // 归 assertProductionCollabPort 纯函数（main.ts 调用——显式 opt-in COLLAB_ALLOW_EPHEMERAL=1）。
+  it("COLLAB_PORT='0' 过 schema（ephemeral 口）+上界 65535 拒 65536", () => {
+    expect(envSchema.safeParse({ ...good, COLLAB_PORT: '0' }).success).toBe(true);
+    expect(envSchema.safeParse({ ...good, COLLAB_PORT: '65535' }).success).toBe(true);
+    expect(envSchema.safeParse({ ...good, COLLAB_PORT: '65536' }).success).toBe(false);
+  });
+
+  it("COLLAB_ALLOW_EPHEMERAL 严格 '0'|'1' 枚举；空串=未设；其他形态拒（非裸 env 读）", () => {
+    expect(envSchema.safeParse({ ...good, COLLAB_ALLOW_EPHEMERAL: '1' }).success).toBe(true);
+    expect(envSchema.safeParse({ ...good, COLLAB_ALLOW_EPHEMERAL: '0' }).success).toBe(true);
+    expect(envSchema.safeParse({ ...good, COLLAB_ALLOW_EPHEMERAL: '' }).success).toBe(true);
+    expect(envSchema.safeParse({ ...good, COLLAB_ALLOW_EPHEMERAL: 'true' }).success).toBe(false);
+    expect(envSchema.safeParse({ ...good, COLLAB_ALLOW_EPHEMERAL: '2' }).success).toBe(false);
+  });
+
   // C4-c1（生产就绪收尾批·project-erasure）：C4-b 已注册 ERASURE_MANIFEST_DIR zod（env.ts :193
   // isAbsolute refine——spec 评审 P2-① 绝对路径校验前移到启动面）但 zod 用例缺——本块补钉三档
   //（缺省回落〔optional——默认值落使用点 erasureManifestDir() 防双源 P3〕/相对路径拒/绝对路径过）。

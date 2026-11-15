@@ -23,7 +23,8 @@ import { requireSystemHistory } from './canvas-doc-head';   // Y1c T9（T8 接�
 import { createCollabServer } from './collab-server.factory';   // B3 手段①：Server 构造 options 块单源工厂（canvas-doc.factory 同址先例）
 import { wireCollabMetricsReaders } from './collab-observability-wiring';   // B3 手段②：metrics reader 注册块单源（unregister×9 关停面留本体）
 import { parseDocName } from './doc-name.util';
-import { isPortError } from './collab-start-failure';   // TD-33/C1a T6：端口错误判据自 gateway 迁出（锚净零）
+import { isPortError, CollabStartFailureTracker } from './collab-start-failure';   // TD-33/C1a T6：端口错误判据自 gateway 迁出（锚净零）；TD-32/C2 T17：typed 启动失败面
+import { closeCollabListener } from './collab-listener';   // TD-32/C2 T17：listener 让位单源（selfIsolate/后置失败同款）
 import { CollabErasureRuntime } from './collab-erasure-runtime';   // TD-33/C1b T14：擦除双 timer 单点（10s refresh/60s sweep）
 import { CollabCloseCode } from '@flowweb/shared';
 import type { TryReleaseMotive, TryReleaseOutcome } from './collab-residency.service';
@@ -143,10 +144,13 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private startInFlight = false;        // V10：starting 在飞闸（watchdog/5s 定时器/fast-path 并发重入防线）
   private shuttingDown = false;         // V11：关停闸（步骤 1 置位——isolated 态关停时 rejoin 的 CAS 成功也不得 re-listen）（与 isShuttingDown()=draining 态派生不同名同义——前者=进程关停闸含步骤 1 置位时序，后者=对外 draining 判定）
   private listenerClosed: Promise<void> | null = null;   // M2①：isolate 的 close 完成信号（re-listen 前 await）
+  private readonly startFailure = new CollabStartFailureTracker();   // TD-32/C2 T17：lastStartFailure/stateSince/attempt（drill IPC 同读）
   private listenRetries = 0;            // V10/N2③：端口类失败的有界持锁重试计数（≤2）
   private watchdogFired = false;        // N3③/V14：episode 计数标志——看门狗每 episode 至多 inc 1 次
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
   getCollabState() { return this.collabState; }
+  /** TD-32/C2 T18：drill IPC 快照（state/stateSince/attempt/lastStartFailure——元组变化即上报）。 */
+  collabStartSnapshot() { return this.startFailure.snapshot(); }
   /** V33 迁移单点（三轮病根的结构解）：所有 collabState 写点经此——日志+非法迁移点名。 */
   private static readonly LEGAL_TRANSITIONS: Record<string, string[]> = {
     initializing: ['acquiring', 'starting'],
@@ -164,6 +168,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     }
     this.logger.log(JSON.stringify({ event: 'collab_state', from: this.collabState, to: next, cause }));
     this.collabState = next;
+    this.startFailure.noteState(next);   // TD-32/C2 T17：stateSince=进入当前状态时刻（start-failed=grace 起算点）
     if (next === 'serving') this.sessionGuard.onServingTransition();   // W3b：refusalCache 随域迁 SG——serving 汇点经 sg.onServingTransition（Y0b-3 T3 P-Q 清空单点：drain 解除/租约 rejoin/fence 解除全含于 serving 转移——refusalCache 残留拒连窗随状态恢复一并消除）
   }
   /** V12 判据唯一化：三入口门/写意图门统一读 collabState 派生（serving=唯一放行态）——
@@ -607,13 +612,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.sessionGuard.onServingTransition();   // W3b：refusalCache 随域迁 SG——Y0b-3 T3 防御性：隔离期写入的 LEASE_NOT_READY 缓存提前清消残窗（rejoin 的 serving 转移本会覆盖——双保险）
     this.clearDrainTimer();
     this.sessionGuard.clearAllWriteFreeze();   // W3b：writeFreeze 随域迁 SG——Y0b-4 T4：强引用台账随隔离清（连接由 closeAll1012 关——正常路径 onDisconnect 自清）
-    this.listenerClosed = new Promise<void>((res) => {
-      try {
-        this.server.httpServer?.closeAllConnections?.();   // Node≥18.2 清 keep-alive
-        this.server.httpServer?.close(() => res());
-        setTimeout(res, 2_000).unref?.();                  // close 回调兜底
-      } catch (e) { this.logger.warn(`isolate: listener close failed: ${(e as Error).message}`); res(); }
-    });
+    this.listenerClosed = closeCollabListener(this.server.httpServer, (e) => this.logger.warn(`isolate: listener close failed: ${(e as Error).message}`));
     // I-2（质量评审）：释放段 try/finally——closeAll1012 可达性结构自证（不再依赖「转发面内部吞错」
     // 推理链；释放 reject 时连接关闭仍必达且异常不吞上抛，调用方语义不变）。listenerClosed 同步创建
     // 先行保证保持（上方）。
@@ -932,6 +931,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   private async startCollabAfterLease(): Promise<void> {
     if (this.collabState === 'serving' || this.collabState === 'draining' || this.shuttingDown || this.startInFlight) return;
     this.startInFlight = true;
+    this.startFailure.noteAttempt();   // TD-32/C2 T17：新 attempt 入口（旧失败清空）
     try {
       this.transition('starting');   // 锁定适配：无条件（isolated rejoin 合法迁移——藏进 !initDone 则 isolated→serving 直跳=非法迁移）
       // TD-33/C1b T14：擦除权威必需（缺=ERASURE_SOURCE_MISSING fail-closed 拒服务）+load 最前（rejoin 同跑）
@@ -1032,6 +1032,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       }
       await this.listenCollab(gen0);
     } catch (e) {
+      this.startFailure.noteFailure(e);   // T17：先赋值再 transition（stateSince 由 transition 落定）
       this.transition('start-failed');
       collabStartFailureTotal.inc();
       this.watchdogFired = true;   // V14：episode 标志——看门狗不再对同一 episode 双计
@@ -1116,6 +1117,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
       return;
     }
     this.transition('serving');   // 置位=最后一步（"已完成"非"已进入"）
+    this.startFailure.noteServing();   // T17：serving 清空失败面
     this.watchdogFired = false;
     {
       const erasure = this.spool.erasureSourcePort();
@@ -1135,13 +1137,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   /** T14/T17：listener 后置失败/终检失败——关 listener 让位重试（selfIsolate 同款；禁 server.destroy()
    *  ——4.8.0 destroyPromise 记忆化污染后最终 shutdown 关不掉 re-listen 的新 listener）。 */
   private closeListenerForRetry(): void {
-    this.listenerClosed = new Promise<void>((res) => {
-      try {
-        this.server.httpServer?.closeAllConnections?.();
-        this.server.httpServer?.close(() => res());
-        setTimeout(res, 2_000).unref?.();
-      } catch { res(); }
-    });
+    this.listenerClosed = closeCollabListener(this.server.httpServer);
   }
 
   /** ===== W3b（B2）：SessionGuard 域 sweep 兜底+事件踢权链+awareness 判定族+连接批量关闭已随域迁

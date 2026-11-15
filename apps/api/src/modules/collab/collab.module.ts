@@ -44,6 +44,7 @@ import { TelemetryService } from './telemetry.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-redis';
 import { normalizeCollabRole } from '../../config/env';   // C2-2b（Minor#2+Important#1）：canary poller 装配门 role 归一单源（空串/非法回落 api）
+import { resolveCollabPort } from '../../config/collab-port';   // TD-32/C2 T16：端口解析单源
 import { SessionService } from '../../auth/session.service';
 import { TeamModule } from '../team/team.module';
 import { CanvasModule } from '../canvas/canvas.module';   // Y0b-4 T9：CanvasService（export-fresh 副本创建）——单向依赖无环
@@ -58,7 +59,7 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
     // 写回之前=Z79 违规面），useFactory 在 DI 解析期（NestFactory.create，恒在 main.ts validateEnv 后）
     // 求值⇒写回等价成立（resolveCollabDebounce 的 NODE_ENV/COLLAB_DEBOUNCE 读随之自然惰性化；
     // 同文件 REDIS_CLIENT useFactory :48 先例同款形态）
-    { provide: 'COLLAB_PORT', useFactory: () => Number(process.env.COLLAB_PORT) || 3001 },
+    { provide: 'COLLAB_PORT', useFactory: () => resolveCollabPort(process.env.COLLAB_PORT, 3001) },   // TD-32/C2 T16：解析单源（'0'=ephemeral 保留；blank 回退；非法 fail-fast）
     { provide: 'COLLAB_DEBOUNCE', useFactory: () => resolveCollabDebounce() },   // 批3-4：dev 1000/prod 2000（env COLLAB_DEBOUNCE 可调；原 5000）
     { provide: 'COLLAB_TIMEOUT', useFactory: () => Number(process.env.COLLAB_TIMEOUT) || 30_000 },   // 批3-4：握手超时+检查周期双语义
     SessionService,   // 批3-3：gateway authenticate 走 touchWithReason（PrismaModule 全局可见）

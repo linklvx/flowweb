@@ -17,13 +17,35 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module';
 import { CollabSpoolService } from '../src/modules/collab/collab-spool.service';
+import { CollabGateway } from '../src/modules/collab/collab.gateway';
+import { resolveCollabPort } from '../src/config/collab-port';
+
+/** TD-32/C2 T18：collab 状态 IPC 上报——state/stateSince/attempt/wsPort?/lastStartFailure? 元组变化才发
+ *  （50ms unref 轮询；stdout 保持人读面）。wsPort 只在 serving 附（读 httpServer.address() 实报口）。 */
+function startCollabStateReporter(gateway: CollabGateway): ReturnType<typeof setInterval> {
+  let last = '';
+  const timer = setInterval(() => {
+    const snap = gateway.collabStartSnapshot();
+    const addr = gateway.server.httpServer?.address();
+    const wsPort = snap.state === 'serving' && addr && typeof addr === 'object' ? addr.port : undefined;
+    const msg = { type: 'drill.collab-state', ...snap, ...(wsPort !== undefined ? { wsPort } : {}) };
+    const key = JSON.stringify(msg);
+    if (key === last) return;
+    last = key;
+    process.send?.(msg);
+  }, 50);
+  timer.unref?.();
+  return timer;
+}
 
 async function main(): Promise<void> {
   const app = await NestFactory.create(AppModule, { logger: ['error', 'warn', 'log'] });
+  let collabReporter: ReturnType<typeof setInterval> | null = null;
   let closing = false;
   const shutdown = () => {
     if (closing) return;
     closing = true;
+    if (collabReporter) { clearInterval(collabReporter); collabReporter = null; }
     void app.close().then(() => process.exit(0)).catch((e) => { console.error('drill-server close failed:', e); process.exit(1); });   // 显式 exit——IPC/信号句柄不吊 event loop；close 拒绝走 exit(1)（unhandled rejection 退出无诊断）
   };
   process.on('message', (m: unknown) => { if ((m as { type?: string } | null)?.type === 'shutdown') shutdown(); });
@@ -39,7 +61,13 @@ async function main(): Promise<void> {
     };
     console.log(JSON.stringify({ event: 'drill_spool_broken' }));
   }
-  await app.listen(Number(process.env.DRILL_HTTP_PORT) || 3000);
+  // TD-32/C2 T16/T18：HTTP 口 0/blank 语义单源（resolver）+实报口经 IPC（stdout 仅人读）
+  await app.listen(resolveCollabPort(process.env.DRILL_HTTP_PORT, 3000));
+  {
+    const addr = app.getHttpServer().address() as { port?: number } | null;
+    process.send?.({ type: 'drill.http', httpPort: addr?.port ?? resolveCollabPort(process.env.DRILL_HTTP_PORT, 3000) });
+  }
+  collabReporter = startCollabStateReporter(app.get(CollabGateway));
   console.log(JSON.stringify({ event: 'drill_server_listening', pid: process.pid }));
 }
 

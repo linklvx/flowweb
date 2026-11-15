@@ -26,6 +26,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import * as net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { startDrillServer, DrillPortInUse } from './lib/drill-server-control';   // TD-32/C2 T19/T20：控制库（typed 启动面+实报口）
 import { PrismaClient } from '@prisma/client';
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
@@ -114,37 +115,73 @@ async function gauge(text: string, name: string): Promise<number> {
   return Number(m[1]);
 }
 
-interface DrillHandle { child: ChildProcess; port: number; wsPort: number; token: string; ready: Promise<void>; drillStdout: () => string; drillStderr: () => string }
-async function startServer(env: Record<string, string>, fixedWsPort?: number): Promise<DrillHandle> {
-  const port = 20000 + Math.floor(Math.random() * 20000);
-  const wsPort = fixedWsPort ?? port + 1;   // handover（P17）：A/B 共享 wsPort——否则 B listen 永远成功，listener 让位断言落空
-  const token = `drill-${port}`;
-  const child = spawn(process.execPath, [DRILL_ENTRY], {
-    env: {
-      ...process.env, ...env,
-      DRILL_HTTP_PORT: String(port), COLLAB_PORT: String(wsPort), PROMETHEUS_TOKEN: token, COLLAB_ADMIN_TOKEN: token, COLLAB_DEBOUNCE: '300',
+interface DrillHandle {
+  child: ChildProcess;
+  port: number;                 // HTTP 实报口（IPC drill.http）
+  readonly wsPort: number;      // serving 后实报口（waitCollab/expectCollab 落定）
+  token: string;
+  exit: Promise<void>;
+  waitCollab: (timeoutMs?: number) => Promise<void>;
+  drillStdout: () => string;
+  drillStderr: () => string;
+}
+// TD-32/C2 T20：控制库接线——HTTP/WS 恒 0（实报），handover 例外走固定非临时段（fixedWsPort）。
+// expectCollab:true 的 ready 语义=serving 完成+wsPort 可用（原 stdout listening 判据退役）。
+async function startServer(
+  env: Record<string, string>,
+  opts: { expectCollab?: boolean; fixedWsPort?: number } = {},
+): Promise<DrillHandle> {
+  const ctl = await startDrillServer(
+    {
+      ...env,
+      DRILL_HTTP_PORT: '0',
+      COLLAB_PORT: opts.fixedWsPort === undefined ? '0' : String(opts.fixedWsPort),
+      COLLAB_DEBOUNCE: '300',
       // X3/V21：skip 不可省（占位只过 zod——MinioModule 仍 ensureBucket 3 重试后 throw=listen 永不执行）
       MINIO_INIT: env.MINIO_INIT ?? 'skip',
       MINIO_ENDPOINT: 'http://127.0.0.1', MINIO_ACCESS_KEY: 'drill', MINIO_SECRET_KEY: 'drill-secret',
     },
-    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],   // ipc=关停通道（controller 裁定 9——win32 主通道）
+    { entry: DRILL_ENTRY, expectCollab: opts.expectCollab ?? true, allowEphemeral: true, timeoutMs: 60_000 },
+  );
+  liveChildren.add(ctl.child);
+  const exit = new Promise<void>((r) => {
+    if (ctl.child.exitCode !== null) return r();
+    ctl.child.once('exit', () => r());
   });
-  liveChildren.add(child);
-  const stdout: string[] = []; const stderr: string[] = [];
-  child.stdout!.on('data', (d) => stdout.push(String(d)));
-  child.stderr!.on('data', (d) => stderr.push(String(d)));
-  const ready = new Promise<void>((resolveReady, reject) => {
-    const t = setTimeout(() => reject(new Error(`drill-server 未在 60s 内 listening\n${stdout.join('')}\n${stderr.join('')}`)), 60_000);
-    const check = () => { if (stdout.join('').includes('drill_server_listening')) { clearTimeout(t); resolveReady(); } };
-    child.stdout!.on('data', check); check();
-  });
-  return { child, port, wsPort, token, ready, drillStdout: () => stdout.join(''), drillStderr: () => stderr.join('') };
+  return {
+    child: ctl.child,
+    port: ctl.httpPort!,
+    get wsPort() { return ctl.wsPort!; },
+    token: ctl.token,
+    exit,
+    waitCollab: async (timeoutMs?: number) => { await ctl.waitCollab(timeoutMs === undefined ? undefined : { timeoutMs }); },   // 总等待预算（spec：B.waitCollab(15s)）
+    drillStdout: () => ctl.stdoutTail,
+    drillStderr: () => ctl.stderrTail,
+  };
+}
+
+async function waitExit(h: DrillHandle, budgetMs = 30_000): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const won = await Promise.race([
+      h.exit.then(() => 'exit' as const),
+      new Promise<'timeout'>((r) => { timer = setTimeout(() => r('timeout'), budgetMs); timer.unref?.(); }),
+    ]);
+    if (won === 'timeout') fail(`drill-server ${budgetMs}ms 内未退出`);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function stopServer(h: DrillHandle): Promise<void> {
   h.child.kill('SIGKILL');   // Windows=TerminateProcess（演练外只求收口——不留孤儿进程/端口/DB 连接）
   liveChildren.delete(h.child);
-  await new Promise<void>((r) => { h.child.once('exit', () => r()); setTimeout(r, 2_000).unref?.(); });
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    await Promise.race([h.exit, new Promise<void>((r) => { timer = setTimeout(r, 2_000); timer.unref?.(); })]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 // R2'（write-frozen-drill T2 同款）：connectWrite 产物 entry——destroy=registry 幂等短路+provider.destroy+
@@ -242,7 +279,7 @@ async function dropTrigger(): Promise<void> {
 async function kill9Mode(env: Record<string, string>, fault: boolean): Promise<void> {
   if (fault) await createTrigger();            // V7 修正：触发器先于 startServer（先建再写——"触发器前批次已落 PG"的不可判窗口消除）
   await clearLeaseRow();                       // W19：清残留持行——h 快路径即获取（演练焦点=RPO 非接管时序）
-  const h = await startServer(env); await h.ready;
+  const h = await startServer(env);   // expectCollab:true=serving+wsPort ready（T20）
   const { keys, destroy } = await connectWrite(h, PID, NODES);
   destroy();                    // 停写（断连触发 flush——故障档 flush 失败批入 spool）——R2'：entry.destroy（registry 幂等短路）
   await barrier(h, { withSpoolStable: fault, requireSpoolNonEmpty: fault });   // V23：三归零判据+故障前置断言
@@ -252,7 +289,7 @@ async function kill9Mode(env: Record<string, string>, fault: boolean): Promise<v
   await sleep(500);
   if (fault) await dropTrigger();              // 重启前恢复写入
   await clearLeaseRow();                       // W19：死 A 持行清掉——h2 快路径获取（接管时序由 handover 变体专测）
-  const h2 = await startServer(env); await h2.ready;
+  const h2 = await startServer(env);
   // V7c 轮询替代 sleep：回灌完成信号=spool 段回收（depth_files===0；onModuleInit replayAll 先于 listen）或 30s deadline
   const t1 = Date.now();
   while (Date.now() - t1 < 30_000) {
@@ -283,8 +320,7 @@ async function sigtermMode(env: Record<string, string>): Promise<void> {
   // 整体失败（批从未存在→drain_complete 0/0→ii 档断言恒红）。ii 档「不得声称 0」的诚实面在 Y1c 的
   // 真位置=drain_complete.spoolResidual（X17 显式登记，防误读「全部落 PG」）：trigger-only 形态下
   // 受理经 force-spool 落段、SIGTERM drain 的 PG 面恒败→残段必须被点名（files≥1）。
-  const h = await startServer(env);
-  await h.ready;                               // X3：startServer env 已含 MINIO_INIT=skip
+  const h = await startServer(env);            // X3：startServer env 已含 MINIO_INIT=skip
   const { destroy } = await connectWrite(h, PID, NODES);
   destroy();
   await sleep(1_500);                          // store 失败已发生（批经 force-spool 落段）
@@ -292,7 +328,7 @@ async function sigtermMode(env: Record<string, string>): Promise<void> {
   // Y0a-3（必办⑤/Z8）：G-2a ii"draining 可见"——B4 修正后唯一可达序=SIGTERM 前 POST /api/drain
   //（Nest dispose 先于模块 shutdown——SIGTERM 后 ready 不可达）。drain 进演练面（Y0a-4 部署链预演）。
   const drainRes = await fetch(`http://127.0.0.1:${h.port}/api/drain`, { method: 'POST', headers: { 'x-prometheus-token': h.token } });
-  if (drainRes.status !== 200) fail(`POST /api/drain 非 200：${drainRes.status}`);
+  if (drainRes.status !== 200) fail(`POST /api/drain 非 200：${drainRes.status} ${await drainRes.text()}`);
   const drained = await (await fetch(`http://127.0.0.1:${h.port}/api/ready`)).json();
   if (!(drained.ready === false && drained.reason === 'draining'))
     fail(`G-2a ii：ready 未转 draining（P6 优先级——两档统一值）：${JSON.stringify(drained)}`);
@@ -323,7 +359,8 @@ async function handoverMode(env: Record<string, string>): Promise<void> {
   const graceful = process.argv.includes('--graceful');
   const usurp = process.argv.includes('--usurp');
   const variant = graceful ? 'graceful' : usurp ? 'usurp' : 'kill9';
-  const WS_PORT = 31001;   // P17：A/B 共享
+  const HANDOVER_WS_PORTS = [31001, 31002, 31003];   // TD-32/C2 T20：固定非临时段（<32768 离开 ephemeral 池）+typed 失败驱动回退
+  let WS_PORT = 0;
   const leaseRow = () => prisma!.$queryRaw<{ owner: string | null; epoch: bigint }[]>`
     SELECT owner, epoch FROM "CollabLease" WHERE scope = 'primary'`;
   const readyOf = async (h: DrillHandle) => (await (await fetch(`http://127.0.0.1:${h.port}/api/ready`, { headers: { 'x-prometheus-token': h.token } })).json()) as {
@@ -333,7 +370,14 @@ async function handoverMode(env: Record<string, string>): Promise<void> {
   // TTL 分档：kill9/usurp=2000/500（确定性接管/revoke 观察 ≤500ms）；graceful=默认 10s——显式释放
   // （≤数秒）vs TTL 接管（≥8.5s）对比才清晰，SV12 断言不被小 TTL 稀释。不变式 HB×2≤TTL 两档均满足。
   const envA = graceful ? env : { ...env, COLLAB_LEASE_TTL_MS: '2000', COLLAB_LEASE_HEARTBEAT_MS: '500' };
-  const A = await startServer(envA, WS_PORT); await A.ready;
+  // 起 A：固定非临时段循环（每口 ≤2s——DrillPortInUse typed 即回退；其它失败直接抛）
+  let A: DrillHandle | null = null;
+  for (const port of HANDOVER_WS_PORTS) {
+    await clearLeaseRow();   // 每次尝试：清残留持行（W19）
+    try { A = await startServer(envA, { fixedWsPort: port }); WS_PORT = port; break; }
+    catch (e) { if (e instanceof DrillPortInUse) continue; throw e; }
+  }
+  if (!A) return fail(`handover：${HANDOVER_WS_PORTS.join('/')} 全被占——typed 端口回退耗尽`) as never;
   const { keys, destroy } = await connectWrite(A, PID, NODES);
   const aReady = await readyOf(A);
   const aOwner = aReady.holder as string;
@@ -367,7 +411,13 @@ async function handoverMode(env: Record<string, string>): Promise<void> {
     const aLost = await readyOf(A);
     if (aLost.ready !== false || aLost.reason !== 'lease-lost')
       fail(`usurp：A 未转 lease-lost（revoked→P6 lease-lost）：${JSON.stringify(aLost)}`);
-    B = await startServer(envA, WS_PORT); await B.ready;   // everHeld=false 无终态门——CAS 经 expiresAt<now() 立即命中
+    // TD-32/C2 T20（v16 R10 回退 v13 R11）：terminate A 后再起 B——B 先起时 break-glass 后其 CAS 可
+    // 抢在 A 下次心跳前经 expiresAt<now() 夺行→A 见 heartbeat-fenced 而非 revoked（~25% 翻转）。
+    // terminate 对齐单实例拓扑+A 死后 B 收养其段（与 T5 live-owner 不收养自洽）。
+    if (TERM_VIA_SIGNAL) A.child.kill('SIGTERM'); else A.child.send?.({ type: 'shutdown' });
+    destroy();   // 先断客户端再等 A 退出（drain 窗口 provider 重连 vs A 死亡竞态——T20 实测 unhandled ws error）
+    await waitExit(A, 30_000);
+    B = await startServer(envA, { fixedWsPort: WS_PORT });   // expectCollab:true——everHeld=false 无终态门，CAS 经 expiresAt<now() 立即命中
     const tB = Date.now();   // ②ready 200 ≤8s（快速路径夺取+listen+回灌；B 的 listen 成功本身=让位对偶证明）
     for (;;) {
       const body = await readyOf(B).catch(() => null);
@@ -377,7 +427,7 @@ async function handoverMode(env: Record<string, string>): Promise<void> {
     }
     if (!(await tcpConnectOK(WS_PORT))) fail('usurp：B ready 后 WS_PORT 拒连——listen 未发生？');
   } else {
-    B = await startServer(envA, WS_PORT); await B.ready;   // B HTTP 起、collab 不 listen（lease-held 闸前置）
+    B = await startServer(envA, { fixedWsPort: WS_PORT, expectCollab: false });   // B HTTP 起、collab 不 listen（lease-held 闸前置）
     const bReady1 = await readyOf(B);
     if (bReady1.ready !== false || bReady1.reason !== 'lease-held' || bReady1.holder !== aOwner)
       fail(`handover：B 未报 lease-held/holder 不符：${JSON.stringify(bReady1)}`);
@@ -386,6 +436,9 @@ async function handoverMode(env: Record<string, string>): Promise<void> {
     } else {
       A.child.kill('SIGKILL');
     }
+    destroy();   // 先断客户端再等 A 退出（graceful drain 窗 provider 重连 vs A 死亡竞态——实测 unhandled ws error）
+    await waitExit(A, 30_000);   // T20：A 退出对齐单实例拓扑（graceful drain 22s ≤30s）
+    await B.waitCollab(15_000);  // ready 语义=serving 完成+wsPort 可用（T19 契约）
   }
   destroy();   // R2'：entry.destroy——内部已吞同步抛（A 已死/已隔离时 socket 已闭——清理 no-op）
 
