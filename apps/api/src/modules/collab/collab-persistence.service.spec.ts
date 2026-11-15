@@ -355,3 +355,216 @@ describe('TD-33 C1b T13：终态族（擦除）短路面', () => {
     expect(spool.hasFrames('p-gone3')).toBe(true);   // 不 confirm 不收割——留 purge 删除
   });
 });
+
+// ═══ C3a-8 修复批 C1（卡①）：settle 全触点 characterization（importPending 生命周期）═══
+
+/** 卡①接线读数（P4 后：importTracker.isUncovered）。 */
+function importUncovered(svc: CollabPersistenceService): boolean {
+  return (svc as unknown as { importTracker: { isUncovered(pid: string): boolean } }).importTracker.isUncovered(PID);
+}
+/** 卡①接线动作：直调落定入口（releaseImportCoverage）。 */
+function settle(svc: CollabPersistenceService): void {
+  (svc as unknown as { releaseImportCoverage(id: string): void }).releaseImportCoverage(PID);
+}
+
+describe('卡① wiring：settle 全触点 characterization（importPending 生命周期）', () => {
+  let dir: string; let cleanup: () => Promise<void>;
+  let spool: CollabSpoolService;
+  let repo: ReturnType<typeof createMockRepo>;
+  let svc: CollabPersistenceService;
+  beforeEach(async () => {
+    ({ dir, cleanup } = await makeSpoolDir('c3a8-card1-wiring-'));
+    spool = spoolForTest(dir);
+    spool.setOwner('card1-wiring');
+    repo = createMockRepo();
+    svc = new CollabPersistenceService(repo as never, spool);
+    svc.bindHost(makeHost());
+  });
+  // ⑥ 失败支/③ 排梯的 1s 定时器随例清——防跨例污染 enqueue 计数
+  afterEach(async () => { svc.cancelAllRetries(); await cleanup(); vi.restoreAllMocks(); });
+
+  /** import 写装置（origin='import'：标记+PID 入队；后面跟普通写/失败装置按用例需要）。 */
+  function importWrite(): { doc: Y.Doc } {
+    const doc = new Y.Doc();
+    svc.observeDocument(doc, PID, NAME);
+    const imp = new Y.Doc();
+    imp.getMap('nodes').set('n-imp', { fileId: 'm1' });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(imp), 'import');
+    return { doc };
+  }
+
+  it('① discard 终态：import 标记→deletedProjects 短路 store→标记清∧enqueue 0（:449）', async () => {
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    const { doc } = importWrite();
+    expect(importUncovered(svc)).toBe(true);
+    svc.deletedProjects.add(PID);   // 白盒：终态已登记（store :308 短路路径）
+    expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(false);
+    expect(importUncovered(svc)).toBe(false);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('② onProjectGone：import 标记→终态入口→标记清∧enqueue 0（经 :1213 discard；不断言 forget 次数）', () => {
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    importWrite();
+    svc.onProjectGone(PID);
+    expect(importUncovered(svc)).toBe(false);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('③ retryPersist detached 帧通道（:930）：PG 瞬态播种 spool 帧→sink 落定确认→标记清∧enqueue 恰一次', async () => {
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    const { doc } = importWrite();
+    repo.appendBatch.mockRejectedValueOnce(Object.assign(new Error('injected pg down'), { pgPending: true }));
+    expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(false);
+    expect(spool.hasFrames(PID)).toBe(true);   // 帧已 WAL、队列已 splice、退避梯已排（不 cancel——entry 须在）
+    expect((svc as unknown as { persistRetry: Map<string, unknown> }).persistRetry.has(NAME)).toBe(true);
+    const sink = vi.fn(async () => {
+      const frames = await spool.peek(PID);   // 承接 actor 落定语义：预读 spool 帧集→confirm
+      await spool.confirm(PID, frames.map((f) => f.frameId));
+    });
+    svc.setMaintenanceSink(sink as never);
+    await svc.retryPersist(NAME);   // doc 不活（getDocument 恒 undefined）+队列空+spool 有帧=detached 帧通道
+    expect(sink).toHaveBeenCalledTimes(1);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(importUncovered(svc)).toBe(false);
+  });
+
+  it('④a handoffPendingToSpool 成功（queue 非空/spool 清）→enqueue 恰一次（:1063）', async () => {
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    const sink = vi.fn(async () => {});
+    svc.setMaintenanceSink(sink as never);
+    importWrite();
+    expect(await svc.handoffPendingToSpool(PID)).toBe(true);
+    expect(sink).toHaveBeenCalledTimes(1);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(importUncovered(svc)).toBe(false);
+  });
+
+  it('④b handoffPendingToSpool spool 未清→不结算：enqueue 0∧标记保留（:1063 双门）', async () => {
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    const { doc } = importWrite();
+    // PG 瞬态失败播种 spool 帧（无 sink 内置回退：appendTracked→appendBatch 拒）
+    repo.appendBatch.mockRejectedValueOnce(Object.assign(new Error('injected pg down'), { pgPending: true }));
+    expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(false);
+    expect(spool.hasFrames(PID)).toBe(true);
+    (svc as unknown as { cancelPersistRetry(n: string): void }).cancelPersistRetry(NAME);   // 梯不干扰
+    // 再入队一批（普通维护写）——queue 非空是 settle 前提
+    const plain = new Y.Doc();
+    plain.getMap('nodes').set('n-plain', { v: 1 });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(plain), SERVER_TRANSACT_ORIGIN);
+    expect(svc.hasPendingWrites(PID)).toBe(true);
+    const sink = vi.fn(async () => {});   // resolve 但不 confirm 旧帧→spool 未清
+    svc.setMaintenanceSink(sink as never);
+    expect(await svc.handoffPendingToSpool(PID)).toBe(true);
+    expect(sink).toHaveBeenCalledTimes(1);
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(importUncovered(svc)).toBe(true);
+  });
+
+  it('⑤a replay 落定（spool+队列空）：onReplayed 无条件 enqueue 恰一次∧标记清（锁「不双入队」）', async () => {
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    const { doc } = importWrite();
+    repo.appendBatch.mockRejectedValueOnce(Object.assign(new Error('injected pg down'), { pgPending: true }));
+    expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(false);
+    expect(spool.hasFrames(PID)).toBe(true);
+    (svc as unknown as { cancelPersistRetry(n: string): void }).cancelPersistRetry(NAME);   // 退避梯不干扰
+    const sink = vi.fn(async () => {});
+    svc.setMaintenanceSink(sink as never);
+    await (svc as unknown as { reconcileSpool(): Promise<void> }).reconcileSpool();
+    expect(spool.hasFrames(PID)).toBe(false);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(importUncovered(svc)).toBe(false);
+    (svc as unknown as { cancelPersistRetry(n: string): void }).cancelPersistRetry(NAME);   // rearm 梯随清
+  });
+
+  it('⑤b replay 残留形态（队列未 flush）：onReplayed 仍恰一次 enqueue∧标记保留', async () => {
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    const { doc } = importWrite();
+    repo.appendBatch.mockRejectedValueOnce(Object.assign(new Error('injected pg down'), { pgPending: true }));
+    expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(false);
+    expect(spool.hasFrames(PID)).toBe(true);
+    (svc as unknown as { cancelPersistRetry(n: string): void }).cancelPersistRetry(NAME);   // 退避梯不干扰
+    // 回灌前预置未 flush 维护写入队（内容未全落 PG→标记保留）
+    const plain = new Y.Doc();
+    plain.getMap('nodes').set('n-plain', { v: 1 });
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(plain), SERVER_TRANSACT_ORIGIN);
+    const sink = vi.fn(async () => {});
+    svc.setMaintenanceSink(sink as never);
+    await (svc as unknown as { reconcileSpool(): Promise<void> }).reconcileSpool();
+    expect(spool.hasFrames(PID)).toBe(false);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(importUncovered(svc)).toBe(true);
+    (svc as unknown as { cancelPersistRetry(n: string): void }).cancelPersistRetry(NAME);   // rearm 梯随清
+  });
+
+  it('⑥a handoffOnUnload 成功（queue 非空/sink 落定）→enqueue 恰一次（:1090 全仓首覆盖）', async () => {
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    const sink = vi.fn(async () => {});
+    svc.setMaintenanceSink(sink as never);
+    importWrite();
+    await svc.handoffOnUnload(PID, NAME);
+    expect(sink).toHaveBeenCalledTimes(1);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(importUncovered(svc)).toBe(false);
+  });
+
+  it('⑥b handoffOnUnload 失败（sink 抛非 pgPending/pre-WAL）：标记保留∧enqueue 0', async () => {
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    const sink = vi.fn(async () => { throw new Error('pre-wal sink failure'); });
+    svc.setMaintenanceSink(sink as never);
+    importWrite();
+    await svc.handoffOnUnload(PID, NAME);
+    expect(importUncovered(svc)).toBe(true);
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(svc.hasPendingWrites(PID)).toBe(true);   // 批留队列（③保活梯已排——afterEach 清）
+  });
+
+  it('⑦ purge 负测：purgePersistenceState 不清标记∧enqueue 0（有意语义）', () => {
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    importWrite();
+    svc.purgePersistenceState(PID);
+    expect(importUncovered(svc)).toBe(true);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('⑧ inFlight 不阻挡落定：队列空+spool 空+inFlight→settle 清除∧enqueue 恰一次', () => {
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    importWrite();
+    (svc as unknown as { pendingQueues: Map<string, Uint8Array[]> }).pendingQueues.get(PID)!.splice(0);   // 模拟并发取批
+    (svc as unknown as { inFlightProjects: Set<string> }).inFlightProjects.add(PID);
+    settle(svc);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(importUncovered(svc)).toBe(false);
+  });
+
+  it('⑨ FK 终态守卫（红先行）：detached 帧通道逐帧 FK→enqueue 0∧不广播 healthy∧电平保持∧标记清', async () => {
+    const enqueue = vi.fn();
+    svc.setBindingRecoveryFace({ markDirty: async () => {}, enqueue });
+    const { doc } = importWrite();
+    repo.appendBatch.mockRejectedValueOnce(Object.assign(new Error('injected pg down'), { pgPending: true }));
+    expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(false);
+    expect(spool.hasFrames(PID)).toBe(true);   // 失败路径已排梯——禁 cancel（!entry 早退会让守卫测 vacuous 绿）
+    svc.persistUnhealthy.add('project:' + PID);   // 预置不健康电平（=persistKey(NAME)）
+    const broadcastStateless = vi.fn();
+    // doc 在场（队列空⇒:882 条件假⇒仍走 detached 帧通道；setPersistStatus(true) 会向活 doc 广播）
+    svc.bindHost(makeHost({ getDocument: () => ({ broadcastStateless, connections: new Map() }) as never }));
+    const sink = vi.fn(async () => { throw Object.assign(new Error('fk'), { fk: true }); });   // mock 不 confirm——:919 分支自 confirm
+    svc.setMaintenanceSink(sink as never);
+    await svc.retryPersist(NAME);
+    expect(enqueue).not.toHaveBeenCalled();                        // 已删项目不再从落定入口入队 rebuild
+    expect(broadcastStateless).not.toHaveBeenCalled();             // 也不广播 healthy
+    expect(importUncovered(svc)).toBe(false);                      // 守卫 forget 清标记
+    expect(svc.persistUnhealthy.has('project:' + PID)).toBe(true); // 不健康电平保持
+  });
+});

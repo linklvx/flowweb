@@ -48,17 +48,18 @@ test('checkSizes：文件缺失=结构性错误（structural 点名——exit 2 
   assert.equal(structural, 'missing.ts');
 });
 
-// ── 锚表结构（T42 B3 执法面钉死四文件+CI 双故障根修批 T10 扩三新文件=七文件+C3a-5/6/8 三新文件=十文件+C3b-2 oracle worker=十一文件+C3b-3 media-reference 两新文件=十三文件+C3b-4a deletion-barrier 四新文件=十七文件；residency 不入锚=片 A 文件非片 B 产物，设计 §7.2 口径） ──
+// ── 锚表结构（T42 B3 执法面钉死四文件+CI 双故障根修批 T10 扩三新文件=七文件+C3a-5/6/8 三新文件=十文件+C3b-2 oracle worker=十一文件+C3b-3 media-reference 两新文件=十三文件+C3b-4a deletion-barrier 四新文件=十七文件+卡① ImportCoverageTracker 新文件=十八文件；residency 不入锚=片 A 文件非片 B 产物，设计 §7.2 口径） ──
 
-test('SIZE_LIMITS：恰十七文件（gateway B3 实测终标+SG/DR/persistence 偏离 65/74 锚+CI 修复批三新文件+C3a-5 projector+C3a-6 binding-rebuild+C3a-8 backfill runner+C3b-2 oracle worker+C3b-3 media-reference 两新文件+C3b-4a deletion-barrier 四新文件），residency 不入锚', () => {
+test('SIZE_LIMITS：恰十八文件（gateway B3 实测终标+SG/DR/persistence 偏离 65/74 锚+CI 修复批三新文件+C3a-5 projector+C3a-6 binding-rebuild+C3a-8 backfill runner+C3b-2 oracle worker+C3b-3 media-reference 两新文件+C3b-4a deletion-barrier 四新文件+卡① ImportCoverageTracker 新文件），residency 不入锚', () => {
   const keys = Object.keys(SIZE_LIMITS);
-  assert.equal(keys.length, 17);
+  assert.equal(keys.length, 18);
   assert.ok(keys.every((k) => k.startsWith('apps/api/src/modules/collab/')));
   assert.ok(!keys.some((k) => k.includes('residency')), 'residency=片 A 文件非片 B 产物——不入锚');
   assert.ok(keys.some((k) => k.endsWith('collab.gateway.ts')));
   assert.ok(keys.some((k) => k.endsWith('collab-session-guard.service.ts')));
   assert.ok(keys.some((k) => k.endsWith('collab-doc-registry.service.ts')));
   assert.ok(keys.some((k) => k.endsWith('collab-persistence.service.ts')));
+  assert.ok(keys.some((k) => k.endsWith('collab-import-tracker.ts')));
   assert.ok(keys.some((k) => k.endsWith('collab-limits.ts')));
   assert.ok(keys.some((k) => k.endsWith('collab-outbound-budget.ts')));
   assert.ok(keys.some((k) => k.endsWith('collab-heartbeat.ts')));
@@ -78,7 +79,8 @@ test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑�
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab.gateway.ts'], 1225);   // …→Y1c T24 1103→Y1c T27 1144→T27 收口 1150（boot replayAll 重派生接线 +6——净增面非膨胀，锚=实测同批）→C3a-8 修复批 1162（+1：C1 sink 申报道透传注释）→TD-33/C1b T14 1225（+63：boot 链+代际终检+listener 后置失败关闭+双 timer 接线；Bootstrapper 归 Y2——显式例外，锚=实测同批）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-session-guard.service.ts'], 1414);   // T25 收口 +13→T30b 演练 1405（+34：P-2 反查双轨〔sec-websocket-key 键控台账+headerOf 双形态读取——T24 close 帧 live 投递断链修复，净增面非膨胀〕）→provider 4.8.0 升级批 1414（+9：removedClients 直通面归属判定〔forged-remove〕——净增面非膨胀）   // …→T12 1298→T22 收口批补账 1304→Y1c T24 1348（版本门 4406 terminal close 投递 closeUpgradeTerminal +44——净增面非膨胀，锚=实测同批）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-doc-registry.service.ts'], 1162);   // T25 收口 +5（serverRestoredForm 方向标记）   // …→复核残留 1144→T22 收口批补账 1150（T26 三轮 loadPgSeq 装载缝 +6——净增面非膨胀，锚=实测同批）
-  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-persistence.service.ts'], 1242);   // …→T12 1091→T22 收口批补账 1105→Y1c T24 1123（origin 枚举计数 doc_update_origin_total +18——净增面非膨胀，锚=实测同批）→C3a-8 1160（+14：bindingRecoveryFace setter+reconciler 两钩）→C3a-8 修复批 1200（+40：C1 importPending/维护申报未覆盖/settle 入队/回退闭包）→复审 1211（+11：settle spool 清空门+replay onReplayed 清标记——恢复链假覆盖收口）→质量收口 1215（+4：settle 次序 I-1）→TD-33/C1b T13/T14 1242（+27：终态短路/blocked 先判/helper 接线——锚=实测同批）
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-persistence.service.ts'], 1241);   // …→T12 1091→T22 收口批补账 1105→Y1c T24 1123（origin 枚举计数 doc_update_origin_total +18——净增面非膨胀，锚=实测同批）→C3a-8 1160（+14：bindingRecoveryFace setter+reconciler 两钩）→C3a-8 修复批 1200（+40：C1 importPending/维护申报未覆盖/settle 入队/回退闭包）→复审 1211（+11：settle spool 清空门+replay onReplayed 清标记——恢复链假覆盖收口）→质量收口 1215（+4：settle 次序 I-1）→TD-33/C1b T13/T14 1242（+27：终态短路/blocked 先判/helper 接线——锚=实测同批）→卡① 1241（-1：ImportCoverageTracker 抽取+FK 终态守卫——反向收紧，13 次上抬后首次）
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-import-tracker.ts'], 23);   // 卡① 新文件入锚（实测 17+1.3 余量）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-limits.ts'], 55);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-outbound-budget.ts'], 155);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-heartbeat.ts'], 42);   // …40→T22 收口批补账 42（enricher 钩 +2——净增面非膨胀，锚=实测同批）
@@ -94,7 +96,7 @@ test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑�
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/deletion-barrier.seal.ts'], 55);   // C3b-4a 新文件入锚（实测 39+1.3 余量——seal 叶子模块：SG import 本体即环的根修载体）
 });
 
-test('现状实测：十七文件全部限内（端到端触盘——真锚真文件，门禁 PASS 前提自证）', () => {
+test('现状实测：十八文件全部限内（端到端触盘——真锚真文件，门禁 PASS 前提自证）', () => {
   const { structural, results } = checkSizes(SIZE_LIMITS, (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8'));
   assert.equal(structural, null);
   for (const r of results) assert.ok(r.pass, `${r.file} 实测 ${r.lines} > 锚 ${r.limit}`);

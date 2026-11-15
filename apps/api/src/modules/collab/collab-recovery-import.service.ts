@@ -298,8 +298,8 @@ export class CollabRecoveryImportService {
       // 分配无序〔T26 M-3 选型已否决〕；标记面=机制现成同语义——重对齐按 doc presence 真值）。
       if (commitDiff.byteLength > 0 && this.lifecycle) this.lifecycle.markStaleFence(projectId);
       // C3a-8 修复批 C1：**不在 apply 后立即 enqueue**——维护 flush 未落 PG 时 rebuild 会以旧前缀清
-      // dirty+推水位=假覆盖。enqueue 归 persistence 维护 flush 路径（importPending 申报未覆盖→队列
-      // 清空后 bindingRecoveryFace.enqueue；本服务仅保留前置 markDirty）。
+      // dirty+推水位=假覆盖。enqueue 归 persistence 维护 flush 路径（tracker 申报未覆盖→字节全落
+      // PG 后 releaseImportCoverage 入队；本服务仅保留前置 markDirty）。
 
       return {
         edgeDispositions,
