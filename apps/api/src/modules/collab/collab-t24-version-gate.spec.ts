@@ -7,6 +7,7 @@
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -38,7 +39,7 @@ function buildGateway() {
   const repo = createMockRepo();
   const lease = createLeaseStub();
   const perm = { resolve: vi.fn(), resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }) };
-  const spool = new CollabSpoolService(spoolDir);
+  const spool = spoolForTest(spoolDir);
   spool.setOwner('t24-vg-owner');
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, lease as any,

@@ -8,6 +8,7 @@
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -46,8 +47,9 @@ function buildGateway(seed: PermSeed) {
     projectMember: { findUnique: vi.fn().mockResolvedValue(seed.projectMember ? { role: seed.projectMember } : null) },
     teamMember: { findUnique: vi.fn().mockResolvedValue(seed.teamMember ? { role: seed.teamMember, userId: 'u1' } : null) },
     // C4-b（WS fast-path 分义）：lifecycleStateOf 无过滤 raw 读（[] → null=真缺失档 NOT_FOUND；
-    // DELETING 分义档新增独立形态见 project-erasure.drain.c4b int/spec 面）
+    // DELETING 分义档新增独立形态见 project-erasure.drain.c4b int/spec 面）；TD-33/C1b T14：行删回退读 run（null=真缺失）
     $queryRaw: vi.fn().mockResolvedValue([]),
+    projectErasureRun: { findFirst: vi.fn().mockResolvedValue(null) },
   };
   const repo = createMockRepo();
   const lease = createLeaseStub();
@@ -55,7 +57,7 @@ function buildGateway(seed: PermSeed) {
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, lease as any,
     perm as any, 43000 + Math.floor(Math.random() * 20000),
-    undefined, undefined, undefined, new CollabSpoolService(spoolDir),
+    undefined, undefined, undefined, spoolForTest(spoolDir),
   );
   gatewayFacade(gateway).forceCollabState('serving');
   return { gateway, prisma };

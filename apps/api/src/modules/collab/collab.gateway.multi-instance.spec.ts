@@ -7,6 +7,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -21,7 +22,7 @@ describe('CollabGateway 租约 fail-fast（第二实例结构性无法接流—�
     gateway = new CollabGateway({} as any, new EventEmitter2() as any, createMockRepo() as any,
       createLeaseStub({ isServing: vi.fn(() => false), tryAcquireFast: vi.fn(async () => false) }) as any,   // 第二实例：租约被占
       { resolve: vi.fn(), resolveWithTeam: vi.fn() } as any,   // Y0b-3 T3：F-3 换轨后 perm stub 双方法齐备（本 spec 拒于租约门，不触 perm——防未来换轨 TypeError）
-      48200, 300, undefined, undefined, new CollabSpoolService(dir.dir));
+      48200, 300, undefined, undefined, spoolForTest(dir.dir));
   });
   afterEach(async () => {
     await gateway.server.destroy();

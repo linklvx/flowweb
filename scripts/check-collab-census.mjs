@@ -1234,6 +1234,9 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-write.controller.ts': {   // T13（plan v11.2 ①）：writeBatch 方法内惰性读（scope 验签密钥派生源+dev fail-open 判据与 guard 同判据同向——census ㉒登记）
       WORKER_WRITE_TOKEN: 1,
     },
+    'apps/api/src/modules/collab/collab-erasure-runtime.ts': {   // TD-33/C1b T14：构造器默认参惰性读（registry refresh 周期，缺省 10s/上限 60s——env.ts 已登记 schema）
+      COLLAB_ERASURE_REFRESH_MS: 1,
+    },
     'apps/api/src/modules/execution/api-caller.service.ts': {   // 方法内（onModuleInit 预算锁+submit/poll 超时族）
       EXEC_SYNC_HARD_CAP: 1, EXEC_SUBMIT_TIMEOUT_MS: 2, EXEC_POLL_TIMEOUT_MS: 3,
     },
@@ -1877,6 +1880,7 @@ if (isMain()) {
       'apps/api/src/modules/execution/execution-request.retention.service.ts': 7, // 同上（两扫面+过期扫/stuck 扫族 raw joins）
       'apps/api/src/modules/project/project.service.ts': 1,                // cleanDrafts FOR UPDATE 选择（ACTIVE 谓词）
       'apps/api/src/modules/team/project-permission.service.ts': 1,        // lifecycleStateOf（auth fast-path 分义读——C4-b）
+      'apps/api/src/modules/collab/collab-erasure-registry.service.ts': 5, // TD-33/C1b T9：registry 快照 SQL（CanvasProject 起点支 1+run 支两 EXISTS+purgeable NOT EXISTS 各 1+端点 live 复检 1——全只读判定面，无写）
     };
     const details = [];
     const occurrences = {};

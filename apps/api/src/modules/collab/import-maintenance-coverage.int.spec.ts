@@ -18,6 +18,7 @@ import { Logger } from '@nestjs/common';
 import * as Y from 'yjs';
 import { CollabPersistenceService, type CollabPersistenceHost } from './collab-persistence.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { BindingRebuildService } from './binding-rebuild.service';
@@ -154,7 +155,7 @@ type MaintSubmit = (projectId: string, payload: Uint8Array, opts?: { bindingUnco
   });
 
   beforeEach(async () => {
-    spool = new CollabSpoolService(dir);
+    spool = spoolForTest(dir);
     spool.setOwner('c3a8-c1-owner');
     await ensureLeaseFixture(prisma, repo);
     await prisma.projectionBackfillState.deleteMany({ where: { projectId: { in: [PID_HEAD, PID_LAZY, PID_DIRECT, PID_PLAIN, PID_MIX, PID_RECOVERY] } } });

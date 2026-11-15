@@ -19,6 +19,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { formatLocalCacheKey } from '@flowweb/shared';
 import { canvasDocName, admitDocNameForGeneration, projectDocName } from './doc-name.util';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CollabGateway } from './collab.gateway';
 import { CollabDocumentService } from './collab-document.service';
 import type { CollabResidencyService } from './collab-residency.service';
@@ -200,7 +201,7 @@ describe('Y1c T12 收口 C1：withSession fresh-open canonical 名=DB 真值（r
 // ═══════════════ 装置（shrink.spec 先例同族——gateway 直构+mock repo+真 spool 临时目录）═══════════════
 
 function buildSpool(): CollabSpoolService {
-  const spool = new CollabSpoolService(spoolDir);
+  const spool = spoolForTest(spoolDir);
   spool.setOwner('t12-owner');
   return spool;
 }
@@ -216,7 +217,7 @@ async function segmentFiles(dir: string): Promise<string[]> {
 
 function buildGateway(): { gateway: CollabGateway; spool: CollabSpoolService } {
   const repo = createMockRepo();
-  const spool = new CollabSpoolService(spoolDir);
+  const spool = spoolForTest(spoolDir);
   spool.setOwner('t12-gw-owner');
   const gateway = new CollabGateway(
     {} as any, new EventEmitter2() as any, repo as any, createLeaseStub() as any,

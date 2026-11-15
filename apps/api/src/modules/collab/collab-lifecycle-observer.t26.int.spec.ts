@@ -13,6 +13,7 @@ import * as Y from 'yjs';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabLifecycleObserverService } from './collab-lifecycle-observer.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CollabPersistenceService } from './collab-persistence.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -124,7 +125,7 @@ maybe('Y1c T26 生命周期义务观察器（真 PG）', () => {
       await wipeLifecycleRows(pid);
     }
     spoolDir = await makeSpoolDir('y1c-t26-obs-');
-    spool = new CollabSpoolService(spoolDir.dir);
+    spool = spoolForTest(spoolDir.dir);
     spool.setOwner('t26-obs-owner');
     const hist = await prisma.systemHistory.findUnique({ where: { id: 1 } });
     if (!hist) throw new Error('SystemHistory 引导行缺失（T7 迁移 INSERT）——int 池前置不满足');
@@ -521,7 +522,7 @@ describe('Y1c T26 收口批（真 PG）', () => {
         await mkdir(join(segDir.dir, 't27-replay-owner'), { recursive: true });
         await writeFile(join(segDir.dir, 't27-replay-owner', walSegmentFileName(pid, 1, 0)), segBytes);
         // 重启形态：新 spool 实例（同目录）+recoverScan+replayAll（derive 回调注入=actor 派生面）
-        const spool2 = new CollabSpoolService(segDir.dir);
+        const spool2 = spoolForTest(segDir.dir);
         spool2.setOwner('t27-replay-owner');
         spool2.setProjectGeneration(pid, 1);
         await spool2.recoverScan({ systemHistory: { historyId: hist!.historyId, epochStartedAtMs: hist!.epochStartedAt.getTime() }, pgSeq: () => 1n });
@@ -612,7 +613,7 @@ describe('Y1c T26 收口批（真 PG）', () => {
       await prisma.nodeLifecycle.create({ data: { projectId: pid, nodeId: 'nI3', lifecycleSeq: 1n, isCurrent: true, state: 'ACTIVE', walSeq: 1n } });
       await prisma.deliveryFence.create({ data: { projectId: pid, nodeId: 'nI3', fenceSeq: 1n, state: 'ACTIVE' } as never });
       // 滞留删除帙（ownPending 形态：own 段直接 append——walSeq 自 PG 真值续号 2）
-      const spoolD = new CollabSpoolService(segDir.dir);
+      const spoolD = spoolForTest(segDir.dir);
       spoolD.setOwner('t27-i3r-owner');
       spoolD.setProjectGeneration(pid, 1);
       spoolD.seedWalSeqFromPg(pid, 1n);
@@ -650,7 +651,7 @@ describe('Y1c T26 收口批（真 PG）', () => {
     try {
       await seedDocRow(pid);
       await wipeLifecycleRows(pid);
-      const spoolD = new CollabSpoolService(segDir.dir);
+      const spoolD = spoolForTest(segDir.dir);
       spoolD.setOwner('t27-memo1-owner');
       spoolD.setProjectGeneration(pid, 1);
       const fm = makeFrames();
@@ -685,7 +686,7 @@ describe('Y1c T26 收口批（真 PG）', () => {
     try {
       await seedDocRow(pid);
       await wipeLifecycleRows(pid);
-      const spoolD = new CollabSpoolService(segDir.dir);
+      const spoolD = spoolForTest(segDir.dir);
       spoolD.setOwner('t27-memo2-owner');
       spoolD.setProjectGeneration(pid, 1);
       const fm = makeFrames();

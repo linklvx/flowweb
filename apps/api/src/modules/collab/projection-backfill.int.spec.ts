@@ -11,6 +11,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import { PrismaClient } from '@prisma/client';
 import * as Y from 'yjs';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { BindingRebuildService } from './binding-rebuild.service';
 import { ProjectionBackfillRunner, BACKFILL_PROJECTS_PER_TICK, BACKFILL_BACKOFF_BASE_MS, BACKFILL_BAILOUT_RECHECK_MS } from './projection-backfill.runner';
@@ -97,10 +98,10 @@ maybe('C3a-8：ProjectionBackfillRunner（真 PG——恢复 replay 腿+100 项�
         data: { projectId: PID, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false },
       });
       // 崩溃形态：帧 1（加 M）只在 spool（未落 PG）——重启 scan 后 replayAll 重放
-      const s1 = new CollabSpoolService(dir);
+      const s1 = spoolForTest(dir);
       s1.setOwner('c3a8-bf-owner');
       await s1.append(PID, mediaFrame('n-m1', M1));
-      const s2 = new CollabSpoolService(dir);
+      const s2 = spoolForTest(dir);
       s2.setOwner('c3a8-bf-owner');
       await s2.scan();
       const runner = new ProjectionBackfillRunner(prisma as never, rebuild as never);
@@ -309,10 +310,10 @@ maybe('C3a-8：ProjectionBackfillRunner（真 PG——恢复 replay 腿+100 项�
       await prisma.canvasDoc.create({
         data: { projectId: PID_BOOT, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: true },
       });
-      const s1 = new CollabSpoolService(dir);
+      const s1 = spoolForTest(dir);
       s1.setOwner('c3a8-boot-owner');
       await s1.append(PID_BOOT, mediaFrame('n-boot', M1));   // 未落 PG 的 spool 帧（崩溃重启形态）
-      const s2 = new CollabSpoolService(dir);
+      const s2 = spoolForTest(dir);
       s2.setOwner('c3a8-boot-owner');
       await s2.scan();
       const runner = new ProjectionBackfillRunner(prisma as never, rebuild as never);

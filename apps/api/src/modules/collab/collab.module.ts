@@ -17,6 +17,7 @@ import { CollabResidencyService } from './collab-residency.service';
 import { CollabWritePort, DirectCollabWritePort } from './collab-write.port';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabSpoolService } from './collab-spool.service';
+import { CollabErasureRegistryService } from './collab-erasure-registry.service';
 import { CollabLeaseService } from './collab-lease.service';
 import { CollabReadyController } from './collab-ready.controller';
 import { CollabReadyService } from './collab-ready.service';
@@ -67,7 +68,17 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
     DirectCollabWritePort,   // Y0c T13b：写端口 Direct 形态（api 进程内直调 CollabDocumentService）
     { provide: CollabWritePort, useExisting: DirectCollabWritePort },   // Y0c T13b：端口令牌→Direct 形态（T24 补 Http 形态）
     CanvasDocUpdateRepository,
-    CollabSpoolService,
+    CollabErasureRegistryService,   // TD-33/C1b T9：擦除意识 DB 权威（blocked/purgeable 两集合；gateway/spool 共用单例）
+    {
+      // TD-33/C1b T10：spool 擦除写屏障单点接线（缺失守卫=ERASURE_GUARD_MISSING 拒写——防 DI 漏接 fail-open）
+      provide: CollabSpoolService,
+      useFactory: (registry: CollabErasureRegistryService) => {
+        const spool = new CollabSpoolService();
+        spool.setErasureSource(registry);   // guard 同对象自动接（写屏障+boot 链/定时器共用端口）
+        return spool;
+      },
+      inject: [CollabErasureRegistryService],
+    },
     CollabLeaseService,   // Y0a-3 T5：PG 租约（gateway 构造参数 4——必填）
     CollabPgBreakerService,   // Y0b-5 T16：PG 熔断器（准入+store 短路——单例供 gateway/ready 同读）
     CollabPersistenceService,   // Y0c T40（B1）：Persistence 域 service（store/spool/drain/pending 单一所有者——gateway 尾参 @Optional 注入+bindHost 后置绑定；单例=与 gateway 自建路径同一 pgBreaker/repo/spool 实例面）

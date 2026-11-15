@@ -25,6 +25,7 @@ import { CollabGateway } from '../collab.gateway';
 import { CollabResidencyService } from '../collab-residency.service';
 import { CollabLeaseService } from '../collab-lease.service';
 import { CollabSpoolService } from '../collab-spool.service';
+import { spoolForTest } from '../../../test-utils/erasure-fixtures';
 import { CanvasDocUpdateRepository } from '../canvas-doc-update.repository';
 import { ProjectPermissionService } from '../../team/project-permission.service';
 import { SessionService } from '../../../auth/session.service';
@@ -161,7 +162,7 @@ d('T31 发现②：clientID 单活跃接管——真 WS 栈中间层（真 gatew
     repo = new CanvasDocUpdateRepository(prisma as never);
     await restoreLeaseRow(prisma as never);
     spoolDir = await mkdtemp(join(tmpdir(), 't24sa-e2e-'));
-    const spool = new CollabSpoolService(spoolDir);
+    const spool = spoolForTest(spoolDir);
     serverPort = 20000 + Math.floor(Math.random() * 20000);
     lease = new CollabLeaseService(prisma as never, repo, spool);
     gateway = new CollabGateway(

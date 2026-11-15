@@ -332,6 +332,11 @@ export class GatewayTestFacade {
     return internals(this.gw).initDone;
   }
 
+  /** 读当前 collabState（T14：source 缺失→start-failed 断言面） */
+  state(): CollabGateway['collabState'] {
+    return internals(this.gw).collabState;
+  }
+
   /** 替代 `(gw as any).collabState = state`（测试强置状态机——生产写点唯一 transition()，
    *  本操作=白盒装置非生产路径；M-5 波 1 评审：入参=CollabGateway['collabState'] 联合型——
    *  typo 即编译红=façade 类型面收益兑现，值域单源 collab.gateway.ts CollabState，cast 消失） */
@@ -421,9 +426,9 @@ export class GatewayTestFacade {
     return methods(this.gw).selfIsolate(...args);
   }
 
-  /** 替代 `(gw as any).listenCollab()`（I4 rejoin 重入执行点） */
-  listenCollab(): ReturnType<GatewayMethods['listenCollab']> {
-    return methods(this.gw).listenCollab();
+  /** 替代 `(gw as any).listenCollab()`（I4 rejoin 重入执行点；T14 起缺省取当前 initGeneration=测试直调宽松档） */
+  listenCollab(gen0: number = (this.gw as unknown as { initGeneration: number }).initGeneration): ReturnType<GatewayMethods['listenCollab']> {
+    return methods(this.gw).listenCollab(gen0);
   }
 
   /** 替代 `(gw as any).recheckConnection(conn, name)`（H-5×E13 复验直调） */

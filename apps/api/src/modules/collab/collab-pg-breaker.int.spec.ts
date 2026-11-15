@@ -15,6 +15,7 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabReadyService } from './collab-ready.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
@@ -56,7 +57,7 @@ maybe('PG 熔断（真实连接级注入：dead-port → open → 准入/store �
     const d = await makeSpoolDir('y0b5-breaker-int-');
     spoolDir = d.dir;
     spoolCleanup = d.cleanup;
-    spool = new CollabSpoolService(spoolDir);
+    spool = spoolForTest(spoolDir);
     spool.setOwner('int-test-lease');
     breaker = new CollabPgBreakerService(COOLDOWN_MS);
     gateway = new CollabGateway(

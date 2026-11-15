@@ -25,6 +25,7 @@ import { register } from 'prom-client';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { startDualClientServer, makeHeaderWs } from '../../test-utils/dual-client-server';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest, EmptyErasureSource } from '../../test-utils/erasure-fixtures';
 import { registerPendingCollector, unregisterPendingCollector, yjsPendingBatches } from './store.metrics';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { failingRepo } from '../../test-utils/failing-repo';
@@ -41,6 +42,7 @@ import { buildOwnerName } from './owner-name';
 /** TD-33 T5 红迁移：kit 启动后租约改写 spool owner——预置段成为「前任死 owner」目录；
  *  合法 `o-` 名+pid 明确死 seam（收录面防护放行；旧写法 'test-owner'/'owner-A' 现按未知目录跳过）。 */
 class DeadOwnerSpool extends CollabSpoolService {
+  constructor(d?: string) { super(d); this.setErasureSource(new EmptyErasureSource()); }
   protected isPidAlive(): boolean | 'unknown' { return false; }
 }
 const DEAD_OWNER = buildOwnerName(hostname(), 424241);
@@ -829,7 +831,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
   it('BOI-2 三代红相（fenced 0 行不抛错）：append resolve {ok:false,reason:"fenced"} → 批走 spool（新家）+不排重试——旧实现不检查返回值照常 splice=帧蒸发', async () => {
     const { dir, cleanup } = await makeSpoolDir('y0a2-boi2-');
     try {
-      const spool = new CollabSpoolService(dir);
+      const spool = spoolForTest(dir);
       const repo = createMockRepo({ appendBatch: vi.fn(async () => ({ ok: false as const, reason: 'fenced' as const })) });
       const kit = await startDualClientServer({ ...repo }, 200, spool);
       try {
@@ -847,7 +849,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
   it('BOI-3 一代断链：append 持续失败 → 断连卸载 doc → 批必须在 spool（磁盘）——旧实现 stash 进内存 unflushed=崩溃丢（红）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y0a2-boi3-');
     try {
-      const spool = new CollabSpoolService(dir);
+      const spool = spoolForTest(dir);
       const kit = await startDualClientServer({ appendBatch: failingRepo({ failAppend: 99 }).appendBatch }, 200, spool);   // Y1c T9：注入面=appendBatch（connection 帧 PG 腿）
       try {
         const name = 'project:p-boi3';
@@ -896,7 +898,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
   it('BOI-4 崩溃模拟（V19 红相层）：append 失败 → 丢弃 gateway 实例（等价进程死）→ 同 spool 目录新实例 → 批存活可回灌（旧实现批在内存=红）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y0a2-boi4-');
     try {
-      const kit1 = await startDualClientServer({ appendBatch: failingRepo({ failAppend: 99 }).appendBatch }, 200, new CollabSpoolService(dir));   // Y1c T9：注入面=appendBatch（PG 腿）
+      const kit1 = await startDualClientServer({ appendBatch: failingRepo({ failAppend: 99 }).appendBatch }, 200, spoolForTest(dir));   // Y1c T9：注入面=appendBatch（PG 腿）
       const { provider, synced } = kit1.connect('project:p-boi4');
       await synced;
       provider.document.getMap('nodes').set('k', new Y.Map([['type', 'textInput'], ['data', new Y.Map()]]));   // Y1c T24 矩阵对齐
@@ -904,7 +906,7 @@ describe('Y0a-2 BOI（批次所有权不变量——契约 §4.3-11；红相三�
       await provider.destroy();
       kit1.forget(provider);                    // 自管 destroy 后移出 dispose 清理数组——防双 destroy（惯例同上）
       await kit1.dispose();                     // 丢弃实例=进程死（内存队列随之消失——旧实现红相源）
-      const kit2 = await startDualClientServer({}, 200, new CollabSpoolService(dir));   // 同 spool 目录新实例
+      const kit2 = await startDualClientServer({}, 200, spoolForTest(dir));   // 同 spool 目录新实例
       // 启动接线（onModuleInit 内 scan+replayAll 回灌）归 Task 4——本 Task 显式调 spool 公共 API scan()
       // 重建帧索引（新实例 index 空、磁盘帧不可见=无 scan 时空转假绿），再经"load 帧回灌 + store confirm"链验证批存活。
       await kit2.spool.scan();
@@ -1025,7 +1027,7 @@ describe('Y0a-2 退避无上限+afterStoreDocument 对账+computePending', () =>
   it('持续失败不弃批：append 永败+spool 可用 → 退避排程永不耗尽（rung=7 仍重排——旧实现 :541 耗尽 return → timer null=红）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y0a2-retry-');
     try {
-      const spool = new CollabSpoolService(dir);
+      const spool = spoolForTest(dir);
       const repo = failingRepo({ failAppend: 99 });
       const kit = await startDualClientServer({ appendBatch: repo.appendBatch }, 10_000 /* 大 debounce：只走 retry 梯 */, spool);
       try {
@@ -1071,7 +1073,7 @@ describe('Y0a-2 退避无上限+afterStoreDocument 对账+computePending', () =>
   it('computePending：projects=队列非空项目数/batches=条数（空条目不计）；spool 深度并入（G-1 演练的轮询面——P1/Y5）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y0a2-cp-');
     try {
-      const spool = new CollabSpoolService(dir);
+      const spool = spoolForTest(dir);
       const kit = await startDualClientServer({}, 300, spool);
       try {
         // 装置行在 kit 起动之后：onModuleInit 启动回灌（scan+replayAll→confirm→段回收）会消费 kit 前已存在的帧，
@@ -1147,7 +1149,7 @@ describe('Y0a-2 审查修复：I-1 回灌后 rearm / I-2 per-doc 在飞集合 / 
   it('审查 I-2 红相（retryingPersist 单布尔跨项目误罩）：A 项目梯在飞 → B 项目（独立 saveMutex）store 失败仍必须自排退避梯——旧实现共享布尔=被 A 误罩（B 批滞留无恢复路径）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y0a2-i2-');
     try {
-      const spool = new CollabSpoolService(dir);
+      const spool = spoolForTest(dir);
       const kit = await startDualClientServer({ appendBatch: failingRepo({ failAppend: 99 }).appendBatch }, 200, spool);   // Y1c T9：注入面=appendBatch
       try {
         const g = gatewayFacade(kit.gateway);
@@ -1535,7 +1537,7 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
     try {
       const lease = createLeaseStub({ tryAcquireFast: vi.fn(async () => false) });
       const gateway = new CollabGateway({} as any, new EventEmitter2() as any, createMockRepo() as any,
-        lease as any, { resolve: vi.fn() } as any, 48100, 300, undefined, undefined, new CollabSpoolService(dir));
+        lease as any, { resolve: vi.fn() } as any, 48100, 300, undefined, undefined, spoolForTest(dir));
       const listenSpy = gatewayFacade(gateway).spyListenServer().mockResolvedValue(undefined);
       try {
         await gateway.onModuleInit();
@@ -1559,7 +1561,7 @@ describe('Y0a-3 租约三入口门+selfIsolate/启动链（G-3/G-3b mock 面）'
     const { dir, cleanup } = await makeSpoolDir('y0a3-i3-');
     try {
       const lease = createLeaseStub();
-      const spool = new CollabSpoolService(dir);
+      const spool = spoolForTest(dir);
       const scanSpy = vi.spyOn(spool, 'recoverScan')
         .mockRejectedValueOnce(new Error('recoverScan boom'))
         .mockResolvedValue({ projects: [] });
@@ -1853,6 +1855,36 @@ describe('TD-33 T6：boot GC 接线（startCollabAfterLease 的 !initDone 块内
       const kit = await startDualClientServer({}, 100, spool);
       try {
         expect(existsSync(staleDir)).toBe(false);
+      } finally { await kit.dispose(); }
+    } finally { await cleanup(); }
+  });
+});
+
+describe('TD-33 C1b T14：擦除 source fail-closed + boot 顺序', () => {
+  it('缺 ErasureSource→start-failed（ERASURE_SOURCE_MISSING——不服务不占口）', async () => {
+    const { dir, cleanup } = await makeSpoolDir('td33-t14-nosrc-');
+    try {
+      const spool = new CollabSpoolService(dir);   // 直构且无 source（生产 DI 漏接同构）
+      const kit = await startDualClientServer({}, 100, spool);
+      try {
+        expect(gatewayFacade(kit.gateway).state()).toBe('start-failed');
+      } finally { await kit.dispose(); }
+    } finally { await cleanup(); }
+  });
+
+  it('boot 顺序钉死：load→sweep→recoverScan（擦除权威先于清残/扫描）', async () => {
+    const { dir, cleanup } = await makeSpoolDir('td33-t14-order-');
+    try {
+      const order: string[] = [];
+      const spool = spoolForTest(dir);
+      const src = new EmptyErasureSource();
+      (src as unknown as { load: () => Promise<void> }).load = async () => { order.push('load'); };
+      spool.setErasureSource(src);
+      vi.spyOn(spool, 'sweepPurgeableSpoolOnLoad').mockImplementation(async () => { order.push('sweep'); });
+      vi.spyOn(spool, 'recoverScan').mockImplementation(async () => { order.push('recover'); return { projects: [] }; });
+      const kit = await startDualClientServer({}, 100, spool);
+      try {
+        expect(order).toEqual(['load', 'sweep', 'recover']);
       } finally { await kit.dispose(); }
     } finally { await cleanup(); }
   });

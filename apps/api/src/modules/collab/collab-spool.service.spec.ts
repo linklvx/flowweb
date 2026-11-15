@@ -17,6 +17,8 @@ import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import * as Y from 'yjs';
 import { CollabSpoolService } from './collab-spool.service';
+import { SpoolProjectBlockedError, SpoolErasureGuardMissingError } from './collab-spool.service';
+import { spoolForTest, EmptyErasureSource } from '../../test-utils/erasure-fixtures';
 import { buildOwnerName } from './owner-name';
 import { hostname } from 'node:os';
 import type { WalSegmentHeader } from '@flowweb/shared';
@@ -27,7 +29,7 @@ let dir: string; let cleanup: () => Promise<void>;
 beforeEach(async () => { ({ dir, cleanup } = await makeSpoolDir()); });   // V17①：每用例独立目录
 afterEach(async () => { await cleanup(); });
 
-function svc(): CollabSpoolService { const s = new CollabSpoolService(dir); s.setOwner('test-owner'); return s; }   // 每用例新实例=崩溃模拟（内存 index/confirmed 丢失）；R3：写/扫路径必先 setOwner（Z13）
+function svc(): CollabSpoolService { const s = spoolForTest(dir); s.setOwner('test-owner'); return s; }   // 每用例新实例=崩溃模拟（内存 index/confirmed 丢失）；R3：写/扫路径必先 setOwner（Z13）
 
 describe('spool 骨架（帧编解码+append fsync+peek/confirm+段滚动）', () => {
   it('append→peek round-trip：payload 逐字节相等；数据真实写至文件（fsync 语义）', async () => {
@@ -147,11 +149,11 @@ describe('V15 目录 fail-fast（validateDir——gateway 调用点归 Task 3/4�
     const prev = process.env.COLLAB_SPOOL_DIR;
     try {
       process.env.COLLAB_SPOOL_DIR = './relative-spool';
-      expect(() => new CollabSpoolService().validateDir()).toThrow(/绝对路径/);   // 旧实现依赖 NODE_ENV=production → 非 production 下不抛=红
+      expect(() => spoolForTest().validateDir()).toThrow(/绝对路径/);   // 旧实现依赖 NODE_ENV=production → 非 production 下不抛=红
       process.env.COLLAB_SPOOL_DIR = join(process.cwd(), 'abs-spool');
-      expect(isAbsolute(new CollabSpoolService().validateDir())).toBe(true);
+      expect(isAbsolute(spoolForTest().validateDir())).toBe(true);
       delete process.env.COLLAB_SPOOL_DIR;   // 本地默认值（恒绝对）——不抛
-      expect(isAbsolute(new CollabSpoolService().validateDir())).toBe(true);
+      expect(isAbsolute(spoolForTest().validateDir())).toBe(true);
     } finally {
       if (prev === undefined) delete process.env.COLLAB_SPOOL_DIR; else process.env.COLLAB_SPOOL_DIR = prev;
     }
@@ -217,7 +219,7 @@ describe('spool 熔断与探针解熔断（V14 两态：ioBroken 探针可解 / 
     try {
       const file = join(d2, 'occupied');      // spool 目录指向一个文件 → mkdir 失败 → 写必败
       await writeFile(file, 'x');
-      const s = new CollabSpoolService(file);
+      const s = spoolForTest(file);
       s.setOwner('test-owner');
       // 前 2 次失败只累计 streak：受理面不被瞬时失败触发（防单败停摆语义锚——streak 1-4 区间探针
       // 未启动，若 isWritable 随 streak 收窄，则 X6 重试梯停排且无人再驱动 spool=永无自愈）
@@ -298,7 +300,7 @@ describe('Task 1 收口（幻影 meta/scan 幂等/残尾可观测——质量审
     // ——同一收口1 判据：writeFile 成功+首帧失败）。
     class FailFirstSyncSpool extends CollabSpoolService {
       private failedOnce = false;
-      constructor(d: string) { super(d); }
+      constructor(d: string) { super(d); this.setErasureSource(new EmptyErasureSource()); }
       protected async syncSegmentHandle(fh: import('node:fs/promises').FileHandle): Promise<void> {
         if (!this.failedOnce) { this.failedOnce = true; throw Object.assign(new Error('simulated ENOSPC'), { code: 'ENOSPC' }); }
         await fh.sync();
@@ -347,8 +349,8 @@ describe('Y0a-3 R3：每实例子目录（fenced 前任并发写防护+P18 boot 
   it('双 service 实例同根目录：各写各的 owner 子目录——段名不冲突+scan 后 peek 跨 owner 聚合', async () => {
     const { dir: d, cleanup } = await makeSpoolDir('y0a3-r3-');
     try {
-      const a = new CollabSpoolService(d); a.setOwner('owner-A');
-      const b = new CollabSpoolService(d); b.setOwner('owner-B');
+      const a = spoolForTest(d); a.setOwner('owner-A');
+      const b = spoolForTest(d); b.setOwner('owner-B');
       await a.append('p1', new Uint8Array([1]));
       await b.append('p1', new Uint8Array([2]));
       const fa = await a.peek('p1');   // a 未重扫——scan 前只见自己（写路径 activeDir）
@@ -362,9 +364,9 @@ describe('Y0a-3 R3：每实例子目录（fenced 前任并发写防护+P18 boot 
   it('跨 owner 回收：B 的 replayAll confirm 后——B/A 段 unlink，owner 目录一律保留（生命周期归进程，回收=boot GC）', async () => {
     const { dir: d, cleanup } = await makeSpoolDir('y0a3-r3-');
     try {
-      const a = new CollabSpoolService(d); a.setOwner('owner-A');
+      const a = spoolForTest(d); a.setOwner('owner-A');
       await a.append('p1', new Uint8Array([1]));
-      const b = new CollabSpoolService(d); b.setOwner('owner-B');
+      const b = spoolForTest(d); b.setOwner('owner-B');
       await b.scan();
       const repo = { appendBatch: vi.fn(async () => ({ ok: true as const, seq: 1n })) };
       const r = await b.replayAll(repo as any);
@@ -378,12 +380,12 @@ describe('Y0a-3 R3：每实例子目录（fenced 前任并发写防护+P18 boot 
   it('外来段坏尾：静默截断到最后完整帧（sealed=true，不进 truncatedSegments——前任半写=常态）', async () => {
     const { dir: d, cleanup } = await makeSpoolDir('y0a3-r3-foreign-');
     try {
-      const a = new CollabSpoolService(d); a.setOwner('owner-A');
+      const a = spoolForTest(d); a.setOwner('owner-A');
       await a.append('p1', new Uint8Array([1]));
       // 造坏尾：直接 append 半个头（不经 service——模拟前任 kill 瞬间）
       const { appendFile } = await import('node:fs/promises');
       await appendFile(join(d, 'owner-A', 'p1.g1.0.spool'), Buffer.alloc(3));
-      const b = new CollabSpoolService(d); b.setOwner('owner-B');
+      const b = spoolForTest(d); b.setOwner('owner-B');
       const { truncatedSegments } = await b.scan();
       expect(truncatedSegments).toHaveLength(0);      // 外来坏尾不报告（P18 分档）
       const frames = await b.peek('p1');
@@ -398,8 +400,8 @@ describe('Y0a-3 R3：每实例子目录（fenced 前任并发写防护+P18 boot 
     const prevCap = process.env.COLLAB_SPOOL_CAPACITY_BYTES;
     process.env.COLLAB_SPOOL_CAPACITY_BYTES = '1024';
     try {
-      const a = new CollabSpoolService(d); a.setOwner('owner-A');
-      const b = new CollabSpoolService(d); b.setOwner('owner-B');
+      const a = spoolForTest(d); a.setOwner('owner-A');
+      const b = spoolForTest(d); b.setOwner('owner-B');
       // 各自写超过半量（payload 互异防 SHA-256 去重并帧——注③）：b 视角 own(p2)+stranded(p1) 合计越限
       for (let i = 0; i < 7; i++) await a.append('p1', new Uint8Array(64).fill(i));   // 首帧 164+52+64 后每帧 116
       await b.scan();                                                          // p1 → stranded
@@ -418,9 +420,9 @@ describe('Y0a-3 R3：每实例子目录（fenced 前任并发写防护+P18 boot 
   it('depth 分区（P16）：own=stranded 分离+hasForeignSegments 廉价守卫', async () => {
     const { dir: d, cleanup } = await makeSpoolDir('y0a3-r3-depth-');
     try {
-      const a = new CollabSpoolService(d); a.setOwner('owner-A');
+      const a = spoolForTest(d); a.setOwner('owner-A');
       await a.append('p1', new Uint8Array([1]));
-      const b = new CollabSpoolService(d); b.setOwner('owner-B');
+      const b = spoolForTest(d); b.setOwner('owner-B');
       await b.append('p2', new Uint8Array([2]));
       await b.scan();
       expect(b.hasForeignSegments()).toBe(true);
@@ -434,7 +436,7 @@ describe('Y0a-3 R3：每实例子目录（fenced 前任并发写防护+P18 boot 
     const { dir: d, cleanup } = await makeSpoolDir('y0a3-r3-adopt-');
     try {
       const deadOwner = buildOwnerName(hostname(), 424221);
-      const a = new CollabSpoolService(d); a.setOwner(deadOwner);
+      const a = spoolForTest(d); a.setOwner(deadOwner);
       await a.append('p1', new Uint8Array([1]));
       const b = new PidSeamSpool(d); b.setOwner('owner-B');
       await b.scan();
@@ -450,7 +452,7 @@ describe('Y0a-3 R3：每实例子目录（fenced 前任并发写防护+P18 boot 
   it('owner 未设：activeDir throw（Z13 fail-closed——单测/运维脚本显式 setOwner）', async () => {
     const { dir: d, cleanup } = await makeSpoolDir('y0a3-r3-null-');
     try {
-      const s = new CollabSpoolService(d);          // 不 setOwner
+      const s = spoolForTest(d);          // 不 setOwner
       await expect(s.append('p1', new Uint8Array([1]))).rejects.toThrow(/owner not set/);
       await expect(s.scan()).rejects.toThrow(/owner not set/);
     } finally { await cleanup(); }
@@ -459,7 +461,7 @@ describe('Y0a-3 R3：每实例子目录（fenced 前任并发写防护+P18 boot 
   it('setOwner 断言文件系统安全名（W4 配套）：含 ":" → throw', async () => {
     const { dir: d, cleanup } = await makeSpoolDir('y0a3-r3-fs-');
     try {
-      const s = new CollabSpoolService(d);
+      const s = spoolForTest(d);
       expect(() => s.setOwner('host:123:abc')).toThrow(/文件系统安全/);
     } finally { await cleanup(); }
   });
@@ -467,7 +469,7 @@ describe('Y0a-3 R3：每实例子目录（fenced 前任并发写防护+P18 boot 
   it('replayAll 定向回灌（Z11 复用单源）：opts.projectIds 过滤', async () => {
     const { dir: d, cleanup } = await makeSpoolDir('y0a3-r3-replay-');
     try {
-      const s = new CollabSpoolService(d); s.setOwner('owner-A');
+      const s = spoolForTest(d); s.setOwner('owner-A');
       await s.append('p1', new Uint8Array([1]));
       await s.append('p2', new Uint8Array([2]));
       const repo = { appendBatch: vi.fn(async () => ({ ok: true as const, seq: 1n })) };
@@ -498,7 +500,7 @@ class PausableSpool extends CollabSpoolService {
   readonly entered: Promise<void>;
   private markEntered!: () => void;
   constructor(root: string) {
-    super(root); this.setOwner('test-owner');
+    super(root); this.setOwner('test-owner'); this.setErasureSource(new EmptyErasureSource());
     this.entered = new Promise<void>((r) => { this.markEntered = r; });
   }
   protected async writeNewSegmentFile(dir: string, projectId: string, generation: number, startSeq: number, header: WalSegmentHeader): Promise<{ seq: number; path: string }> {
@@ -511,6 +513,7 @@ class PausableSpool extends CollabSpoolService {
 /** pid 存活判据注入缝（TD-33 T5：EPERM/unknown/明确死三档确定性复现）。 */
 class PidSeamSpool extends CollabSpoolService {
   verdict: boolean | 'unknown' = false;
+  constructor(root?: string) { super(root); this.setErasureSource(new EmptyErasureSource()); }
   protected isPidAlive(): boolean | 'unknown' { return this.verdict; }
 }
 
@@ -560,7 +563,7 @@ describe('TD-33 T4：switchGeneration/quarantineTruncatedFrames 入 per-project 
     readonly entered: Promise<void>;
     private markEntered!: () => void;
     constructor(root: string) {
-      super(root); this.setOwner('test-owner');
+      super(root); this.setOwner('test-owner'); this.setErasureSource(new EmptyErasureSource());
       this.entered = new Promise<void>((r) => { this.markEntered = r; });
     }
     protected async readSegmentFile(dir: string, name: string): Promise<Buffer | null> {
@@ -615,11 +618,11 @@ describe('TD-33 T4：switchGeneration/quarantineTruncatedFrames 入 per-project 
   it('foreign 段零 sidecar：收养的前任段不被 quarantine 处置', async () => {
     const { dir: d, cleanup } = await makeSpoolDir('td33-t4-foreign-');
     try {
-      const a = new CollabSpoolService(d); a.setOwner('owner-A');
+      const a = spoolForTest(d); a.setOwner('owner-A');
       await a.append('p1', new Uint8Array([1]));
       const segFile = join(d, 'owner-A', 'p1.g1.0.spool');
       await appendFile(segFile, Buffer.alloc(10, 0x99));   // 外部追加坏尾
-      const b = new CollabSpoolService(d); b.setOwner('owner-B');
+      const b = spoolForTest(d); b.setOwner('owner-B');
       await b.scan();
       await expect(b.quarantineTruncatedFrames('p1')).resolves.toBe(0);
       const { existsSync } = await import('node:fs');
@@ -645,7 +648,7 @@ describe('TD-33 T4：switchGeneration/quarantineTruncatedFrames 入 per-project 
 describe('TD-33 T5：收录面三防护（adopt/recoverScan 同判+floor/dedup+擦除谓词）', () => {
   it('live foreign owner 不收养：parse 成功∧同 host∧pid 活→adopt 跳过且文件不动', async () => {
     const liveOwner = buildOwnerName(hostname(), process.pid);   // 本进程 pid=必然活
-    const a = new CollabSpoolService(dir); a.setOwner(liveOwner);
+    const a = spoolForTest(dir); a.setOwner(liveOwner);
     await a.append('p1', new Uint8Array([1]));
     const b = new PidSeamSpool(dir); b.setOwner('mine'); b.verdict = true;
     await b.scan();
@@ -663,7 +666,7 @@ describe('TD-33 T5：收录面三防护（adopt/recoverScan 同判+floor/dedup+�
     for (const c of cases) {
       const { dir: d, cleanup } = await makeSpoolDir('td33-t5-neg-');
       try {
-        const a = new CollabSpoolService(d); a.setOwner(c.dirName);
+        const a = spoolForTest(d); a.setOwner(c.dirName);
         await a.append('p1', new Uint8Array([1]));
         const b = new PidSeamSpool(d); b.setOwner('mine'); b.verdict = c.verdict;
         await b.scan();
@@ -677,7 +680,7 @@ describe('TD-33 T5：收录面三防护（adopt/recoverScan 同判+floor/dedup+�
 
   it('recoverScan 收录面同判：live foreign 段不入 index、零 sidecar、报告零项目', async () => {
     const liveOwner = buildOwnerName(hostname(), process.pid);
-    const a = new CollabSpoolService(dir); a.setOwner(liveOwner);
+    const a = spoolForTest(dir); a.setOwner(liveOwner);
     await a.append('p1', new Uint8Array([1]));
     const b = new PidSeamSpool(dir); b.setOwner('mine'); b.verdict = true;
     const report = await b.recoverScan({ systemHistory: { historyId: 'h', epochStartedAtMs: 0 }, pgSeq: () => 0n });
@@ -691,7 +694,7 @@ describe('TD-33 T5：收录面三防护（adopt/recoverScan 同判+floor/dedup+�
 
   it('干净分支收养：抬 floor+入 dedup——新帧 seq 承接收养段尾，同字节重发命中原帧（ACK 铁律）', async () => {
     const deadOwner = buildOwnerName(hostname(), 424211);
-    const a = new CollabSpoolService(dir); a.setOwner(deadOwner);
+    const a = spoolForTest(dir); a.setOwner(deadOwner);
     const p1 = new Uint8Array([11]); const p2 = new Uint8Array([22]);
     await a.append('p1', p1); await a.append('p1', p2);
     const b = new PidSeamSpool(dir); b.setOwner('mine'); b.verdict = false;
@@ -710,11 +713,11 @@ describe('TD-33 T5：收录面三防护（adopt/recoverScan 同判+floor/dedup+�
 
   it('擦除过滤谓词：blocked pid 不收养（C1a 默认恒 false；C1b T9 接线 registry）', async () => {
     const deadOwner = buildOwnerName(hostname(), 424212);
-    const a = new CollabSpoolService(dir); a.setOwner(deadOwner);
+    const a = spoolForTest(dir); a.setOwner(deadOwner);
     await a.append('p1', new Uint8Array([1]));
     const b = new PidSeamSpool(dir); b.setOwner('mine'); b.verdict = false;
     await b.scan();
-    b.erasureBlocked = (pid) => pid === 'p1';
+    b.setErasureGuard({ isBlocked: (pid) => (pid === 'p1' ? 'ERASING' : undefined) });
     await expect(b.adoptSilentForeignSegments(0)).resolves.toHaveLength(0);
   });
 
@@ -735,7 +738,7 @@ describe('TD-33 T5：收录面三防护（adopt/recoverScan 同判+floor/dedup+�
 
   it('暂停交叉零幽灵段：adopt 读窗内段被 confirm 回收→链内复核拒收养（index 无幽灵条目）', async () => {
     const deadOwner = buildOwnerName(hostname(), 424213);
-    const a = new CollabSpoolService(dir); a.setOwner(deadOwner);
+    const a = spoolForTest(dir); a.setOwner(deadOwner);
     const ids = await a.append('p1', new Uint8Array([1]));
     const b = new AdoptPausableSpool(dir);
     await b.scan();
@@ -764,7 +767,7 @@ describe('TD-33 T5：收录面三防护（adopt/recoverScan 同判+floor/dedup+�
     class ReadFailSpool extends PidSeamSpool {
       protected async readSegmentFile(): Promise<Buffer | null> { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); }
     }
-    const a = new CollabSpoolService(dir); a.setOwner(buildOwnerName(hostname(), 424214));
+    const a = spoolForTest(dir); a.setOwner(buildOwnerName(hostname(), 424214));
     await a.append('p1', new Uint8Array([1]));
     const b = new ReadFailSpool(dir); b.setOwner('mine');
     await expect(b.recoverScan({ systemHistory: { historyId: 'h', epochStartedAtMs: 0 }, pgSeq: () => 0n })).rejects.toThrow(/EACCES/);
@@ -862,5 +865,159 @@ describe('TD-33 T6：reclaimStaleOwnerDirs（boot GC——空目录+明确死+�
   it('根 ENOENT 不抛：未建根目录→0', async () => {
     const s = new PidSeamSpool(join(dir, 'nope')); s.setOwner('mine');
     await expect(s.reclaimStaleOwnerDirs()).resolves.toBe(0);
+  });
+});
+
+describe('TD-33 T10：assertNotErased 双层+typed 错误+计账单源', () => {
+  const guard = (state: 'ERASING' | 'ERASED' | undefined) => ({ isBlocked: () => state });
+
+  it('三入口拒：append/appendTracked/appendBatch 抛 SpoolProjectBlockedError（state 透传）', async () => {
+    const s = svc();
+    s.setErasureGuard(guard('ERASING'));
+    await expect(s.append('p1', new Uint8Array([1]))).rejects.toMatchObject({ name: 'SpoolProjectBlockedError', state: 'ERASING' });
+    await expect(s.appendTracked('p1', new Uint8Array([1]))).rejects.toMatchObject({ state: 'ERASING' });
+    await expect(s.appendBatch('p1', [new Uint8Array([1])])).rejects.toMatchObject({ state: 'ERASING' });
+  });
+
+  it('ERASED 档同拒；__probe__ 放行（探针必须真写否则熔断永不解）', async () => {
+    const s = svc();
+    s.setErasureGuard(guard('ERASED'));
+    await expect(s.append('p1', new Uint8Array([1]))).rejects.toMatchObject({ state: 'ERASED' });
+    await expect(s.append('__probe__', new Uint8Array([7]))).resolves.toHaveLength(1);
+  });
+
+  it('dedup 命中前拒：已存 payload 重发仍拒、不返回原 frameId、不烧 seq', async () => {
+    const s = svc();
+    const p = new Uint8Array([5]);
+    await s.append('p1', p);
+    const seqBefore = s.peekNextWalSeq('p1');
+    s.setErasureGuard(guard('ERASING'));
+    await expect(s.append('p1', p)).rejects.toBeInstanceOf(SpoolProjectBlockedError);
+    expect(s.peekNextWalSeq('p1')).toBe(seqBefore);
+    expect(await s.peek('p1')).toHaveLength(1);
+  });
+
+  it('链内层闭环：外层过检→持链暂停→期间 mark→链尾断言拒，磁盘零幽灵段', async () => {
+    let state: 'ERASING' | undefined;
+    const s = new PausableSpool(dir);
+    s.setErasureGuard({ isBlocked: () => state });
+    let release!: () => void;
+    s.gate = new Promise<void>((r) => { release = r; });
+    const p1 = s.append('p1', new Uint8Array([1]));
+    await s.entered;                                   // #1 已过两层检查，暂停在新建段
+    const p2 = s.append('p1', new Uint8Array([2]));    // 外层检查此刻通过；排队等链
+    state = 'ERASING';
+    release();
+    await p1;
+    await expect(p2).rejects.toBeInstanceOf(SpoolProjectBlockedError);   // 链内层拒（幽灵段窗闭环）
+    expect(await s.peek('p1')).toHaveLength(1);
+    const files = (await readdir(join(dir, 'test-owner'))).filter((f) => f.endsWith('.spool'));
+    expect(files).toHaveLength(1);
+  });
+
+  it('guard 缺失→ERASURE_GUARD_MISSING typed 错误（不静默放行）', async () => {
+    const s = new CollabSpoolService(dir);
+    s.setOwner('o1');
+    await expect(s.append('p1', new Uint8Array([1]))).rejects.toBeInstanceOf(SpoolErasureGuardMissingError);
+  });
+
+  it('append 计账：blocked 不计 IO streak；dedup 命中不计成功（薄包装仍是计账 owner）', async () => {
+    const s = svc();
+    s.setErasureGuard(guard('ERASING'));
+    await expect(s.append('p1', new Uint8Array([9]))).rejects.toBeInstanceOf(SpoolProjectBlockedError);
+    expect(s.failureStreak()).toBe(0);                 // blocked=终态拒绝，不计熔断
+    expect(s.isWritable()).toBe(true);
+
+    const s2 = svc();
+    const successSpy = vi.spyOn(s2 as unknown as { noteWriteSuccess: () => void }, 'noteWriteSuccess');
+    const p = new Uint8Array([3]);
+    await s2.append('p1', p);
+    const afterNew = successSpy.mock.calls.length;
+    expect(afterNew).toBe(1);
+    await s2.append('p1', p);                          // dedup 命中
+    expect(successSpy.mock.calls.length).toBe(afterNew);   // 不计成功（原状早退语义）
+  });
+});
+
+describe('TD-33 T14：purge 复检/sweep/recoverScan 排除', () => {
+  const docsStub = () => ({ isLeaseServing: () => true, invalidateSnapshotCache: vi.fn() });
+  const mkSource = (over: Partial<{ purgeable: string[]; live: (pids: string[]) => Promise<Set<string>> }> = {}) => {
+    const blocked = new Map<string, 'ERASING' | 'ERASED'>();
+    const mark = vi.fn((pid: string, state: 'ERASING' | 'ERASED') => { blocked.set(pid, state); });
+    const src = {
+      load: vi.fn(async () => {}),
+      refresh: vi.fn(async () => {}),
+      isBlocked: (pid: string) => blocked.get(pid),
+      blockedMap: () => blocked,
+      listPurgeableProjectIds: () => over.purgeable ?? [],
+      listPurgeableProjectIdsLive: over.live ?? (async (pids: string[]) => new Set(pids)),
+      mark,
+    };
+    return { blocked, mark, src };
+  };
+
+  it('purge live 复检：非 purgeable→400（带 missingProjectIds）+零删除零 mark', async () => {
+    const s = svc();
+    await s.append('p1', new Uint8Array([1]));
+    const { src, mark } = mkSource({ live: async () => new Set<string>() });
+    await expect(s.purgeErasureScope(['p1'], { docs: docsStub(), erasure: src }))
+      .rejects.toMatchObject({ response: { code: 'PROJECT_NOT_PURGEABLE', missingProjectIds: ['p1'] } });
+    expect(mark).not.toHaveBeenCalled();
+    expect((await readdir(join(dir, 'test-owner'))).filter((f) => f.endsWith('.spool'))).toHaveLength(1);
+    expect(s.hasFrames('p1')).toBe(true);
+  });
+
+  it('purge 正常：mark 先于清理+返回 markedProjectIds+段/sidecar 同清+幂等', async () => {
+    const s = svc();
+    await s.append('p1', new Uint8Array([1]));
+    await appendFile(join(dir, 'test-owner', 'p1.g1.0.spool'), Buffer.alloc(5, 0x99));   // 坏尾→quarantine 前置
+    await s.quarantineTruncatedFrames('p1');
+    const { src, blocked, mark } = mkSource();
+    const r = await s.purgeErasureScope(['p1'], { docs: docsStub(), erasure: src });
+    expect(r.markedProjectIds).toEqual(['p1']);
+    expect(blocked.get('p1')).toBe('ERASED');
+    expect(mark).toHaveBeenCalledTimes(1);
+    expect((await readdir(join(dir, 'test-owner'))).filter((f) => f.startsWith('p1.'))).toHaveLength(0);   // 段+sidecar 同清
+    const again = await s.purgeErasureScope(['p1'], { docs: docsStub(), erasure: src });
+    expect(again.purgedSegments).toBe(0);   // 幂等
+  });
+
+  it('boot sweep（load 后 purgeable 残段）：mark 先于 drop；盘上无文件=no-op', async () => {
+    const s = svc();
+    await s.append('p1', new Uint8Array([1]));
+    const { src, blocked } = mkSource({ purgeable: ['p1', 'p-none'] });
+    s.setErasureSource(src);
+    await s.sweepPurgeableSpoolOnLoad();
+    expect(blocked.get('p1')).toBe('ERASED');
+    expect((await readdir(join(dir, 'test-owner'))).filter((f) => f.startsWith('p1.'))).toHaveLength(0);
+    expect(s.hasFrames('p1')).toBe(false);
+  });
+
+  it('serving 60s live sweep：候选=盘上 pid，live 只回 p1→p1 清/p2 留+purgeable_spool_bytes gauge', async () => {
+    const s = svc();
+    await s.append('p1', new Uint8Array([1]));
+    await s.append('p2', new Uint8Array([2]));
+    const { src } = mkSource({ live: async (pids) => new Set(pids.filter((p) => p === 'p1')) });
+    s.setErasureSource(src);
+    await s.sweepPurgeableSpoolLive(src);
+    const files = await readdir(join(dir, 'test-owner'));
+    expect(files.some((f) => f.startsWith('p1.'))).toBe(false);
+    expect(files.some((f) => f.startsWith('p2.'))).toBe(true);
+    const reg = (await import('prom-client')).register;
+    expect((await reg.getSingleMetric('purgeable_spool_bytes')!.get()).values[0]?.value ?? 0).toBeGreaterThan(0);
+  });
+
+  it('recoverScan excludeProjectIds：blocked 段不判不收不写（文件保留+计数），其余项目照常重放', async () => {
+    const s = svc();
+    await s.append('p1', new Uint8Array([1]));
+    await s.append('p2', new Uint8Array([2]));
+    const reg = (await import('prom-client')).register;
+    const before = (await reg.getSingleMetric('blocked_spool_preserved_total')!.get()).values[0]?.value ?? 0;
+    const s2 = svc();
+    const report = await s2.recoverScan({ systemHistory: { historyId: '', epochStartedAtMs: 0 }, pgSeq: () => 0n, excludeProjectIds: ['p1'] });
+    expect(report.projects.map((p) => p.projectId)).toEqual(['p2']);
+    expect((s2 as any).index.has('p1')).toBe(false);
+    expect((await readdir(join(dir, 'test-owner'))).some((f) => f.startsWith('p1.'))).toBe(true);
+    expect(((await reg.getSingleMetric('blocked_spool_preserved_total')!.get()).values[0]?.value ?? 0) - before).toBe(1);
   });
 });

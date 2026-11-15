@@ -20,6 +20,7 @@ import { CollabGateway, DOC_BYTES_OVER_THRESHOLD_BYTES, TOPN_LOG_INTERVAL_MS, TO
 import { CollabDocumentService } from './collab-document.service';
 import { SnapshotDocCache, SNAPSHOT_CACHE_MAX_ENTRIES } from './snapshot-doc-cache';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { registerUpdatesRowsReader, unregisterUpdatesRowsReader } from './store.metrics';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -40,7 +41,7 @@ afterEach(async () => { await spoolCleanup(); vi.restoreAllMocks(); });
 function buildGateway(hydration?: { state: Buffer | null; updates: Buffer[] }, quota?: Partial<QuotaConfig>) {
   const repo = createMockRepo();
   if (hydration) repo.hydrateWithRecovery.mockResolvedValue({ ...hydration, stateSeq: 0n });
-  const spool = new CollabSpoolService(spoolDir);
+  const spool = spoolForTest(spoolDir);
   spool.setOwner('t10-owner');
   const gateway = new CollabGateway(
     {} as any, new EventEmitter2() as any, repo as any, createLeaseStub() as any,

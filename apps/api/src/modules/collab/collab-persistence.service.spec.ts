@@ -10,6 +10,8 @@ import * as Y from 'yjs';
 import { SERVER_TRANSACT_ORIGIN } from '@flowweb/shared';   // C3a-8 C1：普通维护写 origin（负控）
 import { CollabPersistenceService, type CollabPersistenceHost } from './collab-persistence.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { SpoolProjectBlockedError } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 
@@ -45,7 +47,7 @@ describe('CollabPersistenceService 独立实例化全链（RC2——不启 WS Se
 
   beforeEach(async () => {
     ({ dir, cleanup } = await makeSpoolDir('y0c-t40-persistence-'));
-    spool = new CollabSpoolService(dir);
+    spool = spoolForTest(dir);
     spool.setOwner('t40-owner');   // Z13：写/扫路径必先 setOwner（spool 单测同款）
     repo = createMockRepo();
     svc = new CollabPersistenceService(repo as never, spool);
@@ -291,5 +293,55 @@ describe('CollabPersistenceService 独立实例化全链（RC2——不启 WS Se
     expect(await svc.storeDocumentUnlocked({ document: doc, documentName: NAME })).toBe(true);
     expect(sink).toHaveBeenCalledTimes(1);
     expect(sink.mock.calls[0][2]).toBeUndefined();
+  });
+});
+
+describe('TD-33 C1b T13：终态族（擦除）短路面', () => {
+  let dir: string; let cleanup: () => Promise<void>;
+  let spool: CollabSpoolService;
+  let svc: CollabPersistenceService;
+  beforeEach(async () => {
+    ({ dir, cleanup } = await makeSpoolDir('td33-t13-'));
+    spool = spoolForTest(dir);
+    spool.setOwner('t13-owner');
+    svc = new CollabPersistenceService(createMockRepo() as never, spool);
+    svc.bindHost(makeHost());
+  });
+  afterEach(async () => { await cleanup(); vi.restoreAllMocks(); });
+  it('维护 sink 终态族：批丢弃+onProjectGone+不排梯（不 confirm——段留 purge 删除）', async () => {
+    const doc = new Y.Doc();
+    svc.observeDocument(doc, PID, NAME);
+    const w = new Y.Doc();
+    w.getMap('nodes').set('k', 'v');
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(w));   // 入队
+    expect(svc.hasPendingWrites(PID)).toBe(true);
+    vi.spyOn(svc as unknown as { runMaintenanceChannel: () => Promise<void> }, 'runMaintenanceChannel')
+      .mockRejectedValue(new SpoolProjectBlockedError('ERASING'));
+    const ok = await svc.storeDocumentUnlocked({ document: doc, documentName: NAME });
+    expect(ok).toBe(false);
+    expect(svc.hasPendingWrites(PID)).toBe(false);                 // 批丢弃
+    expect((svc as unknown as { deletedProjects: Set<string> }).deletedProjects.has(PID)).toBe(true);
+    expect((svc as unknown as { persistRetry: Map<string, unknown> }).persistRetry.has(NAME)).toBe(false);   // 不排梯
+  });
+
+  it('retryPersist 终态族：不推进档位、cancel 停梯（不再续排）', async () => {
+    (svc as unknown as { pendingQueues: Map<string, Uint8Array[]> }).pendingQueues.set(PID, [new Uint8Array([1, 2, 3])]);
+    (svc as unknown as { schedulePersistRetry(n: string): void }).schedulePersistRetry(NAME);
+    expect((svc as unknown as { persistRetry: Map<string, unknown> }).persistRetry.has(NAME)).toBe(true);
+    vi.spyOn(svc as unknown as { maintenanceSinkOrThrow: () => Promise<void> }, 'maintenanceSinkOrThrow')
+      .mockRejectedValue(new SpoolProjectBlockedError('ERASING'));
+    await svc.retryPersist(NAME);
+    expect((svc as unknown as { persistRetry: Map<string, unknown> }).persistRetry.has(NAME)).toBe(false);
+  });
+
+  it('onProjectGone：blocked 判定先于 hasFrames——擦除项目不排收割梯；非 blocked 同形态仍排（既有语义）', async () => {
+    await spool.append(PID, new Uint8Array([1]));
+    expect(spool.hasFrames(PID)).toBe(true);
+    spool.setErasureGuard({ isBlocked: () => 'ERASING' });
+    svc.onProjectGone(PID);
+    expect((svc as unknown as { persistRetry: Map<string, unknown> }).persistRetry.has(NAME)).toBe(false);
+    spool.setErasureGuard({ isBlocked: () => undefined });
+    svc.onProjectGone(PID);
+    expect((svc as unknown as { persistRetry: Map<string, unknown> }).persistRetry.has(NAME)).toBe(true);   // 对照：非 blocked 排梯
   });
 });

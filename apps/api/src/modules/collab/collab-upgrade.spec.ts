@@ -13,6 +13,7 @@ import { createMockRepo } from '../../test-utils/mock-repo';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CANVAS_DOC_SCHEMA_VERSION, CollabAuthReason, CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 import { register } from 'prom-client';
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -182,7 +183,7 @@ describe('T2 TokenBucket（升级限流——DoS 兜底非配额）', () => {
 /** 直调装置（clientIpOf/handleUpgrade 用例共用——multi-instance.spec.ts:39 直调 hooks 先例） */
 function buildGateway(): CollabGateway {
   return new CollabGateway({} as any, new EventEmitter2() as any, createMockRepo() as any,
-    createLeaseStub() as any, { resolve: vi.fn() } as any, 48900, 300, undefined, undefined, new CollabSpoolService('unused'));
+    createLeaseStub() as any, { resolve: vi.fn() } as any, 48900, 300, undefined, undefined, spoolForTest('unused'));
 }
 
 describe('T2 clientIpOf（X-Real-IP 信任双门——peer loopback+COLLAB_TRUSTED_PROXY）', () => {

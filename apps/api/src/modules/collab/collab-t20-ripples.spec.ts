@@ -13,6 +13,7 @@ import * as Y from 'yjs';
 import { register } from 'prom-client';
 import { CollabGateway, type QuotaConfig } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -31,7 +32,7 @@ afterEach(async () => { await spoolCleanup(); vi.restoreAllMocks(); });
 /** 直构 gateway（runtime-metrics spec 同款）。 */
 function buildGateway() {
   const repo = createMockRepo();
-  const spool = new CollabSpoolService(spoolDir);
+  const spool = spoolForTest(spoolDir);
   spool.setOwner('t20-owner');
   const gateway = new CollabGateway(
     {} as any, new EventEmitter2() as any, repo as any, createLeaseStub() as any,

@@ -10,6 +10,7 @@ import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -41,6 +42,8 @@ function buildGateway() {
     teamMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER', userId: 'u1' }) },
     // C4-b（WS fast-path 分义）：lifecycleStateOf 无过滤 raw 读（[] → null=真缺失档 NOT_FOUND）
     $queryRaw: vi.fn().mockResolvedValue([]),
+    // TD-33/C1b T14：行删回退读 ProjectErasureRun（null=真缺失→404 档）
+    projectErasureRun: { findFirst: vi.fn().mockResolvedValue(null) },
   };
   const repo = createMockRepo();
   const lease = createLeaseStub();   // Y0a-3 T5：租约 stub（isServing 恒 true=租约已持有形态）
@@ -48,7 +51,7 @@ function buildGateway() {
   // ProjectPermissionService（mock prisma 驱动整链：canvasProject/projectMember/teamMember 三行组合
   // 即五形态，"项目不存在→NotFoundException"等分型行为随服务真实语义走，禁 stub 双权威）。
   const perm = new ProjectPermissionService(prisma as any);
-  const spool = new CollabSpoolService(spoolDir);
+  const spool = spoolForTest(spoolDir);
   spool.setOwner('test-owner');   // R3：onModuleInit 的 scan（Z13）与写路径必先 setOwner
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, lease as any,

@@ -20,6 +20,7 @@ import { CollabGateway } from './collab.gateway';
 import { BACKPRESSURE_DROP_BYTES, WS_MAX_PAYLOAD_BYTES, DEFAULT_COLLAB_LIMITS, deriveCollabLimits } from './collab-limits';
 import { OutboundBudget } from './collab-outbound-budget';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { makeFrame, makeAwarenessFrame } from '../../test-utils/frame-encoder';
@@ -38,7 +39,7 @@ function buildGateway(): CollabGateway {
     {} as any, new EventEmitter2() as any, {} as any, createLeaseStub() as any,
     { resolve: vi.fn() } as any,
     49000 + Math.floor(Math.random() * 4000),
-    undefined, undefined, undefined, new CollabSpoolService(spoolDir),
+    undefined, undefined, undefined, spoolForTest(spoolDir),
   );
 }
 

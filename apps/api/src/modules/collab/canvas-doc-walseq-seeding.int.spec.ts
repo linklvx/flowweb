@@ -14,6 +14,7 @@ import { PrismaClient } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -60,7 +61,7 @@ maybe('C1（T11 双评审 Critical）：walSeq 计数器 PG 恒真播种+appendB
 
   /** 新 spool 实例（同目录=重启形态）。 */
   const newSpool = () => {
-    const s = new CollabSpoolService(dir);
+    const s = spoolForTest(dir);
     s.setOwner(OWNER);
     s.setWalHistory('t11-c1-history');
     return s;

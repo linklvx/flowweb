@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CollabLeaseService } from './collab-lease.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { parseOwnerName } from './owner-name';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 
@@ -27,7 +28,7 @@ describe('CollabLeaseService', () => {
     process.env.COLLAB_LEASE_TTL_MS = '10000';
     process.env.COLLAB_LEASE_HEARTBEAT_MS = '3000';
     dir = await makeSpoolDir('y0a3-lease-');
-    spool = new CollabSpoolService(dir.dir);
+    spool = spoolForTest(dir.dir);
   });
   afterEach(async () => { delete process.env.COLLAB_LEASE_TTL_MS; delete process.env.COLLAB_LEASE_HEARTBEAT_MS; await dir.cleanup(); });
 
@@ -92,7 +93,7 @@ describe('CollabLeaseService', () => {
   });
 
   it('onHeld 原子（V4/I1）：spool.setOwner 抛 → state 非 held+租约行已释放（防半 held 僵尸）+rethrow', async () => {
-    const badSpool = new CollabSpoolService(dir.dir);
+    const badSpool = spoolForTest(dir.dir);
     vi.spyOn(badSpool, 'setOwner').mockImplementation(() => { throw new Error('owner 非法'); });
     const query = vi.fn().mockResolvedValue([{ epoch: 1n }]);
     const { svc } = buildService(query, badSpool);

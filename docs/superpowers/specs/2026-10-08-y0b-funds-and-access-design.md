@@ -901,6 +901,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - COLLAB_BYTES_RATE_PER_CONN
 - COLLAB_CONN_MAX_LIFETIME_MS
 - COLLAB_DEBOUNCE
+- COLLAB_ERASURE_REFRESH_MS
 - COLLAB_FAKE_AI
 - COLLAB_HEAP_PRESSURE_RATIO
 - COLLAB_LEASE_HEARTBEAT_MS
@@ -995,6 +996,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - awareness_bytes
 - awareness_states
 - binding_delta_bytes
+- blocked_spool_preserved_total
 - collab_actor_dedup_hit_total
 - collab_actor_drain_batch_frames
 - collab_actor_drain_batch_total
@@ -1100,8 +1102,11 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - doc_unload_blocked_total
 - doc_update_origin_total
 - erasure_capability_disclosure_total
+- erasure_manifest_missing_total
 - erasure_objects_deleted_total
 - erasure_pending_age
+- erasure_refresh_failures_total
+- erasure_registry_age_ms
 - erasure_runs_total
 - erasure_stage_duration_seconds
 - event_loop_lag_seconds
@@ -1149,6 +1154,9 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - oracle_coverage_ratio
 - oracle_scan_age_seconds
 - provider_redrive_blocked_total
+- purge_sweep_failures_total
+- purgeable_spool_bytes
+- restore_pending_projects
 - retention_backlog_rows
 - retention_deleted_rows_total
 - retention_stuck_requests_total
@@ -1163,6 +1171,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - wal_pending_bytes
 - wal_recovery_suspect_total
 - wal_segment_quarantined_total
+- yjs_blocked_projects
 - yjs_compact_abandoned_total
 - yjs_compact_deleted_rows
 - yjs_compact_duration_seconds
@@ -1192,6 +1201,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_pending_batches
 - yjs_pending_bytes
 - yjs_pending_projects
+- yjs_purgeable_projects
 - yjs_release_budget_exceeded_total
 - yjs_release_handoff_failed_total
 - yjs_release_with_pending_total

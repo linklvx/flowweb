@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import type { Logger } from '@nestjs/common';
@@ -25,7 +26,7 @@ function makeConn(userId = 'u1', socketId?: string) {
 }
 
 function buildActor(doc: Y.Doc, pid = 'p1') {
-  const spool = new CollabSpoolService(spoolDir.dir);
+  const spool = spoolForTest(spoolDir.dir);
   spool.setOwner('t24b-owner');
   spool.setWalHistory('t24b-history');
   const repo = createMockRepo();
@@ -93,7 +94,7 @@ describe('Y1c T24：clientID 绑定四元+单活跃（偏离 38⑰）', () => {
     await expect(actor.submit('p1', c1.frame(setModel('a1')), makeConn('u1', 'sock-a'), 'update')).resolves.toBeDefined();
     // u2 冒用 u1 的 clientID（同 pid|gen|client 异 userId）
     await expect(actor.submit('p1', c1.frame(setModel('a2')), makeConn('u2', 'sock-b'), 'update'))
-      .rejects.toMatchObject({ code: 1008, frameReason: CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.collision });
+      .rejects.toMatchObject({ code: 1008, reason: CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.collision });
     expect(hardCloseCalls.some((c) => c.reason === CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.collision && c.code === 1008)).toBe(true);
   });
 

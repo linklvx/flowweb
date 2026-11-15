@@ -6,6 +6,7 @@ import { readdir } from 'node:fs/promises';
 import { PrismaClient } from '@prisma/client';
 import * as Y from 'yjs';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -29,10 +30,10 @@ maybe('spool replayAll FK 真库背书（V6）', () => {
 
   it('项目真删后回灌：raw append FK→帧按终态丢弃+段回收（P2010+meta 23503 形状由 isFkGone 单源判别）', async () => {
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
-    const s1 = new CollabSpoolService(dir);
+    const s1 = spoolForTest(dir);
     s1.setOwner('int-owner');                 // R3：写/扫路径必先 setOwner（Z13——预授权适配#3）
     await s1.append(PID, Y.encodeStateAsUpdate(new Y.Doc()));
-    const s2 = new CollabSpoolService(dir);   // 重启形态：scan 重建 index 后回灌
+    const s2 = spoolForTest(dir);   // 重启形态：scan 重建 index 后回灌
     s2.setOwner('int-owner');
     await s2.scan();
     await prisma.canvasProject.delete({ where: { id: PID } });   // 真删（FK 链唯一父）

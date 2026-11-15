@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as Y from 'yjs';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import type { Logger } from '@nestjs/common';
@@ -32,7 +33,7 @@ beforeEach(async () => { spoolDir = await makeSpoolDir('t21-freeze-'); });
 afterEach(async () => { await spoolDir.cleanup(); });
 
 function makeSpool() {
-  const spool = new CollabSpoolService(spoolDir.dir);
+  const spool = spoolForTest(spoolDir.dir);
   spool.setOwner('t21-owner');
   spool.setWalHistory('t21-history-id');
   return spool;

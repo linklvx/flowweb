@@ -15,6 +15,7 @@ import { CollabDocumentService } from './collab-document.service';
 import { CollabPgBreakerService, BREAKER_COOLDOWN_MS, BREAKER_MIN_SAMPLES, BREAKER_WINDOW_MS } from './collab-pg-breaker.service';
 import { PG_CONNECTION_CODES, classifyPgError } from './pg-error.util';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -190,7 +191,7 @@ function buildGateway() {
     resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
     resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }),
   };
-  const spool = new CollabSpoolService(spoolDir);
+  const spool = spoolForTest(spoolDir);
   spool.setOwner('test-owner');
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, lease as any,

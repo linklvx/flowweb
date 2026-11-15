@@ -17,6 +17,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CollabGateway } from './collab.gateway';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -43,7 +44,7 @@ function makeConn(userId = 'u1', socketId?: string) {
 }
 
 function buildActor(doc: Y.Doc, pid = 'p1') {
-  const spool = new CollabSpoolService(spoolDir.dir);
+  const spool = spoolForTest(spoolDir.dir);
   spool.setOwner('t24co-owner');
   spool.setWalHistory('t24co-history');
   const repo = createMockRepo();
@@ -192,7 +193,7 @@ describe('T24 收口 I-2：毒帧计数 conn 身份化+DS-only 执法', () => {
       }
     }
     const benign = attacker.frame((d) => { dataMapOf(d).set('model', 'm2'); });
-    await expect(actor.submit('p1', benign, conn, 'update')).rejects.toMatchObject({ code: 1008, frameReason: CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.poisonRateLimited });   // 红=resolved（DS-only 违规零计数）
+    await expect(actor.submit('p1', benign, conn, 'update')).rejects.toMatchObject({ code: 1008, reason: CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.poisonRateLimited });   // 红=resolved（DS-only 违规零计数）
     expect(hardCloseCalls.some((c) => c.reason === 'poison-rate-limited')).toBe(true);
   }, 20_000);
 
@@ -210,7 +211,7 @@ describe('T24 收口 I-2：毒帧计数 conn 身份化+DS-only 执法', () => {
     }
     const probe = new Client(seed);
     const benign4 = probe.frame((d) => { dataMapOf(d).set('model', 'after'); });
-    await expect(actor.submit('p1', benign4, conn, 'update')).rejects.toMatchObject({ code: 1008, frameReason: CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.poisonRateLimited });
+    await expect(actor.submit('p1', benign4, conn, 'update')).rejects.toMatchObject({ code: 1008, reason: CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.poisonRateLimited });
   }, 20_000);
 });
 
@@ -296,7 +297,7 @@ function buildGateway() {
   const repo = createMockRepo();
   const lease = createLeaseStub();
   const perm = { resolve: vi.fn(), resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }) };
-  const spool = new CollabSpoolService(spoolDir.dir);
+  const spool = spoolForTest(spoolDir.dir);
   spool.setOwner('t24co-gw');
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, lease as any,

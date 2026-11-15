@@ -22,6 +22,7 @@ import { CollabGateway } from '../modules/collab/collab.gateway';
 import { CollabDocumentService } from '../modules/collab/collab-document.service';
 import { CollabResidencyService } from '../modules/collab/collab-residency.service';
 import { CollabSpoolService } from '../modules/collab/collab-spool.service';
+import { spoolForTest } from './erasure-fixtures';
 import { createMockRepo, type MockRepo } from './mock-repo';
 import { createLeaseStub } from '../modules/collab/test-utils/lease-stub';
 import { CANVAS_DOC_SCHEMA_VERSION, CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
@@ -87,7 +88,7 @@ export async function startDualClientServer(over: Partial<MockRepo> = {}, deboun
   const emitter = new EventEmitter2();
   const port = 20000 + Math.floor(Math.random() * 20000);
   const ownedSpoolDir = spool ? null : await mkdtemp(join(tmpdir(), 'y0a2-kit-'));
-  const spoolSvc = spool ?? new CollabSpoolService(ownedSpoolDir!);
+  const spoolSvc = spool ?? spoolForTest(ownedSpoolDir!);
   // Y0a-3 T5：lease stub 第四参（缺省契约形态 stub——V1 三件套：tryAcquireFast 成功 ⇒ repo/spool
   // setOwner + await onAcquired，生产 onHeld 同序；G-3/门用例经 over 关闭）。
   const leaseSvc = lease ?? createLeaseStub({}, { repo: repo as any, spool: spoolSvc });

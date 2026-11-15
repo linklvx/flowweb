@@ -9,6 +9,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { CollabSpoolService, ERASURE_MEDIA_REFS_BATCH, type MediaRefsDocsPort } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { httpMediaRefsCollector } from './project-erasure.stages';
 
 /** docs 端口 stub（withSession 形——直接回 refs 载荷，绕开真 doc 扫描回调〔端点行为=透传扫描结果〕）。 */
@@ -22,7 +23,7 @@ const prismaStub = (projectIds: string[]) => ({
 
 describe('C4-c1 collectMediaRefs 内部端点（service 面）', () => {
   it('非 serving（lease 未持有）→503 fail-closed（调用方本轮暂停不删）', async () => {
-    const spool = new CollabSpoolService();
+    const spool = spoolForTest();
     await expect(spool.collectProjectMediaRefs(
       { teamId: 't', excludeProjectId: 'p1', mediaIds: ['m1'] },
       { docs: docsStub({}, false) as unknown as MediaRefsDocsPort, prisma: prismaStub(['p2']) as never },
@@ -30,7 +31,7 @@ describe('C4-c1 collectMediaRefs 内部端点（service 面）', () => {
   });
 
   it('限批：mediaIds 超限批→400（worker 侧应分片——容量防护）', async () => {
-    const spool = new CollabSpoolService();
+    const spool = spoolForTest();
     const tooMany = Array.from({ length: ERASURE_MEDIA_REFS_BATCH + 1 }, (_, i) => `m${i}`);
     await expect(spool.collectProjectMediaRefs(
       { teamId: 't', excludeProjectId: 'p1', mediaIds: tooMany },
@@ -39,7 +40,7 @@ describe('C4-c1 collectMediaRefs 内部端点（service 面）', () => {
   });
 
   it('他项目超扫描上界→503 保守拒（引用图不完整禁判）', async () => {
-    const spool = new CollabSpoolService();
+    const spool = spoolForTest();
     const many = Array.from({ length: 501 }, (_, i) => `p${i}`);
     await expect(spool.collectProjectMediaRefs(
       { teamId: 't', excludeProjectId: 'p-not-in-list', mediaIds: ['m1'] },
@@ -48,7 +49,7 @@ describe('C4-c1 collectMediaRefs 内部端点（service 面）', () => {
   });
 
   it('扫描面：他项目 doc 引用交集返回（excludeProjectId 过滤+wanted 交集）', async () => {
-    const spool = new CollabSpoolService();
+    const spool = spoolForTest();
     const refs = await spool.collectProjectMediaRefs(
       { teamId: 't', excludeProjectId: 'p1', mediaIds: ['m1', 'm2', 'm3'] },
       { docs: docsStub({ p2: ['m1', 'm9'], p3: ['m2'] }) as unknown as MediaRefsDocsPort, prisma: prismaStub(['p1', 'p2', 'p3']) as never },

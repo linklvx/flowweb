@@ -18,6 +18,7 @@ import { CollabGateway } from './collab.gateway';
 import { CollabResidencyService } from './collab-residency.service';
 import { CollabDocumentService } from './collab-document.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabLifecycleObserverService } from './collab-lifecycle-observer.service';
 import { RuntimeFeedService } from './runtime-feed.service';
@@ -113,7 +114,7 @@ maybe('Y1c T25 recovery import REST 服务面（真 gateway+真 PG——唯一�
     await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
     await ensureLeaseFixture(prisma, repo, 'stub-owner-1');   // lease-stub 契约：owner 必须与 createLeaseStub 硬编码 'stub-owner-1' 一致（异值=fenced-by-write 自隔离——write-endpoint 先例同款）
     spoolDir = await mkdtemp(join(tmpdir(), 't25-recov-'));
-    const spool = new CollabSpoolService(spoolDir);
+    const spool = spoolForTest(spoolDir);
     const perm = {
       resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
       resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }),

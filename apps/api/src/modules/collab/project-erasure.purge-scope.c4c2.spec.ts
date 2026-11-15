@@ -11,30 +11,37 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 
 const docsStub = (serving = true) => ({
   isLeaseServing: () => serving,
   invalidateSnapshotCache: vi.fn(),
 });
 
+/** TD-33/C1b T14：live 复检 stub——缺省全可清（真实 DB 语义归 registry int spec） */
+const erasureStub = (purgeableAll = true) => ({
+  listPurgeableProjectIdsLive: vi.fn(async (pids: string[]) => new Set(purgeableAll ? pids : [])),
+  mark: vi.fn(),
+});
+
 describe('C4-c2 purgeErasureScope（service 面）', () => {
   it('非 serving（lease 未持有）→503 fail-closed（调用方本轮暂停）', async () => {
-    const spool = new CollabSpoolService();
-    await expect(spool.purgeErasureScope(['p1'], { docs: docsStub(false) }))
+    const spool = spoolForTest();
+    await expect(spool.purgeErasureScope(['p1'], { docs: docsStub(false), erasure: erasureStub() }))
       .rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('限批：projectIds 超 50→400（worker 单 scope 调用恒 1 项——容量防护）', async () => {
-    const spool = new CollabSpoolService();
+    const spool = spoolForTest();
     const tooMany = Array.from({ length: 51 }, (_, i) => `p${i}`);
-    await expect(spool.purgeErasureScope(tooMany, { docs: docsStub() }))
+    await expect(spool.purgeErasureScope(tooMany, { docs: docsStub(), erasure: erasureStub() }))
       .rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('段文件 unlink（root+owner 子目录+.quarantine sidecar 同收）+内存索引清+快照缓存 evict；幂等重跑零错', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'c4c2ps-spool-'));
     try {
-      const spool = new CollabSpoolService(dir);
+      const spool = spoolForTest(dir);
       spool.setOwner('owner1');
       // root 段+owner 子目录段+隔离 sidecar
       const { mkdirSync } = await import('node:fs');
@@ -44,7 +51,7 @@ describe('C4-c2 purgeErasureScope（service 面）', () => {
       writeFileSync(join(dir, 'p1.g1.0.spool.quarantine'), '{}');
       writeFileSync(join(dir, 'p2.g1.0.spool'), 'other');   // 他项目段（不受波及）
       const docs = docsStub();
-      const res = await spool.purgeErasureScope(['p1'], { docs });
+      const res = await spool.purgeErasureScope(['p1'], { docs, erasure: erasureStub() });
       expect(res.purgedSegments).toBe(2);   // root 段+owner 子目录段（sidecar 不计数）
       expect(existsSync(join(dir, 'p1.g1.0.spool'))).toBe(false);
       expect(existsSync(join(dir, 'owner1', 'p1.g1.1.spool'))).toBe(false);
@@ -53,7 +60,7 @@ describe('C4-c2 purgeErasureScope（service 面）', () => {
       expect(docs.invalidateSnapshotCache).toHaveBeenCalledWith('p1');         // 快照缓存 evict
       expect(spool.hasFrames('p1')).toBe(false);                              // 内存索引清
       // 幂等重跑：零段零错
-      const again = await spool.purgeErasureScope(['p1'], { docs: docsStub() });
+      const again = await spool.purgeErasureScope(['p1'], { docs: docsStub(), erasure: erasureStub() });
       expect(again.purgedSegments).toBe(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });

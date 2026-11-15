@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import type { Logger } from '@nestjs/common';
@@ -26,7 +27,7 @@ function makeConn(userId = 'u1') {
 }
 
 function buildActor(doc: Y.Doc, pid = 'p1') {
-  const spool = new CollabSpoolService(spoolDir.dir);
+  const spool = spoolForTest(spoolDir.dir);
   spool.setOwner('t24-owner');
   spool.setWalHistory('t24-history');
   const repo = createMockRepo();

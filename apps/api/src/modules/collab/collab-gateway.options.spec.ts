@@ -5,6 +5,7 @@
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -23,7 +24,7 @@ function buildGateway(): CollabGateway {
     {} as any, new EventEmitter2() as any, {} as any, createLeaseStub() as any,
     { resolve: vi.fn() } as any,
     48000 + Math.floor(Math.random() * 4000),
-    undefined, undefined, undefined, new CollabSpoolService(spoolDir),
+    undefined, undefined, undefined, spoolForTest(spoolDir),
   );
 }
 

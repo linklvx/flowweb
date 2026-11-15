@@ -21,6 +21,7 @@ import { CollabMaintenanceService, MAINTENANCE_FREEZE_RETRY_AFTER_MS, rejectIfMa
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { toDocLike } from './doc-like.util';
 import { toReadModel, fillDoc, CollabCloseCode } from '@flowweb/shared';
@@ -83,7 +84,7 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
     await spoolCleanup();
     const dir = await makeSpoolDir('y1c-t27-spool-');
     spoolCleanup = dir.cleanup;
-    spool = new CollabSpoolService(dir.dir);
+    spool = spoolForTest(dir.dir);
     spool.setOwner('t27-int-owner');
     await ensureLeaseFixture(prisma, repo, 't27-int-owner');
     // boot 三元组播种形态（gateway startCollabAfterLease：setProjectGeneration+seedWalSeqFromPg——
@@ -158,7 +159,7 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
       return Y.encodeStateAsUpdate(d);
     })();
     const closedBefore = closed.length;
-    await expect(actor.submit(PID, frame, conn, 'update')).rejects.toMatchObject({ code: CollabCloseCode.MAINTENANCE_FREEZE, frameReason: 'maintenance-freeze' });
+    await expect(actor.submit(PID, frame, conn, 'update')).rejects.toMatchObject({ code: CollabCloseCode.MAINTENANCE_FREEZE, reason: 'maintenance-freeze' });
     expect(closed.length).toBe(closedBefore + 1);
     expect(closed[closed.length - 1]).toMatchObject({ code: CollabCloseCode.MAINTENANCE_FREEZE, reason: 'maintenance-freeze' });
 

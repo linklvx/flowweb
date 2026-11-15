@@ -8,6 +8,7 @@ import { register } from 'prom-client';
 import { CANVAS_DOC_SCHEMA_VERSION, QUOTA_DEFAULTS, SERVER_TRANSACT_ORIGIN } from '@flowweb/shared';
 import { CollabGateway, TRUTH_COOLDOWN_MS, type QuotaConfig } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -31,7 +32,7 @@ afterEach(async () => { await spoolCleanup(); vi.restoreAllMocks(); });
 function buildGateway(hydration: { state: Buffer | null; updates: Buffer[] }, quota?: Partial<QuotaConfig>) {
   const repo = createMockRepo();
   repo.hydrateWithRecovery.mockResolvedValue({ ...hydration, stateSeq: 0n });
-  const spool = new CollabSpoolService(spoolDir);
+  const spool = spoolForTest(spoolDir);
   spool.setOwner('truth-owner');
   const gateway = new CollabGateway(
     {} as any, new EventEmitter2() as any, repo as any, createLeaseStub() as any,

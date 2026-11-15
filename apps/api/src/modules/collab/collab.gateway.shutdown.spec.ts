@@ -16,6 +16,7 @@ import { describe, it, expect, vi, afterAll } from 'vitest';
 import * as Y from 'yjs';
 import { register } from 'prom-client';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { startDualClientServer } from '../../test-utils/dual-client-server';
 import { failingRepo } from '../../test-utils/failing-repo';
@@ -87,7 +88,7 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
 
   it('drain force-spool：append 失败+spool 可用 → 批入 spool（归属落定）→ drain_complete pending.projects===0（批已出队列）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y0a2-shut2-'); cleanups.push(cleanup);
-    const spool = new CollabSpoolService(dir);
+    const spool = spoolForTest(dir);
     const kit = await startDualClientServer({ appendBatch: failingRepo({ failAppend: 99 }).appendBatch }, 300, spool);
     try {
       vi.spyOn(kit.gateway.server, 'destroy').mockResolvedValue(undefined as any);   // 见文件头②
@@ -104,7 +105,7 @@ describe('Y0a-2 关停 drain 六步（spec v2.4 §2.4——预算 ≤22s；G-2a 
 
   it('G-2a ii 档：append 失败+spool 不可写 → shutdown_undrained 点名（batches/projects 与 storeInFlight 一致；不得声称 0）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y0a2-shut3-'); cleanups.push(cleanup);
-    const spool = new CollabSpoolService(dir);
+    const spool = spoolForTest(dir);
     (spool as any).overCapacityFlag = true;                    // Y14：服务态容量位——受理闸/重试梯首行读点同态（mkdir 段路径占位会被 V2 封段滚动绕过：seg0 EISDIR→seg1 可写=注入失效）
     vi.spyOn(spool, 'appendBatch').mockRejectedValue(new Error('spool capacity exceeded'));   // Y1c T9：维护通道批面（主循环腿）
     vi.spyOn(spool, 'append').mockRejectedValue(new Error('spool capacity exceeded'));   // 见文件头④：force-spool 直调腿（容量态恒抛不触盘——滞回解除支对空盘自清白盒位=双保险）

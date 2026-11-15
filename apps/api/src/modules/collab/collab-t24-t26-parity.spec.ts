@@ -12,6 +12,7 @@ import * as Y from 'yjs';
 import { register } from 'prom-client';
 import { CollabProjectActorService, ProjectDocIndexImpl } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { isFrameNodeTypeName, DOC_SCHEMA_V4 } from '@flowweb/shared';
@@ -23,7 +24,7 @@ beforeEach(async () => { spoolDir = await makeSpoolDir('t24-par-'); });
 afterEach(async () => { await spoolDir.cleanup(); });
 
 function buildActor(doc: Y.Doc, pid = 'p1') {
-  const spool = new CollabSpoolService(spoolDir.dir);
+  const spool = spoolForTest(spoolDir.dir);
   spool.setOwner('t24p-owner');
   spool.setWalHistory('t24p-history');
   const repo = createMockRepo();

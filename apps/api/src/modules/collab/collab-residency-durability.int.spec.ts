@@ -24,6 +24,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CollabGateway } from './collab.gateway';
 import { CollabResidencyService, type TryReleaseOutcome } from './collab-residency.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
@@ -75,7 +76,7 @@ maybe('Y0c T22 Z144：耐久用例双向（真 PG——守卫两种结果全覆�
     await prisma.canvasDoc.deleteMany({ where: { projectId: { in: [PID_A, PID_B] } } });
     await ensureLeaseFixture(prisma, repo, LEASE_STUB_OWNER);   // DB 行 owner=stub 写入值——真 append 不 fenced
     spoolDir = await mkdtemp(join(tmpdir(), 'z144-int-'));
-    const spool = new CollabSpoolService(spoolDir);
+    const spool = spoolForTest(spoolDir);
     const perm = {
       resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
       resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }),

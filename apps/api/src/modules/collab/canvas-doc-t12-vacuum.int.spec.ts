@@ -21,6 +21,7 @@ import { CollabGateway } from './collab.gateway';
 import { CollabShrinkService } from './collab-shrink.service';
 import { CollabMaintenanceService } from './collab-maintenance.service';   // Y1c T27：vacuum 委托单换代入口
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';
 import { canvasDocName } from './doc-name.util';
@@ -172,7 +173,7 @@ maybe('Y1c T12 复核残留 I1.2：era 定格 DB 真值化+expectedGeneration �
   async function buildKit(): Promise<{ gateway: CollabGateway; svc: CollabShrinkService }> {
     const d = await makeSpoolDir('y1c-t12-era-');
     spoolCleanups.push(d.cleanup);
-    const spool = new CollabSpoolService(d.dir);
+    const spool = spoolForTest(d.dir);
     spool.setOwner('t12-era-owner');
     const gateway = new CollabGateway(
       {} as any, new EventEmitter2() as any, repo as any, createLeaseStub() as any,

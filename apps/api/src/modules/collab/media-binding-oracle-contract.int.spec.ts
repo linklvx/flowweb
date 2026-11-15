@@ -19,6 +19,7 @@ import { PrismaClient } from '@prisma/client';
 import * as Y from 'yjs';
 import { CollabProjectActorService, FrameEffectsCollector, type BindingDelta } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { BindingRebuildService } from './binding-rebuild.service';
 import { projectBindings } from './media-binding-projector';
@@ -279,7 +280,7 @@ maybe('C3a-9：binding@mediaBindingSeq == oracle(doc@pgSeq) 独立对拍契约�
     }
     await ensureLeaseFixture(prisma, repo);
     dir = await makeSpoolDir('c3a9-oracle-');
-    const spool = new CollabSpoolService(dir.dir);
+    const spool = spoolForTest(dir.dir);
     spool.setOwner('c3a9-oracle-owner');
     spool.setWalHistory('c3a9-oracle-history');
     serverDoc = new Y.Doc();

@@ -32,6 +32,7 @@ function mkController(docs: ReturnType<typeof docsStub>, row: { projectId: strin
     { generationIntent: { findUnique: vi.fn().mockResolvedValue(row) } } as any,
     {} as any,   // C4-c1：CollabSpoolService（media-refs 端点面——exec-status 用例零消费）
     {} as any,   // C3b-4a：DeletionBarrierService（deletion-barrier 端点面——exec-status 用例零消费）
+    {} as any,   // TD-33/C1b T14：CollabErasureRegistryService（purge 端点面——exec-status 用例零消费）
   );
 }
 

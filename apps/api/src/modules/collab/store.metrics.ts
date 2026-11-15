@@ -21,6 +21,13 @@ export const yjsSpoolOwnerDirReclaimedTotal = new Counter({
   registers: [register],
 });
 
+/** TD-33/C1b T14：recoverScan 排除的 blocked 项目段（文件保留——归宿=purge 清除∨restore-reerase）。 */
+export const blockedSpoolPreservedTotal = new Counter({
+  name: 'blocked_spool_preserved_total',
+  help: 'recoverScan 跳过的 blocked 项目段数（段文件保留、不进 fail-closed 判定/重放索引——处置归擦除链）',
+  registers: [register],
+});
+
 /** Y0a-2（Y8）：取批后队列被并发改动的探测计数（splice 前 length<n 或批尾引用不符）；
  *  真对账=storeDocument 成功路径自检（collect 注册模式归 Task 4 观测批——定义先行供 Task 3 编译）。 */
 export const yjsStoreTailAnomalyTotal = new Counter({

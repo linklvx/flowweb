@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import type { Logger } from '@nestjs/common';
@@ -26,7 +27,7 @@ function makeConn(userId = 'u1') {
 }
 
 function buildActor(doc: Y.Doc, pid = 'p1') {
-  const spool = new CollabSpoolService(spoolDir.dir);
+  const spool = spoolForTest(spoolDir.dir);
   spool.setOwner('t24l2-owner');
   spool.setWalHistory('t24l2-history');
   const repo = createMockRepo();
@@ -207,7 +208,7 @@ describe('Y1c T24 红②：XML 对抗语料 L2（既有子树挂接——L1 帧�
     const clean = attacker.frame((d) => {
       ((d.getMap('nodes').get('n1') as Y.Map<unknown>).get('data') as Y.Map<unknown>).set('model', 'm2');
     });
-    await expect(actor.submit('p1', clean, conn, 'update')).rejects.toMatchObject({ code: 1008, frameReason: CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.poisonRateLimited });
+    await expect(actor.submit('p1', clean, conn, 'update')).rejects.toMatchObject({ code: 1008, reason: CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.poisonRateLimited });
     expect(hardCloseCalls.some((c) => c.reason === CollabProjectActorService.CLIENT_BINDING_WIRE_REASONS.poisonRateLimited)).toBe(true);
   });
 });

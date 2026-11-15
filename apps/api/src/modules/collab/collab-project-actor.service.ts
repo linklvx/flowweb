@@ -57,6 +57,7 @@ import {
   CollabCloseCode,
   DOC_OVER_QUOTA_TERMINAL_REASON,
   DOC_GENERATION_STALE_TERMINAL_REASON,
+  PROJECT_ERASED_TERMINAL_REASON,   // TD-33/C1b T12：终态写拒绝 4414 关闭原因单源
   DELETION_BARRIER_REASON,   // C3b-4a 质量评审 M5：appendBatch 拒因分诊字面量单源（与 repo 返回联合类型同步）
   type FlushThroughResult,
 } from '@flowweb/shared';
@@ -77,7 +78,7 @@ import {
   type CanvasActorKind,
   type GraphAnomalyKind,
 } from '@flowweb/shared';
-import { CollabSpoolService } from './collab-spool.service';
+import { CollabSpoolService, SpoolProjectBlockedError } from './collab-spool.service';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabLifecycleObserverService, type LifecycleFrame } from './collab-lifecycle-observer.service';
 import { projectDocName, parseDocName, canvasDocName } from './doc-name.util';
@@ -101,7 +102,7 @@ type PgFlushOutcome = { landed: boolean; errorKind: PgFlushErrorKind };
 
 /** 帧拒绝（reject 形态——码权威投递由 gate/actor host.hardClose 先行，本错误仅中止 beforeSync）。 */
 export class FrameRejectError extends Error {
-  constructor(readonly code: number, readonly frameReason: string) { super(`frame rejected: ${code} ${frameReason}`); }
+  constructor(readonly code: number, readonly reason: string) { super(`frame rejected: ${code} ${reason}`); }
 }
 
 /** actor host 最小接口（bindHost 后置绑定——B1/W3a 同款形态；gateway 1 行转发接线）。 */
@@ -1219,6 +1220,7 @@ export class CollabProjectActorService {
       try {
         maintAppended = await this.spool.appendBatch(pid, maintOnly.map((i) => i.payload));
       } catch (err) {
+        if (this.rejectTerminalBatch(pid, maintOnly, err)) return;   // TD-33/C1b T12：终态族（维护项仅 reject）
         // C1（quality Critical）：detached 维护批 WAL 失败守卫（对照正常路径 appendBatch catch 同款）
         // ——WAL 容量/EIO 异常穿透 drain=void this.drain() 未处理拒绝+维护 promise 永不 settle=
         // saveMutex/handoff 永挂。全批拒绝 SLOW_CONSUMER 'wal-append-failed'（**不带 pgPending**
@@ -1277,6 +1279,7 @@ export class CollabProjectActorService {
     try {
       appended = await this.spool.appendBatch(pid, admitted.map((i) => i.payload));
     } catch (err) {
+      if (this.rejectTerminalBatch(pid, admitted, err)) return;   // TD-33/C1b T12：终态族 4414（连接项 hardClose）
       // WAL 失败（容量/EIO/截断失败档——spool 内部已分类+fail-stop 链触发）：批全拒绝同错（原帧失败重复帧同错）
       for (const item of admitted) {
         this.rejectItem(item, Object.assign(new FrameRejectError(CollabCloseCode.SLOW_CONSUMER, 'wal-append-failed')));
@@ -1913,6 +1916,24 @@ export class CollabProjectActorService {
   }
 
   private resolveItem(item: QueueItem, r: ActorFrameResult): void { item.resolve(r); }
+  /** TD-33/C1b T12：终态写拒绝族（SpoolProjectBlockedError〔ERASING/ERASED 全档〕∨ FrameRejectError
+   *  code===4414〔team DISBANDING 档帧〕）——连接项先 hardClose(4414 terminal) 再 reject；维护项
+   *  （conn=null）仅 reject；不 Sentry 不计 wal-failed 不进熔断。返回 true=本批已终态处置。 */
+  private rejectTerminalBatch(pid: string, items: QueueItem[], err: unknown): boolean {
+    const terminal = err instanceof SpoolProjectBlockedError
+      || (err instanceof FrameRejectError && err.code === CollabCloseCode.PROJECT_ERASED);
+    if (!terminal) return false;
+    const e = new FrameRejectError(CollabCloseCode.PROJECT_ERASED, PROJECT_ERASED_TERMINAL_REASON);
+    for (const item of items) {
+      if (item.kind !== 'maintenance' && item.conn) {
+        this.host.hardClose(item.conn, CollabCloseCode.PROJECT_ERASED, PROJECT_ERASED_TERMINAL_REASON);
+      }
+      this.rejectItem(item, e);
+      this.clearDedup(pid, item.hashHex);
+    }
+    return true;
+  }
+
   private rejectItem(item: QueueItem, e: FrameRejectError): void {
     actorFrameOutcomeTotal.inc({ outcome: `reject-${e.code}` });
     item.reject(e);

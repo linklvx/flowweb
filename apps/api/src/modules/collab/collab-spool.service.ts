@@ -64,13 +64,61 @@ import {
   lifecycleFencesStaledTotal,
   lifecycleReplayDeriveFailureTotal,
   yjsSpoolOwnerDirReclaimedTotal,
+  blockedSpoolPreservedTotal,
 } from './store.metrics';
+import { purgeSweepFailuresTotal, purgeableSpoolBytes } from './erasure-registry.metrics';
 import { isFkGone } from './pg-error.util';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { projectDocName } from './doc-name.util';
 import { parseOwnerName, currentHostKey } from './owner-name';
 
 export interface SpoolFrame { frameId: string; payload: Uint8Array; walSeq: bigint }
+
+/** TD-33/C1b T10：擦除写屏障端口（生产 DI 由 module 工厂接线 ErasureRegistry；直构测试显式注入
+ *  EmptyErasureGuard——缺失即 ERASURE_GUARD_MISSING 拒写，不静默放行）。 */
+export type SpoolErasureState = 'ERASING' | 'ERASED';
+export interface SpoolErasureGuard {
+  isBlocked(projectId: string): SpoolErasureState | undefined;
+  /** boot sweep 快照（ErasureRegistry 结构面——测试夹具可缺省）。 */
+  listPurgeableProjectIds?(): string[];
+  /** 即时 mark（sweep/purge 先 mark 再用）。 */
+  mark?(projectId: string, state: SpoolErasureState): void;
+}
+
+/** TD-33/C1b T14：擦除权威端口（ErasureRegistry 结构面——gateway boot 链/定时器/spool sweep 共用；
+ *  直构测试显式 EmptyErasureSource——gateway 缺 source=start-failed `ERASURE_SOURCE_MISSING`）。 */
+export interface SpoolErasureSource extends SpoolErasureGuard {
+  load(opts?: { force?: boolean }): Promise<void>;
+  refresh(): Promise<void>;
+  blockedMap(): ReadonlyMap<string, SpoolErasureState>;
+  listPurgeableProjectIds(): string[];
+  listPurgeableProjectIdsLive(projectIds: string[]): Promise<Set<string>>;
+  mark(projectId: string, state: SpoolErasureState): void;
+}
+
+/** 项目擦除中/已擦——spool 写拒绝（state 数据源=blocked Map；WS 全档 4414 由 actor 消费）。 */
+export class SpoolProjectBlockedError extends Error {
+  constructor(readonly state: SpoolErasureState) {
+    super(`spool 写拒绝：项目 ${state}（DB 权威擦除态——不产生幽灵段）`);
+    this.name = 'SpoolProjectBlockedError';
+  }
+}
+
+/** 擦除屏障未接线（fail-closed：DI 漏接=擦除屏障静默消失的后门）。 */
+export class SpoolErasureGuardMissingError extends Error {
+  constructor() {
+    super('ERASURE_GUARD_MISSING：spool 擦除屏障未接线——拒写（生产 DI 必需注入 ErasureRegistry）');
+    this.name = 'SpoolErasureGuardMissingError';
+  }
+}
+
+/** 容量拒绝（自有闩 overCapacity——不计入 IO 失败 streak：V14 两态熔断保持分离）。 */
+export class SpoolCapacityExceededError extends Error {
+  constructor() {
+    super('spool capacity exceeded');
+    this.name = 'SpoolCapacityExceededError';
+  }
+}
 
 /** TD-33 T6：owner 目录 GC 年龄下限（空目录=无证据；下限防「刚删完最后一段」与 owner 目录重建竞态）。 */
 const STALE_OWNER_DIR_MIN_AGE_MS = 10 * 60_000;
@@ -644,7 +692,36 @@ export class CollabSpoolService {
   }
 
   /** TD-33 T5：擦除感知过滤（C1a 默认恒 false；C1b T9 接线 ErasureRegistry——blocked pid 不收养）。 */
-  erasureBlocked: (projectId: string) => boolean = () => false;
+  private erasureGuard: SpoolErasureGuard | null = null;
+  private erasureSource: SpoolErasureSource | null = null;
+
+  /** TD-33/C1b T10：接线擦除写屏障（生产 DI module 工厂单点；测试显式 EmptyErasureGuard）。 */
+  setErasureGuard(guard: SpoolErasureGuard): void {
+    this.erasureGuard = guard;
+  }
+
+  /** TD-33/C1b T14：擦除权威端口（guard 同一对象自动接；gateway 经 erasureSourcePort() 取用）。 */
+  setErasureSource(source: SpoolErasureSource): void {
+    this.erasureSource = source;
+    this.erasureGuard = source;
+  }
+
+  erasureSourcePort(): SpoolErasureSource | null {
+    return this.erasureSource;
+  }
+
+  isEraseBlocked(projectId: string): boolean {
+    return this.erasureGuard?.isBlocked(projectId) !== undefined;
+  }
+
+  /** 双层写屏障断言：入口层（append/appendTracked/appendBatchInner 顶部=dedup 前拒，不烧 seq）+
+   *  链内层（appendRawInner/appendBatchInner 最顶=闭环「外层过检→purge 删完→链尾写回幽灵段」窗）。 */
+  private assertNotErased(projectId: string): void {
+    if (projectId === '__probe__') return;
+    if (!this.erasureGuard) throw new SpoolErasureGuardMissingError();
+    const st = this.erasureGuard.isBlocked(projectId);
+    if (st) throw new SpoolProjectBlockedError(st);
+  }
 
   /** TD-33 T5：进程存活判据（ESRCH=明确死；EPERM/unknown=保守跳过——EPERM 可能是活的其他用户进程）。 */
   protected isPidAlive(pid: number): boolean | 'unknown' {
@@ -699,7 +776,7 @@ export class CollabSpoolService {
     const now = Date.now();
     const adopted: { projectId: string; dir: string; name: string }[] = [];
     for (const [pid, segs] of [...this.index.entries()]) {
-      if (this.erasureBlocked(pid)) continue;
+      if (this.erasureGuard?.isBlocked(pid)) continue;
       for (const [key, m] of [...segs.entries()]) {
         // Y1c T13（G6a）：chain-stopped 外来段（recoverScan 帧级 fatal/坏尾裁定——**帧前缀可重放**档
         // I1）可收养：own 化+坏尾归 reconciler quarantineTruncatedFrames 处置（回收闭环保持——旧链
@@ -759,28 +836,15 @@ export class CollabSpoolService {
    *  frameId 不写新帧不烧 seq；探针键排除=探针必须真写否则熔断永不解）。
    *  V14：容量判定=总字节（own+stranded 磁盘真值）；容量计数不进写失败 streak；10% 滞回。 */
   async append(projectId: string, payload: Uint8Array): Promise<string[]> {
-    if (!this.walHealthyFlag) throw new Error('wal fail-stop（EIO/截断失败档）——walHealthy=false 停收全部新帧：要求进程重启+磁盘检查/恢复扫描裁定（不进复用路径）');
-    if (projectId !== '__probe__') {
-      const total = this.depthTotalBytes(this.depth());
-      if (!this.overCapacityFlag && total + payload.byteLength > this.capacityBytes) {
-        this.overCapacityFlag = true;
-        yjsSpoolCapacityTotal.inc();
-        this.logger.error('spool capacity exceeded（总口径含隔离/外来字节）——拒新编辑（不丢最旧：丢=蒸发同罪）；人工处置=collab-spool-quarantine 脚本');
-      } else if (this.overCapacityFlag && total <= this.capacityBytes * 0.9) {
-        this.overCapacityFlag = false;                        // 滞回解除（10% 余量防抖动）
-        this.logger.log('spool capacity recovered');
-        try { this.onRecovered?.(); } catch { /* I-3：容量恢复缝与 confirm 自评对称 */ }
-      }
-      if (this.overCapacityFlag) throw new Error('spool capacity exceeded');
-      const hit = this.dedupLookup(projectId, frameHashOf(payload).toString('hex'));
-      if (hit != null) return [hit.frameId];                  // 命中 applied=no-op 确认（原帧已 fsync）
-    }
+    // TD-33/C1b T10：薄包装（去重/容量单源 appendTracked）但仍是**计账 owner**——薄包装丢计账会
+    // 静默废 ioBroken 熔断与 Sentry；blocked/guard 缺失/容量/fail-stop 前置面一律不计账。
     try {
       const t = await this.appendTracked(projectId, payload);
-      this.noteWriteSuccess();
-      if (projectId !== '__probe__') this.dedupInsert(projectId, frameHashOf(payload).toString('hex'), t.frameId, t.walSeq);
+      if (!t.dedup) this.noteWriteSuccess();   // dedup 命中不计账（原状早退语义）
       return [t.frameId];
     } catch (e) {
+      if (e instanceof SpoolProjectBlockedError || e instanceof SpoolErasureGuardMissingError
+        || e instanceof SpoolCapacityExceededError || !this.walHealthyFlag) throw e;
       this.noteWriteFailure();
       captureCollabException(e, { docName: `project:${projectId}`, reason: 'spool-append-failed', connectionId: '-' });   // 基线位（㉚ 白名单既有——不改写）
       throw e;
@@ -791,6 +855,7 @@ export class CollabSpoolService {
    *  旧链 append() 兼容面收窄为 [frameId] 包装（既有消费方零触碰）。 */
   async appendTracked(projectId: string, payload: Uint8Array): Promise<WalAppendedFrame> {
     if (!this.walHealthyFlag) throw new Error('wal fail-stop（EIO/截断失败档）——walHealthy=false 停收全部新帧：要求进程重启+磁盘检查/恢复扫描裁定（不进复用路径）');
+    this.assertNotErased(projectId);   // 入口层（dedup 命中前拒，不烧 seq）
     if (projectId !== '__probe__') {
       const total = this.depthTotalBytes(this.depth());
       if (!this.overCapacityFlag && total + payload.byteLength > this.capacityBytes) {
@@ -802,7 +867,7 @@ export class CollabSpoolService {
         this.logger.log('spool capacity recovered');
         try { this.onRecovered?.(); } catch { /* I-3：容量恢复缝与 confirm 自评对称 */ }
       }
-      if (this.overCapacityFlag) throw new Error('spool capacity exceeded');
+      if (this.overCapacityFlag) throw new SpoolCapacityExceededError();
       const hashHex = frameHashOf(payload).toString('hex');
       const hit = this.dedupLookup(projectId, hashHex);
       if (hit != null) return { frameId: hit.frameId, walSeq: hit.walSeq, dedup: true };   // 命中 applied=no-op 确认（原帧已 fsync；dedup 标记=T30b A2——旧 walSeq 禁再建 PG 落定面）
@@ -847,6 +912,7 @@ export class CollabSpoolService {
     if (payloads.length === 0) return [];
     if (!this.walHealthyFlag) throw new Error('wal fail-stop（EIO/截断失败档）——walHealthy=false 停收全部新帧：要求进程重启+磁盘检查/恢复扫描裁定（不进复用路径）');
     if (projectId === '__probe__') throw new Error('appendBatch 禁用于探针键（探针必须真写——appendRaw 单帧路径专用）');
+    this.assertNotErased(projectId);   // 入口+链内层（同点：dedup 前拒且与 purge 同串行域）
     // 去重先于容量（X6×X9 恢复缝：命中帧零新增字节——容量态下既有 WAL 帧仍可经 PG 腿消化→confirm→
     // depth 回落→容量解除；容量只挡新字节写入=拒新编辑语义保持）
     const results: WalAppendedFrame[] = new Array(payloads.length);
@@ -869,7 +935,7 @@ export class CollabSpoolService {
       this.logger.log('spool capacity recovered');
       try { this.onRecovered?.(); } catch { /* 同 append 缝 */ }
     }
-    if (this.overCapacityFlag) throw new Error('spool capacity exceeded');
+    if (this.overCapacityFlag) throw new SpoolCapacityExceededError();
     try {
       const written = await this.appendBatchRaw(projectId, writes.map((w) => w.payload));
       this.noteWriteSuccess();
@@ -879,6 +945,7 @@ export class CollabSpoolService {
       }
       return results;
     } catch (e) {
+      if (e instanceof SpoolProjectBlockedError || e instanceof SpoolErasureGuardMissingError) throw e;   // 终态拒绝不计账
       this.noteWriteFailure();
       captureCollabException(e, { docName: projectDocName(projectId), reason: 'spool-append-failed', connectionId: '-' });
       throw e;
@@ -973,6 +1040,7 @@ export class CollabSpoolService {
 
   private async appendRawInner(projectId: string, payload: Uint8Array): Promise<WalAppendedFrame> {
     if (!this.walHealthyFlag) throw new Error('wal fail-stop（EIO/截断失败档）——要求进程重启+磁盘检查/恢复扫描裁定（探针亦停）');
+    this.assertNotErased(projectId);   // 链内层（与 purge 同串行域——幽灵段窗口闭环）
     if (payload.byteLength > WAL_MAX_FRAME_BYTES) {
       // M2（Q-M7）：>16MiB 帧准入拒绝——先写后扫描必判 truncated（先 Spooled 后静默丢）。
       throw new Error(`WAL 帧 payload 超上界 >16MiB（${payload.byteLength}B）——拒收（帧记录定界不可信）`);
@@ -1605,7 +1673,10 @@ export class CollabSpoolService {
     pgSeq: (projectId: string) => bigint;
     evaluateTimestampFence?: boolean;
     adoptSuspect?: boolean;
+    /** TD-33/C1b T14：blocked 项目全集——其段不进 fail-closed 判定/重放索引（文件保留+计数）。 */
+    excludeProjectIds?: string[];
   }): Promise<WalRecoveryReport> {
+    const excluded = new Set(opts.excludeProjectIds ?? []);
     await mkdir(this.dir, { recursive: true, mode: 0o700 });
     const adir = this.activeDir();   // Z13
     const next = new Map<string, Map<string, SegmentMeta>>();
@@ -1617,6 +1688,10 @@ export class CollabSpoolService {
       if (!f.endsWith('.spool')) continue;
       const parsed = parseSegFileName(f);
       if (!parsed) continue;
+      if (excluded.has(parsed.projectId)) {   // T14：blocked 项目段保留（不判不收不写）
+        blockedSpoolPreservedTotal.inc();
+        continue;
+      }
       // TD-33 T5③：收录面统一防护（与 adopt 同判）——未收录外来段零写入（不 sidecar 不 truncate 不 unlink）；
       // 根平铺 legacy 段（dir=this.dir≠adir）同判 fail-closed 跳过（旧格式一律保留，处置走 runbook 手工）
       if (dir !== adir && !this.admitForeignDir(dir)) { foreignSkipped += 1; continue; }
@@ -2047,39 +2122,159 @@ export class CollabSpoolService {
   // ── C4-c2（生产就绪收尾批·project-erasure）：purgeScope 内部端点 service 面 ──────────────
   /** purgeScope 端点限批（projectIds 上界——collectMediaRefs 同族容量防护：worker 单 scope 调用
    *  恒 1 项，超限=调用方契约违例）。 */
+  /** TD-33/C1b T14：purgeScope 端点主体——顺序钉死 `guard(限批/serving) → purgeable 复检〔live 批量〕
+   *  → mark(pids) → per-pid chain(清理)`；返回 `{purgedSegments, markedProjectIds}`（mark 后中途 throw
+   *  的错误对象携带已 mark 集——controller finally 仅对 marked 集 emit project.gone）。 */
   async purgeErasureScope(
     projectIds: string[],
-    deps: { docs: { isLeaseServing(): boolean; invalidateSnapshotCache(projectId: string): void } },
-  ): Promise<{ purgedSegments: number }> {
+    deps: {
+      docs: { isLeaseServing(): boolean; invalidateSnapshotCache(projectId: string): void };
+      erasure: {
+        listPurgeableProjectIdsLive(projectIds: string[]): Promise<Set<string>>;
+        mark(projectId: string, state: SpoolErasureState): void;
+      };
+    },
+  ): Promise<{ purgedSegments: number; markedProjectIds: string[] }> {
     if (projectIds.length > 50) {
       throw new BadRequestException(`projectIds ${projectIds.length} 超限批 50（worker 单 scope 调用恒 1 项——purgeScope 内部端点容量防护）`);
     }
     if (!deps.docs.isLeaseServing()) {
       throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'purgeScope 端点非 serving（lease 未持有）——fail-closed 调用方本轮暂停' });
     }
-    let purgedSegments = 0;
-    for (const pid of projectIds) {
-      // ① 内存面：dedup 索引/水位三元/walSeq 计数器/世代登记（DB 行已删——这些键永不自愈=必须显式清）
-      this.dedupClearProject(pid);
-      this.watermarks.delete(pid);
-      this.walSeqCounters.delete(pid);
-      this.projectGeneration.delete(pid);
-      // ② 段文件面：全目录枚举按段名归属过滤（own+foreign+隔离 sidecar 一并——CanvasDoc 行已删，
-      //    段内容=用户数据残留；unlink 失败上抛=端点 500→worker fail-closed 本轮暂停下轮重试）
-      for (const f of await listSpoolFiles(this.dir)) {
-        const parsed = parseSegFileName(f.name);
-        if (parsed == null || parsed.projectId !== pid) continue;
-        const path = join(f.dir, f.name);
-        await unlink(path);
-        await unlink(`${path}.quarantine`).catch(() => undefined);   // 隔离 sidecar 同收
-        purgedSegments += 1;
-      }
-      // ③ 内存索引：段元数据整键删（unlink 后记账清——对外键集 hasFrames 即 false）
-      this.index.delete(pid);
-      // ④ 快照缓存 evict（CollabDocumentService.snapshotCache——进程内跨请求 30s 面）
-      deps.docs.invalidateSnapshotCache(pid);
+    // purgeable 唯一删除判据须 live 复检（load 快照在 load 时行必在——不能读快照）
+    const live = await deps.erasure.listPurgeableProjectIdsLive(projectIds);
+    const missingProjectIds = projectIds.filter((p) => !live.has(p));
+    if (missingProjectIds.length > 0) {
+      throw new BadRequestException({ code: 'PROJECT_NOT_PURGEABLE', missingProjectIds });
     }
-    return { purgedSegments };
+    const markedProjectIds = [...projectIds];
+    for (const pid of markedProjectIds) deps.erasure.mark(pid, 'ERASED');   // mark 先于 chain（链内断言依赖）
+    let purgedSegments = 0;
+    try {
+      for (const pid of markedProjectIds) {
+        // ①②③ 整段入 per-project 链（drop 后口径同 sweep）；④缓存 evict 链外
+        purgedSegments += await this.chainWalIo(pid, () => this.dropSpoolProjectState(pid, { unlinkFiles: true }));
+        deps.docs.invalidateSnapshotCache(pid);
+      }
+    } catch (e) {
+      Object.assign(e as object, { markedProjectIds });   // mark 后失败——已 mark 集随错误上抛（仍 emit）
+      throw e;
+    }
+    this.recomputeCapacityAfterDrop();
+    return { purgedSegments, markedProjectIds };
+  }
+
+  /** TD-33/C1b T14：boot load 后 purgeable 残段幂等 sweep（顺序 load→sweep→recoverScan；无文件即
+   *  no-op）。drop 前先 mark('ERASED')（restore-reerase 无事件路径的 in-flight append 幽灵段窗闭合）
+   *  + `purgeable⊆blocked` 断言失败 fail-closed 不 drop 只计数；失败不挡 listen（下轮重试）。 */
+  async sweepPurgeableSpoolOnLoad(): Promise<void> {
+    const guard = this.erasureGuard;
+    const purgeable = guard?.listPurgeableProjectIds?.() ?? [];
+    if (purgeable.length === 0) return;
+    const byPid = new Map<string, number>();
+    for (const f of await listSpoolFiles(this.dir).catch(() => [])) {
+      const pid = parseSegFileName(f.name)?.projectId;
+      if (!pid) continue;
+      byPid.set(pid, (byPid.get(pid) ?? 0) + 1);
+    }
+    let dropped = 0;
+    for (const pid of purgeable) {
+      if (!byPid.has(pid)) continue;   // O(1) skip（盘上无文件）
+      guard?.mark?.(pid, 'ERASED');
+      if (guard && guard.isBlocked(pid) === undefined) {
+        purgeSweepFailuresTotal.inc();
+        this.logger.error(`spool sweep purgeable⊆blocked 断言失败（${pid}）——fail-closed 不 drop`);
+        continue;
+      }
+      try {
+        await this.chainWalIo(pid, () => this.dropSpoolProjectState(pid, { unlinkFiles: true }));
+        dropped += 1;
+      } catch (e) {
+        purgeSweepFailuresTotal.inc();
+        this.logger.error(`spool sweep drop failed for ${pid}（下轮重试）: ${(e as Error).message}`);
+      }
+    }
+    if (dropped > 0) this.recomputeCapacityAfterDrop();
+  }
+
+  /** TD-33/C1b T14：serving 期 60s live sweep——候选=盘上有文件的 pid，live 批量判 purgeable（不读
+   *  快照）；drop 前先 mark+`purgeable⊆blocked` 断言（失败 fail-closed 不 drop 只计数）；query/清理
+   *  失败计 `purge_sweep_failures_total` 不抛（下轮重试）。 */
+  async sweepPurgeableSpoolLive(src: SpoolErasureSource): Promise<void> {
+    const files = await listSpoolFiles(this.dir).catch(() => [] as Array<{ dir: string; name: string }>);
+    const candidates = new Set<string>();
+    for (const f of files) {
+      const pid = parseSegFileName(f.name)?.projectId;
+      if (pid) candidates.add(pid);
+    }
+    if (candidates.size === 0) return;
+    let purgeable: Set<string>;
+    try {
+      purgeable = await src.listPurgeableProjectIdsLive([...candidates]);
+    } catch (e) {
+      purgeSweepFailuresTotal.inc();
+      this.logger.error(`spool sweep live query failed（下轮重试）: ${(e as Error).message}`);
+      return;
+    }
+    let bytes = 0;
+    for (const f of files) {
+      if (!purgeable.has(parseSegFileName(f.name)?.projectId ?? '')) continue;
+      bytes += (await stat(join(f.dir, f.name)).catch(() => null))?.size ?? 0;
+    }
+    purgeableSpoolBytes.set(bytes);
+    let dropped = 0;
+    for (const pid of purgeable) {
+      src.mark(pid, 'ERASED');
+      if (src.isBlocked(pid) === undefined) {
+        purgeSweepFailuresTotal.inc();
+        this.logger.error(`spool sweep purgeable⊆blocked 断言失败（${pid}）——fail-closed 不 drop`);
+        continue;
+      }
+      try {
+        await this.chainWalIo(pid, () => this.dropSpoolProjectState(pid, { unlinkFiles: true }));
+        dropped += 1;
+      } catch (e) {
+        purgeSweepFailuresTotal.inc();
+        this.logger.error(`spool sweep drop failed for ${pid}（下轮重试）: ${(e as Error).message}`);
+      }
+    }
+    if (dropped > 0) this.recomputeCapacityAfterDrop();
+  }
+
+  /** TD-33/C1b T14：项目 spool 全状态清理单源（purge 端点与 boot sweep 共用）——段+sidecar 扫盘为准
+   *  （boot 时 index 为空）+内存账目族。unlinkFiles=false=sweep 只清账目（无文件 no-op 档）。 */
+  private async dropSpoolProjectState(projectId: string, opts: { unlinkFiles: boolean }): Promise<number> {
+    let unlinked = 0;
+    if (opts.unlinkFiles) {
+      for (const f of await listSpoolFiles(this.dir).catch(() => [])) {
+        if (parseSegFileName(f.name)?.projectId !== projectId) continue;
+        const path = join(f.dir, f.name);
+        await this.unlinkIfExists(path);
+        await this.unlinkIfExists(`${path}.quarantine`);
+        unlinked += 1;
+      }
+    }
+    this.dedupClearProject(projectId);
+    this.watermarks.delete(projectId);
+    this.walSeqCounters.delete(projectId);
+    this.projectGeneration.delete(projectId);
+    this.index.delete(projectId);
+    return unlinked;
+  }
+
+  private async unlinkIfExists(path: string): Promise<void> {
+    try { await unlink(path); } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;   // ENOENT 吞其余抛
+    }
+  }
+
+  private recomputeCapacityAfterDrop(): void {
+    if (!this.overCapacityFlag) return;
+    if (this.depthTotalBytes(this.depth()) <= this.capacityBytes * 0.9) {
+      this.overCapacityFlag = false;
+      this.logger.log('spool capacity recovered（drop 后自评）');
+      try { this.onRecovered?.(); } catch { /* seam 同 confirm 自评 */ }
+    }
   }
 
   // ── C4-c1（生产就绪收尾批·project-erasure）：collectMediaRefs 内部端点 service 面 ──────────────

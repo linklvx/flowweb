@@ -8,6 +8,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -30,7 +31,7 @@ function buildGateway(opts: { lease?: ReturnType<typeof createLeaseStub> } = {})
   const repo = createMockRepo();
   const lease = opts.lease ?? createLeaseStub();
   const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'), resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }) };
-  const spool = new CollabSpoolService(spoolDir.dir);
+  const spool = spoolForTest(spoolDir.dir);
   spool.setOwner('t9-owner');
   const eventEmitter = new EventEmitter2();
   const gateway = new CollabGateway(
@@ -178,7 +179,7 @@ function buildGatewayWithGen(generation: number) {
   const repo = createMockRepo({ loadForHydration: vi.fn(async () => ({ state: null, updates: [], stateSeq: 0n, generation })) });
   const lease = createLeaseStub();
   const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'), resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }) };
-  const spool = new CollabSpoolService(spoolDir.dir);
+  const spool = spoolForTest(spoolDir.dir);
   spool.setOwner('t9-owner');
   const gateway = new CollabGateway(prisma as any, new EventEmitter2() as any, repo as any, lease as any, perm as any, 49000 + Math.floor(Math.random() * 1000), undefined, undefined, undefined, spool);
   gatewayFacade(gateway).forceCollabState('serving');

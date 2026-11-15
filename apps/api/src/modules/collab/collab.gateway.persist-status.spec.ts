@@ -9,6 +9,7 @@ import { register } from 'prom-client';
 import * as Y from 'yjs';
 import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import {
   CLIENT_PROTOCOL_VERSION, type DocLike, type DocMapLike, type TextLike } from '@flowweb/shared';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -56,7 +57,7 @@ function buildGateway() {
     appendBatch: vi.fn(async (_pid: string, rows: ReadonlyArray<{ update: Uint8Array }> = []) => ({ ok: true as const, rows: rows.length })),
   });
   const lease = createLeaseStub();   // Y0a-3 T5：租约 stub（isServing 恒 true）
-  const spool = new CollabSpoolService(spoolDir);   // 同一实例注入 gateway——peek 才看得见 gateway 写入的帧
+  const spool = spoolForTest(spoolDir);   // 同一实例注入 gateway——peek 才看得见 gateway 写入的帧
   spool.setOwner('test-owner');                     // R3：写路径必先 setOwner（Z13 fail-closed）
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, lease as any,

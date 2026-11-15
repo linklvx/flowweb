@@ -42,7 +42,14 @@ export class ProjectPermissionService {
   async lifecycleStateOf(projectId: string): Promise<string | null> {
     const rows = await this.prisma.$queryRaw<{ lifecycleState: string | null }[]>`
       SELECT "lifecycleState" FROM "CanvasProject" WHERE "id" = ${projectId}::text`;
-    return rows[0]?.lifecycleState ?? null;
+    if (rows[0]?.lifecycleState) return rows[0].lifecycleState;
+    // TD-33/C1b T14：行已删——ProjectErasureRun（project scope∧非 dry-run）存在⇒'DELETING'（session-guard
+    // 既有 4414 分支对已删行项目的重连生效；否则 404）
+    const run = await this.prisma.projectErasureRun.findFirst({
+      where: { scopeType: 'project', scopeId: projectId, dryRun: false },
+      select: { erasureId: true },
+    });
+    return run ? 'DELETING' : null;
   }
 
   /** ≥ EDITOR 校验（执行等写操作，spec 全局约定） */

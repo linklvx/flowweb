@@ -75,10 +75,10 @@ test('SIZE_LIMITS：恰十七文件（gateway B3 实测终标+SG/DR/persistence 
 });
 
 test('SIZE_LIMITS 锚值=B3 出口终标（gateway=实测重标〔偏离 65 兑现——plan ≤600 字面为防倒退锚非可达值〕；SG 1238/DR 1082=任务卡钉死值；persistence T14 实测重标 950→1037）+CI 修复批三新文件（T10 实测+1.3 余量：limits 42→55/budget 119→155/heartbeat 31→40）', () => {
-  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab.gateway.ts'], 1162);   // …→Y1c T24 1103→Y1c T27 1144→T27 收口 1150（boot replayAll 重派生接线 +6——净增面非膨胀，锚=实测同批）→C3a-8 修复批 1162（+1：C1 sink 申报道透传注释）
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab.gateway.ts'], 1225);   // …→Y1c T24 1103→Y1c T27 1144→T27 收口 1150（boot replayAll 重派生接线 +6——净增面非膨胀，锚=实测同批）→C3a-8 修复批 1162（+1：C1 sink 申报道透传注释）→TD-33/C1b T14 1225（+63：boot 链+代际终检+listener 后置失败关闭+双 timer 接线；Bootstrapper 归 Y2——显式例外，锚=实测同批）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-session-guard.service.ts'], 1414);   // T25 收口 +13→T30b 演练 1405（+34：P-2 反查双轨〔sec-websocket-key 键控台账+headerOf 双形态读取——T24 close 帧 live 投递断链修复，净增面非膨胀〕）→provider 4.8.0 升级批 1414（+9：removedClients 直通面归属判定〔forged-remove〕——净增面非膨胀）   // …→T12 1298→T22 收口批补账 1304→Y1c T24 1348（版本门 4406 terminal close 投递 closeUpgradeTerminal +44——净增面非膨胀，锚=实测同批）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-doc-registry.service.ts'], 1162);   // T25 收口 +5（serverRestoredForm 方向标记）   // …→复核残留 1144→T22 收口批补账 1150（T26 三轮 loadPgSeq 装载缝 +6——净增面非膨胀，锚=实测同批）
-  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-persistence.service.ts'], 1215);   // …→T12 1091→T22 收口批补账 1105→Y1c T24 1123（origin 枚举计数 doc_update_origin_total +18——净增面非膨胀，锚=实测同批）→C3a-8 1160（+14：bindingRecoveryFace setter+reconciler 两钩）→C3a-8 修复批 1200（+40：C1 importPending/维护申报未覆盖/settle 入队/回退闭包）→复审 1211（+11：settle spool 清空门+replay onReplayed 清标记——恢复链假覆盖收口）→质量收口 1215（+4：settle 次序 I-1）
+  assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-persistence.service.ts'], 1242);   // …→T12 1091→T22 收口批补账 1105→Y1c T24 1123（origin 枚举计数 doc_update_origin_total +18——净增面非膨胀，锚=实测同批）→C3a-8 1160（+14：bindingRecoveryFace setter+reconciler 两钩）→C3a-8 修复批 1200（+40：C1 importPending/维护申报未覆盖/settle 入队/回退闭包）→复审 1211（+11：settle spool 清空门+replay onReplayed 清标记——恢复链假覆盖收口）→质量收口 1215（+4：settle 次序 I-1）→TD-33/C1b T13/T14 1242（+27：终态短路/blocked 先判/helper 接线——锚=实测同批）
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-limits.ts'], 55);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-outbound-budget.ts'], 155);
   assert.equal(SIZE_LIMITS['apps/api/src/modules/collab/collab-heartbeat.ts'], 42);   // …40→T22 收口批补账 42（enricher 钩 +2——净增面非膨胀，锚=实测同批）

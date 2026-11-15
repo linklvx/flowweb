@@ -21,6 +21,7 @@ import type { Logger } from '@nestjs/common';
 import { FrameEffectsCollector, type BindingDelta } from './collab-project-actor.service';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 
@@ -187,7 +188,7 @@ function makeConn() {
 }
 
 function buildActor(doc: Y.Doc, pid = 'p1') {
-  const spool = new CollabSpoolService(spoolDir.dir);
+  const spool = spoolForTest(spoolDir.dir);
   spool.setOwner('c3a3-owner');
   spool.setWalHistory('c3a3-history');
   const repo = createMockRepo();

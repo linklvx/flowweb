@@ -27,6 +27,7 @@ import { RuntimeFeedService } from '../collab/runtime-feed.service';
 import { CollabLifecycleObserverService } from '../collab/collab-lifecycle-observer.service';
 import { CollabLeaseService } from '../collab/collab-lease.service';
 import { CollabSpoolService } from '../collab/collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CanvasDocUpdateRepository } from '../collab/canvas-doc-update.repository';
 import { collabFlushDocumentOutcomeTotal } from '../collab/store.metrics';
 import { ProjectionOutboxPoller, PROJECTION_MAX_ATTEMPTS } from './projection-outbox.poller';
@@ -138,7 +139,7 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     // int 纪律本要求各文件自清，此扫为确定性兜底（无 FK 不能靠 cascade）。
     await prisma.artifactProjection.deleteMany({ where: { state: { in: ['pending', 'projecting'] } } }).catch(() => {});
     spoolDir = await mkdtemp(join(tmpdir(), 't15-proj-int-'));
-    const spool = new CollabSpoolService(spoolDir);
+    const spool = spoolForTest(spoolDir);
     const perm = {
       resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
       resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 'y0a-fixture-team' }),

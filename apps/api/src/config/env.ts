@@ -160,6 +160,7 @@ export const envSchema = z.object({
   COLLAB_XML_URL_HOSTS: z.preprocess(blankToUnset, z.string().min(1).optional()),
   COLLAB_PORT: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COLLAB_DEBOUNCE: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
+  COLLAB_ERASURE_REFRESH_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),   // TD-33/C1b T14：registry refresh 周期（缺省 10s/上限 60s）
   COLLAB_TIMEOUT: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   COMPACT_INTERVAL_MS: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   // C1-1（生产就绪收尾批）：retention sweeper worker 轮询周期——zod 只验形态不写 default（默认值落

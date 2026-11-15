@@ -10,6 +10,7 @@ import { PrismaClient } from '@prisma/client';
 import * as Y from 'yjs';
 import { CollabProjectActorService, type FrameRejectError } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { EmptyErasureSource } from '../../test-utils/erasure-fixtures';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -48,6 +49,7 @@ class FaultRepo extends CanvasDocUpdateRepository {
 /** confirm 静默（kill -9 等价：PG 已提交但内存水位/confirm 未更新即崩）。 */
 class NoConfirmSpool extends CollabSpoolService {
   skipConfirm = false;
+  constructor(d?: string) { super(d); this.setErasureSource(new EmptyErasureSource()); }
   async confirm(projectId: string, frameIds: string[]): Promise<void> {
     if (this.skipConfirm) return;   // 模拟：CAS 提交后、confirm 前进程死——段不回收+水位不推
     return super.confirm(projectId, frameIds);

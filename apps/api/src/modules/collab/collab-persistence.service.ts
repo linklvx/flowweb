@@ -14,6 +14,7 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { isFkGone } from './pg-error.util';
+import { isProjectErasedError } from './collab-erased-error';
 import { isGateApplyOrigin, classifyDocUpdateOrigin } from '@flowweb/shared';
 import { parseDocName, projectDocName } from './doc-name.util';
 import { captureCollabException } from '../../utils/sentry-scrub';
@@ -340,6 +341,15 @@ export class CollabPersistenceService {
         // sink 失败分档（旧链终态族语义承继——帧已 WAL 落定者由 spool 未 confirm 帧承载，队列留存
         // 双保险：重发幂等〔spool 去重命中原 walSeq 行〕；未落定前缀同理留队）
         const err = e2 as { fenced?: boolean; leaseRowMissing?: boolean; leaseNotHeld?: boolean; pgPending?: boolean; pgBreakerOpen?: boolean; fk?: boolean };
+        if (isProjectErasedError(e2)) {
+          // TD-33/C1b T13：终态族（ERASING/ERASED/4414/restore-pending）——批丢弃+项目终态登记，
+          // 不排退避梯（v15：段留 purge 删除——blocked 收割不 confirm）
+          queue.splice(0, n);
+          this.leaveInFlight(projectId);
+          this.onProjectGone(projectId);
+          this.host.logger.warn(`maintenance sink hit erasure terminal for ${projectId}——batch discarded（终态族不排梯）`);
+          return false;
+        }
         if (err.fk || isFkGone(e2)) {
           // V6/T14：FK=项目已删写路径发现点——丢弃+终态集登记（spool 段收割归 replayAll 同判）
           queue.splice(0, n);
@@ -610,6 +620,7 @@ export class CollabPersistenceService {
       if (!r.ok) throw Object.assign(new Error('maintenance fallback fenced'), { fenced: true, pgPending: true });
       this.pgBreaker.recordSuccess();
     } catch (err) {
+      if (isProjectErasedError(err)) throw err;   // TD-33/C1b T13：终态族直抛（不折 pgPending——调用方终态短路）
       if (!(err as { pgBreakerOpen?: boolean })?.pgBreakerOpen && !(err as { fenced?: boolean })?.fenced) {
         this.pgBreaker.recordFailure(err);   // PG 健康样本（连接族推闸）
       }
@@ -920,6 +931,14 @@ export class CollabPersistenceService {
       this.cancelPersistRetry(documentName);
       this.setPersistStatus(documentName, true);
     } catch (err) {
+      // TD-33/C1b T13：终态族 4414/blocked——只 cancel/停梯，不 confirm（v15：段留 purge 删除——
+      // ERASING 未落 PG 帧不得被收割丢弃）
+      if (isProjectErasedError(err)) {
+        this.cancelPersistRetry(documentName);
+        this.setPersistStatus(documentName, false);
+        this.host.logger.warn(`persist retry hit erasure terminal for ${projectId}——stop ladder（终态族不重试）`);
+        return;
+      }
       entry.rung += 1;
       // Y0a-2：退避无上限（60s 封顶循环）——"耗尽"分支删除；批的归属地（队列/spool）不变，梯子永续
       //（下次 load 回灌/启动回灌仍为兜底——R1 拒绝理由由此自洽：回灌失败项目经退避梯运行期自愈）
@@ -1016,6 +1035,13 @@ export class CollabPersistenceService {
       }
     } catch (e2) {
       const err = e2 as { pgPending?: boolean; fk?: boolean };
+      if (isProjectErasedError(e2)) {
+        // TD-33/C1b T13：flush 面终态族——整批丢弃+项目终态登记（不 confirm；终态族不重试）
+        queue.splice(0, n);
+        this.onProjectGone(projectId);
+        this.host.logger.warn(`flush hit erasure terminal for ${projectId}——batch discarded（段留 purge）`);
+        return true;
+      }
       // Y1c T9：WAL 已 fsync 而 PG 未落定（帧未 confirm）——磁盘安全=交接成立（旧「spool 可用⇒true」
       // 语义承继；PG 归退避梯）。WAL 未落定 ⇒ 批留队列（BOI 归属地不变）。
       if (!err.pgPending) return false;
@@ -1180,7 +1206,8 @@ export class CollabPersistenceService {
     this.deletedProjects.add(projectId);
     this.importPending.delete(projectId);                        // C3a-8 C1：终态项目零恢复入队（标记随清防滞留）
     this.cancelPersistRetry(`project:${projectId}`);            // 定时器随清
-    if (this.spool.hasFrames(projectId)) this.schedulePersistRetry(`project:${projectId}`);   // Z11①（TD-28 修复：与 :918 cancel 同键——裸 pid 会被 retryPersist 的 parseDocName 折空串→探空即 cancel，收割梯空转退化为启动回灌兜底）
+    // TD-33/C1b T13：blocked 判定先于 hasFrames 排梯（擦除项目段留 purge 删除——收割梯不得再排）
+    if (!this.spool.isEraseBlocked(projectId) && this.spool.hasFrames(projectId)) this.schedulePersistRetry(`project:${projectId}`);   // Z11①（TD-28 修复：与 :918 cancel 同键——裸 pid 会被 retryPersist 的 parseDocName 折空串→探空即 cancel，收割梯空转退化为启动回灌兜底）
     this.lastCompactAt.delete(projectId);                       // 卸载清理的第二入口（Task 7 钩子为第一入口）
     this.persistUnhealthy.delete(`project:${projectId}`);       // 陈旧电平（重连会补推失效横幅）
     this.discardForGoneProject(projectId);   // X1：显式清队列+点名

@@ -19,6 +19,7 @@ import * as Y from 'yjs';
 import { projectBindings, BindingProjectionFailedError } from './media-binding-projector';
 import { ensureProjectFixture, cleanupProjectFixture, FIXTURE_TEAM, FIXTURE_USER } from '../../test-utils/db-fixtures';
 import type { MediaRef, MediaRefTargetField } from '@flowweb/shared';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 
 const hasDb = !!process.env.DATABASE_URL;
 const maybe = hasDb ? describe : describe.skip;
@@ -200,7 +201,7 @@ maybe('C3a-5：MediaBindingProjector 四族（真 PG）', () => {
     try {
       const repo = new CanvasDocUpdateRepository(prisma as never);
       await ensureLeaseFixture(prisma, repo);
-      const spool = new CollabSpoolService(dir.dir);
+      const spool = spoolForTest(dir.dir);
       spool.setOwner('c3a5-asm-owner');
       spool.setWalHistory('c3a5-asm-history');
       const doc = new Y.Doc();

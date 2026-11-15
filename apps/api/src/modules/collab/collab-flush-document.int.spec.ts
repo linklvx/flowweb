@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import {
   CollabPersistenceService,
   type CollabPersistenceHost, type PersistenceDocument,
@@ -63,7 +64,7 @@ d('T14 flushDocument 真库（五分支+epoch 易主两态+fk）', () => {
   });
 
   beforeEach(async () => {
-    spool = new CollabSpoolService(dir);
+    spool = spoolForTest(dir);
     isolated = false;
     docs = new Map([[NAME1, makeDoc()], [NAME2, makeDoc()]]);
     svc = new CollabPersistenceService(repo as never, spool);

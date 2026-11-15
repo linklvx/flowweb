@@ -14,6 +14,7 @@ export interface LeaseStub {
   release: ReturnType<typeof vi.fn>;
   halt: ReturnType<typeof vi.fn>;
   diag: ReturnType<typeof vi.fn>;
+  currentEpoch: ReturnType<typeof vi.fn>;   // TD-33/C1b T14：init 代际终检读面
   onAcquired?: () => void | Promise<void>;
   onLost?: (cause: string) => void;
 }
@@ -33,6 +34,7 @@ export function createLeaseStub(
     release: vi.fn(async () => {}),
     halt: vi.fn(() => {}),
     diag: vi.fn(async () => ({ state: 'held', owner: 'stub-owner-1', holder: 'stub-owner-1', epoch: '1', renewedAt: new Date(), statementFailed: false })),
+    currentEpoch: vi.fn(() => 1n),
     ...over,
   };
   return stub;

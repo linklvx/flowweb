@@ -16,6 +16,7 @@ import * as Sentry from '@sentry/nestjs';
 import { CollabGateway } from './collab.gateway';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
@@ -49,7 +50,7 @@ function buildGateway(repoOver: Partial<MockRepo> = {}) {
   const repo = createMockRepo(repoOver);
   const lease = createLeaseStub();
   const perm = new ProjectPermissionService(prisma as any);
-  const spool = new CollabSpoolService(spoolDir);
+  const spool = spoolForTest(spoolDir);
   spool.setOwner('test-owner');
   const gateway = new CollabGateway(
     prisma as any, new EventEmitter2() as any, repo as any, lease as any,
@@ -140,7 +141,7 @@ describe('T11 lease/spool/repo 扩展 catch → captureException', () => {
       $queryRaw: query,
       $transaction: vi.fn(async (fn: any) => fn({ $queryRaw: query, $executeRaw: vi.fn().mockResolvedValue(0) })),
     };
-    const badSpool = new CollabSpoolService(spoolDir);
+    const badSpool = spoolForTest(spoolDir);
     vi.spyOn(badSpool, 'setOwner').mockImplementation(() => { throw new Error('owner 非法'); });
     const svc = new CollabLeaseService(prisma as any, { setLeaseOwner: vi.fn() } as any, badSpool);
     await expect(svc.tryAcquireFast()).rejects.toThrow('owner 非法');
@@ -154,7 +155,7 @@ describe('T11 lease/spool/repo 扩展 catch → captureException', () => {
     try {
       const fileAsDir = join(tmp, 'not-a-dir');   // 常规文件占位目录路径 → mkdir(adir) ENOTDIR
       writeFileSync(fileAsDir, 'x');
-      const spool = new CollabSpoolService(fileAsDir);
+      const spool = spoolForTest(fileAsDir);
       spool.setOwner('o1');
       await expect(spool.append('proj-s1', new Uint8Array([1, 2]))).rejects.toThrow();
       expect(Sentry.captureException).toHaveBeenCalledWith(expect.any(Error), {

@@ -64,3 +64,32 @@ describe('resolveProjectRole（spec 1.2 三级解析链）', () => {
     });
   });
 });
+
+describe('TD-33 C1b T14：lifecycleStateOf 行删回退（erasure run→DELETING）', () => {
+  const mk = (rows: unknown[], run: unknown) => {
+    const p = {
+      $queryRaw: vi.fn(async () => rows),
+      projectErasureRun: { findFirst: vi.fn(async () => run) },
+    };
+    return { p, s: new ProjectPermissionService(p as unknown as PrismaService) };
+  };
+
+  it('行在→返回列值（原语义）', async () => {
+    const { p, s } = mk([{ lifecycleState: 'DELETING' }], null);
+    await expect(s.lifecycleStateOf('p1')).resolves.toBe('DELETING');
+    expect(p.projectErasureRun.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('行已删∧run（project∧dryRun=false）存在→DELETING（重连走 4414 而非 404）', async () => {
+    const { p, s } = mk([], { erasureId: 'e1' });
+    await expect(s.lifecycleStateOf('p1')).resolves.toBe('DELETING');
+    expect(p.projectErasureRun.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { scopeType: 'project', scopeId: 'p1', dryRun: false },
+    }));
+  });
+
+  it('行已删∧无 run→null（真缺失→404 档）', async () => {
+    const { s } = mk([], null);
+    await expect(s.lifecycleStateOf('p1')).resolves.toBeNull();
+  });
+});

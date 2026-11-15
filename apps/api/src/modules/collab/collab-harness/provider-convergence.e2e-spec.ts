@@ -62,6 +62,7 @@ import { RuntimeFeedService } from '../runtime-feed.service';
 import { CollabLifecycleObserverService } from '../collab-lifecycle-observer.service';
 import { CollabLeaseService } from '../collab-lease.service';
 import { CollabSpoolService } from '../collab-spool.service';
+import { spoolForTest } from '../../../test-utils/erasure-fixtures';
 import { CanvasDocUpdateRepository } from '../canvas-doc-update.repository';
 import { ProjectPermissionService } from '../../team/project-permission.service';
 import { SessionService } from '../../../auth/session.service';
@@ -201,7 +202,7 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     await restoreLeaseRow(prisma as any);
     await prisma.artifactProjection.deleteMany({ where: { state: { in: ['pending', 'projecting'] } } }).catch(() => {});
     spoolDir = await mkdtemp(join(tmpdir(), 't19-e2e-'));
-    const spool = new CollabSpoolService(spoolDir);
+    const spool = spoolForTest(spoolDir);
     const perm = new ProjectPermissionService(prisma as any);
     serverPort = 20000 + Math.floor(Math.random() * 20000);
     emitter = new EventEmitter2();

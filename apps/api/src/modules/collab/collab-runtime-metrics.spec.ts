@@ -18,6 +18,7 @@ import {
 } from './store.metrics';
 import { collabExecProjectionFailedTotal } from '../execution/exec.metrics';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -38,7 +39,7 @@ afterEach(async () => { await spoolCleanup(); vi.restoreAllMocks(); });
 function buildGateway(hydration?: { state: Buffer | null; updates: Buffer[] }) {
   const repo = createMockRepo();
   if (hydration) repo.hydrateWithRecovery.mockResolvedValue({ ...hydration, stateSeq: 0n });
-  const spool = new CollabSpoolService(spoolDir);
+  const spool = spoolForTest(spoolDir);
   spool.setOwner('t0-owner');
   const gateway = new CollabGateway(
     {} as any, new EventEmitter2() as any, repo as any, createLeaseStub() as any,

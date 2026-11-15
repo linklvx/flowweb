@@ -406,10 +406,13 @@ export async function executePurgingDbStage(deps: PurgingDbStageDeps): Promise<P
     const union = unionManifestRows(manifest, live);
     if (union.grew || run.manifestSha256 !== manifest.footer.sha256) {
       const spoolDir = deps.spoolDir ?? collabSpoolDir();
+      // TD-33/C1b T14：spoolSegs 单调保留（spool 清理时点前移后 PURGING_DB 重试窗内段可能已清——
+      // 重写取 旧值∪新采集，只增不减；审计证据链缺口不因清理时点产生）
+      const spoolSegs = [...new Map([...manifest.spool, ...(await collectSpoolSegments(spoolDir, [pid]))].map((s) => [`${s.dir}/${s.name}`, s])).values()];
       const rewritten = await writeErasureManifest({
         erasureId: run.erasureId, scopeType: 'project', scopeId: pid, projectIds: [pid],
         requestedAt: run.requestedAt, mediaRows: union.media, workRows: union.work,
-        spoolSegs: await collectSpoolSegments(spoolDir, [pid]),
+        spoolSegs,
       }, manifestDir);
       await prisma.projectErasureRun.update({ where: { erasureId: run.erasureId }, data: { manifestSha256: rewritten.manifestSha256 } });
       logger.log(JSON.stringify({ event: 'erasure_manifest_union', erasureId: run.erasureId, projectId: pid, media: union.media.length, work: union.work.length, grew: union.grew }));

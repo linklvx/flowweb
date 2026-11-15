@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest, EmptyErasureSource } from '../../test-utils/erasure-fixtures';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -115,7 +116,7 @@ maybe('Y1c T13 G6a 实弹（真 PG+真 spool+真 actor 管线——boot 生产�
     const hist = await historyState(p);
     const floors = await r.pgSeqFloors();
     const pgSeqOf = new Map(floors.map((f) => [f.projectId, f.pgSeq] as const));
-    const s = new CollabSpoolService(spoolDirPath);
+    const s = spoolForTest(spoolDirPath);
     s.setOwner('t13-owner');
     const evaluateTimestampFence = await s.restoreLockPresent();
     const report = await s.recoverScan({
@@ -147,7 +148,7 @@ maybe('Y1c T13 G6a 实弹（真 PG+真 spool+真 actor 管线——boot 生产�
     const prev = cleanupSpool;
     cleanupSpool = d.cleanup;
     await prev();
-    spool = new CollabSpoolService(spoolDirPath);
+    spool = spoolForTest(spoolDirPath);
     spool.setOwner('t13-owner');
     spool.setWalHistory(savedHistoryId);
     actor = buildActor();
@@ -166,6 +167,7 @@ maybe('Y1c T13 G6a 实弹（真 PG+真 spool+真 actor 管线——boot 生产�
     // NoConfirm seam（T10 g2 R4 同形态）：PG CAS 落定但 confirm 静默（kill -9 等价）——段留盘
     //（全 confirm 段会即时回收=目录空；「忘 bump 场景段在」是恢复拦截的物理前提）。
     class NoConfirmSpool extends CollabSpoolService {
+      constructor(d?: string) { super(d); this.setErasureSource(new EmptyErasureSource()); }
       override async confirm(): Promise<void> { /* kill -9：内存 confirm 未达 */ }
     }
     const ncSpool = new NoConfirmSpool(spoolDirPath);
@@ -215,6 +217,7 @@ maybe('Y1c T13 G6a 实弹（真 PG+真 spool+真 actor 管线——boot 生产�
   it('I2 忘 bump+restore.lock 实弹（F-S4-5 定形面）：historyId 未 bump+marker 在位→时间戳栅栏求值→recoverySuspect 零重放+fail-closed；清 marker（恢复流处置）→正常恢复开放', async () => {
     const pid = PIDS[0]!;
     class NoConfirmSpool extends CollabSpoolService {
+      constructor(d?: string) { super(d); this.setErasureSource(new EmptyErasureSource()); }
       override async confirm(): Promise<void> { /* kill -9：内存 confirm 未达（段留盘） */ }
     }
     const ncSpool = new NoConfirmSpool(spoolDirPath);

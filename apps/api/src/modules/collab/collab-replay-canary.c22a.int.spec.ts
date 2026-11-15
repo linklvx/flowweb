@@ -23,6 +23,7 @@ import * as Y from 'yjs';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { captureCanaryPin, CANARY_PIN_TTL_MS, writeCanaryCursor, CANARY_HASH_VERSION } from './collab-replay-canary.service';
 import { semanticDocDigest } from './collab-canary-semantic';
 import { CollabReplayCanaryPoller } from './collab-replay-canary.poller';
@@ -80,7 +81,7 @@ maybe('C2-2a canary 捕获面（真 PG——红④⑤+捕获协议+poller）', (
     await spoolCleanup();
     const dir = await makeSpoolDir('c22a-spool-');
     spoolCleanup = dir.cleanup;
-    spool = new CollabSpoolService(dir.dir);
+    spool = spoolForTest(dir.dir);
     spool.setOwner('c22a-owner');
     await ensureLeaseFixture(prisma, repo, 'c22a-owner');
     doc = new Y.Doc();

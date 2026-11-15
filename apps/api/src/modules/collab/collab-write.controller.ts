@@ -13,10 +13,11 @@
 //    守卫的通道级前置；〔loading/skipped/error〕=claim 期在案面合法）。
 // dev 未设 WORKER_WRITE_TOKEN=fail-open（guard 同款）；production 未设=进程拒启（env.ts 单点）。
 // AuthGuard 会话面由 auth.guard 精确谓词放行 POST exec-status（静态路径全等）。
-import { BadRequestException, Body, Controller, ForbiddenException, Inject, Post, UseGuards, Headers } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Inject, Optional, Post, UseGuards, Headers, Logger } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { UsePipes, ValidationPipe } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { NoTransform } from '../../common/decorators/no-transform.decorator';
 import { CollabDocumentService } from './collab-document.service';
 import { CollabSpoolService } from './collab-spool.service';
@@ -24,6 +25,7 @@ import { CollectMediaRefsDto } from './dto/collect-media-refs.dto';
 import { PurgeScopeDto } from './dto/purge-scope.dto';
 import { DeletionBarrierDto } from './dto/deletion-barrier.dto';
 import { DeletionBarrierService } from './deletion-barrier.service';
+import { CollabErasureRegistryService } from './collab-erasure-registry.service';
 import { mapPrepareToWire } from './deletion-barrier.port';
 import { WorkerWriteAuthGuard } from './worker-write-auth.guard';
 import { verifyWorkerScopeToken, WORKER_SCOPE_HEADER, type WorkerScopePayload } from './worker-scope-token';
@@ -35,11 +37,14 @@ const WORKER_EXEC_DONE_FORBIDDEN = new Set<string>(['done']);
 @SkipThrottle()   // worker 内部通道不吃共享 300/min 桶（/api/ready、读端点同惯例）
 @Controller('api/collab/doc')
 export class CollabWriteController {
+  private readonly logger = new Logger(CollabWriteController.name);
   constructor(
     @Inject(CollabDocumentService) private readonly docs: CollabDocumentService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(CollabSpoolService) private readonly spool: CollabSpoolService,
     @Inject(DeletionBarrierService) private readonly deletionBarrier: DeletionBarrierService,
+    @Inject(CollabErasureRegistryService) private readonly erasure: CollabErasureRegistryService,   // TD-33/C1b T14：purge 复检+mark（live）
+    @Optional() @Inject(EventEmitter2) private readonly events?: EventEmitter2,   // TD-33/C1b T13：purge emit project.gone（finally 仅 marked）
   ) {}
 
   /** C4-c1（plan C4——project-erasure）：未 reconcile 引用采集端点（erasure worker PURGING_DB
@@ -70,7 +75,20 @@ export class CollabWriteController {
   @UsePipes(new ValidationPipe({ whitelist: true }))
   @UseGuards(WorkerWriteAuthGuard)
   async purgeScope(@Body() body: PurgeScopeDto): Promise<{ purgedSegments: number }> {
-    return this.spool.purgeErasureScope(body.projectIds, { docs: this.docs });
+    // TD-33/C1b T13：emit project.gone 只对已 mark 的 pid（finally best-effort；mark 前失败=零 emit
+    // 零 4414 零 deletedProjects）
+    let markedProjectIds: string[] = [];
+    try {
+      const r = await this.spool.purgeErasureScope(body.projectIds, { docs: this.docs, erasure: this.erasure });
+      markedProjectIds = r.markedProjectIds;
+      return { purgedSegments: r.purgedSegments };
+    } finally {
+      if (markedProjectIds.length > 0 && this.events) {
+        try { this.events.emit('project.gone', { projectIds: markedProjectIds }); } catch (e) {
+          this.logger.warn(`purgeScope project.gone emit failed: ${(e as Error).message}`);
+        }
+      }
+    }
   }
 
   /** C3b-4a（plan Task C3b-4a——spec §3.4-4 :79）：DeletionBarrier loopback 端点（erasure worker 跨

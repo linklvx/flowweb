@@ -5,6 +5,7 @@ import { describe, it, expect, afterAll, vi } from 'vitest';
 import * as Y from 'yjs';
 import { register } from 'prom-client';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { storeInFlightDocs } from './store.metrics';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { startDualClientServer } from '../../test-utils/dual-client-server';
@@ -51,7 +52,7 @@ describe('Y0a-2 project.gone 清账', () => {
 
   it('终态拦截：已删项目的 storeDocument no-op+yjs_updates_discarded_deleted_total{source=gateway} 递增', async () => {
     const { dir, cleanup } = await makeSpoolDir('y0a2-gone2-'); cleanups.push(cleanup);
-    const spool = new CollabSpoolService(dir);
+    const spool = spoolForTest(dir);
     const kit = await startDualClientServer({}, 300, spool);
     try {
       const g = gatewayFacade(kit.gateway);
@@ -76,7 +77,7 @@ describe('Y0a-2 project.gone 清账', () => {
 
   it('FK 兜底（运行期）：append 撞 P2003 → 批丢弃+计数+不排重试梯（残留 spool 段的收割同判——Task 2 replayAll）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y0a2-gone4-'); cleanups.push(cleanup);
-    const spool = new CollabSpoolService(dir);
+    const spool = spoolForTest(dir);
     const repo = createMockRepo({ appendBatch: vi.fn(async () => { throw Object.assign(new Error('Foreign key constraint failed'), { code: 'P2003' }); }) });
     const kit = await startDualClientServer({ ...repo }, 300, spool);
     try {

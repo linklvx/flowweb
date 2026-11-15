@@ -19,6 +19,7 @@ import { resolve } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -74,7 +75,7 @@ beforeEach(async () => {
   const d = await makeSpoolDir('y0c-t41-statemachine-');
   spoolDir = d.dir;
   spoolCleanup = d.cleanup;
-  const spool = new CollabSpoolService(spoolDir);
+  const spool = spoolForTest(spoolDir);
   spool.setOwner('test-owner');
   // 直构单元组（collab-degraded/collab-auth-defense 先例）——不 listen；矩阵只消费 transition/getCollabState/logger
   gateway = new CollabGateway(

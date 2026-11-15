@@ -4,6 +4,7 @@
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CollabGateway, resolveCollabDebounce } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -26,7 +27,7 @@ function buildGateway(opts?: { debounce?: number; timeout?: number }) {
     {} as any, new EventEmitter2() as any, {} as any, createLeaseStub() as any,   // Y0a-3 T5：参数 4=租约 stub
     { resolve: vi.fn() } as any,
     48000 + Math.floor(Math.random() * 4000),
-    opts?.debounce, opts?.timeout, undefined, new CollabSpoolService(spoolDir),
+    opts?.debounce, opts?.timeout, undefined, spoolForTest(spoolDir),
   );
 }
 

@@ -14,6 +14,7 @@ import { crc32 } from 'node:zlib';
 import { register } from 'prom-client';
 import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService, encodeWalSegmentBytes, walSegmentFileName } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { buildWalFaultCorpus } from '@flowweb/shared';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';
@@ -81,7 +82,7 @@ describe('Y1c T13 G6a：boot 恢复路径生产接线（ADR-01 §3——recoverS
   it('K1 恢复顺序接线（红=recoverScan 零生产调用）：boot init 走 recoverScan（段头双栅栏+PG 前缀校验+水位重建）——旧链 scan 不再被调', async () => {
     const { dir, cleanup } = await makeSpoolDir('y1c-t13-k1-');
     try {
-      const spool = new CollabSpoolService(dir);
+      const spool = spoolForTest(dir);
       spool.setOwner('k1-owner');
       spool.setWalHistory(HISTORY_ID);
       await seedFrame(spool, 'p-k1', frameOf('k1'));
@@ -109,7 +110,7 @@ describe('Y1c T13 G6a：boot 恢复路径生产接线（ADR-01 §3——recoverS
   it('K2 historyId 不匹配段 fail-closed（红=旧链 scan 不查栅栏照常 serving）：bump 后旧段≠SystemHistory→整段 quarantine 零重放+PG pgSeq 残留→链断 violation→boot 拒服务（start-failed 不 listen）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y1c-t13-k2-');
     try {
-      const spool = new CollabSpoolService(dir);
+      const spool = spoolForTest(dir);
       spool.setOwner('k2-owner');
       spool.setWalHistory(HISTORY_ID);
       await seedFrame(spool, 'p-k2', frameOf('k2'));   // 段帧 walSeq=1（pg_dump 恢复前已落 PG）
@@ -132,7 +133,7 @@ describe('Y1c T13 G6a：boot 恢复路径生产接线（ADR-01 §3——recoverS
   it('K3 PG 前缀 violation fail-closed（红=旧链无 PG 前缀校验照常 serving）：WAL 链断 lastGood<pgSeq=账本失真→boot 拒服务（证据保全禁截断续跑）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y1c-t13-k3-');
     try {
-      const spool = new CollabSpoolService(dir);
+      const spool = spoolForTest(dir);
       spool.setOwner('k3-owner');
       spool.setWalHistory(HISTORY_ID);
       await seedFrame(spool, 'p-k3', frameOf('k3a'));   // walSeq=1
@@ -166,7 +167,7 @@ describe('Y1c T13 G6a：boot 恢复路径生产接线（ADR-01 §3——recoverS
   it('K4 restore.lock marker+忘 bump 形态（红=marker 零读取）：时间戳栅栏求值（F-S4-5 信号①）→recoverySuspect 零重放+boot 拒服务；人工清 marker 后 boot 恢复开放', async () => {
     const { dir, cleanup } = await makeSpoolDir('y1c-t13-k4-');
     try {
-      const spool = new CollabSpoolService(dir);
+      const spool = spoolForTest(dir);
       spool.setOwner('k4-owner');
       spool.setWalHistory(HISTORY_ID);
       await seedFrame(spool, 'p-k4', frameOf('k4'));   // 段 lastWriteAt=now
@@ -200,7 +201,7 @@ describe('Y1c T13 G6a：boot 恢复路径生产接线（ADR-01 §3——recoverS
   it('K2b（M3 收口）pgSeq=0+全段隔离=合法续跑 serving（K2 只测 pgSeq 残留 blocked 侧——本用例补正向半直锚：丢帧全为未承诺 Durable 档 ADR-01 §3.2，拒服务判定=violation 维非 quarantine 维）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y1c-t13-k2b-');
     try {
-      const spool = new CollabSpoolService(dir);
+      const spool = spoolForTest(dir);
       spool.setOwner('k2b-owner');
       spool.setWalHistory(HISTORY_ID);
       await seedFrame(spool, 'p-k2b', frameOf('k2b'));   // 段帧 walSeq=1（无 PG 残留——floors 空集 pgSeq()=0n）
@@ -220,7 +221,7 @@ describe('Y1c T13 G6a：boot 恢复路径生产接线（ADR-01 §3——recoverS
   it('K5 PG 不可用 boot：pgSeqFloors 抛错（恢复扫描前置输入不可达）→start-failed 不 listen（fail-closed 重试语义——不半截上线）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y1c-t13-k5-');
     try {
-      const spool = new CollabSpoolService(dir);
+      const spool = spoolForTest(dir);
       spool.setOwner('k5-owner');
       spool.setWalHistory(HISTORY_ID);
       await seedFrame(spool, 'p-k5', frameOf('k5'));
@@ -242,7 +243,7 @@ describe('Y1c T13 G6a：boot 恢复路径生产接线（ADR-01 §3——recoverS
   it('K6 EIO fail-stop 后重启恢复（T8 契约面 G6a 收口）：EIO=walHealthy=false 停收不截断（段证据保留）→新实例（重启等价）recoverScan 裁定+帧恢复+walHealthy 复位', async () => {
     const { dir, cleanup } = await makeSpoolDir('y1c-t13-k6-');
     try {
-      const s1 = new CollabSpoolService(dir);
+      const s1 = spoolForTest(dir);
       s1.setOwner('k6-owner');
       s1.setWalHistory(HISTORY_ID);
       await seedFrame(s1, 'p-k6', frameOf('k6a'));   // 好帧在段（EIO 前）
@@ -253,7 +254,7 @@ describe('Y1c T13 G6a：boot 恢复路径生产接线（ADR-01 §3——recoverS
       expect(s1.walHealthy(), 'EIO fail-stop：walHealthy=false 停收').toBe(false);
       await expect(s1.append('p-k6', frameOf('k6c'))).rejects.toThrow('wal fail-stop');
       // 重启等价：新实例（进程级状态归零）+恢复扫描裁定——段不截断（证据保留）+好帧恢复+受理复位
-      const s2 = new CollabSpoolService(dir);
+      const s2 = spoolForTest(dir);
       s2.setOwner('k6-owner');
       const report = await s2.recoverScan({ systemHistory: { historyId: HISTORY_ID, epochStartedAtMs: Date.now() }, pgSeq: () => 0n });
       // EIO 档字节面：write 已完成的字节在页缓存（单机进程死后仍在）——帧 CRC 通过=可证即重放；
@@ -281,7 +282,7 @@ describe('Y1c T13 G6a：boot 恢复路径生产接线（ADR-01 §3——recoverS
       const textBefore = await register.metrics();
       const before = Number(/wal_fsync_latency_count (\d+)/.exec(textBefore)?.[1] ?? 0);
       const gapBefore = Number(/doc_prefix_gap_total (\d+)/.exec(textBefore)?.[1] ?? 0);
-      const spool = new CollabSpoolService(dir);
+      const spool = spoolForTest(dir);
       spool.setOwner('k7-owner');
       spool.setWalHistory(HISTORY_ID);
       await seedFrame(spool, 'p-k7', frameOf('k7'));
@@ -295,7 +296,7 @@ describe('Y1c T13 G6a：boot 恢复路径生产接线（ADR-01 §3——recoverS
       const seg = join(dir, 'k7-owner', 'p-k7.g1.0.spool');
       const buf = await readFile(seg);
       await writeFile(seg, buf.subarray(0, buf.length - 5));   // 尾撕裂
-      const s2 = new CollabSpoolService(dir);
+      const s2 = spoolForTest(dir);
       s2.setOwner('k7-owner');
       await s2.recoverScan({ systemHistory: { historyId: HISTORY_ID, epochStartedAtMs: Date.now() }, pgSeq: () => 0n });
       const textGap = await register.metrics();
@@ -309,7 +310,7 @@ describe('Y1c T13 G6a：boot 恢复路径生产接线（ADR-01 §3——recoverS
   it('M4 启动自检噪声收口：良性 dup 段（dup-seq 同 hash——崩溃重试天然重复，fatal=false）零 quarantine/truncated → boot serving+不落 spool_startup_selfcheck ERROR（观测面=yjs_spool_bad_segment_total 全档含良性——旧实现 defects.length>0 含良性必红）', async () => {
     const { dir, cleanup } = await makeSpoolDir('y1c-t13-m4-');
     try {
-      const spool = new CollabSpoolService(dir);
+      const spool = spoolForTest(dir);
       spool.setOwner('m4-owner');
       spool.setWalHistory(HISTORY_ID);
       // 语料良性 dup 段（链式扫描 defects 仅一条 fatal=false 条目——无 quarantine/truncated/violation）

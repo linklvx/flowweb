@@ -34,6 +34,7 @@ import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { buildOwnerName } from './owner-name';
 import { hostname } from 'node:os';
 import { createMockRepo } from '../../test-utils/mock-repo';
+import { EmptyErasureSource } from '../../test-utils/erasure-fixtures';
 
 // M1 红测前置：truncate 故障注入缝（globalThis 钩子缺省失活——仅 M1 用例窗口内指向段路径；
 // 其余用例零行为差——展开 actual 仅包 truncate）。真文件纪律不破：截断失败注入=物理盘不可
@@ -61,6 +62,7 @@ const HISTORY = 'h-t8-2026-10-24';
 /** TD-33 T5 红迁移：外来 owner 目录=合法 `o-` 名（同 host+pid 明确死判定经 seam 注入）。 */
 const FOREIGN_OWNER = buildOwnerName(hostname(), 424231);
 class PidSeamSpool extends CollabSpoolService {
+  constructor(d?: string) { super(d); this.setErasureSource(new EmptyErasureSource()); }
   protected isPidAlive(): boolean | 'unknown' { return false; }   // 明确死——收录面放行
 }
 function svc(): CollabSpoolService {
@@ -221,7 +223,7 @@ describe('Y1c T8 红组 C：时间戳栅栏（忘 bump 形态）——recoverySu
 /** fsync 故障注入（protected seam syncSegmentHandle——生产恒 fh.sync()；toggle 注入一次）。 */
 class FaultSpool extends CollabSpoolService {
   failNextSync: string | null = null;
-  constructor(d: string) { super(d); }
+  constructor(d: string) { super(d); this.setErasureSource(new EmptyErasureSource()); }
   protected async syncSegmentHandle(fh: import('node:fs/promises').FileHandle): Promise<void> {
     if (this.failNextSync) {
       const code = this.failNextSync;
@@ -845,7 +847,7 @@ describe('Y1c T13 双评审收口 C1/I1/M1：外来 chain-stopped 段收养保�
     // 经 super.syncSegmentHandle 的 fh stub 注入（直测基类观测路径——FaultSpool 覆写整个 seam 绕开基类）
     class FailSyncSpool extends CollabSpoolService {
       failOnce = false;
-      constructor(d: string) { super(d); }
+      constructor(d: string) { super(d); this.setErasureSource(new EmptyErasureSource()); }
       protected async syncSegmentHandle(fh: import('node:fs/promises').FileHandle): Promise<void> {
         if (this.failOnce) {
           this.failOnce = false;

@@ -18,6 +18,7 @@ import {
   type CollabPersistenceHost, type PersistenceDocument,
 } from './collab-persistence.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CollabResidencyService } from './collab-residency.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -84,7 +85,7 @@ describe('T14 flushDocument 带理由窄接口（五分支+epoch 提交前校验
 
   beforeEach(async () => {
     ({ dir, cleanup } = await makeSpoolDir('t14-flush-'));
-    spool = new CollabSpoolService(dir);
+    spool = spoolForTest(dir);
     spool.setOwner('t14-owner');
     repo = createMockRepo();
     epochNow = EPOCH;

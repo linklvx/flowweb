@@ -9,6 +9,7 @@ import { join, resolve } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { REVOKED_OWNER } from '../src/modules/collab/collab-lease.service';
 import { CollabSpoolService } from '../src/modules/collab/collab-spool.service';
+import { CollabErasureRegistryService } from '../src/modules/collab/collab-erasure-registry.service';
 import { CanvasDocUpdateRepository } from '../src/modules/collab/canvas-doc-update.repository';
 
 const OPS_OWNER = 'ops-collab-spool-import';   // 连字符形态（spool.setOwner fs-safe 断言禁 ':'——与 compact 脚本同族命名）
@@ -52,6 +53,10 @@ async function main(): Promise<void> {
       spool.setOwner(OPS_OWNER);
     };
     await takeover();
+    // TD-33/C1b T10：擦除写屏障接线（回灌不得复活已擦项目——registry=DB 权威）
+    const registry = new CollabErasureRegistryService(prisma as never);
+    await registry.load({ force: true });
+    spool.setErasureSource(registry);
     try {
       await spool.scan();
       const ids = target === '--all' ? spool.keys() : [target];

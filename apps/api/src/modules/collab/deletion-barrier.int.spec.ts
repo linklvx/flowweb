@@ -30,6 +30,7 @@ import { Reflector } from '@nestjs/core';
 import { register } from 'prom-client';
 import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { OracleWorkerService } from './oracle-worker.service';
 import { MediaReferenceService } from './media-reference.service';
@@ -37,6 +38,7 @@ import { DeletionBarrierService } from './deletion-barrier.service';
 import { isDeletionBarrierSealed } from './deletion-barrier.seal';
 import { CollabCloseCode, DELETION_BARRIER_REASON } from '@flowweb/shared';
 import { CollabWriteController } from './collab-write.controller';
+import { CollabErasureRegistryService } from './collab-erasure-registry.service';
 import { CollabDocumentService } from './collab-document.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TransformInterceptor } from '../../interceptors/transform.interceptor';
@@ -134,7 +136,7 @@ maybe('C3b-4a：DeletionBarrier 持久 fence+admission 三面', () => {
     await ensureLeaseFixture(prisma, repo, 'stub-owner-1');   // 租约 owner 与 lease stub 的 setLeaseOwner 同值（T27 端点装置同款——失配=fenced→selfIsolate）
     // ── 真 gateway（真 SG/actor/hooks——admission 面=hooks 直调即真接线证据）──
     dir = await makeSpoolDir('c3b4a-barrier-');
-    const spool = new CollabSpoolService(dir.dir);
+    const spool = spoolForTest(dir.dir);
     const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'), resolveWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: FIXTURE_TEAM }) };
     const port = 21000 + Math.floor(Math.random() * 20000);
     gateway = new CollabGateway(
@@ -359,8 +361,9 @@ maybe('C3b-4a：DeletionBarrier 持久 fence+admission 三面', () => {
       providers: [
         { provide: CollabDocumentService, useValue: docSvc },
         { provide: PrismaService, useValue: prisma },
-        { provide: CollabSpoolService, useValue: new CollabSpoolService() },
+        { provide: CollabSpoolService, useValue: spoolForTest() },
         { provide: DeletionBarrierService, useValue: svc },
+        { provide: CollabErasureRegistryService, useValue: { listPurgeableProjectIdsLive: async () => new Set<string>(), mark: () => {} } },   // TD-33/C1b T14：purge 端点面（本 spec 零消费）
       ],
     }).compile();
     app = moduleRef.createNestApplication();

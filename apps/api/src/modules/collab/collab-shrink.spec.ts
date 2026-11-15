@@ -18,6 +18,7 @@ import { CollabMaintenanceService } from './collab-maintenance.service';   // Y1
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabNotServingFilter } from './collab-not-serving.filter';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo, type MockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -38,7 +39,7 @@ afterEach(async () => { await spoolCleanup(); vi.restoreAllMocks(); });
 /** 直构 gateway（quota-truth.spec 先例）：quota 注入受控 maxDocBytes */
 function buildGateway(quota?: Partial<QuotaConfig>): CollabGateway {
   const repo = createMockRepo();
-  const spool = new CollabSpoolService(spoolDir);
+  const spool = spoolForTest(spoolDir);
   spool.setOwner('shrink-owner');
   const gateway = new CollabGateway(
     {} as any, new EventEmitter2() as any, repo as any, createLeaseStub() as any,

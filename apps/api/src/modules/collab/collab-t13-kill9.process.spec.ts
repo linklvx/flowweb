@@ -10,6 +10,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { readFile, readdir, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CollabSpoolService, encodeWalSegmentBytes, walSegmentFileName } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { WAL_SEGMENT_HEADER_SIZE, WAL_FRAME_FIXED_BYTES, type WalSegmentHeader, type WalFrameFixtureInput } from '@flowweb/shared';
 
@@ -79,7 +80,7 @@ describe('Y1c T13 G6a：kill -9 真子进程演练（spawn+SIGKILL——ADR-01 �
       const path = join(dir, OWNER, walSegmentFileName('p-kill1', 1, 0));
       await runUntilKilled({ files: [{ path, b64: bytes.toString('base64'), sync: true }], hold: true }, 'HOLDING');
       // 「重启」=新服务实例对同一目录恢复扫描
-      const s = new CollabSpoolService(dir);
+      const s = spoolForTest(dir);
       s.setOwner(OWNER);
       const report = await s.recoverScan({ systemHistory: sysHist, pgSeq: pgSeqOf });
       expect(report.projects[0]!.replayPrefix, 'fsync 完成帧全数恢复').toEqual([1n, 2n, 3n]);
@@ -98,7 +99,7 @@ describe('Y1c T13 G6a：kill -9 真子进程演练（spawn+SIGKILL——ADR-01 �
       const half = WAL_SEGMENT_HEADER_SIZE + (WAL_FRAME_FIXED_BYTES + 3) + 20;
       const path = join(dir, OWNER, walSegmentFileName('p-kill2', 1, 0));
       await runUntilKilled({ files: [{ path, b64: bytes.toString('base64'), writeBytes: half, sync: false }], hold: true }, 'HOLDING');
-      const s = new CollabSpoolService(dir);
+      const s = spoolForTest(dir);
       s.setOwner(OWNER);
       const report = await s.recoverScan({ systemHistory: sysHist, pgSeq: pgSeqOf });
       // 撕裂尾=帧级 fatal truncated→丢的全是 walSeq>pgSeq=0 的帧→完整有效前缀截断续跑（ADR-01 §3.2）
@@ -121,7 +122,7 @@ describe('Y1c T13 G6a：kill -9 真子进程演练（spawn+SIGKILL——ADR-01 �
         sync: true,
       }));
       await runUntilKilled({ files, hold: true }, 'HOLDING');
-      const s = new CollabSpoolService(dir);
+      const s = spoolForTest(dir);
       s.setOwner(OWNER);
       const report = await s.recoverScan({ systemHistory: sysHist, pgSeq: pgSeqOf });
       const byPid = new Map(report.projects.map((p) => [p.projectId, p]));

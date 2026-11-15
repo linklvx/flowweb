@@ -24,6 +24,7 @@ import { createCollabServer } from './collab-server.factory';   // B3 手段①�
 import { wireCollabMetricsReaders } from './collab-observability-wiring';   // B3 手段②：metrics reader 注册块单源（unregister×9 关停面留本体）
 import { parseDocName } from './doc-name.util';
 import { isPortError } from './collab-start-failure';   // TD-33/C1a T6：端口错误判据自 gateway 迁出（锚净零）
+import { CollabErasureRuntime } from './collab-erasure-runtime';   // TD-33/C1b T14：擦除双 timer 单点（10s refresh/60s sweep）
 import { CollabCloseCode } from '@flowweb/shared';
 import type { TryReleaseMotive, TryReleaseOutcome } from './collab-residency.service';
 
@@ -136,6 +137,9 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  已关让位——rejoin 由 lease.rejoinLoop 驱动/revoked 终态）；start-failed=启动失败（有界重试）。 */
   private collabState: CollabState = 'initializing';
   private initDone = false;             // V9/I3：成功后置（scan/隔离/回灌/rearm 四步全成才 true——早置=失败重试跳过 init 带半截索引上线）
+  private initGeneration = 0;           // TD-33/C1b T14：进程内 isolate/release 代际（init 尾/listen/transition 前比对）
+  private isolateSettled: Promise<void> | null = null;   // T14：isolate 进行中屏障（!initDone 块入口 await）
+  private erasureRuntime: CollabErasureRuntime | null = null;   // T14：双 timer（serving 启/isolate+shutdown 停/drain 不停）
   private startInFlight = false;        // V10：starting 在飞闸（watchdog/5s 定时器/fast-path 并发重入防线）
   private shuttingDown = false;         // V11：关停闸（步骤 1 置位——isolated 态关停时 rejoin 的 CAS 成功也不得 re-listen）（与 isShuttingDown()=draining 态派生不同名同义——前者=进程关停闸含步骤 1 置位时序，后者=对外 draining 判定）
   private listenerClosed: Promise<void> | null = null;   // M2①：isolate 的 close 完成信号（re-listen 前 await）
@@ -545,6 +549,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  spool 段收割=FK 双形状（V6——本处理器不触盘）。 */
   private handleProjectsGone(projectIds: string[]): void {
     for (const projectId of projectIds) {
+      this.spool.erasureSourcePort()?.mark(projectId, 'ERASING');   // T14：即时 mark（写屏障先于一切异步清理）
       // B1（T40）：Persistence 子步整体提取=persistence.onProjectGone（deletedProjects 终态集+退避梯
       // 随清+Z11① 收割梯保排+lastCompactAt/persistUnhealthy 清账+X1 discardForGoneProject 显式清队列
       // 点名+M6 空队列条目回收——与 DR 域清理均为独立 Map/Set 同步写面，跨族先后序不可观测）。
@@ -584,6 +589,19 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
    *  创建保持在同步段（释放 await 之前——listenCollab 的等待面就位，与释放时长解耦）。 */
   private async selfIsolate(cause: 'fenced-by-write' | 'heartbeat-fenced' | 'heartbeat-unknown-expired' | 'revoked'): Promise<void> {
     if (this.collabState === 'isolated') return;
+    // TD-33/C1b T14：isolate=代际推进+initDone 复位（rejoin 重跑全链）+双 timer 停（drain 不停——见 runtime）
+    this.initGeneration += 1;
+    this.initDone = false;
+    this.erasureRuntime?.stop();
+    const tracked = this.doIsolate(cause);
+    const settled = tracked.then(() => {}, () => {});   // 屏障不吞主体异常（await tracked 仍抛）
+    this.isolateSettled = settled;
+    try { await tracked; } finally {
+      if (this.isolateSettled === settled) this.isolateSettled = null;
+    }
+  }
+
+  private async doIsolate(cause: 'fenced-by-write' | 'heartbeat-fenced' | 'heartbeat-unknown-expired' | 'revoked'): Promise<void> {
     this.transition('isolated', cause);   // V33
     collabLeaseLostTotal.inc({ cause });
     this.sessionGuard.onServingTransition();   // W3b：refusalCache 随域迁 SG——Y0b-3 T3 防御性：隔离期写入的 LEASE_NOT_READY 缓存提前清消残窗（rejoin 的 serving 转移本会覆盖——双保险）
@@ -916,12 +934,20 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.startInFlight = true;
     try {
       this.transition('starting');   // 锁定适配：无条件（isolated rejoin 合法迁移——藏进 !initDone 则 isolated→serving 直跳=非法迁移）
+      // TD-33/C1b T14：擦除权威必需（缺=ERASURE_SOURCE_MISSING fail-closed 拒服务）+load 最前（rejoin 同跑）
+      const erasure = this.spool.erasureSourcePort();
+      if (!erasure) throw Object.assign(new Error('ERASURE_SOURCE_MISSING：collab 擦除权威未接线（生产 DI 必需注入 ErasureRegistry）——拒服务'), { erasureSourceMissing: true });
+      await erasure.load({ force: true });
+      const gen0 = this.initGeneration;
+      const epoch0 = this.lease.currentEpoch();
       if (!this.initDone) {
+        if (this.isolateSettled) await this.isolateSettled;   // T14：isolate 进行中→等其落定再扫（防卸载中文档交叉）
         // Y1c T13（G6a——ADR-01 §3 恢复顺序生产接线，T8 遗留 #1 收口）：旧链 scan/quarantineTruncated
         // Frames 退役——recoverScan 承载全链（段头双栅栏→WAL 前缀→PG 前缀校验→重建 appliedSeq）；
         // 正常崩溃恢复零缺口=直接开放写，violation/恢复怀疑态=fail-closed 拒服务（人工裁定解除前
         // 每次 5s 重试均 blocked——doc_recovery_total{result} 观测；恢复后 rejoin 不重跑 init 块）。
         await this.repo.assertSchemaGenerationDiscipline();   // T12：schemaVersion⇒generation 拒启断言（前置——省恢复 IO）
+        await this.spool.sweepPurgeableSpoolOnLoad();   // T14：boot 顺序 load→sweep→recoverScan（purge 先于扫描）
         const floors = await this.repo.pgSeqFloors();   // C1'① 播种读面前移（恢复扫描 pgSeq 回调单源）
         const pgSeqOf = new Map(floors.map((p) => [p.projectId, p.pgSeq] as const));
         // F-S4-5（ADR-01 §5）：SystemHistory 入口一次性快照（historyId+epochStartedAtMs——扫描期间
@@ -932,6 +958,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           systemHistory: sysHist,
           pgSeq: (pid) => pgSeqOf.get(pid) ?? 0n,
           evaluateTimestampFence,
+          excludeProjectIds: [...erasure.blockedMap().keys()],   // T14：blocked 段不进 fail-closed/replay（文件保留）
         });
         const violationProjects = report.projects.filter((p) => p.pgPrefixViolation.length > 0);
         const suspectProjects = report.projects.filter((p) => p.recoverySuspect.length > 0);
@@ -996,19 +1023,25 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           const resumed = await this.maintenanceService.resumeActiveOnBoot();
           if (resumed > 0) this.logger.log(JSON.stringify({ event: 'maintenance_boot_resume', operations: resumed }));
         }
+        // TD-33/C1b T14：init 尾代际/租约终检——init 中 isolate 或失约又抢回，不得回写陈旧 initDone
+        if (this.initGeneration !== gen0 || this.lease.currentEpoch() !== epoch0 || this.collabState === 'isolated' || this.shuttingDown) {
+          this.logger.warn(JSON.stringify({ event: 'collab_init_discarded', gen0, gen: this.initGeneration, note: '代际/租约已变——不置 initDone，等下一轮 acquire 重跑全链' }));
+          return;
+        }
         this.initDone = true;   // V9：四步全成才置位
       }
-      await this.listenCollab();
+      await this.listenCollab(gen0);
     } catch (e) {
       this.transition('start-failed');
       collabStartFailureTotal.inc();
       this.watchdogFired = true;   // V14：episode 标志——看门狗不再对同一 episode 双计
+      if (this.server.httpServer?.listening) this.closeListenerForRetry();   // T14：listener 后置失败关闭（否则重试=ERR_SERVER_ALREADY_LISTEN 半死占口）
       const portErr = isPortError(e);
       this.logger.error(JSON.stringify({ event: 'collab_start_failed', error: (e as Error).message, portError: portErr }));
       // V10/N2③ 失败分型：端口类（EADDRINUSE/documents 未卸载）=**本地瞬态、与租约无关**——持锁
       // 有界重试 ≤2 次（旧持有者 ≤1 心跳让位）；非端口类或耗尽 → release（不占租约不服务）
       if (portErr && this.listenRetries < 2) this.listenRetries += 1;
-      else { this.listenRetries = 0; await this.lease.release().catch(() => {}); }
+      else { this.listenRetries = 0; await this.lease.release().catch(() => {}); this.initDone = false; this.initGeneration += 1; }   // T14：release=失约——re-acquire 必重扫（initDone 复位点完备）
       setTimeout(() => {
         if (this.shuttingDown) return;
         if (this.lease.isServing()) void this.startCollabAfterLease().catch(() => {});   // 持锁重试 listen/init
@@ -1039,7 +1072,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
 
   /** E35 三入口之首的 listen 收口（可重复——rejoin re-listen）：等 isolate 的 close 落定+documents
    *  清空→listen→定时器族 clear-first 重挂→onRecovered 接线→transition('serving') 置位=最后一步。 */
-  private async listenCollab(): Promise<void> {
+  private async listenCollab(gen0: number): Promise<void> {
+    if (this.collabState === 'isolated') return;   // T14：隔离态早退（re-listen 由下一轮 acquire 驱动）
     if (this.listenerClosed) { await this.listenerClosed.catch(() => {}); this.listenerClosed = null; }   // M2①：等 isolate 的 close 落定再 re-listen（net close 异步）
     // M2③/P1-2 前置：隔离期内存 doc 必须已卸载——陈旧 doc 对外服务=同进程复现"两实例互不可见"
     const t0 = Date.now();
@@ -1075,9 +1109,39 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.persistence.startSpoolReconciler();
     // Y10 seam（v3 重排漏接=v4 修复，I4）：spool IO 熔断恢复→唤醒退避梯——缺此行=熔断期梯死+恢复后零自愈
     this.spool.onRecovered = () => this.persistence.rearmQueues();
+    // T14：transition('serving') 紧前终检——检查与 transition 之间零 await（listenServer 与 transition 间
+    // 的 await 窗内 write-fence isolate，transition 非法迁移仅日志不拦截，隔离后仍覆盖成 serving）
+    if (this.initGeneration !== gen0 || (this.collabState as string) === 'isolated' || this.shuttingDown) {
+      this.closeListenerForRetry();
+      return;
+    }
     this.transition('serving');   // 置位=最后一步（"已完成"非"已进入"）
     this.watchdogFired = false;
+    {
+      const erasure = this.spool.erasureSourcePort();
+      if (erasure) {
+        this.erasureRuntime = new CollabErasureRuntime(erasure, this.spool, () => this.erasureTickAllowed());
+        this.erasureRuntime.start();   // T14：serving 启动双 timer（refresh 10s/sweep 60s；drain 不停）
+      }
+    }
     this.persistence.rearmQueues();   // I4（P0-1 修）：serving ⟹ 非空队列∪spool.keys() 全部在梯上——rejoin 后 own 帧的运行期恢复路径（缺此=own 帧只待重启=部署门死锁）
+  }
+
+  /** T14：timer tick 守卫（drain 期零 DB/零删盘——draining 守卫不过；isolate/shutdown 由 runtime.stop 承载）。 */
+  private erasureTickAllowed(): boolean {
+    return this.lease.isServing() && this.collabState === 'serving';
+  }
+
+  /** T14/T17：listener 后置失败/终检失败——关 listener 让位重试（selfIsolate 同款；禁 server.destroy()
+   *  ——4.8.0 destroyPromise 记忆化污染后最终 shutdown 关不掉 re-listen 的新 listener）。 */
+  private closeListenerForRetry(): void {
+    this.listenerClosed = new Promise<void>((res) => {
+      try {
+        this.server.httpServer?.closeAllConnections?.();
+        this.server.httpServer?.close(() => res());
+        setTimeout(res, 2_000).unref?.();
+      } catch { res(); }
+    });
   }
 
   /** ===== W3b（B2）：SessionGuard 域 sweep 兜底+事件踢权链+awareness 判定族+连接批量关闭已随域迁
@@ -1101,6 +1165,7 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     this.shuttingDown = true;                                                    // 步骤 1：停收新写（V11 关停闸——isolated 态 rejoin CAS 成功也不得 re-listen）
     if (this.collabState === 'serving' || this.collabState === 'start-failed' || this.collabState === 'acquiring') this.transition('draining', 'shutdown');
     if (this.watchdogTimer) { clearInterval(this.watchdogTimer); this.watchdogTimer = null; }
+    this.erasureRuntime?.stop();   // T14：擦除双 timer 随停（shutdown 面；drain 不停走 tick 守卫）
     this.clearDrainTimer();
     this.sessionGuard.clearAllWriteFreeze();   // W3b：writeFreeze 随域迁 SG——Y0b-4 T4：冻结层台账随停清（连接由 closeAll1012 关——正常路径 onDisconnect 自清）
     this.docRegistry.stopTimers();   // W3a（§2.3 拆缝）：DR 域定时器四位随停（frozenRecheckTimer/freezePendingTimers/heapObserverTimer/docTopNLogTimer——清理行逐字平移进 service stopTimers，GW 壳只剩缝调用；docTopNLogTimer 原位在下文 unregister 之后，收进本缝=同同步块零 await，interval 清除时点同 tick 内不可观测，编排序语义不变——commit 披露）

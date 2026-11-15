@@ -9,6 +9,7 @@ import * as Y from 'yjs';
 import { register } from 'prom-client';
 import { CollabProjectActorService, APPLIED_QUEUE_MAX_FRAMES } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CollabDocRegistryService } from './collab-doc-registry.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -70,7 +71,7 @@ describe('Y1c T10 save barrier 服务端接线（onStateless handler——actor 
 
   beforeEach(async () => {
     dir = await makeSpoolDir('t10-barrier-');
-    spool = new CollabSpoolService(dir.dir);
+    spool = spoolForTest(dir.dir);
     spool.setOwner('t10-barrier');
     spool.setWalHistory('hist-t10-barrier');
   });
@@ -189,7 +190,7 @@ describe('Y1c T10 doc 卸载纪律（drain applied→PG 或拒绝卸载）', () 
 
   beforeEach(async () => {
     dir = await makeSpoolDir('t10-unload-');
-    spool = new CollabSpoolService(dir.dir);
+    spool = spoolForTest(dir.dir);
     spool.setOwner('t10-unload');
     spool.setWalHistory('hist-t10-unload');
   });
@@ -238,7 +239,7 @@ describe('Y1c T10 doc 卸载纪律（drain applied→PG 或拒绝卸载）', () 
       await actor.submit('bp', frameOf(`qi2-${i}`, i), makeConn(), 'update')
         .then((res) => { accepted.push(res.walSeq); }, (e: unknown) => {
           rejected += 1;
-          expect((e as { frameReason?: string }).frameReason).toBe('applied-flush-backpressure');
+          expect((e as { reason?: string }).reason).toBe('applied-flush-backpressure');
         });
       expect(actor.appliedQueueDepth('bp')).toBeLessThanOrEqual(APPLIED_QUEUE_MAX_FRAMES);   // 峰值≤上界（红：旧实现无界）
     }

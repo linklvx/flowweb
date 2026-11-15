@@ -20,6 +20,7 @@ import type { Logger } from '@nestjs/common';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { canvasDocName } from './doc-name.util';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
@@ -63,7 +64,7 @@ maybe('C3-0 红⓪-a 诊断夹具（真 actor：maintenance 帧落 PG 批+dedup 
     await spoolCleanup();
     const dir = await makeSpoolDir('c3-0-spool-');
     spoolCleanup = dir.cleanup;
-    spool = new CollabSpoolService(dir.dir);
+    spool = spoolForTest(dir.dir);
     spool.setOwner('c3-0-owner');
     await ensureLeaseFixture(prisma, repo, 'c3-0-owner');
     spool.setProjectGeneration(PID, 1);

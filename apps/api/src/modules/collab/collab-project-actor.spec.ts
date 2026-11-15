@@ -12,6 +12,7 @@ import * as Y from 'yjs';
 import { createHash } from 'node:crypto';
 import { CollabProjectActorService } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { EmptyErasureSource } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { isGateApplyOrigin, CollabCloseCode, SS2_SEMAPHORE_GLOBAL_BUDGET_BYTES, ACTOR_DRAIN_BATCH_MAX_BYTES } from '@flowweb/shared';
@@ -23,6 +24,7 @@ const sha256hex = (u: Uint8Array) => createHash('sha256').update(u).digest('hex'
 class CountingSpool extends CollabSpoolService {
   fsyncCount = 0;
   fsyncLog: number[] = [];
+  constructor(d?: string) { super(d); this.setErasureSource(new EmptyErasureSource()); }
   protected async syncSegmentHandle(fh: import('node:fs/promises').FileHandle): Promise<void> {
     this.fsyncCount += 1;
     this.fsyncLog.push(Date.now());
@@ -308,7 +310,7 @@ describe('Y1c T9 用例组（actor 批验证/去重/copy/毒帧/SS2/上限/Frame
     let rejected = false;
     for (let i = 0; i < 600; i++) {
       ps.push(actor.submit('p1', frameSetting('p1', `bp${i}`, i), conn, 'update').catch((e) => {
-        if ((e as { code?: number }).code === CollabCloseCode.RATE_LIMITED_CLOSE && (e as { frameReason?: string }).frameReason === 'project-write-backpressure') rejected = true;
+        if ((e as { code?: number }).code === CollabCloseCode.RATE_LIMITED_CLOSE && (e as { reason?: string }).reason === 'project-write-backpressure') rejected = true;
       }));
     }
     await Promise.allSettled(ps);
@@ -425,8 +427,8 @@ describe('Y1c T9 双评审收口（C1 detached 守卫/Q-I1 states 清理/Q-I2 �
     expect(settled, '维护 promise 必须 settle（红=永挂：saveMutex/handoff 链随之永挂）').toBe(true);
     const e1 = await m1.then(() => null, (e) => e);
     const e2 = await m2.then(() => null, (e) => e);
-    expect(e1).toMatchObject({ code: CollabCloseCode.SLOW_CONSUMER, frameReason: 'wal-append-failed' });
-    expect(e2).toMatchObject({ code: CollabCloseCode.SLOW_CONSUMER, frameReason: 'wal-append-failed' });
+    expect(e1).toMatchObject({ code: CollabCloseCode.SLOW_CONSUMER, reason: 'wal-append-failed' });
+    expect(e2).toMatchObject({ code: CollabCloseCode.SLOW_CONSUMER, reason: 'wal-append-failed' });
     expect((e1 as { pgPending?: boolean }).pgPending, 'WAL 未落定语义——不带 pgPending（对照 pg-pending 档）').toBeUndefined();
     expect((e2 as { pgPending?: boolean }).pgPending).toBeUndefined();
     appendSpy.mockRestore();
@@ -491,7 +493,7 @@ describe('Y1c T9 双评审收口（C1 detached 守卫/Q-I1 states 清理/Q-I2 �
     // 项目 pb：breaker-open 档 flush 短路（不产生新失败样本）——旧实现读到 pa 残留 leaseRowMissing=旗标错挂
     breakerOpen = true;
     const eb = await actor.submitMaintenance('pb', frameSetting('pb', 'qm1', 1)).then(() => null, (e) => e);
-    expect(eb).toMatchObject({ code: CollabCloseCode.SLOW_CONSUMER, frameReason: 'maintenance-pg-pending' });
+    expect(eb).toMatchObject({ code: CollabCloseCode.SLOW_CONSUMER, reason: 'maintenance-pg-pending' });
     expect((eb as { pgPending?: boolean }).pgPending).toBe(true);
     expect((eb as { leaseRowMissing?: boolean }).leaseRowMissing, '红相：错挂他批 leaseRowMissing').toBeUndefined();
     expect((eb as { fenced?: boolean }).fenced).toBeUndefined();
@@ -501,8 +503,8 @@ describe('Y1c T9 双评审收口（C1 detached 守卫/Q-I1 states 清理/Q-I2 �
       actor.submitMaintenance('pc', frameSetting('pc', 'qf1', 1)),
       actor.submitMaintenance('pc', frameSetting('pc', 'qf2', 2)),
     ]).then((rs) => rs.map((r) => r.status === 'rejected' ? (r as PromiseRejectedResult).reason : null));
-    expect(f1).toMatchObject({ code: CollabCloseCode.SLOW_CONSUMER, frameReason: 'maintenance-pg-pending' });
-    expect(f2).toMatchObject({ code: CollabCloseCode.SLOW_CONSUMER, frameReason: 'maintenance-pg-pending' });
+    expect(f1).toMatchObject({ code: CollabCloseCode.SLOW_CONSUMER, reason: 'maintenance-pg-pending' });
+    expect(f2).toMatchObject({ code: CollabCloseCode.SLOW_CONSUMER, reason: 'maintenance-pg-pending' });
     expect((f1 as { fenced?: boolean }).fenced).toBe(true);
     expect((f2 as { fenced?: boolean }).fenced, '批内次帧旗标不丢（元组=批内单源）').toBe(true);
   }, 20_000);
@@ -539,7 +541,7 @@ describe('Y1c T9 双评审收口（C1 detached 守卫/Q-I1 states 清理/Q-I2 �
     expect(r5.ok, '第 5 帧（4×gate+gate>4×gate）全局预算拒').toBe(false);
     if (!r5.ok) {
       expect((r5.e as { code?: number }).code).toBe(CollabCloseCode.RATE_LIMITED_CLOSE);
-      expect((r5.e as { frameReason?: string }).frameReason).toBe('ss2-budget-exceeded');
+      expect((r5.e as { reason?: string }).reason).toBe('ss2-budget-exceeded');
       expect(hardClose).toHaveBeenCalledWith(expect.anything(), CollabCloseCode.RATE_LIMITED_CLOSE, 'ss2-budget-exceeded');
     }
     await Promise.allSettled(first);   // 首四帧后续在准入段被拒（预算用例只锚第 5 帧全局 deny）

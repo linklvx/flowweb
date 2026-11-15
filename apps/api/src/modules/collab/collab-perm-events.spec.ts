@@ -10,6 +10,7 @@
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CollabGateway } from './collab.gateway';
 import { CollabSpoolService } from './collab-spool.service';
+import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { TeamService } from '../team/team.service';
 import { ProjectMemberService } from '../team/project-member.service';
 import { createMockRepo } from '../../test-utils/mock-repo';
@@ -49,7 +50,7 @@ function buildGateway() {
   const gateway = new CollabGateway(
     prisma as any, emitter as any, repo as any, lease as any,
     perm as any, 47000 + Math.floor(Math.random() * 5000),
-    undefined, undefined, undefined, new CollabSpoolService(spoolDir),
+    undefined, undefined, undefined, spoolForTest(spoolDir),
   );
   return { gateway, prisma, perm, emitter };
 }
