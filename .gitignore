@@ -32,3 +32,6 @@ apps/api/int.json
 .reset-collab-state.json
 .reset-collab-state.json.tmp
 apps/api/dist-drill/
+# 工作树收口（2026-11-15）：verify 运行原始日志（47MB 草稿——*.log 已全局忽略，整目录兜底散文件）与本地工具态不入库
+.verify-logs/
+.workbuddy-ai/
