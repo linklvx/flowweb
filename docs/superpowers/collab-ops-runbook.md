@@ -506,6 +506,13 @@ quantile_over_time(0.95, process_resident_memory_bytes{role="api"}[5m])
 quantile_over_time(0.95, process_tree_rss_bytes{role="worker"}[5m])
 ```
 
+**keep-last gauge 采集失败告警（卡② K6）**：`yjs_import_coverage_open`/`media_binding_backfill_remaining` 两 gauge 采集失败不置 0（keep-last 保上次值）、只计数——告警看错误速率，不看 gauge 值：
+
+```promql
+# reader 闭集=import_coverage/bindings_backfill（>0 即有 reader 持续失败）
+rate(yjs_metrics_collect_errors_total[5m]) > 0
+```
+
 **内存判定时点（Z91③）**：A2 出口后一次——已落 §9.1（三数回填裁决）；D 出口前一次——**已落 §9.2（T32 双进程服务器轮实测，2026-10-16：判据达标 1205.3≤1967；worker 480M 口径校准=维持 1G，下调算术冲突登记 §0.6 偏离 50）**。
 
 **registered 活性语义（裁决②/偏离 39）**：ready workers 维度与 enqueue fail-closed 门共用 `queue.getWorkers()`（bullmq 5.75.1=Redis CLIENT LIST 形态）——**无 lastSeen 数据源，registered 即活性信号**：worker 进程死 ⇒ TCP 断 ⇒ CLIENT LIST 立即除名（秒级），registered=0 就是死亡判定，无需陈旧度维度。5s TTL 缓存窗（付费路径零额外 RTT）= 最坏 5s 内漏拒，属可接受窗（留队作业待 worker 恢复即被消费）。

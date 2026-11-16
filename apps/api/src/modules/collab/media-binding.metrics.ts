@@ -20,6 +20,7 @@
 //     dirty+入队，修复唯一路径=rebuild）。
 //   · binding_delta_bytes 直方图已存在（store.metrics.ts——C3a-3），本文件不重复定义。
 import { Counter, Gauge, register } from 'prom-client';
+import { yjsMetricsCollectErrorsTotal } from './store.metrics';   // 卡② K6：backfill collect 失败计数（keep-last 配对）
 import type { ProjectionStats } from './media-binding-projector';
 
 /** 投影行写计数（source=append 帧级投影/rebuild 全量 rebuild——提交成功后才计数）。 */
@@ -74,11 +75,36 @@ export const mediaBindingWatermarkLag = new Gauge({
   registers: [register],
 });
 
-/** backfill 候选剩余数（`bindingsDirty ∨ mediaBindingSeq<pgSeq` 全表计数——drain 末尾有处理时更新）。 */
+/** 卡② K6：backfill_remaining 改 scrape 采集（reader 模式——updatesRows 族 async collect）。reader=
+ *  runner.countCandidates（谓词单源=候选枚举同一 SQL `bindingsDirty∨mediaBindingSeq<pgSeq`；每 scrape
+ *  一次 COUNT=updatesRows 同类）；collect 外包 2s 上限（超时不 set+计数——防 scrape 挂在慢 COUNT）；
+ *  失败 keep-last（不 set）+errors 计数。reader 只在 api 进程注册（wiring=gateway-only——worker 进程
+ *  未注册刮 0，避免 Prometheus 双端点相加双计）。 */
+let bindingsBackfillReader: (() => number | Promise<number>) | null = null;
+export function registerBindingsBackfillReader(fn: () => number | Promise<number>): void { bindingsBackfillReader = fn; }
+export function unregisterBindingsBackfillReader(): void { bindingsBackfillReader = null; }
+
+/** 投影未收敛画布数（`bindingsDirty ∨ mediaBindingSeq<pgSeq` 全表 COUNT——每 scrape 采集一次）。 */
 export const mediaBindingBackfillRemaining = new Gauge({
   name: 'media_binding_backfill_remaining',
-  help: 'ProjectionBackfill 候选剩余数（CanvasDoc 全表 bindingsDirty=true 或 mediaBindingSeq<pgSeq 计数——drain 末尾有处理时更新〔processed>0；空转保留上次值〕）',
+  help: '投影未收敛的画布数，一人团队与多人团队同一计数',
   registers: [register],
+  async collect() {
+    const fn = bindingsBackfillReader;
+    if (!fn) { this.set(0); return; }   // 未注册（worker 进程/测试未接线）=0
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const n = await Promise.race([
+        Promise.resolve(fn()),
+        new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new Error('backfill collect 超时')), 2_000); }),
+      ]);
+      if (timer) clearTimeout(timer);
+      this.set(n);
+    } catch {
+      if (timer) clearTimeout(timer);
+      yjsMetricsCollectErrorsTotal.inc({ reader: 'bindings_backfill' });   // keep-last：不 set 保上次值
+    }
+  },
 });
 
 /** 只读 reconcile 漂移计数（kind=missing|extra|mismatch——修复唯一路径=置 dirty+rebuild）。 */

@@ -21,7 +21,9 @@ import { CollabDocumentService } from './collab-document.service';
 import { SnapshotDocCache, SNAPSHOT_CACHE_MAX_ENTRIES } from './snapshot-doc-cache';
 import { CollabSpoolService } from './collab-spool.service';
 import { spoolForTest } from '../../test-utils/erasure-fixtures';
-import { registerUpdatesRowsReader, unregisterUpdatesRowsReader } from './store.metrics';
+import { registerUpdatesRowsReader, unregisterUpdatesRowsReader, registerImportCoverageReader, unregisterImportCoverageReader } from './store.metrics';
+import { registerBindingsBackfillReader, unregisterBindingsBackfillReader } from './media-binding.metrics';
+import { ImportCoverageTracker } from './collab-import-tracker';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
@@ -363,5 +365,54 @@ describe('Y0c T29-II（Z125-5）：yjs_updates_rows_total gauge（reader 注册=
     expect(await gaugeValue('yjs_updates_rows_total')).toBe(0);
     unregisterUpdatesRowsReader();
     expect(await gaugeValue('yjs_updates_rows_total')).toBe(0);
+  });
+});
+
+// 卡② K6（spec §1.3）：yjs_import_coverage_open（同步 collect）+media_binding_backfill_remaining
+// （scrape 采集化——updatesRows 族 async collect）。直接 register*/unregister 直测（updatesRows 同式）；
+// 错误路径=keep-last（不 set）+yjs_metrics_collect_errors_total{reader} 计数——告警看计数速率非 gauge。
+describe('卡② K6：import 覆盖 gauge+backfill_remaining scrape 采集（reader 直注册）', () => {
+  const labeledCounterValue = async (name: string, reader: string): Promise<number> => {
+    const metric: any = register.getSingleMetric(name);
+    const vs = (await metric.get()).values;
+    return vs.find((v: any) => v.labels?.reader === reader)?.value ?? 0;
+  };
+
+  afterEach(() => { unregisterImportCoverageReader(); unregisterBindingsBackfillReader(); });
+
+  it('coverage：mark 1→release(false) 仍 1→release(true) 0→mark+forget 0；unregister 后 0', async () => {
+    const t = new ImportCoverageTracker();
+    registerImportCoverageReader(() => t.size());
+    t.mark('p1');
+    expect(await gaugeValue('yjs_import_coverage_open')).toBe(1);
+    t.release('p1', false);
+    expect(await gaugeValue('yjs_import_coverage_open')).toBe(1);
+    t.release('p1', true);
+    expect(await gaugeValue('yjs_import_coverage_open')).toBe(0);
+    t.mark('p2');
+    t.forget('p2');
+    expect(await gaugeValue('yjs_import_coverage_open')).toBe(0);
+    unregisterImportCoverageReader();
+    expect(await gaugeValue('yjs_import_coverage_open')).toBe(0);
+  });
+
+  it('coverage：同步 reader 抛错→上次值在（keep-last）+errors{reader="import_coverage"}+1', async () => {
+    registerImportCoverageReader(() => 3);
+    expect(await gaugeValue('yjs_import_coverage_open')).toBe(3);
+    const before = await labeledCounterValue('yjs_metrics_collect_errors_total', 'import_coverage');
+    registerImportCoverageReader(() => { throw new Error('collect boom'); });
+    expect(await gaugeValue('yjs_import_coverage_open')).toBe(3);   // 一次 collect 抛错——不 set 保上次值
+    expect(await labeledCounterValue('yjs_metrics_collect_errors_total', 'import_coverage')).toBe(before + 1);
+  });
+
+  it('backfill：stub countCandidates 返 Promise 3→刮值 3；reader 抛错 keep-last+errors{reader="bindings_backfill"}+1；注销后刮 0', async () => {
+    registerBindingsBackfillReader(() => Promise.resolve(3));
+    expect(await gaugeValue('media_binding_backfill_remaining')).toBe(3);
+    const before = await labeledCounterValue('yjs_metrics_collect_errors_total', 'bindings_backfill');
+    registerBindingsBackfillReader(() => Promise.reject(new Error('pg down')));
+    expect(await gaugeValue('media_binding_backfill_remaining')).toBe(3);   // keep-last
+    expect(await labeledCounterValue('yjs_metrics_collect_errors_total', 'bindings_backfill')).toBe(before + 1);
+    unregisterBindingsBackfillReader();
+    expect(await gaugeValue('media_binding_backfill_remaining')).toBe(0);   // worker 进程同款语义（无 reader=0）
   });
 });

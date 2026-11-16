@@ -7,7 +7,8 @@ import { SessionService } from '../../auth/session.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabLeaseService } from './collab-lease.service';
-import { collabLeaseLostTotal, collabStartFailureTotal, collabWsCloseTotal, docRecoveryTotal, docUnloadBlockedTotal, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, unregisterWalObserverReader, yjsDeletedProjects, yjsStoreCompactFailureTotal, yjsStoreHookCallsTotal, yjsUnloadCleanupFailureTotal, unregisterAwarenessReader, unregisterOldestUnflushedReader, unregisterDegradedDocsReader, unregisterUpdatesRowsReader, legacyStoreHookProbeTotal } from './store.metrics';   // B3 手段②：register* 十读者随注册块迁 collab-observability-wiring——unregister×9 关停面留本体（原序）
+import { collabLeaseLostTotal, collabStartFailureTotal, collabWsCloseTotal, docRecoveryTotal, docUnloadBlockedTotal, unregisterAuthInflightReader, unregisterFrozenDocsReader, unregisterHeapObserverReader, unregisterLoadedDocBytesReader, unregisterPendingCollector, unregisterDocResidueReader, unregisterWalObserverReader, yjsDeletedProjects, yjsStoreCompactFailureTotal, yjsStoreHookCallsTotal, yjsUnloadCleanupFailureTotal, unregisterAwarenessReader, unregisterOldestUnflushedReader, unregisterDegradedDocsReader, unregisterUpdatesRowsReader, unregisterImportCoverageReader, legacyStoreHookProbeTotal } from './store.metrics';   // B3 手段②：register* 十读者随注册块迁 collab-observability-wiring——unregister 关停面留本体（原序；K6 +importCoverage）
+import { unregisterBindingsBackfillReader } from './media-binding.metrics';   // 卡② K6：backfill_remaining scrape reader 关停面（注册在 wiring）
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabPersistenceService, raceDeadline, type PersistenceDocument } from './collab-persistence.service';
@@ -521,8 +522,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     // options/注释逐字平移；接线序不变：this.hooks 上方已赋值，工厂消费只读签名面）。
     this.server = createCollabServer({ port, debounce, timeout, hooks: this.hooks });
     // Y0c T42（B3 手段②）：metrics reader 注册块单源（collab-observability-wiring——注册时序=构造器末
-    // 原位；prisma=构造器参数名直通〔私有字段不扩公有面〕；unregister×9 关停面留 onApplicationShutdown 原位原序）。
-    wireCollabMetricsReaders(this, prisma, spool);
+    // 原位；prisma=构造器参数名直通〔私有字段不扩公有面〕；unregister 关停面留 onApplicationShutdown 原位原序）。
+    wireCollabMetricsReaders(this, prisma, spool, this.bindingBackfill);   // K6 +runner：backfill_remaining scrape reader
     this.docRegistry.startHeapObserver();   // W3a：stuck 观测随域迁 DR（RC3——heapPressureSample 经 host 缝转发 sg）
     this.docRegistry.startFrozenRecheckTimer();   // Y0b-4 T4：冻结 doc 重测（独立 timer——禁挂 sweep 逃生阀）
     this.sessionGuard.syncOverloadGauge(false);   // W3b：heap 采样闸随域迁 SG——初始 seed：ok=1/tripped=0 两 series 常在（面板恒可见）
@@ -1176,6 +1177,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     unregisterDegradedDocsReader();   // Y0c T15（Z111）：装载降级 gauge collect 闭包随 gateway 死（同惯例）
     unregisterUpdatesRowsReader();   // Y0c T29-II（Z125-5）：行数 gauge collect 闭包随 gateway 死（同惯例）
     unregisterWalObserverReader();   // Y1c T13（G6a）：wal_pending_bytes/doc_pg_lag_seq collect 闭包随 gateway 死（同惯例）
+    unregisterImportCoverageReader();   // 卡② K6：import 覆盖 gauge 闭包随 gateway 死（同惯例）
+    unregisterBindingsBackfillReader(); // 卡② K6：backfill_remaining scrape reader 闭包随 gateway 死（同惯例）
     this.persistence.cancelAllRetries();                                         // 定时器随停——drain 主动接管（B1 提取=cancelAllRetries）
     await this.graceDirectConnections(2_000);                                    // 在飞直连宽限（A3：directConnectionsCount）
     this.sessionGuard.closeAllConnections1012();                                 // W3b：连接批量关闭随域迁 SG——步骤 2：瞬时

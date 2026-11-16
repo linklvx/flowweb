@@ -62,4 +62,16 @@ describe('ImportCoverageTracker（进程内 import 覆盖标记状态机）', ()
     expect(t.release(OTHER, false)).toBe(false);
     expect(t.isUncovered(OTHER)).toBe(true);
   });
+
+  it('卡② K6：size()——mark 1/release(pid,true) 0/forget 0（yjs_import_coverage_open 读面）', () => {
+    const t = new ImportCoverageTracker();
+    expect(t.size()).toBe(0);
+    t.mark(PID);
+    expect(t.size()).toBe(1);
+    expect(t.release(PID, true)).toBe(true);
+    expect(t.size()).toBe(0);
+    t.mark(PID);
+    t.forget(PID);
+    expect(t.size()).toBe(0);
+  });
 });

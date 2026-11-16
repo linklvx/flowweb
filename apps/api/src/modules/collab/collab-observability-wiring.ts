@@ -3,7 +3,7 @@
 // gateway 本体」先例在 B3 复议兑现；注册时序=构造器末原位调用，this.→gw. 机械替换零逻辑改写）。
 // 读面全部经 gateway/service 公有成员（persistence.pendingBytesTotal/docRegistry.docTruth 族/
 // sessionGuard.authInflight/server.hocuspocus——B1-B2 公有化后零 cast 面）。
-// unregister×9 关停面留 gateway.onApplicationShutdown 原位原序（三同步块链/selfIsolate/drain/
+// unregister×11 关停面留 gateway.onApplicationShutdown 原位原序（三同步块链/selfIsolate/drain/
 // 关停编排序零触碰——B2 评审钉死面，本文件只管注册侧）。
 // encodeAwarenessUpdate 消费随 awareness reader 迁本文件（census 组④ 执法面=encodeStateAsUpdate，
 // 本迁不涉——现场核；㉒ env 表/⑮ worker 闭包登记均不涉本文件：零 env 读零 hocuspocus import）。
@@ -11,13 +11,16 @@ import { encodeAwarenessUpdate } from 'y-protocols/awareness';
 import type { CollabGateway } from './collab.gateway';   // type-only 零运行时边（server.factory 同款先例）
 import type { CollabSpoolService } from './collab-spool.service';   // Y1c T13：wal observer reader 消费面（type-only）
 import type { PrismaService } from '../../prisma/prisma.service';
-import { registerPendingCollector, registerAuthInflightReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerFrozenDocsReader, registerDocResidueReader, registerAwarenessReader, registerOldestUnflushedReader, registerDegradedDocsReader, registerUpdatesRowsReader, registerWalObserverReader } from './store.metrics';
+import type { ProjectionBackfillRunner } from './projection-backfill.runner';   // 卡② K6：backfill_remaining reader 消费面（type-only）
+import { registerPendingCollector, registerAuthInflightReader, registerHeapObserverReader, registerLoadedDocBytesReader, registerFrozenDocsReader, registerDocResidueReader, registerAwarenessReader, registerOldestUnflushedReader, registerDegradedDocsReader, registerUpdatesRowsReader, registerWalObserverReader, registerImportCoverageReader } from './store.metrics';
+import { registerBindingsBackfillReader } from './media-binding.metrics';
 
 /** reader 注册单源（构造器末调用——注册序逐字保持：pendingCollector→authInflight→heapObserver→
- *  loadedDocBytes→frozenDocs→docResidue→awareness→oldestUnflushed→degradedDocs→updatesRows）。
- *  prisma 显式入参=gateway 私有字段（updatesRows reader count 消费——构造器参数名直通，公有面不扩）；
- *  spool 同理显式入参（Y1c T13 G6a：wal observer reader 消费——pendingSpoolBytes/maxPgLagSeq 公有读面）。 */
-export function wireCollabMetricsReaders(gw: CollabGateway, prisma: PrismaService, spool: CollabSpoolService): void {
+ *  loadedDocBytes→frozenDocs→docResidue→awareness→oldestUnflushed→degradedDocs→updatesRows；卡② K6
+ *  尾追加 importCoverage→bindingsBackfill）。prisma 显式入参=gateway 私有字段（updatesRows reader
+ *  count 消费——构造器参数名直通，公有面不扩）；spool 同理显式入参（Y1c T13 G6a：wal observer
+ *  reader 消费——pendingSpoolBytes/maxPgLagSeq 公有读面）；runner 同理（K6：countCandidates 谓词单源）。 */
+export function wireCollabMetricsReaders(gw: CollabGateway, prisma: PrismaService, spool: CollabSpoolService, runner: ProjectionBackfillRunner): void {
   // Y0a-2（P1+V4 单源派生）：pending 观测注册——/api/metrics collect 回调现算（零手动维护点）；
   // G-1/G-2 演练轮询面+y0a-3 /api/ready.pending 消费同一 computePending()。
   registerPendingCollector(() => gw.computePending());
@@ -74,4 +77,8 @@ export function wireCollabMetricsReaders(gw: CollabGateway, prisma: PrismaServic
     pendingBytes: spool.pendingSpoolBytes(),
     maxLagSeq: Number(spool.maxPgLagSeq()),
   }));
+  // 卡② K6：import 覆盖 gauge（同步——persistence.importPendingCount）+backfill_remaining scrape
+  // 采集（runner.countCandidates 谓词单源；drain 不再写 gauge；worker 进程无 gateway⇒无 reader⇒0）。
+  registerImportCoverageReader(() => gw.persistence.importPendingCount());
+  registerBindingsBackfillReader(() => runner.countCandidates());
 }

@@ -38,12 +38,7 @@ describe('C3a-8 I-4：backfillBackoffMs 指数退避', () => {
 });
 
 
-describe('C3a-8 I-3/I-3r：backfill_remaining 刷新面（枚举零 COUNT；drain 末尾收口）', () => {
-  const gaugeValue = async (): Promise<number> => {
-    const m = await mediaBindingBackfillRemaining.get();
-    return m.values[0]?.value ?? 0;
-  };
-
+describe('C3a-8 I-3：枚举零 COUNT；卡② K6 drain 零 COUNT/不触 backfill_remaining（scrape 采集化）', () => {
   it('枚举页本身零 COUNT（空页/有候选均只一条枚举查询）', async () => {
     const raw = vi.fn();
     const r = new ProjectionBackfillRunner({ $queryRaw: raw } as never, {} as never);
@@ -53,13 +48,12 @@ describe('C3a-8 I-3/I-3r：backfill_remaining 刷新面（枚举零 COUNT；drai
     expect(raw).toHaveBeenCalledTimes(1);
     raw.mockResolvedValueOnce([{ projectId: 'p1' }]);
     expect(await enumerate()).toBe(1);
-    expect(raw).toHaveBeenCalledTimes(2);   // 有候选亦不 COUNT（刷新归 drain 末尾）
+    expect(raw).toHaveBeenCalledTimes(2);   // 有候选亦不 COUNT（countCandidates 归 scrape reader 消费）
   });
 
-  it('I-3r：处理拍 drain 末尾刷新——最后一拍完成后 gauge=0（变异删刷新=红）', async () => {
+  it('K6：drain 处理拍零 COUNT/不写 backfill_remaining（countCandidates/set 若被 drain 触即红）', async () => {
     const raw = vi.fn()
-      .mockResolvedValueOnce([{ lifecycleState: 'ACTIVE' }])   // readLifecycleState
-      .mockResolvedValueOnce([{ n: 0n }]);                     // drain 末尾 countCandidates
+      .mockResolvedValueOnce([{ lifecycleState: 'ACTIVE' }]);   // readLifecycleState——本拍唯一 raw 查询
     const prisma = {
       $queryRaw: raw,
       projectionBackfillState: { upsert: vi.fn(async () => ({})) },
@@ -70,9 +64,9 @@ describe('C3a-8 I-3/I-3r：backfill_remaining 刷新面（枚举零 COUNT；drai
     };
     const r = new ProjectionBackfillRunner(prisma as never, rebuild as never);
     (r as unknown as { queue: Set<string> }).queue.add('p1');
-    mediaBindingBackfillRemaining.set(5);   // 残留非零前置
+    const setSpy = vi.spyOn(mediaBindingBackfillRemaining, 'set');
     expect(await r.drain()).toBe(1);
-    expect(raw).toHaveBeenCalledTimes(2);   // lifecycle + drain 末尾 COUNT
-    expect(await gaugeValue()).toBe(0);     // 完成后不滞留非零
+    expect(raw).toHaveBeenCalledTimes(1);   // 仅 lifecycle 读——COUNT 面已随 drain 末尾 set 删除
+    expect(setSpy).not.toHaveBeenCalled();  // drain 不触 gauge（值只由 scrape collect 写——注册面归 wiring）
   });
 });

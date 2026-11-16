@@ -1040,6 +1040,32 @@ export const yjsUpdatesRowsTotal = new Gauge({
   async collect() { try { this.set(await (updatesRowsReader?.() ?? 0)); } catch { this.set(0); } },
 });
 
+/** ===== 卡② K6（spec §1.3）：import 覆盖 gauge+指标采集错误计数 ===== */
+
+/** 指标 collect 失败计数（label reader 闭集=import_coverage/bindings_backfill——仅下列两 gauge 的
+ *  collect catch 触发；既有 catch{set(0)} reader 零动：部分 gauge 采集失败归零才是诚实值，统一
+ *  keep-last 需逐 gauge 裁=spec §5 登记项）。 */
+export const yjsMetricsCollectErrorsTotal = new Counter({
+  name: 'yjs_metrics_collect_errors_total',
+  help: 'keep-last gauge 的 collect 失败计数（label reader 闭集=import_coverage/bindings_backfill；告警看本计数速率、不看 gauge 值）',
+  labelNames: ['reader'],
+  registers: [register],
+});
+
+/** import 覆盖 gauge collect 源（同步——persistence.importPendingCount；重启归零=进程内窗口语义）。 */
+let importCoverageReader: (() => number) | null = null;
+export function registerImportCoverageReader(fn: () => number): void { importCoverageReader = fn; }
+export function unregisterImportCoverageReader(): void { importCoverageReader = null; }
+export const yjsImportCoverageOpen = new Gauge({
+  name: 'yjs_import_coverage_open',
+  help: '本进程 import 覆盖尚未 release 的项目数；重启归零',
+  registers: [register],
+  collect() {
+    try { this.set(importCoverageReader?.() ?? 0); }
+    catch { yjsMetricsCollectErrorsTotal.inc({ reader: 'import_coverage' }); }   // keep-last：不 set 保上次值
+  },
+});
+
 /** ===== Y0c T16（片 A2 reaper/Z106·Z93·Z126·Z110·偏离 24）：常驻双层约束+驱逐观测 ===== */
 
 /** 常驻会话面 gauge collect 源（bytes=Σ held 条目 bytes 缓存〔reaper tick 刷新——单源

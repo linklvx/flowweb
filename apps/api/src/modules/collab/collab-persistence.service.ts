@@ -567,6 +567,7 @@ export class CollabPersistenceService {
   }
 
   private readonly importTracker = new ImportCoverageTracker();          // 零构造依赖（无 this 引用）
+  importPendingCount(): number { return this.importTracker.size(); }     // 卡② K6：yjs_import_coverage_open 读面（wiring 同步 collect）
 
   /** 导入字节已不在队列、也不在 spool。不含 inFlight：inFlight 表示 store 段仍在执行，不是字节
    *  还没进 PG（handoff 成功路径不 leaveInFlight 即落定——三态门会误挡）。禁以 isPersistedComplete/

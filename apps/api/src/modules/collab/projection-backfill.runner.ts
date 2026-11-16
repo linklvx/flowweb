@@ -24,7 +24,7 @@ import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from 
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BindingRebuildService, type RebuildOutcome } from './binding-rebuild.service';
-import { mediaBindingBackfillRemaining, mediaBindingWatermarkLag } from './media-binding.metrics';
+import { mediaBindingWatermarkLag } from './media-binding.metrics';
 
 /** 候选枚举页大小（CanvasDoc 全表游标分页——每枚举拍一页入队）。 */
 export const BACKFILL_ENUM_PAGE = 32;
@@ -119,9 +119,7 @@ export class ProjectionBackfillRunner implements OnModuleInit, OnApplicationShut
     await this.prisma.canvasDoc.updateMany({ where: { projectId }, data: { bindingsDirty: true } });
   }
 
-  /** 一拍：枚举一页候选入队 + 排水（每 tick 项目上界=限速；返回值=测试/日志面）。
-   *  I-3r：backfill_remaining 刷新收口在 drain 末尾（processed>0——覆盖「枚举+处理」收尾拍与
-   *  enqueue 直排；空转零 COUNT）。 */
+  /** 一拍：枚举一页候选入队 + 排水（每 tick 项目上界=限速；返回值=测试/日志面）。 */
   async tick(): Promise<{ enumerated: number; processed: number }> {
     const enumerated = await this.enumeratePage();
     const processed = await this.drain();
@@ -155,9 +153,7 @@ export class ProjectionBackfillRunner implements OnModuleInit, OnApplicationShut
           this.notBefore.set(projectId, now + backfillBackoffMs(a));   // 30s→60s→…base 10min ±20%
         }
       }
-      // I-3r：remaining 收口=本拍有处理时 drain 末尾刷新（覆盖枚举+处理/收尾拍/enqueue 直排；
-      // 空转 processed=0 保留上次值——零 COUNT）
-      if (processed > 0) mediaBindingBackfillRemaining.set(await this.countCandidates());
+      // 卡② K6：drain 不再 COUNT/不触 backfill_remaining——gauge 改 scrape 采集（reader=countCandidates）
       return processed;
     } finally {
       this.draining = false;
@@ -198,9 +194,6 @@ export class ProjectionBackfillRunner implements OnModuleInit, OnApplicationShut
     return { backfillEpoch: row.backfillEpoch, state: row.state as ProjectionBackfillStateValue, verifiedSeq: row.verifiedSeq };
   }
 
-  /** 候选剩余数读面已删除（质量收口 I-3：零消费——spec 指标由 backfill_remaining gauge 承载；
-   *  跨进程查询面=stateOf/持久行）。 */
-
   private async enumeratePage(): Promise<number> {
     const rows = await this.prisma.$queryRaw<{ projectId: string }[]>`
       SELECT "projectId" FROM "CanvasDoc"
@@ -217,7 +210,9 @@ export class ProjectionBackfillRunner implements OnModuleInit, OnApplicationShut
     return rows.length;
   }
 
-  private async countCandidates(): Promise<number> {
+  /** 卡② K6：候选剩余数（`bindingsDirty ∨ mediaBindingSeq<pgSeq` 全表 COUNT——转公有供
+   *  backfill_remaining gauge scrape 采集；谓词单源=候选枚举同一 SQL）。 */
+  async countCandidates(): Promise<number> {
     const rows = await this.prisma.$queryRaw<{ n: bigint }[]>`
       SELECT COUNT(*)::bigint AS n FROM "CanvasDoc"
       WHERE "bindingsDirty" = true OR "mediaBindingSeq" < "pgSeq"`;

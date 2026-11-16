@@ -1191,11 +1191,13 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - yjs_doc_stuck_total
 - yjs_force_evict_failure_total
 - yjs_hydration_huge_row_total
+- yjs_import_coverage_open
 - yjs_inbound_frame_bytes
 - yjs_load_duration_seconds
 - yjs_load_unloading_window_total
 - yjs_loaded_doc_bytes
 - yjs_loaded_documents
+- yjs_metrics_collect_errors_total
 - yjs_oldest_unflushed_age_seconds
 - yjs_outbound_backlog_bytes
 - yjs_outbound_queued_bytes

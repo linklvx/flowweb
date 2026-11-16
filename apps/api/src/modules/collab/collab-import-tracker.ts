@@ -11,6 +11,8 @@ export class ImportCoverageTracker {
   private readonly pending = new Set<string>();
   mark(pid: string): void { this.pending.add(pid); }                    // 幂等；仅 origin=import（调用方守）
   isUncovered(pid: string): boolean { return this.pending.has(pid); }
+  /** 卡② K6：待落定项目数（yjs_import_coverage_open gauge 读面——同步 collect）。 */
+  size(): number { return this.pending.size; }
   /** 仅当仍标记且 landed 时清除；返回 true=本次发生清除。landed 只允许 importBytesLanded 的返回值传入。 */
   release(pid: string, landed: boolean): boolean { return landed && this.pending.delete(pid); }
   forget(pid: string): void { this.pending.delete(pid); }               // discard 终态+落定入口已删分支（幂等）
