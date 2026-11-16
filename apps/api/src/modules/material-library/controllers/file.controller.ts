@@ -3,6 +3,7 @@ import { MaterialService } from '../services/material.service';
 import { MoveFileDto } from '../dto/move-file.dto';
 import { BatchMoveFilesDto } from '../dto/batch-move-files.dto';
 import { BatchDeleteFilesDto } from '../dto/batch-delete-files.dto';
+import { BatchRestoreFilesDto } from '../dto/batch-restore-files.dto';
 
 @Controller('api/material/files')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
@@ -53,6 +54,19 @@ export class FileController {
   async batchDelete(@Body() body: BatchDeleteFilesDto, @Req() req: any) {
     const count = await this.materialService.deleteFiles(req.user.id, body.ids, body.teamId);
     return { success: true, count };
+  }
+
+  /** 素材恢复（spec 2026-11-16-media-restore §1.1——对称 delete 族；单个零行=「文件不存在」在 service 层）。 */
+  @Post('batch-restore')
+  async batchRestore(@Body() body: BatchRestoreFilesDto, @Req() req: any) {
+    const count = await this.materialService.restoreFiles(req.user.id, body.ids, body.teamId);
+    return { success: true, count };
+  }
+
+  @Post(':id/restore')
+  async restoreFile(@Param('id') id: string, @Req() req: any, @Query('teamId') teamId?: string) {
+    await this.materialService.restoreFile(req.user.id, id, teamId);
+    return { success: true };
   }
 
   @Post('batch-move')

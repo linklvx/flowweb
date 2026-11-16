@@ -5,6 +5,7 @@ import { UpdateFolderDto } from './update-folder.dto';
 import { MoveFileDto } from './move-file.dto';
 import { MoveFolderDto } from './move-folder.dto';
 import { BatchDeleteFilesDto } from './batch-delete-files.dto';
+import { BatchRestoreFilesDto } from './batch-restore-files.dto';
 
 describe('material DTO 装饰器语义', () => {
   it('CreateFolderDto：合法值通过', () => {
@@ -55,5 +56,12 @@ describe('material DTO 装饰器语义', () => {
     expect(validateSync(dto).length).toBeGreaterThan(0);
     dto.parentId = 'f1';
     expect(validateSync(dto).length).toBe(0);
+  });
+
+  it('BatchRestoreFilesDto：ids 数组 + teamId 可选', () => {
+    const dto = new BatchRestoreFilesDto();
+    dto.ids = ['a', 'b'];
+    dto.teamId = 't1';
+    expect(dto.ids).toEqual(['a', 'b']);
   });
 });

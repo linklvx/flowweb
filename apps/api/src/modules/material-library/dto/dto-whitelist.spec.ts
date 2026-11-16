@@ -3,6 +3,7 @@ import { ValidationPipe, BadRequestException } from '@nestjs/common';
 import { CreateFolderDto } from './create-folder.dto';
 import { MoveFileDto } from './move-file.dto';
 import { BatchDeleteFilesDto } from './batch-delete-files.dto';
+import { BatchRestoreFilesDto } from './batch-restore-files.dto';
 
 describe('material DTO whitelist 剥离', () => {
   const pipe = new ValidationPipe({ whitelist: true, transform: true });
@@ -32,5 +33,16 @@ describe('material DTO whitelist 剥离', () => {
     await expect(
       pipe.transform({ ids: 'not-array' }, meta(BatchDeleteFilesDto)),
     ).rejects.toThrow(BadRequestException);
+  });
+
+  it('BatchRestoreFilesDto ids 非数组被拒；未声明字段剥离（whitelist）', async () => {
+    await expect(
+      pipe.transform({ ids: 'not-array' }, meta(BatchRestoreFilesDto)),
+    ).rejects.toThrow(BadRequestException);
+    const value = await pipe.transform(
+      { ids: ['a'], teamId: 't1', malicious: 'hack' },
+      meta(BatchRestoreFilesDto),
+    );
+    expect(value).toEqual({ ids: ['a'], teamId: 't1' });
   });
 });

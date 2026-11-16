@@ -13,6 +13,7 @@ describe('FileController', () => {
       moveFile: vi.fn(),
       toggleFavorite: vi.fn(),
       deleteFile: vi.fn(),
+      restoreFile: vi.fn(),
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [FileController],
@@ -106,5 +107,32 @@ describe('FileController', () => {
     const res = await controller.batchMove({ ids: ['m-1'], folderId: null }, mockReq());
     expect(service.moveFiles).toHaveBeenCalledWith('user-1', ['m-1'], null, undefined);
     expect(res).toEqual({ success: true, count: 2 });
+  });
+
+  it('POST /:id/restore should restore and return success', async () => {
+    service.restoreFile.mockResolvedValue(undefined);
+    const res = await controller.restoreFile('m-1', mockReq(), 't-team');
+    expect(service.restoreFile).toHaveBeenCalledWith('user-1', 'm-1', 't-team');
+    expect(res).toEqual({ success: true });
+  });
+
+  it('POST /:id/restore 无 teamId=undefined 透传', async () => {
+    service.restoreFile.mockResolvedValue(undefined);
+    await controller.restoreFile('m-1', mockReq());
+    expect(service.restoreFile).toHaveBeenCalledWith('user-1', 'm-1', undefined);
+  });
+
+  it('POST /batch-restore should batch restore and return count', async () => {
+    service.restoreFiles = vi.fn().mockResolvedValue(2);
+    const res = await controller.batchRestore({ ids: ['m-1', 'm-2'], teamId: 't-team' }, mockReq());
+    expect(service.restoreFiles).toHaveBeenCalledWith('user-1', ['m-1', 'm-2'], 't-team');
+    expect(res).toEqual({ success: true, count: 2 });
+  });
+
+  it('POST /batch-restore 空数组=0（真传 []——开工契约④）', async () => {
+    service.restoreFiles = vi.fn().mockResolvedValue(0);
+    const res = await controller.batchRestore({ ids: [] }, mockReq());
+    expect(service.restoreFiles).toHaveBeenCalledWith('user-1', [], undefined);
+    expect(res).toEqual({ success: true, count: 0 });
   });
 });
