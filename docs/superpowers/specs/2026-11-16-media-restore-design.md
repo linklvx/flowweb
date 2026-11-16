@@ -1,4 +1,4 @@
-<!-- doc-status: active | created: 2026-11-16 | confirmed: 待确认 -->
+<!-- doc-status: active | created: 2026-11-16 | confirmed: 2026-11-17（用户确认 v3——四轮裁定全采纳） -->
 # 素材恢复接线（restore 端点+配额门+GC 抢占谓词）设计 spec v3
 
 > 范围：顺后短批（两卡短批后）。三项=①恢复端点（单个+批量——foundation plan :306「恢复端点未建，原语在位——接线时消费」兑现，`restoreMediaToActive` 零生产调用方收口）②恢复事务配额门（软删即让出用量、恢复即重新占用——重入账字节必须过门）③GC 抢占谓词根修（`reason='media-gc'` ⇒ `deletedAt` 非空——封「候选读出→抢占」间恢复丢失竞态，无补偿式放回崩溃窗）。列表/回收站/前端/文件夹恢复不在本批。

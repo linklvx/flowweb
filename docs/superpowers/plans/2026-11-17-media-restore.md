@@ -40,7 +40,7 @@
 - Consumes: `claimMediaForDeletion(db, ids, audit: MediaDeletionAudit)` 现签名；`MediaDeletionAudit.reason: 'media-gc' | 'project-erasure'`。
 - Produces: 行为变更（reason='media-gc' ⇒ 只抢 deletedAt 非空行）；签名零变——erasure 两个调用点（project-erasure.stages.ts:412/:467）零动。
 
-- [ ] **Step 1: 写红测（腿⑥——直调，防假绿指令㊞）**
+- [x] **Step 1: 写红测（腿⑥——直调，防假绿指令㊞）**
 
 在既有 describe 尾部追加（复用 `seedMedia`/`GRACE_OLD` fixture）：
 
@@ -60,12 +60,12 @@ it('⑥谓词域（spec §2）：media-gc 只抢软删行——活行 0 命中�
 });
 ```
 
-- [ ] **Step 2: run 见红**
+- [x] **Step 2: run 见红**
 
 Run: `cd apps/api && DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm vitest run src/modules/media-delivery/media-deleting.int.spec.ts`
 Expected: FAIL——腿⑥「活行挡」断言处实际命中 1 行（谓词未加）。
 
-- [ ] **Step 3: 实现（media-gc.service.ts claimMediaForDeletion）**
+- [x] **Step 3: 实现（media-gc.service.ts claimMediaForDeletion）**
 
 三腿 OR 括号**外**加一句（与句内既有 `${audit.reason}::text` 同款写法）：
 
@@ -77,12 +77,12 @@ WHERE "id" = ANY(${[...ids]}::text[])
 
 doc 注释（:57-60）追加一句：`reason='media-gc' ⇒ 仅软删行（候选读出→抢占间恢复丢失竞态封口——spec 2026-11-16-media-restore §2）；'project-erasure' 活行照抢。`
 
-- [ ] **Step 4: run 见绿（含存量零回归）**
+- [x] **Step 4: run 见绿（含存量零回归）**
 
 Run: 同 Step 2。
 Expected: PASS——腿⑥绿+存量 ①-⑤（含 ②a/②b/③a-c）全绿。
 
-- [ ] **Step 5: Commit ①**
+- [x] **Step 5: Commit ①**
 
 ```bash
 git add apps/api/src/modules/media-delivery/media-gc.service.ts apps/api/src/modules/media-delivery/media-deleting.int.spec.ts
@@ -108,7 +108,7 @@ git commit -m "feat(collab): 素材恢复批①——GC claim 谓词域收紧（
   - `MaterialService.restoreFiles(userId: string, ids: string[], teamId?: string): Promise<number>`（ids 空→鉴权后直接 0）
   - `export function isRestoreLockUnavailable(e: unknown): boolean`（material.service.ts 导出）
 
-- [ ] **Step 1: 判别器红测（无库，material.service.spec.ts）**
+- [x] **Step 1: 判别器红测（无库，material.service.spec.ts）**
 
 构造 stub 增加第 4 依赖：`{ provide: StorageQuotaService, useValue: { lockTeamQuota: vi.fn(), assertCanUploadInTx: vi.fn() } }`（既有用例不受影响）。新 describe：
 
@@ -138,12 +138,12 @@ describe('恢复预算耗尽→409（开工契约④——采样腿盖不到：A
 });
 ```
 
-- [ ] **Step 2: run 见红**
+- [x] **Step 2: run 见红**
 
 Run: `cd apps/api && pnpm vitest run src/modules/material-library/services/material.service.spec.ts`
 Expected: FAIL——`isRestoreLockUnavailable` 未导出（编译错即红）。
 
-- [ ] **Step 3: 实现判别器+lockTeamQuota 抽取+模块装配**
+- [x] **Step 3: 实现判别器+lockTeamQuota 抽取+模块装配**
 
 material.service.ts 追加导出（artifact-commit.service.ts:47-51 同款双形状）：
 
@@ -158,12 +158,12 @@ export function isRestoreLockUnavailable(e: unknown): boolean {
 
 storage-quota.service.ts：assertCanUploadInTx 首句 `await tx.$queryRaw…FOR UPDATE` 抽为 `async lockTeamQuota(tx, teamId)`（doc：`/** Team 行锁（配额串行化锚——presign/恢复共用；同事务重入同一行无害）。 */`），原方法改调它。material-library.module.ts imports 加 `TeamModule`；MaterialService ctor 加 `@Inject(StorageQuotaService) private readonly quota: StorageQuotaService`。
 
-- [ ] **Step 4: run 见绿**
+- [x] **Step 4: run 见绿**
 
 Run: 同 Step 2。
 Expected: PASS（判别器绿+既有用例零回归）。
 
-- [ ] **Step 5: 写 int 红测（material-restore.int.spec.ts——八腿）**
+- [x] **Step 5: 写 int 红测（material-restore.int.spec.ts——八腿）**
 
 Bootstrap 镜像 media-deleting.int.spec.ts（`maybe/describe.skip`+`PrismaClient`+beforeAll 种 user/team〔**`isDefault: true`**——getOwnerTeamId 口径〕+teamMember OWNER+afterAll `deleteTeamsWithPass`）。服务直构：
 
@@ -187,12 +187,12 @@ const seed = (over: Record<string, unknown> = {}) => prisma.media.create({ data:
 7. **空批两档**：成员+`[]`→count 0（不进事务）；非成员 user+`[]`+显式 teamId→rejects（assertTeamMember 403 形态——鉴权先于短路）。
 8. **Team 锁不被占住 ★㊝**：会话 A=独立 `PrismaClient` 事务握目标软删媒体行 FOR UPDATE 600ms；启动 `restoreFiles` Promise（采样期间保持 pending——NOWAIT 失败后退避睡眠不持锁）；会话 C 循环 400ms：`$transaction(SET LOCAL lock_timeout='50ms' → SELECT "id" FROM "Team" … FOR UPDATE)` 逐次提交，**零 55P03**；采样完 A 结束→await 恢复→count 1。
 
-- [ ] **Step 6: run 见红**
+- [x] **Step 6: run 见红**
 
 Run: `cd apps/api && DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm vitest run src/modules/material-library/material-restore.int.spec.ts`
 Expected: FAIL——`restoreFile`/`restoreFiles` 方法不存在（腿 1-8 全红于编译或调用错）。
 
-- [ ] **Step 7: 实现恢复方法（material.service.ts）**
+- [x] **Step 7: 实现恢复方法（material.service.ts）**
 
 ```ts
 /** 恢复重试环（spec §1.2——等待只发生在事务外）：NOWAIT 55P03→整笔回滚（Team 锁随放）→
@@ -244,12 +244,12 @@ private async restoreInTx(tx: Prisma.TransactionClient, teamId: string, ids: rea
 
 注意：`restoreFile` 瘦委托零自有鉴权（死变量 resolved 删——api-eslint 拒）。导入：`ConflictException`、`restoreMediaToActive`/`MEDIA_DELETING_TX_TIMEOUT_MS`（`../../media-delivery/media-gc.service`）、`StorageQuotaService`（`../../team/storage-quota.service`）、`Prisma` 类型。
 
-- [ ] **Step 8: run 见绿**
+- [x] **Step 8: run 见绿**
 
 Run: 同 Step 6。
 Expected: PASS——八腿全绿（腿 2 'lost'+腿 8 零 55P03 为核心观察点）。
 
-- [ ] **Step 9: Commit ②**
+- [x] **Step 9: Commit ②**
 
 ```bash
 git add apps/api/src/modules/team/storage-quota.service.ts apps/api/src/modules/material-library/services/material.service.ts apps/api/src/modules/material-library/services/material.service.spec.ts apps/api/src/modules/material-library/material-library.module.ts apps/api/src/modules/material-library/material-restore.int.spec.ts
@@ -269,7 +269,7 @@ git commit -m "feat(collab): 素材恢复批②——恢复事务（Team锁+NOWA
 - Consumes: Task 2 的 `restoreFile(userId, fileId, teamId?)`/`restoreFiles(userId, ids, teamId?)`。
 - Produces: `POST api/material/files/:id/restore`→`{success:true}`（teamId=Query）；`POST api/material/files/batch-restore`→`{success:true, count}`（teamId=Body）。
 
-- [ ] **Step 1: 写红测**
+- [x] **Step 1: 写红测**
 
 file.controller.spec.ts（service stub 增 `restoreFile: vi.fn()`/`restoreFiles: vi.fn()`）：
 
@@ -296,21 +296,21 @@ it('POST /batch-restore 空数组=0（真传 []——开工契约④）', async 
 
 dto-whitelist.spec.ts 追加：`BatchRestoreFilesDto` ids 非数组被拒+`malicious` 剥离（镜像 BatchDeleteFilesDto 腿）；dto-decorators.spec.ts 追加：`BatchRestoreFilesDto：ids 数组 + teamId 可选`。
 
-- [ ] **Step 2: run 见红**
+- [x] **Step 2: run 见红**
 
 Run: `cd apps/api && pnpm vitest run src/modules/material-library/controllers/file.controller.spec.ts src/modules/material-library/dto`
 Expected: FAIL——`controller.restoreFile`/`batchRestore` 不存在+DTO 类未建。
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 batch-restore-files.dto.ts=BatchDeleteFilesDto 同形克隆（`ids!: string[]` `@IsArray @IsString({each:true})`+`teamId?: string` `@IsOptional @IsString`）；controller 两路由（形态对称 delete 族——单个 `@Post(':id/restore')` `@Param('id') @Req @Query('teamId')`；批量 `@Post('batch-restore')` `@Body() @Req`）。
 
-- [ ] **Step 4: run 见绿**
+- [x] **Step 4: run 见绿**
 
 Run: 同 Step 2。
 Expected: PASS。
 
-- [ ] **Step 5: Commit ③**
+- [x] **Step 5: Commit ③**
 
 ```bash
 git add apps/api/src/modules/material-library/dto/batch-restore-files.dto.ts apps/api/src/modules/material-library/dto/dto-whitelist.spec.ts apps/api/src/modules/material-library/dto/dto-decorators.spec.ts apps/api/src/modules/material-library/controllers/file.controller.ts apps/api/src/modules/material-library/controllers/file.controller.spec.ts
