@@ -243,4 +243,19 @@ maybe('C3b-4：DELETING 状态机+删除序（真 PG）', () => {
     expect(readable?.id).toBe(mDeleting.id);
     expect(await content.findReadable(mSoft.id, UID)).toBeNull();
   });
+
+  it('⑥谓词域（spec 2026-11-16-media-restore §2）：media-gc 只抢软删行——活行 0 命中且保持 ACTIVE；project-erasure 活行照抢', async () => {
+    const live = await seedMedia();                                    // deletedAt=null 活行
+    const soft = await seedMedia({ deletedAt: GRACE_OLD });            // 软删行（对照）
+    // 活行挡：0 行 + 行原样（ACTIVE、无审计落值）——直调谓词面（不跑 sweep——sweep 只证候选里没这行）
+    expect(await claimMediaForDeletion(prisma as never, [live.id], { runId: 'v3-live', reason: 'media-gc' })).toEqual(new Set());
+    const after = await prisma.media.findUniqueOrThrow({ where: { id: live.id } });
+    expect(after.deletionState).toBe('ACTIVE');
+    expect(after.deletionRunId).toBeNull();
+    // 对照①：media-gc 软删行照抢（既有行为不回归）
+    expect([...await claimMediaForDeletion(prisma as never, [soft.id], { runId: 'v3-soft', reason: 'media-gc' })]).toEqual([soft.id]);
+    // 对照②：project-erasure 活行照抢（擦除语义零变）
+    expect([...await claimMediaForDeletion(prisma as never, [live.id], { runId: 'v3-erz', reason: 'project-erasure' })]).toEqual([live.id]);
+    await prisma.media.updateMany({ where: { id: { in: [live.id, soft.id] } }, data: { deletionState: 'ACTIVE', deletionRunId: null, deletionReason: null, deletionRequestedAt: null, deletedAt: null } });
+  });
 });

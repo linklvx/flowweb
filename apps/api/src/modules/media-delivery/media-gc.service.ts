@@ -57,7 +57,9 @@ export interface MediaDeletionAudit { runId: string; reason: 'media-gc' | 'proje
 /** CAS 抢占进 DELETING（spec :81——`UPDATE..WHERE deletionState='ACTIVE' RETURNING`）。三腿谓词：
  *  ①ACTIVE→DELETING（双 worker 并发恰一者得——一者零行）；②DELETING∧同 runId（幂等再持有——
  *  erasure 跨 tick 复核/删除窗同 erasureId）；③DELETING∧陈旧（deletionRequestedAt 超过
- *  MEDIA_DELETING_STALE_MS——死轮接管=对象失败下轮重试的归还面）。审计三列同拍落值。 */
+ *  MEDIA_DELETING_STALE_MS——死轮接管=对象失败下轮重试的归还面）。审计三列同拍落值。
+ *  reason='media-gc' ⇒ 仅软删行（候选读出→抢占间恢复丢失竞态封口——spec 2026-11-16-media-restore §2）；
+ *  'project-erasure' 活行照抢。 */
 export async function claimMediaForDeletion(
   db: Prisma.TransactionClient, ids: readonly string[], audit: MediaDeletionAudit,
 ): Promise<Set<string>> {
@@ -70,6 +72,7 @@ export async function claimMediaForDeletion(
       "deletionRunId" = ${audit.runId}::text,
       "deletionReason" = ${audit.reason}::text
     WHERE "id" = ANY(${[...ids]}::text[])
+      AND (${audit.reason}::text <> 'media-gc' OR "deletedAt" IS NOT NULL)
       AND (
         "deletionState" = 'ACTIVE'
         OR ("deletionState" = 'DELETING' AND "deletionRunId" = ${audit.runId}::text)
