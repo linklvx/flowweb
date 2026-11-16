@@ -44,6 +44,25 @@ test("T24 红③：测试/harness 固定端口档命中；'0'/listen(0)/测试�
   assert.deepEqual(m.scanSource('apps/api/src/main.ts', 'await app.listen(env.PORT, ...);', { section: 3 }), []);
 });
 
+test('卡② K2 红⑤：端口门引号+数字洞六条（§3——反引/双引/无引号数字档+尾边界+路径分类）', async () => {
+  const m = await mod();
+  // ①反引号固定口命中（原只查单/双引——反引口漏网）
+  assert.equal(m.scanSource('apps/api/src/z.spec.ts', 'await server.listen(`3001`);', { section: 3 }).length, 1);
+  // ②反引号 '0' 放行
+  assert.equal(m.scanSource('apps/api/src/z.spec.ts', 'await server.listen(`0`);', { section: 3 }).length, 0);
+  // ③COLLAB_PORT 双引/反引命中（原只查单引）
+  assert.equal(m.scanSource('apps/api/src/z.spec.ts', 'env: { COLLAB_PORT: "3001" }', { section: 3 }).length, 1);
+  assert.equal(m.scanSource('apps/api/src/z.spec.ts', 'env: { COLLAB_PORT: `3001` }', { section: 3 }).length, 1);
+  // ④模板占位符形态不命中
+  assert.equal(m.scanSource('apps/api/src/z.spec.ts', 'await server.listen(`${port}`);', { section: 3 }).length, 0);
+  // ⑤无引号数字档命中+6 位数字尾边界不命中（非合法端口形态）
+  assert.equal(m.scanSource('apps/api/src/z.spec.ts', 'env: { COLLAB_PORT: 3001 }', { section: 3 }).length, 1);
+  assert.equal(m.scanSource('apps/api/src/z.spec.ts', 'env: { COLLAB_PORT: 123456 }', { section: 3 }).length, 0);
+  // ⑥路径分类双断言：testish 命中/census 脚本（非 testish）零命中
+  assert.equal(m.scanSource('apps/api/src/x.spec.ts', 'COLLAB_PORT: 1', { section: 3 }).length, 1);
+  assert.equal(m.scanSource('scripts/check-collab-census.mjs', 'COLLAB_PORT: 1', { section: 3 }).length, 0);
+});
+
 test('T24 红④：--list 输出 file:line（附录 A 单源）；全仓当前零命中', () => {
   const r = spawnSync(process.execPath, [GATE, '--list'], { encoding: 'utf8', cwd: ROOT, timeout: 120_000 });
   assert.equal(r.status, 0, r.stderr);
