@@ -53,3 +53,6 @@ export function startDrillServer(
   env: Record<string, string | undefined>,
   opts: StartDrillServerOpts,
 ): Promise<DrillHandle>;
+
+/** 卡② K5：创建同拍落定化判别式——成功值为 Error 不并通道。 */
+export function settle<T>(p: Promise<T>): Promise<{ ok: true; v: T } | { ok: false; e: unknown }>;

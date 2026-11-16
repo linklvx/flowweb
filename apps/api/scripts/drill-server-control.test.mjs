@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = fileURLToPath(import.meta.url);
 const req = createRequire(here);
-const { startDrillServer, DrillStartError, DrillPortInUse, DrillStartFailed, DrillExited } = req('./lib/drill-server-control.js');
+const { startDrillServer, DrillStartError, DrillPortInUse, DrillStartFailed, DrillExited, settle } = req('./lib/drill-server-control.js');
 
 const dir = await mkdtemp(path.join(tmpdir(), 'drill-ctl-'));
 let n = 0;
@@ -227,6 +227,25 @@ test('T19-⑩：port0 守卫=显式选项（非 NODE_ENV）+ 子进程显式 COL
     assert.equal(env2.pt, h2.token);
   } finally {
     if (saved === undefined) delete process.env.COLLAB_ADMIN_TOKEN; else process.env.COLLAB_ADMIN_TOKEN = saved;
+  }
+});
+
+test('卡② K5：settle 两通道+监听卫生（创建同拍落定化——零 unhandledRejection）', async () => {
+  const bad = await settle(Promise.reject(new Error('boom')));
+  assert.equal(bad.ok, false);
+  assert.equal(bad.e.message, 'boom');
+  const good = await settle(Promise.resolve(42));
+  assert.equal(good.ok, true);
+  assert.equal(good.v, 42);
+  const seen = [];
+  const on = (reason) => seen.push(reason);
+  process.on('unhandledRejection', on);
+  try {
+    await settle(Promise.reject(new Error('boom2')));
+    await new Promise((r) => setImmediate(r));   // await settle 后再等一个 setImmediate——unhandled 面才浮出
+    assert.equal(seen.length, 0, `不得产生 unhandledRejection：${seen.map(String).join(';')}`);
+  } finally {
+    process.removeListener('unhandledRejection', on);   // 监听卫生=finally 摘（断言红也不漏监听）
   }
 });
 

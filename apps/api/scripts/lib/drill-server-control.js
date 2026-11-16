@@ -258,4 +258,9 @@ function startDrillServer(env, opts = {}) {
   });
 }
 
-module.exports = { startDrillServer, DrillStartError, DrillPortInUse, DrillStartFailed, DrillExited };
+/** 卡② K5：创建同拍落定化判别式（drill 计时 Promise 所有权）——成功值为 Error 不并通道，全仓唯一实现。 */
+function settle(p) {
+  return p.then((v) => ({ ok: true, v }), (e) => ({ ok: false, e }));
+}
+
+module.exports = { startDrillServer, DrillStartError, DrillPortInUse, DrillStartFailed, DrillExited, settle };
