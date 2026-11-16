@@ -336,6 +336,13 @@
       "symbol": "apps/api/src/x.spec.ts",
       "reason": "卡② K2 红测内联示例路径（scanSource 纯函数用例字面量——非真实文件引用）",
       "expires_at": "2027-02-14"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-11-17-media-restore.md",
+      "line": 264,
+      "symbol": "apps/api/src/modules/material-library/dto/batch-restore-files.dto.ts",
+      "reason": "素材恢复批 Task 3 前向引用（Create 目标——本 commit 后下一任务即落地）",
+      "expires_at": "2027-02-14"
     }
   ]
 }

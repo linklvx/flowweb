@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { TeamModule } from '../team/team.module';
 import { BullModule } from '@nestjs/bullmq';
 import { FolderController } from './controllers/folder.controller';
 import { FileController } from './controllers/file.controller';
@@ -9,6 +10,7 @@ import { THUMBNAIL_GENERATOR_QUEUE, THUMBNAIL_GENERATOR_CONNECTION } from './con
 
 @Module({
   imports: [
+    TeamModule,
     BullModule.registerQueue({
       name: THUMBNAIL_GENERATOR_QUEUE,
       configKey: THUMBNAIL_GENERATOR_CONNECTION,

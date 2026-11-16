@@ -173,6 +173,17 @@
       ]
     },
     {
+      "path": "docs/superpowers/plans/2026-11-17-media-restore.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/api/src/modules/material-library/material-restore.int.spec.ts",
+          "line": 2,
+          "text": "// 素材恢复接线（spec 2026-11-16-media-restore-design.md v3 §1.2-§3/§4——plan 2026-11-17-media-restore Task 2）："
+        }
+      ]
+    },
+    {
       "path": "docs/superpowers/plans/collab-e2e-gate-checklist.md",
       "criteria": "C1",
       "evidence": [
@@ -300,6 +311,17 @@
       "evidence": [
         "入引用自 docs/superpowers/plans/2026-11-16-collab-closing-bag.md",
         "入引用自 docs/superpowers/tech-debt.md"
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-11-16-media-restore-design.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/api/src/modules/material-library/material-restore.int.spec.ts",
+          "line": 2,
+          "text": "// 素材恢复接线（spec 2026-11-16-media-restore-design.md v3 §1.2-§3/§4——plan 2026-11-17-media-restore Task 2）："
+        }
       ]
     },
     {

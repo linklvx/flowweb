@@ -46,12 +46,18 @@ export class StorageQuotaService {
     }
   }
 
+  /** Team 行锁（配额串行化锚——presign/恢复共用；同事务重入同一行无害）。
+   *  锁序纪律：Team 行先于业务行/预留读/写（素材恢复事务同序消费——spec 2026-11-16-media-restore §1.2）。 */
+  async lockTeamQuota(tx: Prisma.TransactionClient, teamId: string): Promise<void> {
+    await tx.$queryRaw`SELECT "id" FROM "Team" WHERE "id" = ${teamId}::text FOR UPDATE`;
+  }
+
   /** Y1c T23 收口 I-2（Q7 根修——assert→insert 无锁非原子）：presign 门禁事务内形态——
    *  ①Team 行 FOR UPDATE=同团队 presign 串行化锚（锁序纪律：业务行→counter 先例——Team 行先于
    *  预留读/写）；②usage+ΣACTIVE+incoming 三段和（prepareUploadInTx 事务内消费——对方未提交
    *  预留经行锁排队后可见，双并发恰一方过门）。 */
   async assertCanUploadInTx(tx: Prisma.TransactionClient, teamId: string, incomingBytes: number): Promise<void> {
-    await tx.$queryRaw`SELECT "id" FROM "Team" WHERE "id" = ${teamId}::text FOR UPDATE`;
+    await this.lockTeamQuota(tx, teamId);
     const { storageLimitBytes } = await this.subscription.getLimits(teamId);
     const usageAgg = await tx.media.aggregate({
       _sum: { size: true },

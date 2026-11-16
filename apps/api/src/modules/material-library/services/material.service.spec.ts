@@ -1,10 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { MaterialService, MEDIA_DTO_SELECT } from './material.service';
+import { MaterialService, MEDIA_DTO_SELECT, isRestoreLockUnavailable } from './material.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { MinioService } from '../../minio/minio.service';
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { getQueueToken } from '@nestjs/bullmq';
 import { THUMBNAIL_GENERATOR_QUEUE } from '../constants/material-library.constants';
+import { MEDIA_DELETING_TX_TIMEOUT_MS } from '../../media-delivery/media-gc.service';
+import { StorageQuotaService } from '../../team/storage-quota.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('MaterialService', () => {
@@ -37,6 +39,7 @@ describe('MaterialService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: MinioService, useValue: minio },
         { provide: getQueueToken(THUMBNAIL_GENERATOR_QUEUE), useValue: queue },
+        { provide: StorageQuotaService, useValue: { lockTeamQuota: vi.fn(), assertCanUploadInTx: vi.fn() } },
       ],
     }).compile();
 
@@ -402,6 +405,31 @@ describe('MaterialService', () => {
       const parsed = JSON.parse(JSON.stringify(updated));
       expect(parsed.size).toBe(1024);
       expect(parsed).not.toHaveProperty('sourceExecSeq');
+    });
+  });
+
+  describe('isRestoreLockUnavailable（55P03 双形状判别——spec §1.2）', () => {
+    it('认裸 55P03 与 P2010 包装 meta.code；不认 P2028/P2024', () => {
+      expect(isRestoreLockUnavailable({ code: '55P03' })).toBe(true);
+      expect(isRestoreLockUnavailable({ code: 'P2010', meta: { code: '55P03' } })).toBe(true);
+      expect(isRestoreLockUnavailable({ code: 'P2028' })).toBe(false);
+      expect(isRestoreLockUnavailable({ code: 'P2024' })).toBe(false);
+      expect(isRestoreLockUnavailable(new Error('x'))).toBe(false);
+    });
+  });
+
+  describe('恢复预算耗尽→409（开工契约④——采样腿盖不到：A 600ms 放开，删掉预算分支采样腿仍绿）', () => {
+    it('$transaction 恒抛 55P03，时间拨过预算→ConflictException', async () => {
+      (prisma as any).$transaction = vi.fn().mockRejectedValue({ code: '55P03' });
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] });
+      try {
+        const p = service.restoreFiles('u1', ['m-x'], 't1');
+        const expectation = expect(p).rejects.toThrow(ConflictException);   // 预挂——拒绝先于断言到达时不落 unhandled
+        await vi.advanceTimersByTimeAsync(MEDIA_DELETING_TX_TIMEOUT_MS + 2000);
+        await expectation;
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

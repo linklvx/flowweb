@@ -153,8 +153,8 @@ const DOWNSTREAM_NODE = 'n-down';
   });
 
   it('红测 4（sourceUrl 零泄漏）：material 出口响应零 sourceUrl（改前红=serializeMediaRow spread 整行）；media-batch 出口同断言（防回归）', async () => {
-    // MaterialService 直构（依赖三注入——int 真库行出口断言）
-    const material = new MaterialService(prisma as unknown as PrismaService, fakeMinio as any, { add: vi.fn() } as any);
+    // MaterialService 直构（依赖四注入——quota 恢复面 stub；int 真库行出口断言）
+    const material = new MaterialService(prisma as unknown as PrismaService, fakeMinio as any, { add: vi.fn() } as any, { lockTeamQuota: vi.fn(), assertCanUploadInTx: vi.fn() } as any);
     const files = await material.getFilesByFolderId(UID, null, undefined, TID);
     const row = files.find((f: any) => f.id === MEDIA_ID);
     expect(row).toBeDefined();
