@@ -190,6 +190,7 @@
 - **影响**：同 TD-32——t26/DeliveryFence 域在 Y2/Y3 触面，建议同批修。
 - **核销（2026-11-15，C1a `ce655ff8`/C1b `4dced28b`）**：owner 目录生命周期归进程（写路径项目级 rmdir 清零+boot GC+收养保护）+WAL 链精确覆盖（`writeNewSegmentFile`/`readSegmentFile` seam+chainWalIo 全覆盖+index 驱动 quarantine）；ENOENT 根因链（并发删 owner 目录窗口）关闭。**残余=文件级面**（旧 owner isolate 后 in-flight 写与新 owner replayAll unlink 交叉）——spec §7.1 登记。**正式销案（2026-11-15：CI 绿两轮+用户签收；t26 复现观察移交 registered-flakes 指针条目——复现即经台账重开）**。
 - **登记**：2026-11-14（provider 4.8.0 升级批 CI 三跑间歇面；TD-32/TD-33 为「立卡后续批」裁定补盘）
+- **Minor×8 索引（2026-11-16 卡②）**：双审 Minor×8 处置（2 销项/2 移出/4 无源句无实现——不处置不登记，重提须带源句+文件行号）→ `specs/2026-11-16-collab-closing-bag-design.md` §4
 
 ### TD-34 ProjectErasureTombstone 立项卡（延后——spec 2026-11-14 §7.6）
 

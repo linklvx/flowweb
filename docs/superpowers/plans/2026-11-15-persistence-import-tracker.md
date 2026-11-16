@@ -1,4 +1,4 @@
-<!-- doc-status: active | created: 2026-11-15 | confirmed: 2026-11-16（用户确认 v2——v1+第六轮执行口径评审七项 delta 落档；spec/机制零改动；**不开工——待用户指令**） -->
+<!-- doc-status: active | created: 2026-11-15 | confirmed: 2026-11-16（用户确认 v2——v1+第六轮执行口径评审七项 delta 落档；spec/机制零改动；**已执行收口：2026-11-15 commit 6cf7c7f4 已推+CI 绿（unit 3288/int 全套 106 文件 766 例零 skip/verify full 36/36；persistence 1242→1241+tracker 锚 23——FK 守卫行为变化已按 §0.4-1 披露）**） -->
 # persistence 结构性收口（ImportCoverageTracker 抽取）Implementation Plan v2
 
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers test-driven-development（每任务红-绿）；步骤用 checkbox 跟踪。
