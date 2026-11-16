@@ -56,6 +56,14 @@ const PID_B = 'c3b4a-barrier-b';   // 同队他项目（②team 维拒面/决策
 const ALL_PIDS = [PID_A, PID_B];
 const TOKEN = 'tok-c3b4a-int';
 
+/** 卡② K7：deletion_barrier_append_rejected_total 现值（repository 唯一拒绝点 inc——三条 delta 断言面；
+ *  未注册返回 -1=红腿形态）。 */
+const rejectedTotal = async (): Promise<number> => {
+  const m = register.getSingleMetric('deletion_barrier_append_rejected_total') as { get(): Promise<{ values: Array<{ value: number }> }> } | undefined;
+  if (!m) return -1;
+  return (await m.get()).values[0]?.value ?? 0;
+};
+
 /** 唯一帧（actor 准入矩阵合法信封：type+position+data.fileId=UUID——C3a-9 putNode 同形；逐帧唯一
  *  fileId=去重/updateHash 不冲突〔同内容空帧会被 actor dedup 吞+repo 端 @@updateHash 幂等吞行〕）。 */
 function uniqueFrame(fileId: string): Uint8Array {
@@ -223,6 +231,9 @@ maybe('C3b-4a：DeletionBarrier 持久 fence+admission 三面', () => {
   }, 60_000);
 
   it('②ACTIVE 期 admission 三面拒：WS 帧拒 4413 族+auth 拒+appendBatch 事务首段拒（team 维）', async () => {
+    // 卡② K7：断言前显式排空该 team 的 actor 队列（残留队列在 ACTIVE 窗再撞拒会串扰 delta 锁定=1）
+    await gateway.projectActor.flushThrough(PID_A, gateway.projectActor.appliedSeqOf(PID_A), { maxWaitMs: 2_000 });
+    const rejected0 = await rejectedTotal();
     const held = await svc.prepare(FIXTURE_TEAM);
     expect(held.outcome).toBe('verified');
     if (held.outcome !== 'verified') return;
@@ -242,6 +253,7 @@ maybe('C3b-4a：DeletionBarrier 持久 fence+admission 三面', () => {
         .toEqual({ ok: false, reason: 'deletion-barrier' });
       const wmB = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID_B }, select: { pgSeq: true } });
       expect(wmB.pgSeq).toBe(seqOf[PID_B]);   // 零行落定（新 apply 不可达）
+      expect(await rejectedTotal()).toBe(rejected0 + 1);   // 卡② K7：恰一次事务拒绝（实跑不符修 inc 位置不改断言）
     } finally {
       await svc.release(FIXTURE_TEAM, held.barrierId);
     }
@@ -249,6 +261,7 @@ maybe('C3b-4a：DeletionBarrier 持久 fence+admission 三面', () => {
     const nextB = seqOf[PID_B] + 1n;
     expect(await repo.appendBatch(PID_B, [seedRow(uniqueFrame(randomUUID()), nextB)], { expectedPgSeq: seqOf[PID_B], newPgSeq: nextB, walCheckpointSeq: nextB }))
       .toEqual({ ok: true, rows: 1 });
+    expect(await rejectedTotal()).toBe(rejected0 + 1);   // 卡② K7：非 ACTIVE append 零计数（复通即不 inc——delta 仍锁定 1）
     seqOf[PID_B] = nextB;
     await prisma.canvasDoc.updateMany({ where: { projectId: PID_B }, data: { mediaBindingSeq: nextB, bindingsDirty: false } });
     let postReleaseErr: unknown;
@@ -430,6 +443,7 @@ maybe('C3b-4a：DeletionBarrier 持久 fence+admission 三面', () => {
     const acq = await svc.acquire(FIXTURE_TEAM, { budgetMs: 30_000 });
     expect(acq.ok).toBe(true);
     if (!acq.ok) return;
+    const rejected8 = await rejectedTotal();   // 卡② K7 基线（activate 前尚非 ACTIVE）
     try {
       expect(await svc.activate(FIXTURE_TEAM, acq.barrierId)).toBe(true);
       const before = (await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID_A }, select: { pgSeq: true } })).pgSeq;
@@ -441,6 +455,7 @@ maybe('C3b-4a：DeletionBarrier 持久 fence+admission 三面', () => {
       await new Promise((res) => setTimeout(res, 500));   // flushApplied 撞拒退回窗口
       expect(gateway.getCollabState(), 'P1-3 锚：deletion-barrier 拒≠fenced——禁 selfIsolate（变异 if(false)→isolated 即红）').toBe('serving');
       expect((await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID_A }, select: { pgSeq: true } })).pgSeq).toBe(before);   // 帧未落（留队非弃置）
+      expect(await rejectedTotal(), '卡② K7：ACTIVE 窗撞拒已计数（释放前 ≥1）').toBeGreaterThanOrEqual(rejected8 + 1);
     } finally {
       await svc.release(FIXTURE_TEAM, acq.barrierId);
     }

@@ -5,11 +5,18 @@
 //   · deletion_barrier_active_seconds：最近一次 barrier 持有时长（acquire→release/bail-out 距秒——
 //     release 单点置值；spec :79「deletion_barrier_active_seconds 观测」——barrier 总预算 10s 的
 //     实际占用面，常态应远小于预算；超预算逼近=删除窗内长扫描/慢 flush 的分诊锚）。
-import { Gauge, register } from 'prom-client';
+import { Counter, Gauge, register } from 'prom-client';
 
 /** 最近一次 barrier 持有时长秒（release/bail-out 置值——单测/运维面读 prom registry）。 */
 export const deletionBarrierActiveSeconds = new Gauge({
   name: 'deletion_barrier_active_seconds',
   help: 'DeletionBarrier 最近一次持有时长秒（acquire→release；barrier 总预算 10s 的实际占用面——逼近预算=删除窗内长扫描/慢 flush 分诊锚）',
+  registers: [register],
+});
+
+/** 卡② K7：ACTIVE 窗内 appendBatch 拒绝计数（repository 唯一拒绝点 inc——无 label；告警按速率读）。 */
+export const deletionBarrierAppendRejectedTotal = new Counter({
+  name: 'deletion_barrier_append_rejected_total',
+  help: 'ACTIVE 窗内拒绝，帧留队，释放后落定；一次 appendBatch 事务计 1',
   registers: [register],
 });

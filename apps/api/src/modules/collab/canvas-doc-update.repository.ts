@@ -8,6 +8,7 @@ import { projectDocName } from './doc-name.util';
 import { fenceProject, lockProject } from './project-lock';
 import { readOpsGateCompact, checkOpsGateCompactForShare, type OpsGateCompactReject } from './collab-ops-gate.service';
 import { compactGateSkipTotal } from './collab-ops-gate.metrics';
+import { deletionBarrierAppendRejectedTotal } from './deletion-barrier.metrics';   // 卡② K7：ACTIVE 窗拒绝计数（:271 唯一拒绝点）
 import { PrismaService } from '../../prisma/prisma.service';
 import { captureCollabException } from '../../utils/sentry-scrub';
 import {
@@ -268,7 +269,10 @@ export class CanvasDocUpdateRepository {
           WHERE b.state = 'ACTIVE' AND b."expiresAt" > now()
             AND b."teamId" = (SELECT "teamId" FROM "CanvasProject" WHERE "id" = ${projectId}::text)
           LIMIT 1`;
-        if (barrier.length > 0) return { ok: false as const, reason: 'deletion-barrier' as const };
+        if (barrier.length > 0) {
+          deletionBarrierAppendRejectedTotal.inc();   // 卡② K7：一次事务拒设计 1（帧留队释放后落定）
+          return { ok: false as const, reason: 'deletion-barrier' as const };
+        }
         let n = 0;
         for (const r of rows) {
           // 显式类型 cast（PG 参数类型推断：无 cast 的 unknown 参数在 INSERT..SELECT 列位会折
