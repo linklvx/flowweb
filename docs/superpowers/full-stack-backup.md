@@ -52,9 +52,11 @@ pg_restore -d "$DSN" -c --if-exists ~/backups/daily-<ts>.dump
 
 服务器侧 MinIO **无任何备份**：产物 URL 直指 MinIO 对象（图片/视频/音频素材），数据丢失=画布图全裂。当前无生产环境可接受——**登记为 Y7 上线前门槛项，不留白**（Y7 上线评审必须给出处置：对象级备份/异地复制/接受风险显式签字，三选一）。
 
-## 5 PITR（模板未启用——挂 Y7）
+## 5 PITR（未启用——重开条件见本节）
 
-### 5.1 模板指针
+**当前状态（权威句，不设第三态）**：**未启用**——来源=用户 2026-11-14 告知：服务器硬件升级+系统重装，旧机已建状态（PITR+daily crontab）随重装清零。重开条件：下次服务器窗跑完 §5.2 并留下 `crontab -l`/`SHOW archive_mode` 证据文件后，才允许把本句改为已启用。
+
+### 5.1 模板指针（历史段——2026-11-11 旧机记录，重装后不在役）
 
 `deploy/postgres/pitr-template.conf`（仓内模板）：wal_level=replica+archive_mode=on+archive_command（WAL 归档至 /home/ubuntu/wal-archive）。**服务器窗 2026-11-11 已启用**（+archive_timeout=300=RPO≤5min 低流量保障；§5.2 六步全走+PITR 恢复实弹 RTO≈2s——证据 gate-evidence/server-window-2026-11-11.txt；Debian 布局三坑恢复清单同文件在档；限制=归档同机非异地，wal-g 异地归档=后续项）。恢复面=daily dump+WAL 归档双轨。
 

@@ -603,6 +603,8 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 
 ## §13 备份日常面（Y0c T38/Z16——daily pg_dump crontab+水位守护；2026-10-16 落地）
 
+> **⚠️ 历史横幅**：本节安装面与演练记录为 **2026-10-16 历史记录，2026-11-14 重装后不在役，勿照此操作**；在役状态以权威文档 `docs/superpowers/full-stack-backup.md` §5「当前状态」段为准。
+
 **备份/恢复单一权威=`docs/superpowers/full-stack-backup.md`**（三轨合一/保留分层表/恢复语义 Z16③④/MinIO 缺口 Y7 门槛项/PITR 模板挂 Y7 全在该文档——本节只登记安装面与演练记录，不复刻内容避免双源）。
 
 **安装面**：
@@ -613,7 +615,7 @@ ssh -i ~/.ssh/flowweb_server ubuntu@101.42.94.107 \
 **演练记录**（2026-10-16；两形态原始输出=会话产物未入仓，关键输出已内联本节、全量摘要见 commit `46bfc195` 消息——T39 指针自足化）：
 - R3 手动全链（cron 同款调用）：exit 0+`daily-20261016230621.dump`（154606 bytes）+`pg_restore --list` 可读（TOC 352 条/dbname flowweb）+日志落 `.data/pg-dump-daily.log`+既有备份零变化（ls 前后对照）。日志末行（T39 ssh tail 复核原文）：`[2026-10-16 23:06:21] done OK：/home/ubuntu/backups/daily-20261016230621.dump`。
 - R4 水位守护（/tmp 隔离+假 dump，真实备份零接触）：**首跑红=暴露 locale 排序缺陷**（服务器 `find|sort` 走 locale collation，删除顺序非字节时序）→根修=两处 sort 钉 `LC_ALL=C`→复跑绿：形态A（WATERMARK_PCT=1）5 假 dump 按最旧逐个删（01→05）→真新 dump→族耗尽 ERROR+exit 1（守护失败可见）；形态B（WATERMARK_PCT=99）零删除+exit 0；演练目录已清理。
-- **crontab 首跑**=2026-10-17 03:17 自动轮（核 `.data/pg-dump-daily.log` 新增 done OK 行）。T39 已复核承接（2026-10-16 23:38 ssh 只读：crontab `17 3 * * *` 与巡检 `*/5` 两条在位+R3 日志末行 done OK+`daily-20261016230621.dump` 154606B 在 ~/backups）；**自动首跑核对义务归片 B 执行窗首日顺手项**。
+- **crontab 首跑**=2026-10-17 03:17 自动轮（核 `.data/pg-dump-daily.log` 新增 done OK 行）。T39 已复核承接（2026-10-16 23:38 ssh 只读：crontab `17 3 * * *` 与巡检 `*/5` 两条在位+R3 日志末行 done OK+`daily-20261016230621.dump` 154606B 在 ~/backups）；**自动首跑核对义务归片 B 执行窗首日顺手项——已作废**（2026-11-14 重装后 crontab 不在位，义务随权威文档 §5 重开条件重生）。
 
 ### §13.1 项目擦除恢复 SOP（restore gate）+残余披露（C4 project-erasure——2026-11-05 落档；C4-c2）
 
@@ -806,7 +808,7 @@ ORDER BY "updatedAt" DESC;
 3. 改 `trafficTier`=`production` 并 commit（显式改档留痕）。
 4. 部署——`deploy.sh` preflight charter 门机器判定，FAIL 即中止；PASS 后 charter 判定行随部署记录留档。
 
-**与后续卡的联动**（evidence 供给线，避免空挂）：`restore-drill` 两用例证据可由 T31 故障演练矩阵产出（本地实弹形态——pg_dump 恢复→bump historyId→旧 WAL 段 quarantine 不复活+忘 bump 时间戳栅栏拦截；同代恢复 SS2 拦截）；`http-seed`/`exec-input-bundle` 实测裁决由 T33 负载基准产出（cold p95/loop block/input 表规模实测）；`slo` 数值与 T33 硬门同源（save barrier p95≤2s）。备份/恢复现状基线见 §13（daily pg_dump 03:17，无 PITR——Y7 门槛项）。
+**与后续卡的联动**（evidence 供给线，避免空挂）：`restore-drill` 两用例证据可由 T31 故障演练矩阵产出（本地实弹形态——pg_dump 恢复→bump historyId→旧 WAL 段 quarantine 不复活+忘 bump 时间戳栅栏拦截；同代恢复 SS2 拦截）；`http-seed`/`exec-input-bundle` 实测裁决由 T33 负载基准产出（cold p95/loop block/input 表规模实测）；`slo` 数值与 T33 硬门同源（save barrier p95≤2s）。备份/恢复现状基线见 §13（现状以权威文档 full-stack-backup.md §5「当前状态」段为准）。
 
 ---
 

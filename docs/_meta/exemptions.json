@@ -297,9 +297,9 @@
     },
     {
       "file": "docs/superpowers/full-stack-backup.md",
-      "line": 129,
+      "line": 131,
       "symbol": "backups/vX.X/db/flowweb_plain.sql",
-      "reason": "手动全栈快照恢复步骤的模板性路径（vX.X=版本占位符，backups/ 产物在快照仪式执行时才生成——非仓内代码文件引用；T38 文档转 active 首次入检）",
+      "reason": "手动全栈快照恢复步骤的模板性路径（vX.X=版本占位符，backups/ 产物在快照仪式执行时才生成——非仓内代码文件引用；T38 首次入检；卡② K3 §5 拆两段行移位 129→131 同步）",
       "expires_at": "2027-01-14"
     }
   ]
