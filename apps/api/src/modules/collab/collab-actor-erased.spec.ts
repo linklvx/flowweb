@@ -6,7 +6,17 @@ import * as Y from 'yjs';
 import type { Logger } from '@nestjs/common';
 
 const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
-vi.mock('../../utils/sentry-scrub', () => ({ captureCollabException: capture }));
+vi.mock('../../utils/sentry-scrub', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../utils/sentry-scrub')>();
+  return { ...actual, captureCollabException: capture };
+});
+
+// 卡② K4：mock 半径=只替换 captureCollabException（importOriginal 展开）——scrubEvent 等真实导出面保持
+it('K4 mock 半径：scrubEvent 仍为函数+captureCollabException===capture（同一 hoisted 函数）', async () => {
+  const mod = await import('../../utils/sentry-scrub');
+  expect(typeof mod.scrubEvent).toBe('function');
+  expect(mod.captureCollabException).toBe(capture);
+});
 
 import { CollabProjectActorService, FrameRejectError } from './collab-project-actor.service';
 import { CollabSpoolService, SpoolProjectBlockedError } from './collab-spool.service';

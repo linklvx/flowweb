@@ -28,7 +28,17 @@ import { createMockRepo } from '../../test-utils/mock-repo';
 
 // 双审 F5f：capture 计账断言装置（actor-erased spec 同款模块级 mock——图内仅消费 captureCollabException）
 const spoolCapture = vi.hoisted(() => vi.fn());
-vi.mock('../../utils/sentry-scrub', () => ({ captureCollabException: spoolCapture }));
+vi.mock('../../utils/sentry-scrub', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../utils/sentry-scrub')>();
+  return { ...actual, captureCollabException: spoolCapture };
+});
+
+// 卡② K4：mock 半径=只替换 captureCollabException（importOriginal 展开）——scrubEvent 等真实导出面保持
+it('K4 mock 半径：scrubEvent 仍为函数+captureCollabException===spoolCapture（同一 hoisted 函数）', async () => {
+  const mod = await import('../../utils/sentry-scrub');
+  expect(typeof mod.scrubEvent).toBe('function');
+  expect(mod.captureCollabException).toBe(spoolCapture);
+});
 
 let dir: string; let cleanup: () => Promise<void>;
 beforeEach(async () => { ({ dir, cleanup } = await makeSpoolDir()); });   // V17①：每用例独立目录
