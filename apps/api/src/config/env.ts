@@ -192,7 +192,6 @@ export const envSchema = z.object({
   // media 删除保护 Binding 臂回滚开关——'true'=isMediaReferenced 决策面 Binding 臂 skip（降级纯
   // oracle/registry 证人；缺省=并集全臂）。运行时每判即读（media-reference.service——应急降级档，
   // binding 投影不可信时 doc 证人退纯 oracle）。
-  MEDIA_REF_ORACLE_ONLY: z.preprocess(blankToUnset, z.enum(['true', 'false']).optional()),
   COLLAB_SPOOL_DIR: z.preprocess(blankToUnset, z.string().min(1).optional()),
   COLLAB_SPOOL_CAPACITY_BYTES: z.preprocess(blankToUnset, z.coerce.number().int().positive().optional()),
   // C4-b（plan Task C4-2——R16 manifest 主载体）：erasure manifest 目录（绝对路径强制——恢复删除前

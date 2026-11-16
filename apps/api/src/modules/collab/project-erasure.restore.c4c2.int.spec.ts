@@ -144,7 +144,7 @@ const okBarrier = (): DeletionBarrierPort => ({
     minio = new MinioService({ endpoint, accessKey, secretKey, bucket, useSsl: false });
     p = new ProjectErasureRunPoller(
       prismaService as never, ledger as never, new ErasureContextService(),
-      async () => [], minio as never, redis as never, async () => true, okBarrier(),
+      minio as never, redis as never, async () => true, okBarrier(),
     );
     await prisma.user.upsert({ where: { id: owner }, update: {}, create: { id: owner, name: owner, email: `${owner}@local.test`, emailVerified: true } });
     await prisma.team.create({ data: { id: teamId, name: 'c4c2r-team', ownerId: owner } });

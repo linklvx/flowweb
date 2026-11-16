@@ -80,7 +80,6 @@ const okBarrier = (): DeletionBarrierPort => ({
 
   const poller = () => new ProjectErasureRunPoller(
     prismaService as never, ledger as never, new ErasureContextService(),
-    async () => [],                                   // collector：零他项目 doc 引用
     minio as never, redis as never,
     async (projectIds) => { purgeScopeCalls.push(projectIds); return true; }, okBarrier(),
   );

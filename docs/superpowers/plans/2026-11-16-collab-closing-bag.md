@@ -1,4 +1,4 @@
-<!-- doc-status: active | created: 2026-11-16 | confirmed: 2026-11-16（用户确认 v9 开工——依据 spec v12 十一轮终审机制终态；执行台账=.superpowers/sdd/2026-11-16-collab-closing-bag/progress.md） -->
+<!-- doc-status: active | created: 2026-11-16 | confirmed: 2026-11-16（用户确认 v9 开工——依据 spec v12 十一轮终审机制终态） -->
 # 卡② 收口袋 Implementation Plan v9
 
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers test-driven-development（每任务红-绿）；步骤用 checkbox 跟踪。

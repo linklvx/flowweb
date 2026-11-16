@@ -19,7 +19,7 @@
 //   ExecutionRequest 整行保留+桥表（ExecutionInput/ExecutionNodePlan/RefundObligation/ReconcileAction）删；
 //  擦除动作 AuditLog 补位（openProjectErasure 单源——action='erase_project'）+幂等重复删零二行。
 // 运行：DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb pnpm --filter @flowweb/api test:int
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -32,7 +32,7 @@ import { ErasureContextService } from './project-lock';
 import { ProjectErasureRunPoller } from './project-erasure.poller';
 import { readErasureManifest } from './project-erasure.manifest';
 import {
-  executePurgingDbStage, pendingMediaMarkerPath, type MediaRefsCollector,
+  executePurgingDbStage, pendingMediaMarkerPath,
 } from './project-erasure.stages';
 import type { DeletionBarrierPort } from './deletion-barrier.port';   // C3b-5：删除窗 barrier stub
 import { mediaDeletionConflictTotal } from '../media-delivery/binding-reconcile.metrics';
@@ -47,9 +47,7 @@ maybe('C4-c1 ★红⑫⑬⑯ PURGING_DB 执行体（真 PG）', () => {
   const prisma = new PrismaClient();
   const prismaService = new PrismaService();
   const ledger = new CreditLedgerService(prismaService as never);
-  /** collector stub：可控他项目 doc 扫描面（默认零引用——引用命中由 PG 快判面承载）。 */
-  let stubRefs: string[] | null = [];
-  const collector: MediaRefsCollector = async () => stubRefs;
+  const ErasureCtx = new ErasureContextService();
 
 /** C3b-5：删除窗 barrier stub（verified 档——消费面切换后删除窗经 barrier；真 barrier 全链=
  *  deletion-barrier.int.spec+media-gc.shadow.c3b5）。 */
@@ -57,7 +55,7 @@ const okBarrier = (): DeletionBarrierPort => ({
   prepare: async () => ({ outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 60_000 }),
   release: async () => true,
 }) as unknown as DeletionBarrierPort;
-  const poller = new ProjectErasureRunPoller(prismaService as never, ledger as never, new ErasureContextService(), collector, undefined, undefined, undefined, okBarrier());
+  const poller = new ProjectErasureRunPoller(prismaService as never, ledger as never, ErasureCtx, undefined, undefined, undefined, okBarrier());
   const stamp = Date.now().toString(36);
   const owner = `c4c1-owner-${stamp}`;
   const teamId = `c4c1-team-${stamp}`;
@@ -192,7 +190,6 @@ const okBarrier = (): DeletionBarrierPort => ({
   }, 30_000);
 
   it('红⑫⑬⑯ 端到端：二扫并集→三档 detach/两阶段独占删→scrub/detach→批删→列级断言→PURGING_OBJECTS 即停', async () => {
-    stubRefs = [];
     const pid = await seedRichProject({ withOtherProject: true });
     await tombstone(pid);
     await poller.tick();   // DRAINING→manifest→PURGING_DB 前置位
@@ -227,8 +224,8 @@ const okBarrier = (): DeletionBarrierPort => ({
     const marker = JSON.parse(readFileSync(pendingMediaMarkerPath(manifestDir, run.erasureId), 'utf8')) as { mediaIds: string[] };
     expect([...marker.mediaIds].sort()).toEqual([`${pid}-m-exc`, `${pid}-m-late`]);
     // 复核窗内（sidecar markAt 未跨 claim 周期）：再跑 stage 仍不删（两阶段语义——标记与删除不得同窗）
-    const inWindow = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
-    expect(inWindow).toEqual({ outcome: 'pending-review', remainingExclusive: 2, docScanFailed: false });
+    const inWindow = await executePurgingDbStage({ prisma: prismaService, run, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
+    expect(inWindow).toEqual({ outcome: 'pending-review', remainingExclusive: 2 });
     expect(await prisma.media.count({ where: { id: { in: [`${pid}-m-exc`, `${pid}-m-late`] }, projectId: pid } })).toBe(2);   // 独占行未删
     // ★红⑬ VideoWork detach：行保留（视频键/计费）+canvasProjectId=NULL
     const w0 = await prisma.videoWork.findUniqueOrThrow({ where: { id: `${pid}-w0` } });
@@ -274,7 +271,7 @@ const okBarrier = (): DeletionBarrierPort => ({
     const aged = { ...(JSON.parse(readFileSync(markerPath, 'utf8')) as { markAt: string }), markAt: new Date(Date.now() - 120_000).toISOString() };
     const { writeFile } = await import('node:fs/promises');
     await writeFile(markerPath, `${JSON.stringify(aged)}\n`, 'utf8');
-    const result = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
+    const result = await executePurgingDbStage({ prisma: prismaService, run, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
     expect(result).toEqual({ outcome: 'purging-objects' });
     expect(await prisma.media.count({ where: { id: { in: [`${pid}-m-exc`, `${pid}-m-late`] } } })).toBe(0);   // 独占行删（复核后）
     expect(existsSync(markerPath)).toBe(false);   // sidecar 收敛移除
@@ -303,7 +300,7 @@ const okBarrier = (): DeletionBarrierPort => ({
       const { writeFile } = await import('node:fs/promises');
       await writeFile(markerPath, `${JSON.stringify(aged)}\n`, 'utf8');
     }
-    await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
+    await executePurgingDbStage({ prisma: prismaService, run, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });   // 删除拍（窗满→复核删）
     run = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
     expect(run.state).toBe('PURGING_OBJECTS');
     // 注入残留行 → 断言红
@@ -336,32 +333,218 @@ const okBarrier = (): DeletionBarrierPort => ({
     await prisma.auditLog.deleteMany({ where: { targetId: teamId, action: 'leaky_team' } });
   }, 60_000);
 
-  it('红⑫ fail-closed：doc 扫描不可达（collector=null）→独占判别暂停（不删/不前置位）；恢复后收敛', async () => {
-    const pid = await seedRichProject({ withOtherProject: true });   // 他项目在=doc 扫描必经
-    await tombstone(pid);
-    await poller.tick();   // DRAINING
-    stubRefs = null;       // ★api 不可达形态
-    await poller.tick();   // PURGING_DB 首扫：fail-closed
-    const run = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
-    expect(run.state).toBe('PURGING_DB');   // 不前置位
-    expect(await prisma.media.count({ where: { projectId: pid, type: 'generated' } })).toBe(3);   // 独占零删（refb/workm/exc——fail-closed 只停独占删除）
-    expect(await prisma.canvasProject.count({ where: { id: pid } })).toBe(0);   // 批删/行删照常推进（fail-closed 只停独占删除）
-    // 恢复（api 回达=stub 引用面）：直接执行体收敛
-    stubRefs = [];
-    const res1 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
-    expect(res1.outcome).toBe('pending-review');   // 首扫标记（恢复后窗重起——保守方向）
-    const markerPath = pendingMediaMarkerPath(manifestDir, run.erasureId);
-    const aged = { ...(JSON.parse(readFileSync(markerPath, 'utf8')) as { markAt: string }), markAt: new Date(Date.now() - 120_000).toISOString() };
-    const { writeFile } = await import('node:fs/promises');
-    await writeFile(markerPath, `${JSON.stringify(aged)}\n`, 'utf8');
-    const res2 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
-    expect(res2).toEqual({ outcome: 'purging-objects' });
-    expect(await prisma.media.count({ where: { projectId: pid } })).toBe(0);
-    expect((await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } })).state).toBe('PURGING_OBJECTS');
-  }, 60_000);
+  // ════════ 卡② K8（spec §1.5）：认领拍 fence 化红测十条腿——cohort 规范化+四规则+一拍一段+退避 ════════
+  describe('K8 认领门红测（认领拍先 prepare→verified 内重算独占→marker 先写再 claim→claim 后过期回滚）', () => {
+    const conflictOf = async (): Promise<number> =>
+      (await (mediaDeletionConflictTotal as unknown as { get(): Promise<{ values: { labels: Record<string, string>; value: number }[] }> }).get())
+        .values.find((v) => v.labels.reason === 'project-erasure')?.value ?? 0;
+    const runOf = (pid: string) => prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
+    const stageOf = (run: Parameters<typeof executePurgingDbStage>[0]['run'], opts: { barrier?: DeletionBarrierPort; reviewWindowMs?: number } = {}) =>
+      executePurgingDbStage({
+        prisma: prismaService, run,
+        barrier: opts.barrier ?? okBarrier(), manifestDir,
+        spoolDir: join(process.cwd(), '.data', 'collab-spool'),
+        ...(opts.reviewWindowMs !== undefined ? { reviewWindowMs: opts.reviewWindowMs } : {}),
+      });
+    const markerOf = (erasureId: string) => JSON.parse(readFileSync(pendingMediaMarkerPath(manifestDir, erasureId), 'utf8')) as { markAt: string; mediaIds: string[] };
+    const ageMarker = async (erasureId: string): Promise<string> => {
+      const path = pendingMediaMarkerPath(manifestDir, erasureId);
+      const aged = { ...markerOf(erasureId), markAt: new Date(Date.now() - 120_000).toISOString() };
+      const { writeFile } = await import('node:fs/promises');
+      await writeFile(path, `${JSON.stringify(aged)}\n`, 'utf8');
+      return aged.markAt;
+    };
+    /** 独占 media fixture：n 个 generated 无引用行——claimGate 各腿基座。primed=false 止于 PURGING_DB
+     *  前置位（零 stage 执行=进入无 marker 形态）；primed=true 多一 tick 走完认领拍（marker+claim 在档）。 */
+    const seedClaimProject = async (opts: { exclusive?: number; primed?: boolean } = {}): Promise<string> => {
+      const pid = `c4c1-p-${stamp}-${seq++}`;
+      await prisma.canvasProject.create({ data: { id: pid, name: pid, teamId, userId: owner } });
+      projects.push(pid);
+      for (let i = 0; i < (opts.exclusive ?? 1); i += 1) {
+        await prisma.media.create({ data: { id: `${pid}-m-exc${i === 0 ? '' : i}`, userId: owner, teamId, projectId: pid, bucket: 'flowai', key: `${pid}/exc${i}.bin`, originalName: 'exc', mimeType: 'application/octet-stream', size: 1n, type: 'generated' } });
+      }
+      await tombstone(pid);
+      await poller.tick();   // DRAINING→manifest→PURGING_DB 前置位
+      if (opts.primed) await poller.tick();   // 认领拍：marker+claim 落盘
+      return pid;
+    };
+    const bindToOther = async (mediaId: string): Promise<void> => {
+      const holder = `c4c1-p-${stamp}-${seq++}`;
+      await prisma.canvasProject.create({ data: { id: holder, name: holder, teamId, userId: owner } });
+      projects.push(holder);
+      await prisma.mediaBinding.create({ data: { mediaId, projectId: holder, nodeId: 'n1', teamId } });
+    };
+
+    it('腿① 认领拍 prepare 未 verified→零认领：无 DELETING 行+无 marker 写+pending-review', async () => {
+      const pid = await seedClaimProject({ exclusive: 1 });
+      const bail: DeletionBarrierPort = { prepare: async () => ({ outcome: 'bail-out', reason: 'binding-dirty' }), release: async () => true } as unknown as DeletionBarrierPort;
+      const res = await stageOf(await runOf(pid), { barrier: bail });
+      expect(res).toMatchObject({ outcome: 'pending-review' });
+      expect((await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } })).deletionState).toBe('ACTIVE');   // 零认领
+      expect(existsSync(pendingMediaMarkerPath(manifestDir, (await runOf(pid)).erasureId))).toBe(false);   // 零 marker
+    }, 60_000);
+
+    it('腿② verified→claim+marker 落盘（先写 marker 再 claim——marker 在档+DELETING 持有）', async () => {
+      const pid = await seedClaimProject({ exclusive: 1 });
+      const run = await runOf(pid);
+      const res = await stageOf(run);
+      expect(res).toMatchObject({ outcome: 'pending-review' });
+      const marker = markerOf(run.erasureId);
+      expect(marker.mediaIds).toEqual([`${pid}-m-exc`]);
+      const exc = await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } });
+      expect(exc.deletionState).toBe('DELETING');
+      expect(exc.deletionRunId).toBe(run.erasureId);
+      expect(exc.projectId).toBe(pid);   // 认领拍不删（窗未满）
+    }, 60_000);
+
+    it('腿③ 窗前判独占、围栏内 isMediaReferenced=true→该 id 无 DELETING、不进 marker（不得沿用窗前 ③）', async () => {
+      const pid = await seedClaimProject({ exclusive: 1 });
+      // 装置：barrier stub 的 prepare() 返回 verified 前写入他项目引用（窗前 ③=独占；围栏内重算=被引）
+      const staged: DeletionBarrierPort = {
+        prepare: async () => { await bindToOther(`${pid}-m-exc`); return { outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 60_000 }; },
+        release: async () => true,
+      } as unknown as DeletionBarrierPort;
+      const run = await runOf(pid);
+      const res = await stageOf(run, { barrier: staged });
+      expect(res).toMatchObject({ outcome: 'pending-review' });
+      expect((await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } })).deletionState).toBe('ACTIVE');   // 窗内重算被引→零认领
+      expect(existsSync(pendingMediaMarkerPath(manifestDir, run.erasureId))).toBe(false);   // 不进 marker
+    }, 60_000);
+
+    it('腿④ sidecar 在档∧窗未满→prepare 零调用（spy）+③ 见引用仅释放 departed、markAt 不变', async () => {
+      const pid = await seedClaimProject({ exclusive: 2, primed: true });
+      const run = await runOf(pid);
+      const markerBefore = markerOf(run.erasureId);
+      await bindToOther(`${pid}-m-exc`);   // exc 窗内被引（③ 证人命中——binding 臂直接命中）
+      const prepare = vi.fn(async () => ({ outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 60_000 }));
+      const spy: DeletionBarrierPort = { prepare, release: async () => true } as unknown as DeletionBarrierPort;
+      const res = await stageOf(run, { barrier: spy });   // 窗未满（缺省 60s）→规则③
+      expect(res).toMatchObject({ outcome: 'pending-review' });
+      expect(prepare).not.toHaveBeenCalled();   // 规则③零 prepare
+      const markerAfter = markerOf(run.erasureId);
+      expect(markerAfter.mediaIds).toEqual([`${pid}-m-exc1`]);   // 仅释放 departed（exc 离集）
+      expect(markerAfter.markAt).toBe(markerBefore.markAt);      // markAt 不变（规则③）
+      expect((await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } })).deletionState).toBe('ACTIVE');   // departed 已释放
+    }, 60_000);
+
+    it('腿⑤ verified+claim 返回后时钟已过→release 本批被调用、无 marker、无 DELETING 残留', async () => {
+      const pid = await seedClaimProject({ exclusive: 1 });
+      const run = await runOf(pid);
+      const before = await conflictOf();
+      // 装置：verified 但 expiresAt=now+3ms——逐 id 重算入口自查通过（首个检查 ~0ms），claim 返回后
+      // （写 marker+UPDATE 已耗 >3ms）时钟已过→回滚腿
+      const tight: DeletionBarrierPort = {
+        prepare: async () => ({ outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 3 }),
+        release: async () => true,
+      } as unknown as DeletionBarrierPort;
+      const res = await stageOf(run, { barrier: tight });
+      expect(res).toMatchObject({ outcome: 'pending-review' });
+      const exc = await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } });
+      expect(exc.deletionState).toBe('ACTIVE');   // claim 后过期→release 本批（无 DELETING 残留）
+      expect(exc.deletionRunId).toBe(run.erasureId);   // 审计列留痕（回退不擦——E2 同律）
+      expect(existsSync(pendingMediaMarkerPath(manifestDir, run.erasureId))).toBe(false);   // 删 marker
+      expect(await conflictOf()).toBe(before);   // 过期回滚不计 conflict（非证人命中）
+    }, 60_000);
+
+    it('腿⑥ 档 a：sidecar 含 id、窗满前 isFavorite 置真→行在+ACTIVE+projectId=null+不在 marker+conflict 不增', async () => {
+      const pid = await seedClaimProject({ exclusive: 1, primed: true });
+      const run = await runOf(pid);
+      await prisma.media.update({ where: { id: `${pid}-m-exc` }, data: { isFavorite: true } });   // 窗内收藏=库资产档 a
+      const before = await conflictOf();
+      const res = await stageOf(run);   // 窗未满→规则③（规范化差集=档 a 不计 conflict）——cohort 消解即推进（E2 同构）
+      expect(res).toEqual({ outcome: 'purging-objects' });
+      const exc = await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } });
+      expect(exc.deletionState).toBe('ACTIVE');   // 差集释放（回 ACTIVE）
+      expect(exc.projectId).toBeNull();   // 档 a 随 detach 写批保留
+      expect(existsSync(pendingMediaMarkerPath(manifestDir, run.erasureId))).toBe(false);   // 不在 marker（cohort 消解）
+      expect(await conflictOf()).toBe(before);   // 档 a 不计 conflict（三档拆分）
+    }, 60_000);
+
+    it('腿⑦ 不增补：sidecar {A}、本拍 exclusive {A,X}、A 被删→marker 不含 X、X 留下一拍新 markAt', async () => {
+      const pid = await seedClaimProject({ exclusive: 1, primed: true });   // marker={A=exc}
+      const run = await runOf(pid);
+      const markAtBefore = markerOf(run.erasureId).markAt;
+      await prisma.media.create({ data: { id: `${pid}-m-new`, userId: owner, teamId, projectId: pid, bucket: 'flowai', key: `${pid}/new.bin`, originalName: 'new', mimeType: 'application/octet-stream', size: 1n, type: 'generated' } });   // 窗内新行 X
+      await ageMarker(run.erasureId);   // 窗满→进④
+      const res = await stageOf(run);
+      expect(res).toMatchObject({ outcome: 'pending-review' });   // X 剩余（exclusive−deleted 非空）
+      expect(await prisma.media.findUnique({ where: { id: `${pid}-m-exc` } })).toBeNull();   // A 复核删
+      const newX = await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-new` } });
+      expect(newX.projectId).toBe(pid);   // X 本拍不 detach（exclusive 档）
+      expect(newX.deletionState).toBe('ACTIVE');   // X 不在本拍 deletable（marker 不含 X——候选宇宙=本拍 exclusive 只删不增补）
+      expect(existsSync(pendingMediaMarkerPath(manifestDir, run.erasureId))).toBe(false);   // A 删后 cohort 清空→marker 删
+      // 下一拍：无 marker→规则②认领拍（X 开自己的复核窗——新 markAt）
+      await new Promise((r) => setTimeout(r, 5));
+      const res2 = await stageOf(run);
+      expect(res2).toMatchObject({ outcome: 'pending-review' });
+      const marker2 = markerOf(run.erasureId);
+      expect(marker2.mediaIds).toEqual([`${pid}-m-new`]);
+      expect(Date.parse(marker2.markAt)).toBeGreaterThan(Date.parse(markAtBefore));   // 新 cohort 新窗起点
+    }, 60_000);
+
+    it('腿⑧ 换 cohort：sidecar 与 exclusive 不相交→marker 删除、旧 id ACTIVE+conflict、下一拍才 claim 新 exclusive 且 markAt 新', async () => {
+      const pid = await seedClaimProject({ exclusive: 1, primed: true });   // sidecar={A=exc}
+      const run = await runOf(pid);
+      const markAtBefore = markerOf(run.erasureId).markAt;
+      await bindToOther(`${pid}-m-exc`);   // A 被引离开（③ 证人命中）
+      await prisma.media.create({ data: { id: `${pid}-m-new`, userId: owner, teamId, projectId: pid, bucket: 'flowai', key: `${pid}/new2.bin`, originalName: 'new2', mimeType: 'application/octet-stream', size: 1n, type: 'generated' } });   // X 全新独占
+      const before = await conflictOf();
+      const res = await stageOf(run);   // 一拍一段：规范化删 marker→本拍不 prepare/claim（X 留下一拍）
+      expect(res).toMatchObject({ outcome: 'pending-review' });
+      expect((await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } })).deletionState).toBe('ACTIVE');   // 旧 id 释放回 ACTIVE
+      expect((await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-new` } })).deletionState).toBe('ACTIVE');   // 本拍未 claim
+      expect(existsSync(pendingMediaMarkerPath(manifestDir, run.erasureId))).toBe(false);   // marker 删除
+      expect(await conflictOf()).toBe(before + 1);   // ③ 证人命中离开=计 conflict（E2 同档）
+      const res2 = await stageOf(run);   // 下一拍：走②
+      expect(res2).toMatchObject({ outcome: 'pending-review' });
+      const marker2 = markerOf(run.erasureId);
+      expect(marker2.mediaIds).toEqual([`${pid}-m-new`]);   // 下一拍才 claim 新 exclusive
+      expect(Date.parse(marker2.markAt)).toBeGreaterThan(Date.parse(markAtBefore));   // 新 markAt（不继承旧窗）
+      expect((await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-new` } })).deletionState).toBe('DELETING');
+    }, 60_000);
+
+    it('腿⑨ 空重算：窗内全被引用→零 claim、零 marker、不推进+同一 erasureId 15s 内再进→prepare 次数不增（退避）', async () => {
+      const pid = await seedClaimProject({ exclusive: 1 });
+      const prepare = vi.fn(async () => { await bindToOther(`${pid}-m-exc`); return { outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 60_000 }; });
+      const staged: DeletionBarrierPort = { prepare, release: async () => true } as unknown as DeletionBarrierPort;
+      const run = await runOf(pid);
+      const res1 = await stageOf(run, { barrier: staged });
+      expect(res1).toMatchObject({ outcome: 'pending-review' });
+      expect((await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } })).deletionState).toBe('ACTIVE');   // 窗内重算全被引→零 claim
+      expect(existsSync(pendingMediaMarkerPath(manifestDir, run.erasureId))).toBe(false);   // 零 marker
+      expect(prepare).toHaveBeenCalledTimes(1);
+      await prisma.mediaBinding.deleteMany({ where: { mediaId: `${pid}-m-exc` } });   // 引用消（独占集复非空——退避挡 prepare 的装置前提）
+      const res2 = await stageOf(run, { barrier: staged });   // 15s 退避内再进——poller 仍醒但不 prepare
+      expect(res2).toMatchObject({ outcome: 'pending-review' });
+      expect(prepare).toHaveBeenCalledTimes(1);   // 退避：prepare 次数不增
+    }, 60_000);
+
+    it('腿⑩ 删除拍入口：sidecar {A,B}、exclusive {A,B,X}、窗满→prepare 发生、A 按 unionFace 留、B 删、X 不在本拍 deletable', async () => {
+      const pid = await seedClaimProject({ exclusive: 2, primed: true });   // sidecar={A=exc,B=exc1}
+      const run = await runOf(pid);
+      await prisma.media.create({ data: { id: `${pid}-m-new`, userId: owner, teamId, projectId: pid, bucket: 'flowai', key: `${pid}/new3.bin`, originalName: 'new3', mimeType: 'application/octet-stream', size: 1n, type: 'generated' } });   // X（不在 sidecar）
+      await ageMarker(run.erasureId);
+      const before = await conflictOf();
+      // 装置：prepare() 返回 verified 前写入 A 的他项目引用——③ 仍留 exclusive（窗前无引用），
+      // ④ 窗内 unionFace 命中（④内计一次——与规范化差集不重复）
+      const staged: DeletionBarrierPort = {
+        prepare: async () => { await bindToOther(`${pid}-m-exc`); return { outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 60_000 }; },
+        release: async () => true,
+      } as unknown as DeletionBarrierPort;
+      const res = await stageOf(run, { barrier: staged });
+      expect(res).toMatchObject({ outcome: 'pending-review' });   // X 剩余
+      const a = await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } });
+      expect(a.projectId).toBe(pid);   // A 保留（④ unionFace 命中释放——③ 已跑故 A 在 exclusive 非 detach 批；下一拍 ③ 判被引→detach）
+      expect(a.deletionState).toBe('ACTIVE');
+      expect(await prisma.media.findUnique({ where: { id: `${pid}-m-exc1` } })).toBeNull();   // B 复核删
+      const newX = await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-new` } });
+      expect(newX.projectId).toBe(pid);   // X 不在本拍 deletable（不入④删除集）
+      expect(newX.deletionState).toBe('ACTIVE');
+      expect(await conflictOf()).toBe(before + 1);   // A：④ unionFace 命中计一次（kept 释放）
+    }, 60_000);
+  });
 
   it('红⑫ 他引用矩阵：引用图八要素逐要素 detach（tier-b）——变异保护面（评审 P1-1 补钉）', async () => {
-    stubRefs = [];   // doc 扫描零引用——tier-b 全部由 PG 快判面承载（逐要素独立命中）
     const pid = `c4c1-p-${stamp}-${seq++}`;
     const other = `c4c1-p-${stamp}-${seq++}`;
     await prisma.canvasProject.create({ data: { id: pid, name: 'matrix', teamId, userId: owner } });
@@ -434,8 +617,8 @@ const okBarrier = (): DeletionBarrierPort => ({
     });
     const before = await prisma.media.count({ where: { projectId: pid } });
     expect(before).toBe(inputs.length);
-    const res = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
-    expect(res).toEqual({ outcome: 'dry-run', detach: 2, exclusive: 2, docScanFailed: false });   // 判别跑全（lib=uploaded+workm=作品引用→detach 档；refb/exc→独占档）零写
+    const res = await executePurgingDbStage({ prisma: prismaService, run, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool') });
+    expect(res).toEqual({ outcome: 'dry-run', detach: 2, exclusive: 2 });   // 判别跑全（lib=uploaded+workm=作品引用→detach 档；refb/exc→独占档）零写
     // 零写面：行集/内容列/状态/manifest 全原样
     expect(await prisma.media.count({ where: { projectId: pid } })).toBe(before);
     expect(await prisma.canvasProject.count({ where: { id: pid } })).toBe(1);
@@ -474,7 +657,6 @@ const okBarrier = (): DeletionBarrierPort => ({
     };
 
     it('E1 标记时 CAS 抢占：独占行进 DELETING+审计列落值（runId=erasureId/reason=project-erasure）', async () => {
-      stubRefs = [];
       const pid = await seedExclusiveProject();
       const run = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
       const exc = await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } });
@@ -487,7 +669,6 @@ const okBarrier = (): DeletionBarrierPort => ({
     }, 60_000);
 
     it('E2 复核集漂移（首扫后新引用）→中止回 ACTIVE+conflict 计数+行随 detach 保留', async () => {
-      stubRefs = [];
       const pid = await seedExclusiveProject();
       const run = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
       // 首扫后新引用（他项目 binding——两阶段复核窗内的新引用面）
@@ -496,7 +677,7 @@ const okBarrier = (): DeletionBarrierPort => ({
       projects.push(holder);
       await prisma.mediaBinding.create({ data: { mediaId: `${pid}-m-exc`, projectId: holder, nodeId: 'n1', teamId } });
       const before = await conflictOf();
-      const res = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0 });
+      const res = await executePurgingDbStage({ prisma: prismaService, run, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0 });
       expect(res.outcome).toBe('purging-objects');   // 独占集漂移空（exc 转被引 detach）=零剩余独占即完成
       const exc = await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } });
       expect(exc.deletionState).toBe('ACTIVE');   // 中止回退（复核窗重置=独占集消失面）
@@ -506,7 +687,6 @@ const okBarrier = (): DeletionBarrierPort => ({
     }, 60_000);
 
     it('E3 删除窗所有权门：他消费者活持有的 DELETING 行（新鲜）不删——pending-review 下轮重试', async () => {
-      stubRefs = [];
       const pid = await seedExclusiveProject();
       const run = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
       // 模拟 GC worker 活持有（新鲜 DELETING+他人 runId——CAS 互斥面）
@@ -514,13 +694,13 @@ const okBarrier = (): DeletionBarrierPort => ({
         where: { id: `${pid}-m-exc` },
         data: { deletionRunId: 'c3b4-gc-worker', deletionRequestedAt: new Date() },
       });
-      const res = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0 });
+      const res = await executePurgingDbStage({ prisma: prismaService, run, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0 });
       expect(res).toMatchObject({ outcome: 'pending-review', remainingExclusive: 1 });   // 所有权丢失=不删
       const exc = await prisma.media.findUniqueOrThrow({ where: { id: `${pid}-m-exc` } });
       expect(exc.deletionRunId).toBe('c3b4-gc-worker');   // 他消费者持有原样（禁抢活行）
       // 释放所有权后下轮收敛删除（陈旧接管面）
       await prisma.media.update({ where: { id: `${pid}-m-exc` }, data: { deletionRequestedAt: new Date(Date.now() - 11 * 60_000) } });
-      const res2 = await executePurgingDbStage({ prisma: prismaService, run, collectMediaRefs: collector, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0 });
+      const res2 = await executePurgingDbStage({ prisma: prismaService, run, barrier: okBarrier(), manifestDir, spoolDir: join(process.cwd(), '.data', 'collab-spool'), reviewWindowMs: 0 });
       expect(res2.outcome).toBe('purging-objects');
       expect(await prisma.media.findUnique({ where: { id: `${pid}-m-exc` } })).toBeNull();
     }, 60_000);

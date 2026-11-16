@@ -28,7 +28,7 @@ import { CreditLedgerService } from '../team/credit-ledger.service';
 import { ErasureContextService, lockScope, lockProject, fenceProject, fenceTeam } from './project-lock';
 import { createErasureRun, ERASURE_ACTIVE_STATES, ERASURE_RUN_LEASE_MS, ERASURE_RUN_MAX_ATTEMPTS } from './project-erasure';
 import { collectSpoolSegments, writeErasureManifest, collabSpoolDir, type ErasureManifestInputs } from './project-erasure.manifest';
-import { executePurgingDbStage, httpMediaRefsCollector, type MediaRefsCollector } from './project-erasure.stages';
+import { executePurgingDbStage } from './project-erasure.stages';
 import { executePurgingObjectsStage, type ErasureObjectPort } from './project-erasure.objects';
 import { executePurgingCacheStage, httpPurgeScope, type PurgeScopeClient, type RedisPurgePort } from './project-erasure.cache';
 import { executeVerifyingStage } from './project-erasure.verifying';
@@ -59,9 +59,6 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(CreditLedgerService) private readonly ledger: CreditLedgerService,
     @Inject(ErasureContextService) private readonly erasureCtx: ErasureContextService,
-    /** C4-c1：未 reconcile 引用采集器（PURGING_DB 独占判别 doc 扫描——api 内部端点客户端）。
-     *  缺省=构造期惰性解析 httpMediaRefsCollector；int 测试注入 stub。 */
-    @Optional() private readonly mediaRefs?: MediaRefsCollector,
     /** C4-c2：对象删除端口（PURGING_OBJECTS/VERIFYING——worker.module MinioModule @Global 注入；
      *  int 测试注入 MinioService（temp bucket 绑定）或 stub）。 */
     @Optional() @Inject(MinioService) private readonly objects?: ErasureObjectPort,
@@ -71,7 +68,8 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
     /** C4-c2：purgeScope 客户端（PURGING_CACHE 首步——api 内部端点；缺省 httpPurgeScope）。 */
     @Optional() private readonly purgeScope?: PurgeScopeClient,
     /** C3b-5：删除窗 barrier 端口（PURGING_DB 删除窗——worker.module DeletionBarrierPort 注入
-     *  〔Http 形态 loopback api〕；int 测试注入 stub——执行体缺省 HttpDeletionBarrierPort）。 */
+     *  〔Http 形态 loopback api〕；int 测试注入 stub——执行体缺省 HttpDeletionBarrierPort）。
+     *  卡② K8：认领拍与删除拍同门（引用采集器随活文档扫描链退役——引用判别=isMediaReferenced 单源）。 */
     @Optional() private readonly barrier?: DeletionBarrierPort,
   ) {}
 
@@ -286,7 +284,7 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
    *  finalize（claim 先于 tombstone；registerInTx artifact-commit :288/:312）与 coverKey 换绑可在
    *  DRAINING 采集后落新行/新 S3 键（Canvas 族无此窗——fence 拒其全部写者）⇒ 进批删前重扫取并集
    *  （executePurgingDbStage ②）——「DRAINING 前等待在飞 intent 清算」备选不采（定形依据见 spec）。
-   *  mediaRefs 采集器：构造期注入缺省 httpMediaRefsCollector（api 内部端点客户端）。 */
+   *  卡② K8：引用采集器随活文档扫描链退役——执行体引用判别=isMediaReferenced 单源（认领拍/删除拍同门 barrier）。 */
   private async processProjectRun(run: ProjectErasureRun): Promise<void> {
     const pid = run.scopeId;
     // C4-c1：PURGING_DB 前置位=执行体承接（DB 介质批删+scrub+detach+两阶段复核+列级断言）。
@@ -295,7 +293,6 @@ export class ProjectErasureRunPoller implements OnModuleInit, OnApplicationShutd
     if (run.state === 'PURGING_DB' && run.manifestPath) {
       await executePurgingDbStage({
         prisma: this.prisma, run,
-        collectMediaRefs: this.mediaRefs ?? httpMediaRefsCollector(),
         spoolDir: collabSpoolDir(),
         barrier: this.barrier,
       }).catch(async (e: unknown) => { await this.noteRunFailure(run, 'PURGING_DB', e); });

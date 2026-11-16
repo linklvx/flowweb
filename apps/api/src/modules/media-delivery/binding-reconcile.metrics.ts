@@ -24,12 +24,12 @@ export const mediaBindingReconcileOutcomeTotal = new Counter({
  *  outcome=deleted（软删+过 grace+引用图无引用→对象+行硬删——**无 mediaId FK**；孤儿 binding 行由
  *  只读漂移检测→置 dirty→runner rebuild 清理）/
  *  guarded（引用图命中——binding/NodeArtifact/VideoWork/VideoProject/doc 扫描任一引用真实命中）/
- *  valve-bailout（安全阀 bail-out——doc 扫描超阀/VideoProject 超阀/扫描读失败 503 族的保守
- *  保留；T19 登记收口分桶：与 guarded 区分「引用增长」vs「扫描面异常」两个 SLO 信号）/
+ *  valve-bailout（barrier bail-out/预算过期族的保守保留——卡② K8 起=围栏内判决面；T19 分桶：
+ *  与 guarded 区分「引用增长」vs「围栏/预算异常」两个 SLO 信号）/
  *  object-delete-failed（MinIO 非 404 失败——行保留待下轮，pending-upload sweep 同语义）。 */
 export const mediaGcOutcomeTotal = new Counter({
   name: 'media_gc_outcome_total',
-  help: 'Y1b T16：media GC 引用图判定逐动作计数（outcome=deleted/guarded/valve-bailout/object-delete-failed——guarded=引用命中，valve-bailout=安全阀 bail-out 保守保留〔超阀/读失败〕两 SLO 信号分桶）',
+  help: 'Y1b T16：media GC 引用图判定逐动作计数（outcome=deleted/guarded/valve-bailout/object-delete-failed——guarded=引用命中，valve-bailout=barrier bail-out/预算过期保守保留〔卡② K8 起围栏内判决面〕两 SLO 信号分桶）',
   labelNames: ['outcome'],
   registers: [register],
 });
@@ -42,38 +42,5 @@ export const mediaDeletionConflictTotal = new Counter({
   name: 'media_deletion_conflict_total',
   help: 'C3b-4：DELETING 删除中止计数（reason=media-gc/project-erasure——recheck 命中任一证人→中止回 ACTIVE+复核窗重置；spec §3.4-5）',
   labelNames: ['reason'],
-  registers: [register],
-});
-
-/** shadow 对拍差集计数（C3b-5——spec §3.4-8 :84「抽样长期对拍」：两决策面在 barrier ACTIVE 持有窗内
- *  求值〔同快照——appendBatch 封帧=pgSeq/epoch 冻结，第六轮 P1-7 防假 mismatch〕）。新面=registry∪Oracle
- *  证人面（Binding 臂除外——两面共有投影证人，纳入即互掩：stale binding 永不显形）。
- *  consumer=media-gc|project-erasure（两删除流闭集）；dir=missing（新面独有证人=旧面漏保护向——决策面
- *  〔并集单源〕已阻断保留）/extra（旧面独有=stale binding 过度保留向——告警+触发受控 rebuild 清理，
- *  修「stale binding 永久过度保留」）。低基数：consumer×dir 四系列。 */
-export const mediaRefShadowMismatchTotal = new Counter({
-  name: 'media_ref_shadow_mismatch_total',
-  help: 'C3b-5：shadow 对拍差集（consumer=media-gc/project-erasure；dir=missing=新面独有证人漏保护向〔阻断保留〕/extra=旧面独有 stale binding 过度保留向〔告警+受控 rebuild〕；spec §3.4-8——同 barrier 窗同快照对拍）',
-  labelNames: ['consumer', 'dir'],
-  registers: [register],
-});
-
-/** stale binding 计数（C3b-5——spec §3.4-8 :84：shadow extra 处置=受控 rebuild 的发现面——对拍发现的
- *  stale binding 行数〔doc 已无引用但 MediaBinding 行在〕；rebuild 后行随全量替换清出，持续增长=投影
- *  漂移信号〔binding-rebuild CAS miss/收敛失败分诊锚〕）。 */
-export const mediaBindingStaleTotal = new Counter({
-  name: 'media_binding_stale_total',
-  help: 'C3b-5：shadow extra 处置发现的 stale binding 行计数（doc 无引用但 MediaBinding 行在——受控 rebuild 清理面；持续增长=投影漂移分诊锚；spec §3.4-8）',
-  registers: [register],
-});
-
-/** shadow 对拍预算跳过计数（C3b-5 质量评审 Important-1：对拍=观测面不得挤占删除窗——窗内剩余预算
- *  低于地板〔MEDIA_REF_SHADOW_MIN_BUDGET_MS〕即跳过本轮对拍，决策/删除照常推进）。consumer=
- *  media-gc|project-erasure（两删除流闭集）。持续增长=中大团队对拍成本常态超预算形态（对拍实际
- *  采样化=后续优化项）——与 valve-bailout 分桶（valve=保留/中止档；skip=删除照常档）。 */
-export const mediaRefShadowSkipTotal = new Counter({
-  name: 'media_ref_shadow_skip_total',
-  help: 'C3b-5：shadow 对拍预算门控跳过计数（consumer=media-gc/project-erasure——窗内剩余预算低于地板跳过本轮对拍，决策/删除照常；持续增长=对拍成本超预算/团队规模分诊锚）',
-  labelNames: ['consumer'],
   registers: [register],
 });

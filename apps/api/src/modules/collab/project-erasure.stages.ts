@@ -1,8 +1,8 @@
 // apps/api/src/modules/collab/project-erasure.stages.ts
 // C4-c1（plan Task C4-3——生产就绪收尾批·project-erasure）：project scope PURGING_DB **执行体**
 // （自 poller 拆出——C4-b 质量评审前瞻：poller 只留 claim/心跳/流转骨架，stage 执行体独立文件；
-// census ⑰ 闭包纯度=prisma/shared/manifest/spool 族，零 controller/Http 面——httpMediaRefsCollector
-// 经原生 fetch 不引 HttpModule）。
+// census ⑰ 闭包纯度=prisma/shared/manifest/spool 族，零 controller/Http 面——卡② K8 起活 doc 扫描
+// HTTP 链整链退役，引用判别=isMediaReferenced 单源——本文件零 fetch 面）。
 //
 // 承接契约（poller C4-b 注释钉死——spec 评审 P1「二扫并集」定形）：
 //  ①**DRAINING→PURGING_DB 二扫并集**：manifest 采集（DRAINING）后在飞 finalize（GenerationIntent
@@ -37,7 +37,7 @@
 //   同步——**裁定=维持现行为**（c1 已然：manifest 采集/索引=run 自身簿记非项目数据清除面；「介质
 //   删除跳过含 DB 行删除」的 DRY_RUN 字面不涵盖 run 行自身元数据写；且 dryRun 后真实擦除需要完整
 //   并集 manifest 承接——提前采集是前置价值非副作用。红测锚=c1 dryRun 用例 manifestAfter 断言）。
-//  **P2-3（fail-closed 轮 CanvasProject 行删除宽松档）**：doc 扫描不可达（docScanFailed）时本执行体
+//  **P2-3（fail-closed 轮 CanvasProject 行删除宽松档）**：doc 扫描不可达时代（卡② K8 前）本执行体
 //   仍推进批删+CanvasProject 行删除、**只停独占 media 删除**——裁定=登记非收紧（现行为方向安全：
 //   ①Canvas 族写者已被 fence 拒、行删除不可逆性低〔行集可从备份恢复〕；②独占 media 行+对象删除
 //   〔不可逆+用户数据〕恒走两阶段复核窗；③收敛性成立——恢复可达后下一 tick 续判独占；④收紧
@@ -53,17 +53,30 @@ import {
   writeErasureManifest, readErasureManifest, collectSpoolSegments, mergeSpoolSegs, erasureManifestDir, collabSpoolDir, type ErasureManifestInputs,
 } from './project-erasure.manifest';
 import { assertProjectErasureDbComplete, type ErasureAssertDb } from './project-erasure.assert';
-import { ERASURE_MEDIA_REFS_BATCH } from './collab-spool.service';
-import { collectJsonMediaIds, claimMediaForDeletion, releaseMediaDeletionClaim, MEDIA_REF_SHADOW_MIN_BUDGET_MS } from '../media-delivery/media-gc.service';
-import { mediaDeletionConflictTotal, mediaRefShadowMismatchTotal, mediaRefShadowSkipTotal } from '../media-delivery/binding-reconcile.metrics';
-import { MediaReferenceService } from './media-reference.service';   // C3b-5：并集单源决策面
-import { controlledRebuildForMedia } from './binding-rebuild.service';   // C3b-5：shadow extra 受控 rebuild
-import { DeletionBarrierPort, HttpDeletionBarrierPort, type DeletionBarrierPrepareWireResult } from './deletion-barrier.port';   // C3b-5：删除窗 barrier（worker=Http loopback）
+import { claimMediaForDeletion, releaseMediaDeletionClaim } from '../media-delivery/media-gc.service';
+import { mediaDeletionConflictTotal } from '../media-delivery/binding-reconcile.metrics';
+import { MediaReferenceService } from './media-reference.service';   // C3b-5：并集单源决策面（卡② K8 起唯一引用面）
+import { DeletionBarrierPort, HttpDeletionBarrierPort, type DeletionBarrierPrepareWireResult } from './deletion-barrier.port';   // C3b-5：删除窗 barrier（worker=Http loopback；卡② K8 起认领拍同门）
 import { ERASURE_RUN_LEASE_MS } from './project-erasure';
 import { erasureRunsTotal, erasureStageDuration } from './erasure.metrics';
 
 /** 两阶段复核窗=一个 claim 租约周期（跨 claim 周期——标记与删除不得同窗：窗内在飞写可观测）。 */
 const ERASURE_MEDIA_REVIEW_MS = 60_000;
+/** 卡② K8（spec §1.5）：认领拍进程内退避（模块级按 erasureId——认领拍 bail/窗内重算为空→下次
+ *  prepare 延后 15s 起倍增上限 5min；成功 claim 清掉；kill -9 映射消失即重试；规则③不进退避；
+ *  poller 仍 5s 醒、醒了不 prepare——吸收「纯幻影尾段 5s fence 循环」的团队 append 可用性代价）。 */
+const CLAIM_BACKOFF_BASE_MS = 15_000;
+const CLAIM_BACKOFF_MAX_MS = 300_000;
+const claimBackoff = new Map<string, { notBefore: number; attempt: number }>();
+function claimBackoffReady(erasureId: string): boolean {
+  const b = claimBackoff.get(erasureId);
+  return b == null || Date.now() >= b.notBefore;
+}
+function enterClaimBackoff(erasureId: string): void {
+  const attempt = claimBackoff.get(erasureId)?.attempt ?? 0;
+  claimBackoff.set(erasureId, { notBefore: Date.now() + Math.min(CLAIM_BACKOFF_BASE_MS * 2 ** Math.min(attempt, 10), CLAIM_BACKOFF_MAX_MS), attempt: attempt + 1 });
+}
+function clearClaimBackoff(erasureId: string): void { claimBackoff.delete(erasureId); }
 /** PURGING_DB 批删事务上限（resolution 写批+scope 批删两事务）。 */
 const PURGE_TX_TIMEOUT_MS = 60_000;
 /** FK Cascade 族（CanvasProject 行删除 DB 级联——不显式批删）。 */
@@ -79,37 +92,8 @@ export interface LiveMediaRow {
 /** live VideoWork 行（二扫载荷）。 */
 interface LiveWorkRow { id: string; canvasProjectId: string | null; videoKey: string; coverKey: string | null }
 
-/** 未 reconcile 引用采集器（api 进程 doc 扫描——collectMediaRefs 内部端点的 worker 侧客户端面）。
- *  返回 referenced mediaIds 子集；**null=不可达**（api 停摆/非 serving/限批拒）——调用方 fail-closed
- *  本轮暂停独占判别（不删该 media——下轮 tick 重试）。 */
-export type MediaRefsCollector = (args: { teamId: string; excludeProjectId: string; mediaIds: string[] }) => Promise<string[] | null>;
-
-/** worker→api 原生 fetch 采集器（HttpCollabWritePort 同族：loopback api 基址+WORKER_WRITE_TOKEN
- *  bearer；单发不重试——不可达即 null 由下一 tick 兜底〔run 行=唯一唤醒源〕）。 */
-export function httpMediaRefsCollector(opts: { baseUrl?: string; token?: string } = {}): MediaRefsCollector {
-  return async ({ teamId, excludeProjectId, mediaIds }) => {
-    const baseUrl = (opts.baseUrl ?? `http://127.0.0.1:${process.env.PORT ?? '3000'}`).replace(/\/+$/, '');
-    const token = opts.token ?? process.env.WORKER_WRITE_TOKEN;
-    const referenced = new Set<string>();
-    for (let i = 0; i < mediaIds.length; i += ERASURE_MEDIA_REFS_BATCH) {
-      try {
-        const res = await fetch(`${baseUrl}/api/collab/doc/media-refs`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
-          body: JSON.stringify({ teamId, excludeProjectId, mediaIds: mediaIds.slice(i, i + ERASURE_MEDIA_REFS_BATCH) }),
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (res.status !== 200) return null;
-        const body = await res.json() as { referenced?: unknown };
-        if (!Array.isArray(body.referenced)) return null;
-        for (const r of body.referenced) if (typeof r === 'string') referenced.add(r);
-      } catch {
-        return null;   // 网络错误族（ECONNREFUSED/超时）——不可达档
-      }
-    }
-    return [...referenced];
-  };
-}
+/** 未 reconcile 引用采集器与 HTTP collector 已随卡② K8 活文档扫描链退役（引用判别=isMediaReferenced
+ *  单源——registry∪Binding∪Oracle 三臂）。 */
 
 /** 两阶段复核 sidecar（manifest 目录同域耐久标记——**禁为一次性复核加 schema 列**的载体落地：
  *  `<erasureId>.pending-media.json`，temp→rename 原子写）。 */
@@ -192,67 +176,14 @@ function deriveForbiddenContent(union: { media: ErasureManifestInputs['mediaRows
   ].filter((k): k is string => typeof k === 'string' && k.length > 0);
 }
 
-/** Media 三档判别（红⑫——纯读；docScanFailed=独占档不可信→exclusive 空、候选留原态下轮重判）。
- *  C3b-5 消费面切换：决策引用集=旧面（erasureOldFaceReferenced——PG 快判+他项目 doc 扫）∪
- *  **并集单源 overlay**（isMediaReferenced 五臂闭集——spec §3.4-6：Binding+Oracle+registry。保守取并：
- *  任一面证人即 detach 保留；exclusive=两面皆无证人）。 */
-export interface MediaDisposition { detach: string[]; exclusive: string[]; docScanFailed: boolean; docScanSkipped: boolean }
-
-/** erasure 旧引用面（C3b-5 前的引用图——resolveMediaDisposition 引用集判定单源+删除窗 shadow 对拍
- *  复用）：PG 快判（他项目 binding/NodeArtifact/LightingTask/VideoTrim+作品 videoMediaId/coverKey+
- *  VideoProject timeline+ObjectManifest claim）+他项目 doc 扫描（collector）。返回 referenced 集；
- *  **null=collector 不可达**（api 停摆——对拍跳过〔决策面=union 不受影响〕；判别面经
- *  resolveMediaDisposition 承接为 docScanFailed fail-closed）。 */
-export async function erasureOldFaceReferenced(
-  prisma: PrismaService, pid: string, rest: LiveMediaRow[], collectRefs: MediaRefsCollector,
-): Promise<Set<string> | null> {
-  const restIds = rest.map((m) => m.id);
-  const restIdSet = new Set(restIds);
-  const keyToId = new Map<string, string>();
-  for (const m of rest) { keyToId.set(m.key, m.id); if (m.objectKey) keyToId.set(m.objectKey, m.id); }
-  const referenced = new Set<string>();
-  const markRefs = (ids: Iterable<string | null | undefined>) => {
-    for (const id of ids) if (typeof id === 'string' && id !== '') referenced.add(id);
-  };
-  // ── PG 快判引用面（本项目自引用不算——引用行随本 scope 批删/工作 detach 后自消）──
-  markRefs((await prisma.mediaBinding.findMany({ where: { mediaId: { in: restIds }, projectId: { not: pid } }, select: { mediaId: true } })).map((r) => r.mediaId));
-  markRefs((await prisma.nodeArtifact.findMany({ where: { mediaId: { in: restIds }, projectId: { not: pid } }, select: { mediaId: true } })).map((r) => r.mediaId));
-  // VideoWork 全体计入（作品行不删〔detach 保留〕——videoMediaId 引用者存活=被引 media 须保留；
-  // coverKey=键引用面：候选键族命中作品封面即保留）
-  const works = await prisma.videoWork.findMany({ where: { OR: [{ videoMediaId: { in: restIds } }, { coverKey: { in: [...keyToId.keys()] } }] }, select: { videoMediaId: true, coverKey: true } });
-  markRefs(works.map((w) => w.videoMediaId));
-  for (const w of works) if (w.coverKey && keyToId.has(w.coverKey)) referenced.add(keyToId.get(w.coverKey)!);
-  markRefs((await prisma.lightingTask.findMany({ where: { resultMediaId: { in: restIds }, projectId: { not: pid } }, select: { resultMediaId: true } })).map((r) => r.resultMediaId));
-  const trims = await prisma.videoTrimTask.findMany({
-    where: { workflowId: { not: pid }, OR: [{ sourceFileId: { in: restIds } }, { outputFileId: { in: restIds } }] },
-    select: { sourceFileId: true, outputFileId: true },
-  });
-  markRefs(trims.flatMap((t) => [t.sourceFileId, t.outputFileId]));
-  // VideoProject timeline 深扫（本 team 他项目——collectJsonMediaIds 复用 media-gc 单源：mediaId 词形递归）
-  const teamId = rest[0]!.teamId;
-  for (const vp of await prisma.videoProject.findMany({ where: { teamId, workflowId: { not: pid } }, select: { data: true } })) {
-    for (const id of collectJsonMediaIds(vp.data)) if (restIdSet.has(id)) referenced.add(id);
-  }
-  // ObjectManifest claim（在位未过=在飞物化——保守保留〔对象归 C4-c2；行保留待 claim 出清后下轮判别〕）
-  for (const c of await prisma.objectManifest.findMany({
-    where: { objectKey: { in: [...keyToId.keys()] }, claimUntil: { gt: BigInt(Date.now()) } },
-    select: { objectKey: true },
-  })) {
-    const id = keyToId.get(c.objectKey);
-    if (id) referenced.add(id);
-  }
-  // ── 他项目 doc 扫描（未 reconcile 引用——副本/copy 未进 binding 索引窗；经 api 内部端点）──
-  const otherProjects = await prisma.canvasProject.count({ where: { teamId, id: { not: pid } } });
-  if (otherProjects === 0) return referenced;   // 零他项目=零未 reconcile 引用可达
-  const refs = await collectRefs({ teamId, excludeProjectId: pid, mediaIds: restIds });
-  if (refs == null) return null;   // 不可达：判别面=fail-closed（下轮重试）；对拍面=跳过
-  markRefs(refs);
-  return referenced;
-}
+/** Media 三档判别（红⑫——纯读；卡② K8 起引用集=isMediaReferenced 单源 overlay：registry∪Binding∪
+ *  Oracle 三臂闭集〔spec §3.4-6〕——旧面 PG 快判/他项目 doc 扫/HTTP 链随 shadow 双轨退役。
+ *  任一臂证人即 detach 保留；exclusive=三臂皆无证人。独占集对未 flush 帧系统性失明（oracle 60s 一拍
+ *  +binding apply 落后窗）——认领拍在 prepare 围栏内重算（executePurgingDbStage 规则②）。 */
+export interface MediaDisposition { detach: string[]; exclusive: string[] }
 
 export async function resolveMediaDisposition(
   prisma: PrismaService, pid: string, candidates: LiveMediaRow[],
-  collectRefs: MediaRefsCollector,
 ): Promise<MediaDisposition> {
   const detach: string[] = [];
   const rest: LiveMediaRow[] = [];
@@ -261,23 +192,16 @@ export async function resolveMediaDisposition(
     if (m.folderId != null || m.isFavorite || m.type === 'uploaded') detach.push(m.id);
     else rest.push(m);
   }
-  if (rest.length === 0) return { detach, exclusive: [], docScanFailed: false, docScanSkipped: true };
-  const referenced = await erasureOldFaceReferenced(prisma, pid, rest, collectRefs);
-  if (referenced == null) return { detach, exclusive: [], docScanFailed: true, docScanSkipped: false };   // fail-closed：本轮不判独占（不删）
-  // ── C3b-5 并集单源 overlay（决策面=spec §3.4-6 五臂闭集——含 registry 臂〔ArtifactProjection/
-  //    GenerationIntent.resultRef 等〕+Oracle 臂〔PG doc 证人〕；被擦项目排除同旧面语义）。
-  //    注记（spec 评审 Minor-2）：回滚开关 MEDIA_REF_ORACLE_ONLY 仅辖 isMediaReferenced 决策臂
-  //    （=GC 全效）；erasure 决策另含旧面 binding 快判腿（常驻）——开关后 erasure 仍计 binding
-  //    证人=过度保留向无安全损失（runbook §13.3 开关辖面）。──
+  if (rest.length === 0) return { detach, exclusive: [] };
   const teamId = rest[0]!.teamId;
   const mediaRef = new MediaReferenceService(prisma);
+  const referenced = new Set<string>();
   for (const m of rest) {
     if (await mediaRef.isMediaReferenced(prisma, m.id, { teamId, excludeProjectId: pid })) referenced.add(m.id);
   }
   return {
     detach: [...detach, ...rest.filter((m) => referenced.has(m.id)).map((m) => m.id)],
     exclusive: rest.filter((m) => !referenced.has(m.id)).map((m) => m.id),
-    docScanFailed: false, docScanSkipped: false,
   };
 }
 
@@ -369,16 +293,15 @@ async function applyProjectErasureWrites(
 
 /** stage 结果（poller 只记日志/续租——状态推进见 outcome）。 */
 export type PurgingDbStageResult =
-  | { outcome: 'purging-objects' }                                                        // 完成：state=PURGING_OBJECTS（C4-c2 续）
-  | { outcome: 'pending-review'; remainingExclusive: number; docScanFailed: boolean }     // 复核窗内/doc 扫描不可达：停 PURGING_DB
-  | { outcome: 'dry-run'; detach: number; exclusive: number; docScanFailed: boolean };    // dryRun：零写预览
+  | { outcome: 'purging-objects' }                       // 完成：state=PURGING_OBJECTS（C4-c2 续）
+  | { outcome: 'pending-review'; remainingExclusive: number }   // 复核窗内/认领拍未 verified：停 PURGING_DB
+  | { outcome: 'dry-run'; detach: number; exclusive: number };  // dryRun：零写预览（窗前三臂口径，非决策级）
 
 export interface PurgingDbStageDeps {
   prisma: PrismaService;
   run: ProjectErasureRun;
-  collectMediaRefs: MediaRefsCollector;
   /** C3b-5：删除窗 barrier 端口（worker 进程缺省=HttpDeletionBarrierPort loopback api；测试注入
-   *  stub——真 barrier 全链归 deletion-barrier.int.spec）。 */
+   *  stub——真 barrier 全链归 deletion-barrier.int.spec）。卡② K8 起认领拍与删除拍同门（fence 化）。 */
   barrier?: DeletionBarrierPort;
   /** manifest 目录（缺省 erasureManifestDir()——sidecar 同域）。 */
   manifestDir?: string;
@@ -417,109 +340,132 @@ export async function executePurgingDbStage(deps: PurgingDbStageDeps): Promise<P
       await prisma.projectErasureRun.update({ where: { erasureId: run.erasureId }, data: { manifestSha256: rewritten.manifestSha256 } });
       logger.log(JSON.stringify({ event: 'erasure_manifest_union', erasureId: run.erasureId, projectId: pid, media: union.media.length, work: union.work.length, grew: union.grew }));
     }
-    // ③ 三档判别（红⑫——纯读面）；dryRun 到此为止（零写：跳过一切删除/scrub/sidecar/状态写）
-    const disposition = await resolveMediaDisposition(prisma, pid, live.mediaRows, deps.collectMediaRefs);
-    if (run.dryRun) return { outcome: 'dry-run', detach: disposition.detach.length, exclusive: disposition.exclusive.length, docScanFailed: disposition.docScanFailed };
-    // ④ 两阶段复核（首扫标记→跨 claim 周期复核仍独占才删；sidecar=复核载体〔禁加列〕）
-    //    C3b-4 DELETING 状态机接线（spec §3.4-5 :81）：标记时 CAS 抢占独占集进 DELETING（审计列
-    //    runId=erasureId/reason=project-erasure——与 GC 双流互斥+复核窗期 facts 过滤/命令面拒绑）；
-    //    复核集漂移（首扫后新引用——独占候选离集）→中止回 ACTIVE+media_deletion_conflict_total；
-    //    删除窗 claim 幂等再持有（同 erasureId）——他消费者活持有的行不删（下轮重试）。
-    const sidecar = await readPendingMediaMarker(manifestDir, run.erasureId);
+    // ③ 三档判别（红⑫——纯读面；引用集=isMediaReferenced 单源）；dryRun 到此为止（零 fence/零
+    //    claim/零 marker/零写——预览计数=窗前三臂口径，非决策级）
+    const disposition = await resolveMediaDisposition(prisma, pid, live.mediaRows);
+    if (run.dryRun) return { outcome: 'dry-run', detach: disposition.detach.length, exclusive: disposition.exclusive.length };
+    // ── 卡② K8（spec §1.5）：认领拍 fence 化——cohort 规范化+四规则+一拍一段+进程内退避 ──
+    // 分流锚=**进入本拍时的 marker**（不看规范化后结果——reviewWindowMs=0 用例同拍串段会把新
+    // cohort 在其复核窗起点的同一拍删掉；新 exclusive 留下一拍走②、开自己的新 markAt）。
+    const sidecarAtEntry = await readPendingMediaMarker(manifestDir, run.erasureId);
     const exclusiveSet = new Set(disposition.exclusive);
-    const sidecarSet = new Set(sidecar?.mediaIds ?? []);
-    const sameSet = sidecar != null && sidecarSet.size === exclusiveSet.size && [...exclusiveSet].every((id) => sidecarSet.has(id));
-    let deletable: string[] = [];
-    if (!sameSet) {
-      // 复核集漂移：离集候选=首扫后新引用（recheck 命中）→中止回退+conflict 计数（复核窗重置=新标记）；
-      // docScanFailed 档独占集人为空——非真漂移不回退（fail-closed 下轮重判）。
-      const departed = sidecar != null && !disposition.docScanFailed
-        ? [...sidecarSet].filter((id) => !exclusiveSet.has(id)) : [];
+    const liveRowOf = new Map(live.mediaRows.map((m) => [m.id, m] as const));
+    const teamId = live.mediaRows[0]?.teamId ?? sidecarAtEntry?.teamId ?? null;
+    // ① cohort 规范化（每拍非干跑先跑——认领集/删除集只允许缩小）：markerKeep=sidecar∩exclusive；
+    //    差集立即 release，按原因计 conflict（三档）：③ 证人命中离开（在 detach 且非档 a=E2 路径）
+    //    →计；档 a/行不在→不计（腿⑥）；④ unionFace 命中在④内计一次（不在此）。markerKeep 空→删
+    //    marker，非空→原 markAt 写回；差集 id 不再 claim。候选宇宙=本拍 exclusive，窗内只剔除不增补。
+    let markerKeep: string[] = [];
+    if (sidecarAtEntry != null) {
+      markerKeep = sidecarAtEntry.mediaIds.filter((id) => exclusiveSet.has(id));
+      const departed = sidecarAtEntry.mediaIds.filter((id) => !exclusiveSet.has(id));
       if (departed.length > 0) {
-        const n = await releaseMediaDeletionClaim(prisma, departed, run.erasureId);
-        if (n > 0) mediaDeletionConflictTotal.inc({ reason: 'project-erasure' }, n);
+        const witnessDeparted = departed.filter((id) => {
+          const row = liveRowOf.get(id);
+          return row != null && disposition.detach.includes(id)
+            && !(row.folderId != null || row.isFavorite || row.type === 'uploaded');
+        });
+        await releaseMediaDeletionClaim(prisma, departed, run.erasureId);
+        if (witnessDeparted.length > 0) mediaDeletionConflictTotal.inc({ reason: 'project-erasure' }, witnessDeparted.length);
       }
-      if (disposition.exclusive.length > 0) {   // 标记（首次/新晋独占/判别漂移——复核窗重起：保守方向）
-        await claimMediaForDeletion(prisma, disposition.exclusive, { runId: run.erasureId, reason: 'project-erasure' });
-        await writePendingMediaMarker(manifestDir, run.erasureId, { schemaVersion: 1, markAt: new Date().toISOString(), teamId: live.mediaRows[0]?.teamId ?? sidecar?.teamId ?? null, mediaIds: disposition.exclusive });
+      if (markerKeep.length > 0) {
+        await writePendingMediaMarker(manifestDir, run.erasureId, { schemaVersion: 1, markAt: sidecarAtEntry.markAt, teamId: sidecarAtEntry.teamId, mediaIds: markerKeep });   // 原 markAt 写回（窗起点不重置）
+      } else {
+        await removePendingMediaMarker(manifestDir, run.erasureId);
       }
-    } else if (Date.now() - Date.parse(sidecar!.markAt) >= (deps.reviewWindowMs ?? ERASURE_MEDIA_REVIEW_MS) && !disposition.docScanFailed) {
-      // 删除窗（C3b-5 barrier 接线——spec §3.4-4 :78 删除序 ②-⑥ 消费侧）：prepare（exclude=被擦项目
-      // ——其自身引用不算保护）→窗内 union 终裁+shadow 同快照对拍算出删除集→release（60s 批删 tx
-      // 不入 10s fence 窗——配对纪律）→⑤ 批删事务内逐 id in-tx recheck 终裁后行删（P1-1 头注）。
-      // bail-out/预算过期=保守不删（pending-review 下轮 tick 重试——同 erasureId 幂等再持有）。
-      const teamId = live.mediaRows[0]?.teamId ?? sidecar?.teamId ?? null;
-      if (teamId != null && sidecar!.mediaIds.length > 0) {
+    }
+    // ②③④ 一拍一段执行
+    let deletable: string[] = [];
+    let deletePhaseKept: string[] | null = null;   // ⑥ 作用域锚：仅本拍进入④∧verified∧kept 已算出
+    let prepared = false;                          // 本拍调用了 prepare（推进门「未 verified」定义域）
+    let preparedVerified = false;
+    let preparedExpiredAfter = false;
+    const markerAtEntry = sidecarAtEntry != null && sidecarAtEntry.mediaIds.length > 0;
+    if (!markerAtEntry) {
+      // 规则②（认领拍——仅进入本拍时无 marker）：exclusive 非空才 prepare（deps.barrier ?? Http 同
+      // 删除窗——认领写与删除写同门）。未 verified：零 claim 零 marker 走 pending-review（不造第三
+      // 态）+进退避。verified 后只对 exclusive 逐 id 重算（**不得沿用窗前 ③**——③ 对未 flush 帧系统
+      // 性失明：oracle 60s 一拍+binding apply 落后窗）；循环内过期即中止；空→零 claim 零 marker（进
+      // 退避）；非空→**先写 marker（新 markAt）再 claim**（崩溃窗口=有 marker 未 claim，下一拍规则
+      // ③/④接上；反向=DELETING 等 10min 陈旧接管）；claim 返回后再查时钟——过期→release 本批+删
+      // marker+pending-review；finally release 围栏（配对纪律同删除窗）。
+      if (disposition.exclusive.length > 0 && teamId != null && claimBackoffReady(run.erasureId)) {
         const barrier = deps.barrier ?? new HttpDeletionBarrierPort();
         let prep: DeletionBarrierPrepareWireResult;
+        prepared = true;
         try {
           prep = await barrier.prepare(teamId, { excludeProjectId: pid });
         } catch (e) {
           prep = { outcome: 'bail-out', reason: 'unexpected-error' };
-          logger.warn(`erasure barrier prepare 异常（pending-review 下轮重试）: ${(e as Error).message}`);
+          logger.warn(`erasure 认领拍 prepare 异常（pending-review 下轮重试）: ${(e as Error).message}`);
         }
         if (prep.outcome === 'verified') {
           try {
-            if (Date.now() < prep.expiresAt) {   // M3 预算自查：过期=围栏已漏——保守不删
+            const mediaRef = new MediaReferenceService(prisma);
+            const rechecked: string[] = [];
+            for (const id of disposition.exclusive) {
+              if (Date.now() >= prep.expiresAt) break;   // 预算自查：过期=围栏已漏——中止重算
+              if (!(await mediaRef.isMediaReferenced(prisma, id, { teamId, excludeProjectId: pid }))) rechecked.push(id);
+            }
+            if (rechecked.length > 0) {
+              await writePendingMediaMarker(manifestDir, run.erasureId, { schemaVersion: 1, markAt: new Date().toISOString(), teamId, mediaIds: rechecked });
+              await claimMediaForDeletion(prisma, rechecked, { runId: run.erasureId, reason: 'project-erasure' });
+              if (Date.now() >= prep.expiresAt) {
+                // claim 返回后时钟已过——回滚本批（release+删 marker；腿⑤）
+                await releaseMediaDeletionClaim(prisma, rechecked, run.erasureId);
+                await removePendingMediaMarker(manifestDir, run.erasureId);
+                preparedExpiredAfter = true;
+              } else {
+                preparedVerified = true;
+                clearClaimBackoff(run.erasureId);   // 成功 claim——退避清除
+              }
+            } else {
+              enterClaimBackoff(run.erasureId);   // 空重算/循环中止→退避（腿⑨）
+            }
+          } finally {
+            await barrier.release(teamId, prep.barrierId).catch(() => undefined);   // 配对纪律（stale 零行；崩溃=expiresAt TTL 自愈）
+          }
+        } else {
+          enterClaimBackoff(run.erasureId);   // bail-out→退避
+        }
+      }
+    } else if (Date.now() - Date.parse(sidecarAtEntry!.markAt) >= (deps.reviewWindowMs ?? ERASURE_MEDIA_REVIEW_MS)) {
+      // 规则④（删除拍——仅进入时有 marker∧窗满∧规范化后 markerKeep 非空；markerKeep=∅=cohort 已
+      // 消解——本拍不 prepare 不 claim，出口见推进门）。kept=markerKeep−unionFace（unionFace 命中
+      // 释放+计 conflict——④内只此一计，与规范化差集不重复）；只 claim kept；deletable=kept∩owned；
+      // prepare 未 verified 或入口已过期：不删、不丢 marker、不推进。机器不变量 deletable⊆exclusive
+      // ∧∩unionFace=∅（结构保证：kept⊆markerKeep⊆exclusive 且 kept 与 unionFace 互斥）。第二次
+      // prepare+窗内 unionFace+批删 in-tx recheck 原样（applyProjectErasureWrites 头注）。
+      if (markerKeep.length > 0 && teamId != null) {
+        const barrier = deps.barrier ?? new HttpDeletionBarrierPort();
+        let prep: DeletionBarrierPrepareWireResult;
+        prepared = true;
+        try {
+          prep = await barrier.prepare(teamId, { excludeProjectId: pid });
+        } catch (e) {
+          prep = { outcome: 'bail-out', reason: 'unexpected-error' };
+          logger.warn(`erasure 删除拍 prepare 异常（pending-review 下轮重试）: ${(e as Error).message}`);
+        }
+        if (prep.outcome === 'verified') {
+          try {
+            if (Date.now() < prep.expiresAt) {   // 入口过期=保守不删不丢 marker
+              preparedVerified = true;
               const mediaRef = new MediaReferenceService(prisma);
-              // 对拍域=并集 manifest media−档a−已删行（**非 live**：引用面候选在首扫 tick 已 detach
-              // 〔projectId=NULL 出 live 集〕——union 域含 manifest 冻结行+二扫新行，detached 行仍可对拍）。
-              const rest: LiveMediaRow[] = [];
-              for (const um of union.media) {
-                const row = await prisma.media.findUnique({
-                  where: { id: um.id },
-                  select: { id: true, teamId: true, folderId: true, isFavorite: true, type: true, nodeId: true, taskId: true, key: true, objectKey: true },
-                });
-                if (row == null || row.folderId != null || row.isFavorite || row.type === 'uploaded') continue;
-                rest.push(row);
-              }
-              const restTeamId = rest[0]?.teamId ?? teamId;
-              // 决策面（union 终裁——逐 id 判定恒跑）。M3 性能注记：逐 id isMediaReferenced〔~13 索引
-              // 查询/ id〕+批一逐 id recheck=N+1 形态——独占/引用候选典型规模=个位数（单项目 media
-              // 域非 team 域），可接受；无界批形态出现时再议批化（迁移/回滚项）。
               const unionFace = new Set<string>();
-              for (const m of rest) {
-                if (await mediaRef.isMediaReferenced(prisma, m.id, { teamId: restTeamId, excludeProjectId: pid })) unionFace.add(m.id);
+              for (const id of markerKeep) {
+                if (await mediaRef.isMediaReferenced(prisma, id, { teamId, excludeProjectId: pid })) unionFace.add(id);
               }
-              // ── shadow 同快照对拍（C3b-5 质量·Important-1：**预算门控**——对拍=观测面不得挤占
-              //    删除窗：剩余预算低于地板即跳过本轮对拍〔union 终裁/删除照常，skip 计数+log〕；
-              //    GC 同地板单源 MEDIA_REF_SHADOW_MIN_BUDGET_MS。跳过时同 barrier ACTIVE 窗同快照
-              //    语义不变）：新面=registry∪Oracle 证人面（skipBindingArm）；旧面=
-              //    erasureOldFaceReferenced（null=collector 不可达=对拍跳过——决策不受影响）。
-              //    missing=新面独有证人（决策已 detach 保留）；extra=旧面独有 stale binding→受控
-              //    rebuild 清行（被擦项目自身 binding 随批删非对象）。──
-              const shadowBudgeted = Date.now() + MEDIA_REF_SHADOW_MIN_BUDGET_MS < prep.expiresAt;
-              const faceB = new Set<string>();
-              const shadowOld = shadowBudgeted ? await erasureOldFaceReferenced(prisma, pid, rest, deps.collectMediaRefs) : null;
-              if (shadowOld != null) {
-                for (const m of rest) {
-                  if (await mediaRef.isMediaReferenced(prisma, m.id, { teamId: restTeamId, excludeProjectId: pid, skipBindingArm: true })) faceB.add(m.id);
-                }
-                for (const m of rest) {
-                  const newHit = faceB.has(m.id);
-                  const oldHit = shadowOld.has(m.id);
-                  if (newHit && !oldHit) mediaRefShadowMismatchTotal.inc({ consumer: 'project-erasure', dir: 'missing' });
-                  else if (oldHit && !newHit) {
-                    mediaRefShadowMismatchTotal.inc({ consumer: 'project-erasure', dir: 'extra' });
-                    logger.warn(`erasure shadow extra（stale binding 过度保留向）media=${m.id} → 受控 rebuild`);
-                    await controlledRebuildForMedia(prisma, m.id, { excludeProjectIds: [pid] }).catch(() => undefined);
-                  }
-                }
-              } else if (!shadowBudgeted && rest.length > 0) {
-                mediaRefShadowSkipTotal.inc({ consumer: 'project-erasure' });   // 观测面：跳过≠bail-out（删除照常推进）
-                logger.warn(`erasure shadow 对拍跳过（剩余预算 < ${MEDIA_REF_SHADOW_MIN_BUDGET_MS}ms 地板）——${rest.length} 候选本轮未对拍（union 终裁/删除照常）`);
+              const keptHit = markerKeep.filter((id) => unionFace.has(id));
+              if (keptHit.length > 0) {
+                await releaseMediaDeletionClaim(prisma, keptHit, run.erasureId);
+                mediaDeletionConflictTotal.inc({ reason: 'project-erasure' }, keptHit.length);
               }
-              // ── union 终裁（窗内漂移=首扫后新引用——sidecar 离集候选中止回 ACTIVE+conflict；
-              //    与 ④ 复核集漂移同语义：窗内重判的漂移腿）──
-              const departed = sidecar!.mediaIds.filter((id) => unionFace.has(id));
-              if (departed.length > 0) {
-                const n = await releaseMediaDeletionClaim(prisma, departed, run.erasureId);
-                if (n > 0) mediaDeletionConflictTotal.inc({ reason: 'project-erasure' }, n);
-              }
-              // 删除窗：同 runId 幂等再持有（claim 三腿谓词②）——他消费者活持有的行（新鲜 DELETING）不归
-              // 本 run 即不删（remainingExclusive 收口下轮重试；陈旧行经接管腿回收）。
-              const owned = await claimMediaForDeletion(prisma, sidecar!.mediaIds, { runId: run.erasureId, reason: 'project-erasure' });
-              deletable = sidecar!.mediaIds.filter((id) => owned.has(id) && !unionFace.has(id));   // 复核窗已满∧本 tick 判别仍全独占（sameSet）∧窗内 union 终裁→删（所有权内）
+              const kept = markerKeep.filter((id) => !unionFace.has(id));
+              deletePhaseKept = kept;
+              // 删除窗：同 runId 幂等再持有（claim 三腿谓词②）——他消费者活持有的行（新鲜 DELETING）
+              // 不归本 run 即不删（remainingExclusive 收口下轮重试；陈旧行经接管腿回收）。
+              const owned = await claimMediaForDeletion(prisma, kept, { runId: run.erasureId, reason: 'project-erasure' });
+              deletable = kept.filter((id) => owned.has(id));
             }
           } finally {
             await barrier.release(teamId, prep.barrierId).catch(() => undefined);   // 配对纪律（stale 零行；崩溃=expiresAt TTL 自愈）
@@ -527,26 +473,36 @@ export async function executePurgingDbStage(deps: PurgingDbStageDeps): Promise<P
         }
       }
     }
-    // ⑤ 写批（两批各自锁——kill -9 各步幂等）。删除=**窗内算出+release 后批删事务内逐 id in-tx
-    //    recheck 终裁**（P1-1——applyProjectErasureWrites 头注：60s 批删 tx 不入 10s fence 窗的
-    //    spec 可达成等价；中止 id 留 deletedMediaIds 外→remainingExclusive 收敛 pending-review）。
+    // 规则③（窗未满——仅进入时有 marker）：零 prepare、markAt 不动（规范化已写回 markerKeep）、
+    // exclusive 多出 id 不进 marker、只参加推进门——无操作。
+    // ⑤ 写批（两批各自锁——kill -9 各步幂等；**先于推进判定执行、deletable 为空不跳过**——E2 的
+    //    projectId=null detach 写批靠它）。删除=窗内算出+批删事务内逐 id in-tx recheck 终裁。
     const { deletedMediaIds } = await applyProjectErasureWrites(prisma, pid, { detachMediaIds: disposition.detach, deleteMediaIds: deletable });
-    // ⑥ sidecar 收敛+未决判定（复核窗内/doc 扫描不可达→停 PURGING_DB 续租等下轮）
-    const remainingExclusive = disposition.exclusive.filter((id) => !deletedMediaIds.includes(id));
-    if (remainingExclusive.length !== disposition.exclusive.length || (disposition.exclusive.length === 0 && sidecar != null)) {
-      if (remainingExclusive.length > 0) {
-        await writePendingMediaMarker(manifestDir, run.erasureId, { schemaVersion: 1, markAt: sidecar?.markAt ?? new Date().toISOString(), teamId: live.mediaRows[0]?.teamId ?? sidecar?.teamId ?? null, mediaIds: remainingExclusive });
+    // ⑥（作用域=仅规则④——本拍进入④∧verified∧kept 已算出时改写 marker=kept−deleted，markAt 不变、
+    //    exclusive 新 id 不写入〔新 cohort 下一拍走②开自己的窗〕；②拍新写 marker/③拍规范化写回
+    //    markerKeep 保留；④未 verified 或未进删除体不覆盖）
+    if (deletePhaseKept != null) {
+      const residual = deletePhaseKept.filter((id) => !deletedMediaIds.includes(id));
+      if (residual.length > 0) {
+        await writePendingMediaMarker(manifestDir, run.erasureId, { schemaVersion: 1, markAt: sidecarAtEntry!.markAt, teamId, mediaIds: residual });
       } else {
         await removePendingMediaMarker(manifestDir, run.erasureId);
       }
     }
-    if (remainingExclusive.length > 0 || disposition.docScanFailed) {
+    // 推进门：marker 仍有 id（⊆remainingExclusive——markerKeep/rechecked/④残留均 ⊆ exclusive−deleted）
+    // /exclusive−deleted 非空/本拍 prepare 未 verified 或调用后入口已过期→pending-review；皆空才
+    // PURGING_OBJECTS。「未 verified」=本拍调用了 prepare 且结果非 verified，或调用后入口已过期——
+    // 进入时有 marker∧markerKeep=∅ 的拍（本拍未调用 prepare）**不计**：exclusive−deleted 空（E2）
+    // →purging-objects；仍非空（腿⑧）→pending-review、下一拍走②（第十一轮精确定义）。
+    const remainingExclusive = disposition.exclusive.filter((id) => !deletedMediaIds.includes(id));
+    const unverified = prepared && (!preparedVerified || preparedExpiredAfter);
+    if (remainingExclusive.length > 0 || unverified) {
       const now = new Date();
       await prisma.projectErasureRun.update({
         where: { erasureId: run.erasureId },
         data: { state: 'PURGING_DB', heartbeatAt: now, leaseUntil: new Date(now.getTime() + ERASURE_RUN_LEASE_MS) },
       });
-      return { outcome: 'pending-review', remainingExclusive: remainingExclusive.length, docScanFailed: disposition.docScanFailed };
+      return { outcome: 'pending-review', remainingExclusive: remainingExclusive.length };
     }
     // ⑦ 列级机器断言（红⑯——registry 全表清点；violations 非空=不前置位〔租约恢复面重试〕）
     const assertion = await assertProjectErasureDbComplete(prisma as unknown as ErasureAssertDb, pid, { forbiddenContent: deriveForbiddenContent(union) });

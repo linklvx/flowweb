@@ -1178,11 +1178,7 @@ if (isMain()) {
     'apps/api/src/modules/collab/project-erasure.poller.ts': {   // C4-a（生产就绪收尾批·project-erasure）：worker erasure run 轮询周期键（ERASURE_POLL_INTERVAL_MS——RETENTION_SWEEP_INTERVAL_MS 同族豁免形态）+C4-b/C4-c1：DRAINING 采集与执行体传参的 spool 目录读已收敛 manifest 模块 collabSpoolDir() 单源（质量评审 M4——本文件零直接读）
       ERASURE_POLL_INTERVAL_MS: 1,
     },
-    'apps/api/src/modules/collab/project-erasure.stages.ts': {   // C4-c1（生产就绪收尾批·project-erasure）：PURGING_DB 执行体两键（函数内形态——httpMediaRefsCollector 构造期读 loopback api 基址 PORT/WORKER_WRITE_TOKEN〔HttpCollabWritePort worker.module useFactory 同源键，零 DI 依赖 fetch 采集器=闭包纯度保 census ⑰〕；spool 目录读=manifest 模块 collabSpoolDir() 单源〔质量评审 M4〕）
-      PORT: 1,
-      WORKER_WRITE_TOKEN: 1,
-    },
-    'apps/api/src/modules/collab/project-erasure.cache.ts': {   // C4-c2（生产就绪收尾批·project-erasure）：PURGING_CACHE 执行体两键（函数内形态——httpPurgeScope 构造期读 loopback api 基址 PORT/WORKER_WRITE_TOKEN〔httpMediaRefsCollector/stages 同源同判据：零 DI 依赖 fetch 客户端=闭包纯度保 census ⑰〕）
+    'apps/api/src/modules/collab/project-erasure.cache.ts': {   // C4-c2（生产就绪收尾批·project-erasure）：PURGING_CACHE 执行体两键（函数内形态——httpPurgeScope 构造期读 loopback api 基址 PORT/WORKER_WRITE_TOKEN〔httpPurgeScope 单源同判据：零 DI 依赖 fetch 客户端=闭包纯度保 census ⑰〕）
       PORT: 1,
       WORKER_WRITE_TOKEN: 1,
     },
@@ -1199,9 +1195,6 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-canary-verify.worker.ts': {   // C2-2b（生产就绪收尾批·replay-canary 比对侧）：canary worker verify 轮询周期键（CANARY_VERIFY_INTERVAL_MS——CANARY_POLL 同族豁免形态：默认 60_000）+freeze 实弹开关（CANARY_FREEZE_ENABLED——plan v3.1 ⑪ 生产默认 true，!=='false' 判=缺省实弹；COLLAB_SWEEP_ENABLED 同族 enum 键模块级读：worker 装配期 dotenv 先行在位）
       CANARY_VERIFY_INTERVAL_MS: 1,
       CANARY_FREEZE_ENABLED: 1,
-    },
-    'apps/api/src/modules/collab/media-reference.service.ts': {   // C3b-5（地基修复批·media 删除保护）：Binding 臂回滚开关键（MEDIA_REF_ORACLE_ONLY——CANARY_FREEZE_ENABLED 同族 enum 形态：方法内每判即读〔运行时开关——spec §3.4-8「运行时开关：binding 候选一键降级纯 oracle」〕、缺省=并集全臂、消费面=isMediaReferenced 决策臂非部署档位）
-      MEDIA_REF_ORACLE_ONLY: 1,
     },
     'apps/api/src/modules/collab/oracle-worker.service.ts': {   // C3b-2（地基修复批·PG oracle 证人）：worker oracle 扫描轮询周期键（ORACLE_SCAN_INTERVAL_MS——CANARY_VERIFY_INTERVAL_MS 同族豁免形态：值经 dotenv 先行在位、Number()||默认缺省档 60_000、消费面=worker 轮询周期非部署档位）
       ORACLE_SCAN_INTERVAL_MS: 1,

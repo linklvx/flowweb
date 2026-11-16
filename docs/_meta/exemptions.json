@@ -301,6 +301,41 @@
       "symbol": "backups/vX.X/db/flowweb_plain.sql",
       "reason": "手动全栈快照恢复步骤的模板性路径（vX.X=版本占位符，backups/ 产物在快照仪式执行时才生成——非仓内代码文件引用；T38 首次入检；卡② K3 §5 拆两段行移位 129→131 同步）",
       "expires_at": "2027-01-14"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-11-16-collab-closing-bag.md",
+      "line": 128,
+      "symbol": "apps/api/src/modules/collab/dto/collect-media-refs.dto.ts",
+      "reason": "卡② K8 Delete 清单的历史记录性提及（media-refs 端点随活 doc 扫描链退役——文件已删，plan 为执行记录）",
+      "expires_at": "2027-02-14"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-11-16-collab-closing-bag.md",
+      "line": 128,
+      "symbol": "apps/api/src/modules/collab/project-erasure.media-refs.c4c1.spec.ts",
+      "reason": "卡② K8 Delete 清单的历史记录性提及（同上——spec 文件已删）",
+      "expires_at": "2027-02-14"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-11-16-collab-closing-bag-design.md",
+      "line": 111,
+      "symbol": "dto/collect-media-refs.dto.ts",
+      "reason": "卡② K8 删除清单的历史记录性提及（缩写 token——机制记录非文件引用）",
+      "expires_at": "2027-02-14"
+    },
+    {
+      "file": "docs/superpowers/specs/2026-11-16-collab-closing-bag-design.md",
+      "line": 111,
+      "symbol": "project-erasure.media-refs.c4c1.spec.ts",
+      "reason": "卡② K8 删除清单的历史记录性提及（缩写 token——机制记录非文件引用）",
+      "expires_at": "2027-02-14"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-11-16-collab-closing-bag.md",
+      "line": 45,
+      "symbol": "apps/api/src/x.spec.ts",
+      "reason": "卡② K2 红测内联示例路径（scanSource 纯函数用例字面量——非真实文件引用）",
+      "expires_at": "2027-02-14"
     }
   ]
 }

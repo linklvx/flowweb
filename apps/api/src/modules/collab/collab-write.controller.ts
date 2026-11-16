@@ -21,7 +21,6 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { NoTransform } from '../../common/decorators/no-transform.decorator';
 import { CollabDocumentService } from './collab-document.service';
 import { CollabSpoolService } from './collab-spool.service';
-import { CollectMediaRefsDto } from './dto/collect-media-refs.dto';
 import { PurgeScopeDto } from './dto/purge-scope.dto';
 import { DeletionBarrierDto } from './dto/deletion-barrier.dto';
 import { DeletionBarrierService } from './deletion-barrier.service';
@@ -46,24 +45,6 @@ export class CollabWriteController {
     @Inject(CollabErasureRegistryService) private readonly erasure: CollabErasureRegistryService,   // TD-33/C1b T14：purge 复检+mark（live）
     @Optional() @Inject(EventEmitter2) private readonly events?: EventEmitter2,   // TD-33/C1b T13：purge emit project.gone（finally 仅 marked）
   ) {}
-
-  /** C4-c1（plan C4——project-erasure）：未 reconcile 引用采集端点（erasure worker PURGING_DB
-   *  独占判别的 doc 扫描终裁面——api 进程活 doc 域；worker 跨进程经 httpMediaRefsCollector 调本面）。
-   *  body={teamId, excludeProjectId, mediaIds}→{referenced}（mediaIds 子集）；守卫/限批/503 语义见
-   *  CollabSpoolService.collectProjectMediaRefs（限批+isLeaseServing——容量事故防护；**docs 端口
-   *  per-call 传入**——spool 构造器注入=DI 环〔gateway→spool 回环〕）；Bearer=WORKER_WRITE_TOKEN
-   *  传输层（readCanvas 读族同款——非资金写面无 scope 令牌需求）。 */
-  @Post('media-refs')
-  @NoTransform()
-  @UsePipes(new ValidationPipe({ whitelist: true }))   // body-param-ratchet v5 合规形态（DTO-class+pipe——inline/无-pipe 两档棘轮均禁新增）
-  @UseGuards(WorkerWriteAuthGuard)
-  async collectMediaRefs(@Body() body: CollectMediaRefsDto): Promise<{ referenced: string[] }> {
-    const referenced = await this.spool.collectProjectMediaRefs(
-      { teamId: body.teamId, excludeProjectId: body.excludeProjectId, mediaIds: body.mediaIds },
-      { docs: this.docs, prisma: this.prisma },
-    );
-    return { referenced };
-  }
 
   /** C4-c2（plan C4——project-erasure）：purgeScope 内部端点（erasure worker PURGING_CACHE 首步——
    *  api 进程内存面清键：spool dedup/水位/世代计数/段索引+段文件 unlink+快照缓存 evict；**这些键以

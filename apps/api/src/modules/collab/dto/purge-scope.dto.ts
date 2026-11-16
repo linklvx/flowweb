@@ -1,6 +1,6 @@
 // apps/api/src/modules/collab/dto/purge-scope.dto.ts
 // C4-c2（生产就绪收尾批·project-erasure）：purgeScope 内部端点 body DTO（body-param-ratchet v5
-// 棘轮合规形态——CollectMediaRefsDto 同族：DTO-class+端点局部 ValidationPipe）。
+// 棘轮合规形态——purge-scope DTO 同族：DTO-class+端点局部 ValidationPipe）。
 import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsString } from 'class-validator';
 
 export class PurgeScopeDto {

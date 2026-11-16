@@ -99,7 +99,7 @@ export async function verifyRedisPurged(
   return violations;
 }
 
-/** worker→api purgeScope 原生 fetch 客户端（httpMediaRefsCollector 同族：loopback+WORKER_WRITE_TOKEN
+/** worker→api purgeScope 原生 fetch 客户端（httpPurgeScope（卡② K8 活 doc 扫描链退役后本文件唯一 fetch 客户端） 同族：loopback+WORKER_WRITE_TOKEN
  *  bearer；单发不重试——不可达即 null 由下一 tick 兜底）。 */
 export function httpPurgeScope(opts: { baseUrl?: string; token?: string } = {}): PurgeScopeClient {
   return async (projectIds) => {

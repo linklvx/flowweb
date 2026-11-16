@@ -20,7 +20,6 @@ import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
 import { CanvasDocUpdateRepository } from '../collab/canvas-doc-update.repository';
 import { OracleWorkerService } from '../collab/oracle-worker.service';
 import type { DeletionBarrierPort } from '../collab/deletion-barrier.port';
@@ -41,10 +40,7 @@ let TID = '';
 let doc: Y.Doc;
 const minioDeletes: string[] = [];
 
-const makeDocsStub = (): CollabDocumentService =>
-  ({ withSession: async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc) } as unknown as CollabDocumentService);
-
-/** barrier 端口 stub 两档（verified/bail-out——C3b-5 第四参；真 barrier 全链归 shadow.c3b5/barrier spec）。 */
+/** barrier 端口 stub 两档（verified/bail-out——真 barrier 全链归 shadow.c3b5/barrier spec）。 */
 const okBarrier = (): DeletionBarrierPort => ({
   prepare: async () => ({ outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 60_000 }),
   release: async () => true,
@@ -128,7 +124,7 @@ const IN_GRACE = new Date(Date.now() - 3600_000);              // grace 期内
     // C3b-5：PG doc 建档（空帧）+水位+oracle 真扫——决策面 oracle 臂证人在位（消费面切换前提）
     await prisma.canvasDoc.create({ data: { projectId: PID, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false } });
     doc = new Y.Doc();
-    svc = new MediaGcService(prisma as unknown as PrismaService, makeMinioStub(), makeDocsStub(), okBarrier());
+    svc = new MediaGcService(prisma as unknown as PrismaService, makeMinioStub(), okBarrier());
     await ensureLeaseFixture(prisma, repo);   // appendBatch 契约 16：lease owner fail-closed
     await appendPgFrame(Y.encodeStateAsUpdate(new Y.Doc()));
   });
@@ -220,7 +216,6 @@ const IN_GRACE = new Date(Date.now() - 3600_000);              // grace 期内
     const svc2 = new MediaGcService(
       prisma as unknown as PrismaService,
       makeMinioStub([mFail.key]),
-      makeDocsStub(),
       okBarrier(),
     );
     // m404 正常路径（stub 不抛）即删；mFail 抛 503 → 行保留+object-delete-failed
@@ -252,22 +247,6 @@ const IN_GRACE = new Date(Date.now() - 3600_000);              // grace 期内
     expect(await prisma.media.findUnique({ where: { id: m.id } })).toBeNull();
   });
 
-  it('P1#2（消费面切换形态）：shadow doc 扫描读失败（503）→对拍跳过非决策门——并集零引用照删（doc 读 503 保守保留威胁已由 decision snapshot 校验链承载）', async () => {
-    const m1 = await seedMedia('scanfail-1', GRACE_OLD);
-    const m2 = await seedMedia('scanfail-2', GRACE_OLD);
-    const failDocs = {
-      withSession: async () => { throw Object.assign(new Error('collab not serving'), { status: 503 }); },
-    } as unknown as CollabDocumentService;
-    const svcFail = new MediaGcService(prisma as unknown as PrismaService, makeMinioStub(), failDocs, okBarrier());
-    const s = await svcFail.sweep();
-    // C3b-5 起决策面=并集（registry∪Binding∪Oracle——零 live doc 读）：旧面读失败只跳过对拍不拦删除；
-    // 保守保留形态=decision snapshot 校验链不满足/barrier 预算耗尽（barrier bail-out——shadow.c3b5 ④）。
-    expect(s.deleted).toBeGreaterThanOrEqual(2);
-    for (const id of [m1.id, m2.id]) {
-      expect(await prisma.media.findUnique({ where: { id } })).toBeNull();
-    }
-  });
-
   it('★T19 分桶（C3b-5 形态）：引用命中=guarded；barrier bail-out=valve-bailout（两 SLO 信号分桶，决策门=barrier）', async () => {
     // 引用命中档：binding 行（并集 Binding 臂）
     const mRef = await seedMedia('bucket-ref', GRACE_OLD);
@@ -287,7 +266,7 @@ const IN_GRACE = new Date(Date.now() - 3600_000);              // grace 期内
     // 阀 bail-out 档：barrier prepare bail-out（大团队超时/扫描面异常族——保守保留进 valve-bailout 桶）
     const mFree = await seedMedia('bucket-bailout', GRACE_OLD);
     const v2 = await outcomeOf('valve-bailout');
-    const svcBail = new MediaGcService(prisma as unknown as PrismaService, makeMinioStub(), makeDocsStub(), bailBarrier());
+    const svcBail = new MediaGcService(prisma as unknown as PrismaService, makeMinioStub(), bailBarrier());
     const s2 = await svcBail.sweep();
     expect(s2.deleted).toBe(0);
     expect(s2.guarded).toBeGreaterThanOrEqual(1);

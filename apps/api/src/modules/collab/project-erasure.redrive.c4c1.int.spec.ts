@@ -21,7 +21,7 @@ import { ErasureContextService, lockProject } from './project-lock';
 import { openProjectErasure, reDriveErasureRun } from './project-erasure';
 import { ProjectErasureRunPoller } from './project-erasure.poller';
 import type { DeletionBarrierPort } from './deletion-barrier.port';   // C3b-5：删除窗 barrier stub
-import { pendingMediaMarkerPath, type MediaRefsCollector } from './project-erasure.stages';
+import { pendingMediaMarkerPath } from './project-erasure.stages';
 import { AdminErasureController } from '../admin/erasure/erasure.controller';
 
 const hasDb = !!process.env.DATABASE_URL;
@@ -31,7 +31,6 @@ maybe('C4-c1 FAILED re-drive+admin 读面（真 PG）', () => {
   const prisma = new PrismaClient();
   const prismaService = new PrismaService();
   const ledger = new CreditLedgerService(prismaService as never);
-  const collector: MediaRefsCollector = async () => [];
 /** C3b-5：删除窗 barrier stub（verified 档——消费面切换后删除窗经 barrier；真 barrier 全链=
  *  deletion-barrier.int.spec+media-gc.shadow.c3b5）。 */
 const okBarrier = (): DeletionBarrierPort => ({
@@ -39,7 +38,7 @@ const okBarrier = (): DeletionBarrierPort => ({
   release: async () => true,
 }) as unknown as DeletionBarrierPort;
 
-  const poller = new ProjectErasureRunPoller(prismaService as never, ledger as never, new ErasureContextService(), collector, undefined, undefined, undefined, okBarrier());
+  const poller = new ProjectErasureRunPoller(prismaService as never, ledger as never, new ErasureContextService(), undefined, undefined, undefined, okBarrier());
   const admin = new AdminErasureController(prismaService as never);
   const stamp = Date.now().toString(36);
   const owner = `c4c1rd-owner-${stamp}`;
@@ -188,7 +187,6 @@ const okBarrier = (): DeletionBarrierPort => ({
     await prisma.projectErasureRun.update({ where: { erasureId: run.erasureId }, data: { claimOwner: null, leaseUntil: new Date(Date.now() - 60_000) } });
     const badPoller = new ProjectErasureRunPoller(
       prismaService as never, ledger as never, new ErasureContextService(),
-      async () => [],
       { getBucketVersioningStatus: async () => { throw new Error('演练：对象存储不可达'); } } as never,
       {} as never, async () => true, okBarrier(),
     );

@@ -23,7 +23,6 @@ import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CollabDocumentService } from '../collab/collab-document.service';
 import {
   MediaGcService, claimMediaForDeletion, restoreMediaToActive, MEDIA_DELETING_STALE_MS,
 } from './media-gc.service';
@@ -43,11 +42,6 @@ const UID = `int-c3b4-owner-${Date.now()}`;
 let TID = '';
 const PID = `int-c3b4-proj-${Date.now()}`;
 const PID_OTHER = `int-c3b4-other-${Date.now()}`;
-
-/** 空 doc（shadow 旧面 doc 扫描零引用——引用命中全由 PG 面承载）。 */
-const doc = new Y.Doc();
-const makeDocsStub = (): CollabDocumentService =>
-  ({ withSession: async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc) } as unknown as CollabDocumentService);
 
 /** C3b-5：barrier 端口 stub（verified 档——本 spec 锚 DELETING 状态机/删除序非 barrier 链；
  *  真 barrier 全链=media-gc.shadow.c3b5 ⑤/deletion-barrier.int.spec）。 */
@@ -146,7 +140,7 @@ maybe('C3b-4：DELETING 状态机+删除序（真 PG）', () => {
     await prisma.mediaBinding.create({
       data: { mediaId: m.id, projectId: PID, nodeId: 'n-c3b4a', teamId: TID, role: 'primary', targetField: 'fileId', targetItemId: '' },
     });
-    const svc = new MediaGcService(prismaService, makeMinioStub(), makeDocsStub(), okBarrier());
+    const svc = new MediaGcService(prismaService, makeMinioStub(), okBarrier());
     const s = await svc.sweep();
     expect(s.guarded).toBeGreaterThanOrEqual(1);
     expect(s.conflicted ?? 0).toBeGreaterThanOrEqual(1);
@@ -165,7 +159,7 @@ maybe('C3b-4：DELETING 状态机+删除序（真 PG）', () => {
     await prisma.lightingTask.create({
       data: { userId: UID, nodeId: 'n-c3b4b', projectId: PID_OTHER, originalImageUrl: 'http://x/l.png', params: {}, resultMediaId: m.id, teamId: TID },
     });
-    const svc = new MediaGcService(prismaService, makeMinioStub(), makeDocsStub(), okBarrier());
+    const svc = new MediaGcService(prismaService, makeMinioStub(), okBarrier());
     const s = await svc.sweep();
     expect(s.conflicted ?? 0).toBeGreaterThanOrEqual(1);
     expect(await conflictOf('media-gc')).toBeGreaterThan(before);
@@ -177,7 +171,7 @@ maybe('C3b-4：DELETING 状态机+删除序（真 PG）', () => {
   it('③a 删除序=对象先删→行删（违序探针：对象删时行仍在）+行删成功', async () => {
     orderViolated = false;
     const m = await seedMedia({ deletedAt: GRACE_OLD });
-    const svc = new MediaGcService(prismaService, makeMinioStub(), makeDocsStub(), okBarrier());
+    const svc = new MediaGcService(prismaService, makeMinioStub(), okBarrier());
     const s = await svc.sweep();
     expect(s.deleted).toBeGreaterThanOrEqual(1);
     expect(orderViolated).toBe(false);   // 行先删（第六轮 P0-7 撤回形）即红
@@ -186,7 +180,7 @@ maybe('C3b-4：DELETING 状态机+删除序（真 PG）', () => {
 
   it('③b 对象灭失（NoSuchKey）容忍→行删（幂等）', async () => {
     const m = await seedMedia({ deletedAt: GRACE_OLD });
-    const svc = new MediaGcService(prismaService, makeMinioStub({ missingKeys: [m.key] }), makeDocsStub(), okBarrier());
+    const svc = new MediaGcService(prismaService, makeMinioStub({ missingKeys: [m.key] }), okBarrier());
     const s = await svc.sweep();
     expect(s.deleted).toBeGreaterThanOrEqual(1);
     expect(await prisma.media.findUnique({ where: { id: m.id } })).toBeNull();
@@ -194,7 +188,7 @@ maybe('C3b-4：DELETING 状态机+删除序（真 PG）', () => {
 
   it('③c 对象失败（非 404）→行保留 DELETING+审计落值；陈旧化后下轮重试成功', async () => {
     const m = await seedMedia({ deletedAt: GRACE_OLD });
-    const svcFail = new MediaGcService(prismaService, makeMinioStub({ failKeys: [m.key] }), makeDocsStub(), okBarrier());
+    const svcFail = new MediaGcService(prismaService, makeMinioStub({ failKeys: [m.key] }), okBarrier());
     const s1 = await svcFail.sweep();
     expect(s1.objectDeleteFailed).toBeGreaterThanOrEqual(1);
     const row = await prisma.media.findUniqueOrThrow({ where: { id: m.id } });
@@ -203,12 +197,12 @@ maybe('C3b-4：DELETING 状态机+删除序（真 PG）', () => {
     expect(row.deletionReason).toBe('media-gc');
     expect(row.deletionRequestedAt).toBeTruthy();
     // 新鲜 DELETING（他 run 持有）不可抢——立即重扫不删
-    const svcHold = new MediaGcService(prismaService, makeMinioStub(), makeDocsStub(), okBarrier());
+    const svcHold = new MediaGcService(prismaService, makeMinioStub(), okBarrier());
     await svcHold.sweep();
     expect(await prisma.media.findUnique({ where: { id: m.id } })).toBeTruthy();
     // 陈旧化（模拟下轮 sweep 时刻>stale 阈）→接管重试→对象删+行删
     await prisma.media.update({ where: { id: m.id }, data: { deletionRequestedAt: new Date(Date.now() - MEDIA_DELETING_STALE_MS - 60_000) } });
-    const svcRetry = new MediaGcService(prismaService, makeMinioStub(), makeDocsStub(), okBarrier());
+    const svcRetry = new MediaGcService(prismaService, makeMinioStub(), okBarrier());
     const s2 = await svcRetry.sweep();
     expect(s2.deleted).toBeGreaterThanOrEqual(1);
     expect(await prisma.media.findUnique({ where: { id: m.id } })).toBeNull();
@@ -216,7 +210,7 @@ maybe('C3b-4：DELETING 状态机+删除序（真 PG）', () => {
 
   it('④用户恢复（deletedAt=null）→回 ACTIVE+下轮 GC 不再候选（行保留）', async () => {
     const m = await seedMedia({ deletedAt: GRACE_OLD });
-    const svcFail = new MediaGcService(prismaService, makeMinioStub({ failKeys: [m.key] }), makeDocsStub(), okBarrier());
+    const svcFail = new MediaGcService(prismaService, makeMinioStub({ failKeys: [m.key] }), okBarrier());
     await svcFail.sweep();
     expect((await prisma.media.findUniqueOrThrow({ where: { id: m.id } })).deletionState).toBe('DELETING');
     const n = await restoreMediaToActive(prisma as never, [m.id]);
@@ -225,7 +219,7 @@ maybe('C3b-4：DELETING 状态机+删除序（真 PG）', () => {
     expect(row.deletionState).toBe('ACTIVE');   // spec :81「用户恢复→回 ACTIVE」
     expect(row.deletedAt).toBeNull();
     // 恢复后不再是 GC 候选（deletedAt=null）——健康 sweep 不删
-    const svc = new MediaGcService(prismaService, makeMinioStub(), makeDocsStub(), okBarrier());
+    const svc = new MediaGcService(prismaService, makeMinioStub(), okBarrier());
     await svc.sweep();
     expect(await prisma.media.findUnique({ where: { id: m.id } })).toBeTruthy();
   });
