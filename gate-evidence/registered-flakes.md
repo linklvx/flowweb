@@ -195,3 +195,10 @@
   C3b-3 变更面（media-reference/registry/门㊴/size 锚）与 t26 DeliveryFence 域零代码交叠；
   处置=复现时单独复跑收口（禁调判据——承 2026-10-28 原条目口径）。
   **2026-11-15 指针**：同 TD-33/C1a 核销（写路径 rmdir 清零+boot GC）；ENOENT 形态观察期=push CI 绿+无复现。残余文件级交叉见 spec §7.1。
+- 2026-11-17（素材恢复批 push CI 登记——rate-gate 族第三击·CI 面首击）：collab-rate-gate.spec
+  三例（红门⑧-b 128KB 档真 refill/bytes 桶持续超速率滴灌/msg 桶瞬时超限）于 run #43915807514
+  attempt1 满载 heavy 池轮红（api-test-heavy [21/36]；CI runner 慢机形态——msg 桶腿为本族 CI 面
+  首次扩枚举，本地历击未见）。定性证据=HEAD d0472a78 本机 heavy 隔离复跑 9/9 绿（11.1s）+批变更
+  面（material restore/GC claim 谓词/quota lockTeamQuota）与速率闸域零代码交叠；族先例=2026-10-27
+  T24 首登/2026-11-13 C1-4 复现（同两例同处置）。处置=CI 侧 rerun-failed-jobs（P4 首立形态）——
+  attempt2 test job success 全绿收口；禁调阈值/不动判据。
