@@ -141,7 +141,8 @@ describe('批4a：doc⇄store 投影不变量（applyRemote 周期末尾）', ()
     const { dirname, join } = await import('node:path');
     const { fileURLToPath } = await import('node:url');
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'canvasCollabRuntime.ts'), 'utf8');
-    const m = src.match(/remoteApplyTimer = setTimeout\(\(\) => \{[\s\S]*?\}, 50\)/);
+    // Y2 A2b（D3）：去抖周期体提取为 fireRemoteApply（双定时器同锚）——锚随迁
+    const m = src.match(/const fireRemoteApply = \(\) => \{[\s\S]*?\n  \};/);
     expect(m).toBeTruthy();
     expect(m![0]).toContain('applyDocToStore(doc!)');
     expect(m![0]).toContain('checkProjectionInvariant');

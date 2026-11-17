@@ -504,6 +504,9 @@ function mountUnsyncedDirtyTracker(d: Y.Doc): void {
 }
 
 let remoteApplyTimer: ReturnType<typeof setTimeout> | null = null;
+/** Y2 A2b（D3）：max-wait 截止定时器——自本轮首个未投影脏事件起 200ms 强制投影（连续远端批
+ *  不无限推迟）；idle 定时器（50ms）先到则取消截止。 */
+let remoteApplyDeadline: ReturnType<typeof setTimeout> | null = null;
 /** 批1-5 会话对象（currentPid/initSeq 归并）：pid=当前项目、startedAt=会话起点、epoch=单调会话代数。
  *  epoch 判活（I-1）：同 pid 无法区分陈旧调用（退出重进/StrictMode 双挂载同 pid）——
  *  超时 timer 恢复时 epoch 不匹配即陈旧调用，不得走超时兜底销毁新会话。
@@ -2697,12 +2700,7 @@ function armSession(epoch: number): void {
   // 测得含超时+恢复的全长（起点=initCollab 入口，终点=armSession 武装）。
   recordCollabDiag('ws_status', { from: 'connecting', to: 'connected', ms: performance.now() - hydrationStartedAt });
 
-  const onRemote = (events: any[]) => {
-    // fromLocal 判定含 Geometry（S1 回写事务——本端几何修复短路防全量重建乒乓，与 AutoEdge 同位）
-    if (events.some((e) => LOCAL_ORIGINS.includes(e.transaction.origin))) return;
-    if (events.some((e) => e.transaction.origin === Origin.AutoEdge)) return; // 本地自动边 intent 事务——doc 恰是 store 镜像，无需重建（origin 不过网，无远端误伤）
-    if (remoteApplyTimer) clearTimeout(remoteApplyTimer);
-    remoteApplyTimer = setTimeout(() => {
+  const fireRemoteApply = () => {
       if (session?.epoch !== epoch) return; // 批1-5：epoch 判活（同 pid 重进亦拦——比 pid 判据严）
       // Y0b-5 T2：结构性变更判据=nodes 键数变化（增删节点——invariant 确定性节律"结构性后必跑"）
       const structural = doc!.getMap('nodes').size !== lastAppliedNodeCount;
@@ -2728,6 +2726,31 @@ function armSession(epoch: number): void {
           console.log('[collab批4a] projection invariant violated: projectionFromDoc(doc) ≢ storeProjection()');
         }
       }
+  };
+
+  const onRemote = (events: any[]) => {
+    // fromLocal 判定含 Geometry（S1 回写事务——本端几何修复短路防全量重建乒乓，与 AutoEdge 同位）。
+    // Y2 A2b（D3）：本地短路时取消已挂远端定时器——本地作者事务的同步投影（漏斗尾）已用
+    // toReadModel(doc) 全量覆盖（含已进 doc 未投的远端批），遗留定时器到点只会白跑一次
+    // applyDocToStore（同值幂等）；取消=去抖窗让位于同步投影（读滞后取消丢批的形态由
+    //「取消+同步投影读 doc」结构性地不可达——投影源是 doc 非 store）。
+    if (events.some((e) => LOCAL_ORIGINS.includes(e.transaction.origin))) {
+      if (remoteApplyTimer) { clearTimeout(remoteApplyTimer); remoteApplyTimer = null; }
+      return;
+    }
+    if (events.some((e) => e.transaction.origin === Origin.AutoEdge)) return; // 本地自动边 intent 事务——doc 恰是 store 镜像，无需重建（origin 不过网，无远端误伤）
+    if (remoteApplyTimer) clearTimeout(remoteApplyTimer);
+    // Y2 A2b（D3）：max-wait 200ms 自本轮首个脏事件起（idle 50ms 每批重置；截止先到强制投影）
+    if (remoteApplyDeadline === null) {
+      remoteApplyDeadline = setTimeout(() => {
+        remoteApplyDeadline = null;
+        if (remoteApplyTimer) { clearTimeout(remoteApplyTimer); remoteApplyTimer = null; }
+        fireRemoteApply();
+      }, 200);
+    }
+    remoteApplyTimer = setTimeout(() => {
+      if (remoteApplyDeadline) { clearTimeout(remoteApplyDeadline); remoteApplyDeadline = null; }
+      fireRemoteApply();
     }, 50);
   };
   doc!.getMap('nodes').observeDeep(onRemote as any);

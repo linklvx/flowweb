@@ -121,10 +121,12 @@ describe('Y0b-5 T2：projection_duration 打点包 applyDocToStore（禁 Date.no
     const { dirname, join } = await import('node:path');
     const { fileURLToPath } = await import('node:url');
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'canvasCollabRuntime.ts'), 'utf8');
-    const m = src.match(/remoteApplyTimer = setTimeout\(\(\) => \{[\s\S]*?\}, 50\)/);
+    // Y2 A2b（D3）：去抖周期体提取为 fireRemoteApply（idle 50ms/max-wait 200ms 双定时器同锚）
+    const m = src.match(/const fireRemoteApply = \(\) => \{[\s\S]*?\n  \};/);
     expect(m).toBeTruthy();
     expect(m![0]).toContain('performance.now()');
     expect(m![0]).not.toContain('Date.now()');
+    expect(src.match(/remoteApplyTimer = setTimeout\(\(\) => \{[\s\S]*?fireRemoteApply\(\);[\s\S]*?\}, 50\)/)).toBeTruthy();
     // 水合路径同为 performance.now
     const hydrationApply = src.match(/viewport 恢复[\s\S]{0,400}?applyDocToStore\(doc!\)/);
     expect(src.match(/const t0Projection = performance\.now\(\);\s*\n\s*applyDocToStore\(doc!\);/)).toBeTruthy();
@@ -148,7 +150,8 @@ describe('Y0b-5 T2：invariant 生产确定性采样节律（裁定 20——现�
     const { dirname, join } = await import('node:path');
     const { fileURLToPath } = await import('node:url');
     const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'canvasCollabRuntime.ts'), 'utf8');
-    const m = src.match(/remoteApplyTimer = setTimeout\(\(\) => \{[\s\S]*?\}, 50\)/);
+    // Y2 A2b（D3）：去抖周期体提取为 fireRemoteApply——锚随迁
+    const m = src.match(/const fireRemoteApply = \(\) => \{[\s\S]*?\n  \};/);
     expect(m).toBeTruthy();
     expect(m![0]).toContain('shouldRunProjectionInvariant(');
     expect(m![0]).toMatch(/structural/);

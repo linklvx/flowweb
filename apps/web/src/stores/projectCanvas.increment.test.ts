@@ -90,6 +90,9 @@ export function buildIncrementFixture(): {
 
 describe('Y2 D3 增量：写计数（一次本地作者事务 cs setState 恰 1 次）', () => {
   it.skip('单键编辑——useCanvasStore.setState 恰 1 次（nodeStore 同快照同函数更新不计入；现状 cs 写 2 次+ns 写 2 次必红——A2b 落位）', () => {});
+  // Ruling（A2b-3）：onRemote 闭包在 initCollab 会话内（无测试缝）——行为测试需 provider 桩
+  // 会话装置；本批以源码锚重写（telemetry/invariant 双 spec 已锁 fireRemoteApply 接线+双定时器
+  // 形态）+A6 出口复核行为面承接；skip 保留占位（新缝=新 bypass 面，成本/收益不划算）。
   it.skip('本地事务取消已挂远端定时器后，store 仍包含已进 doc 的远端更新（读滞后取消会丢已进未投的远端批——A2b 落位）', () => {});
   it.skip('红测装置钉死被测路径=applyNodeDataPatch（updateConfig 路径自有桥退役后同绿——A2b 落位）', () => {});
 });
