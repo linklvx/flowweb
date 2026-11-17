@@ -207,4 +207,32 @@ describe('deriveRenderCanvas（O0c-2 第 4 渲染面——快照≡主画布）'
     expect(r.nodes[0]).toMatchObject({ id: 'nD', position: { x: 50, y: 50 } });
     expect(r.nodes[0].parentId).toBeUndefined(); // 无 origin 可减——按顶层产出（禁双加）
   });
+
+  // Y2 A2a：liveFrame 扩参（公开页不传恒 undefined——上方全部用例即回归证据）
+  it('liveFrames：storyboard 组会话矩形作 liveFrame（帧尺寸=会话值非网格派生值）；auto 组不受 liveFrame 影响（恒派生）', () => {
+    const sbCfg = { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' };
+    const records = [
+      { id: 'sb', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', storyboard: sbCfg } },
+      { id: 's0', type: 'imageGen', parentId: 'sb', width: 320, height: 180, data: { slot: 0 } },
+      { id: 'gA', type: 'group', data: { groupType: 'normal' } },
+      { id: 'a0', type: 'imageGen', parentId: 'gA', position: { x: 100, y: 100 }, width: 100, height: 100, data: {} },
+    ];
+    const withLive = deriveRenderCanvas({
+      records,
+      edges: [],
+      liveFrames: new Map([
+        ['sb', { position: { x: 0, y: 0 }, width: 640, height: 360 }],
+        ['gA', { position: { x: 0, y: 0 }, width: 999, height: 999 }],  // auto 组恒派生——liveFrame 无效
+      ]),
+    });
+    const sbOut = withLive.nodes.find((n) => n.id === 'sb')!;
+    expect(sbOut.width).toBe(640);
+    expect(sbOut.height).toBe(360);
+    const gAOut = withLive.nodes.find((n) => n.id === 'gA')!;
+    const withoutLive = deriveRenderCanvas({ records, edges: [] });
+    const gARef = withoutLive.nodes.find((n) => n.id === 'gA')!;
+    expect(gAOut.width).toBe(gARef.width);   // auto：children bbox 派生，liveFrame 不参与
+    expect(gAOut.height).toBe(gARef.height);
+    expect(gAOut.width).not.toBe(999);
+  });
 });

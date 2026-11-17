@@ -336,6 +336,34 @@
       "symbol": "apps/api/src/x.spec.ts",
       "reason": "卡② K2 红测内联示例路径（scanSource 纯函数用例字面量——非真实文件引用）",
       "expires_at": "2027-02-14"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
+      "line": 135,
+      "symbol": "apps/api/src/modules/collab/author-slot.service.ts",
+      "reason": "Y2 B2a 将创建的文件（批内前瞻引用——创建后 dead-path 自然不再命中）",
+      "expires_at": "2027-02-15"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
+      "line": 197,
+      "symbol": "apps/api/src/modules/collab/slot-write.port.ts",
+      "reason": "Y2 D3t 将创建的文件（批内前瞻引用——创建后 dead-path 自然不再命中）",
+      "expires_at": "2027-02-15"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
+      "line": 121,
+      "symbol": "apps/api/src/modules/collab/author-slot.service.ts",
+      "reason": "Y2 B2a 将创建的文件（批内前瞻引用）",
+      "expires_at": "2027-02-15"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
+      "line": 121,
+      "symbol": "packages/shared/src/canvas/resolvePrimaryMediaId.ts",
+      "reason": "Y2 B2a 将创建的文件（批内前瞻引用）",
+      "expires_at": "2027-02-15"
     }
   ]
 }

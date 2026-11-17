@@ -36,10 +36,14 @@ export interface RenderEdge { id: string; source: string; target: string }
 const rel = (x: number, y: number): RelPos => ({ x: x as RelCoord, y: y as RelCoord });
 
 /** records(abs)→RenderNode(rel+派生帧)+边集过滤。输出父先子后（RF v12 要求）+环守卫；
- *  输出零 hidden 节点（剔除式——可见集合≡主画布 deriveHidden 不可见集合）。 */
+ *  输出零 hidden 节点（剔除式——可见集合≡主画布 deriveHidden 不可见集合）。
+ *  liveFrames（Y2 D1）：按组 id 索引的会话矩形——正在 resize 的组以会话活值作 deriveGroupFrame
+ *  的 liveFrame 值面（manual/storyboard 值面消费、auto 恒派生不受影响）。公开页不传恒 undefined
+ *  （等价域证据=现有直接调用全量回归绿）。 */
 export function deriveRenderCanvas(input: {
   records: readonly RenderSourceNode[];
   edges?: readonly RenderSourceEdge[];
+  liveFrames?: ReadonlyMap<string, { position?: { x: number; y: number }; width?: number; height?: number }>;
 }): { nodes: RenderNode[]; edges: RenderEdge[] } {
   const records = input.records;
   const byId = new Map(records.map((r) => [r.id, r]));
@@ -79,6 +83,7 @@ export function deriveRenderCanvas(input: {
       data: g.data,
       storedFrame: { position: g.position ?? undefined, width: g.width ?? undefined, height: g.height ?? undefined },
       childrenAbs,
+      liveFrame: input.liveFrames?.get(g.id),
       // reconcile 同参：组 position 现值（空 auto 组 doc 无键——公开载荷归一 {0,0} 是该形态的固有极限）
       fallbackOrigin: g.position ?? undefined,
     });
