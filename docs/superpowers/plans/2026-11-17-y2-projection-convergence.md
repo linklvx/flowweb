@@ -1,0 +1,230 @@
+<!-- doc-status: active | created: 2026-11-17 | v3：第十三轮开工判定六必改全采纳（spec v2.10 联动——AI 编辑/打光接入作者槽链〔A 挡 B 修复〕/释放重排 3 次上限/B2 拆 B2a-d/B3 不插中间/裁剪分离=作者放置写 mediaId/cells 四组件+fileId||referenceImage 九处收敛/删桥写后投影本地事务单次写）——待用户确认 -->
+# Y2 投影消费收口 Implementation Plan v3
+
+> **For agentic workers:** REQUIRED SUB-SKILL: superpowers test-driven-development（每任务红-绿）；步骤用 checkbox 跟踪。
+> **Goal:** 四步同分支一起部署——①投影与作者缓存分离（reconcile 归零）②写者改 mediaId+D8 服务端腿（作者槽/作废/释放/收口）③翻禁+版本 4 ④跨团队粘贴服务端腿。
+> **Architecture:** 唯一渲染出口=projectCanvas（共享内核+装配）；作者缓存=doc 读模型、渲染列表=投影输出（两份数据）；主槽=resolvePrimaryMediaId 全仓单源；生成替代=GenerationIntent 两列冻结+三段完成时序（read→finalize(authorVoid) 先提交→仅 committed 才 release）+释放入口四处（两回放臂+新鲜出口+reconcile 恢复链）；删除 v2.9 全部裁定=本文依据。
+> **Tech Stack:** React18+Zustand+@xyflow/react / NestJS+Prisma+PG / packages/shared / Vitest 全栈。
+> **Spec:** docs/superpowers/specs/2026-11-17-y2-projection-convergence-design.md（**v2.9**——修法/验收/红测以 spec 为准；本 plan 只做任务分解+commit 序+实现裁决）。
+
+## Global Constraints
+
+- TypeScript strict；superpowers TDD（每 commit 先红后绿，测试与实现同 commit）；精准修改——只动本表文件；行号锚=HEAD c15b333d，开工前重新 grep 符号定位（勘察已发现漂移：MediaBinding.targetField 实际 schema.prisma:1643 非 :1211、groupClipboard :145 非 :142、classifyDocUpdateOrigin 在 **packages/shared**/src/canvas/doc-update-origin.ts:33-40 非 apps/api、SERVER_TRANSACT_ORIGIN 常量本体在 docShape.ts:73）。
+- **commit 命名**：`feat(y2-①|②|③|④): …` 序号与本文任务号一致；每 commit 末跑 `pnpm verify`（fast）；四步全部完成后跑 verify full 36/36+int。
+- **int 测试**显式带 `DATABASE_URL=postgresql://flowweb:flowweb_dev@localhost:5432/flowweb`（Git Bash prefix 形态）+输出实跑数核对非 skipped。
+- **迁移纪律**：目录名=本地时间戳；禁 db push；每条迁移 fresh replay 必验（`psql -c 'DROP DATABASE flowweb_test' && migrate deploy` 形态——执行者按仓内既有 replay 脚本跑）；段序敏感迁移在任务内钉死段序。
+- **第③步部署序**：双常量 bump 后存量 sv=3∧gen=0 行使 api/worker 双进程拒启（canvas-doc-update.repository.ts:1229 assertSchemaGenerationDiscipline）——**代码 bump 与本地库 reset-collab.mjs 清行同窗执行**（服务器窗由用户排期，见批末出口）；禁只 UPDATE schemaVersion 列留旧字节。
+- 不做=spec §1 非目标+反目标全表；三不碰（付费冻结胜臂重放/同团队跨项目共享行删除面/清空必走 clearMedia）；不为旧测试编译保留已删符号的生产包装。
+- 每分片完成走双评审（spec 合规+质量评审）后 commit——评审发现的问题随本 commit 修正。
+
+## 实现裁决（勘察新发现面的钉死——spec 未展开处）
+
+1. **cells 派生缓存收敛单写者+四组件读者（v3 扩面）**：deriveStoryboardCellsCache（canvasCollabRuntime:1586-1606 写域⑥）随 reconcile 删除退役；cs data.cells 写者收敛=命令点 syncStoryboardCells（canvasStore:755）单写者；**cells 不进作者缓存（水合/远端路径零维护）**。消费面 census（核验扩全）：placeGrid（:2336）/删除善后（:1059/:1904）/**StitchButton:65-80（拼接收集+cells 缺失守卫语义连带改）/StoryboardTitlesLayer:32（非空槽计数）/GroupNode:73（双通道谓词）/StoryboardGroupRenderer:37-38（主画布通道 data.cells 在场读）**——全部改读 computeStoryboardCellsPatch（纯函数可直调——签名 canvasStore.ts:97-101）或渲染节点 cellNodes。红测试：①远端写 data.cells 后 cs 镜像不再出现该字段（缓存退役面——现状必红）；②水合后（无任何命令）placeGrid 占格判定与删除善后行为不变（行为保通锚）。
+2. **applyDocToStore 尾断言新形态**：assertDocAbsMatchesCsRel:1805+assertStoryboardMembership:1806 随换芯改为「作者缓存≡doc 读模型（abs+全节点含隐藏）∧渲染列表≡projectCanvas(作者缓存,空覆盖)」DEV 断言（E17 新形态同批）；checkProjectionInvariant:1271 让位豁免/折叠组 wh 豁免段删除（手势保护序退役）。
+3. **本地作者事务单次写（v3 改写——删「桥写后再投影」）**：bridgeToCanvasStore（nodeStore:283-315）直接 useCanvasStore.setState 整 nodes 换新+applyNodeDataPatch 尾 :624 双写=单键编辑 canvasStore 写计数结构性≥2——**「桥写后再同步重投影」与「单键写次数=1」互斥，撤**。本地作者事务收敛为：漏斗 transact→事务后 toReadModel(doc) **一次 set** 同写作者缓存+renderNodes；**applyNodeDataPatch :624 直调双写与本地路径桥 cs 写退役**（ns 写面收敛：ns 保留非事务路径既有职责，B3 固化写消除后进一步收窄）。远端去抖维持 idle 50ms/自首个脏事件 max-wait 200ms。红测试：本地事务取消已挂远端定时器后，store 仍包含已进 doc 的远端更新（读滞后取消会丢已进未投的远端批）。
+4. **副本 fileId 剥离归属第②步**（D7 census 面「复制/粘贴副本的 fileId 携带与读点」）：normalizeCopiedNodeData（copyPlan.ts:13-14 现保留 fileId——翻转）、rebindCopiedMedia 的 fileIdOf 读点（:574）改 resolvePrimaryMediaId 解析值（复制时画面已有值）；**localPreview 表归第④步**——第②④步之间跨团队粘贴副本画面空槽=接受（四步同分支不部署中间态）。
+5. **Undo origin**：叶子 resize 会话化后提交沿用 Origin.LocalUser 单 undo 步（与拖动/组 resize 现行一致——canvasStore:1836-1838 同款），不新开 origin 档。
+6. **手势进行中远端 apply**：远端**删除**会话中节点⇒该会话按现语义中止（endGesture('removed') 同款：提交已发生的 doc 写不动、gesture 清空）；远端**写**（非删）会话中节点⇒直接投影（gesture 是覆盖层不进 doc，重算自然携带）；captureGestureProtection/reapplyGestureProtection/resolveGestureYield 保护序退役（D2 点名零件全删）。
+7. **ns data.status 默认值**：nodeStore mergeNodeData defaults status:'idle'（:335 附近）随第②步固化写消除同批删除——「无投影节点 unknown≠idle」渲染形态变化（生成中角标消失档）在第①步验收口径显式覆盖（execStatus 只来自投影，无投影=unknown）。
+8. **R5 job 返回值不在收窄面**：lighting.consumer:200 与 ai-image-edit.processor:213 的 `return {status:'completed',fileId:mediaId}` 是 BullMQ job result（非实时发射、不进 emit 链）——不动；收窄面=census 锚定六处 emit。
+9. **collab-media.controller 'fileId' 字面量实为五处**（spec 登记 :32/:66/:71 三处漏 :114 casUpsert/:135 projection createMany 两处）+**VideoGenNode trim 结果固化写**（:171-176 addChildNode {fileId,status:'done'}）+**ImageGenNode AI 编辑结果固化写**（:1098 applyDataPatchToStores({fileId})）——三处 spec 未登记面全部纳入第②步 census 清单（B3/B4 任务），否则 CHECK 收紧/翻禁即断。
+10. **DI 端口形态**（第④步槽条件写）：binding controller 现仅注入 MEDIA_REFS_READ_PORT（头注自述防 DI 环先例）——新增同构窄写端口 `COLLAB_SLOT_WRITE_PORT`（token 字符串+DirectCollabSlotWriteAdapter 一行委托 collabDocumentService.withSession(write)），不直接注入 CollabDocumentService；**装入重扫宿主**=collab-doc-registry.service.ts loadDocument（:431-439 装载钩子 collab.gateway:492→onLoadDocument 链上），计数=media-binding.metrics.ts bindingSkipTotal 现有 skip 面。
+11. **两封闭操作宿主双形态**：CollabWritePort 接口（collab-write.port.ts:34-49）+DirectCollabWritePort 一行委托（api 进程=reconcile 恢复链/admitRequest 直调）+HttpCollabWritePort 扩 method 类型（worker 经现有 x-worker-scope HMAC POST，collab-write.controller.ts 新增 read-author-slot/release-author-slot 两端点，复用 verifyScope:134-143+enforceScopeBinding:147-159 模式——请求体只 intentRowId、服务端自装意图行核对项目/节点/代际）。
+12. **迁移段序**（B1 与 B4 两条迁移分立）：B1=ADD COLUMN 两列（nullable 暂）→UPDATE 回填 false→ALTER NOT NULL；B4=UPDATE targetField 存量 'fileId'→'mediaId'→DELETE 三退役键存量行→收紧三表 CHECK→MediaBinding @default 改——同迁移内段序不可换（先改值后收约束）；B4 迁移必须与 targetFieldOfKind/replaceMedia/collab-media 五处写点+词表**同 commit**（spec 第②步 6 机理：中间提交在开发库直接约束失败）。
+13. **AI 编辑/打光接入作者槽链（v3——spec v2.10 反转 v2.6 R7）**：两链受理时读作者槽（ai-image-edit.controller:57/lighting.controller:49 已注入 CollabDocumentService，受理序列已 readServerSV——readCanvas 现成）→claim 写 true+槽值（空槽=true+null）→完成在 processor:189/consumer:164 自己走 readAuthorSlot→比较→authorVoid 传入 commitImage（可选参）→仅 committed 才 releaseAuthorSlot（**release 不进 commitImage**——五消费面）。claimCapture rev CAS 并存保留（rev 权威面在 NodeArtifact 槽、两列在意图行）；finalizeFromStage 恢复链同构适用（reconcile :382-398 会复驱两链 stranded 行）；fail/enqueue 失败路径置 FAILED 无 committed=零释放（天然）。lighting 前端整体未接线（LightingModal:92-95 TODO 桩、零 HTTP/零消费）——接入=后端链就绪，前端消费面**非本批目标**。**生产终态 claim 调用点零 `authorSlotFrozen:false` 字面量**（B1~B2d 过渡占位 false/null 除外；B2c 工作集封口的查表 miss 动态 false 防御兜底保留——运行时动态值非字面量）。红测：节点已有 mediaId 时编辑成功→旧键被删、画面变为新产物（A 挡 B 修复主红测）。
+14. **释放重排上限（v3——禁无限重入）**：moveToDelayed Lua 级 skipAttempt 不自增且无上限检查、reaper 只扫 RUNNING 不适用回放环（SUCCEEDED 行每 30s 重试 release 永久循环）——`job.data.releaseAttempts` 最多 3 次（间隔 1s/5s/15s），耗尽后 job completed+`author_slot_release_exhausted` 计数（挂 exec.metrics.ts+spec §10 metric-names 同 commit）——不重跑供应商、不进失败退款；下次同内容点击走回放臂补释放。实现注意：**计数写入须 await 后才 throw DelayedError**（processor:47 fire-and-forget 形态会丢计数——Redis 抖动下循环不终止）；updateData Lua 无 token 校验=stale worker 整串覆盖险（票 fence 同款注记——3 次上限下 last-write-wins 可接受）。
+15. **裁剪/分离子节点=新节点作者放置（v3——「消除」改「改写」）+主槽判定九处收敛**：VideoGenNode 裁剪 :171-176 addChildNode 与分离 :195-218 addChildNodes 的子节点建行照旧（无自己的生成意图/exec.artifact——纯客户端终态写），data **只写 mediaId**（=产物 id，作者放置语义），不写 status/fileId/trimmedFileId；两链子节点 data 形状不对称（audio 无 model/ratio）——改造时保留各自既有非槽字段；setTrimmedResult 的 doc 写删除（trimmedFileId 组件零读者实证——仅词表/CHECK 面，B4 摘除）；进度留 useTrimTaskStatus。**`fileId||referenceImage` 九处收敛 resolvePrimaryMediaId**（第二份主槽判定禁令落全）：StitchButton:78（拼接）/canvasStore:2028（splitImage 命名前缀）/GroupNode:76/canvasStore:1964（已登记）/NormalGroupRenderer:37/collectDownloadables:38/ImageGenNode:143/:163/:222/:236+变体 2 处（:688 反序命名/ImageNodeToolbar:367 双 truthy 同 imageNodeGuards 型）——与 imageNodeGuards:14 同批改。
+
+## Review Focus（失效面→任务映射）
+
+1. **等价域破口**（projectCanvas 第二套帧算法/hidden 双轨/cellNodes 空格子）→ A1/A2（对拍逐位+墓碑+格子覆盖回剔除前记录）
+2. **增量身份复用错位**（比较对象非最终渲染对象/cellNodes 引用断裂/setState 次数>1）→ A2（复用在覆盖后+同一次 zustand set+≥200 节点夹具）
+3. **reconcile 删除破面**（残留调用/仲裁零件漏删/census 未归零/源码文本锚测试漏改）→ A3（census 0+四前置序+telemetry/invariant 源码锚同批重写+B51/B52「无自有 reconcile」文本断言）
+4. **释放入口回摆**（release 写回 commitImage/吞错臂吞释放/text 回放误入/顺序 done-then-failed/**无限重排**）→ B2c/B2d（五消费面绿态锁定+回放两档+release 先于 emit+releaseAttempts 3 次上限）
+5. **冻结值漂移**（claim 现读/表外误 claim/takeover 覆写/UNKNOWN 漏 rearm/**编辑/打光 A 挡 B**）→ B1/B2c/B2d（禁现读+工作集封口+三态重写+两链接入受理读槽）
+6. **闸序破口**（author-void 检查落进 creditsConsumed 合取内）→ B2（作废后重驱零 stage 零下载零上传）
+7. **翻禁窄实现**（只翻 fileId/status 两键）→ C1（红测试覆盖 trimTaskStatus/trimmedFileId/nodeStatus）
+8. **粘贴资金/对象泄漏**（无预留并发同过门/CopyObject 半失败/槽=他 id 误删对象/完成 CAS 0 行进失败清理）→ D2t/D3t（占坑同事务+三档+分诊）
+9. **测试字面量漂移**（csv=3 裸字面量/schemaVersion:3 布景/fileId 夹具）→ B4/C1（同批清单化清理+换常量插值防下轮再漏）
+
+---
+
+## 第①步 投影与作者缓存分离（commits ①-⑧）
+
+### Task A0：spec/plan 入库（commit ①，纯文档）
+
+**Files:** Modify: `docs/superpowers/specs/2026-11-17-y2-projection-convergence-design.md`（doc-status 加 confirmed）/ `docs/superpowers/plans/2026-11-17-y2-projection-convergence.md`（本文 doc-status confirmed）/ `docs/superpowers/specs/2026-10-06-canvas-yjs-arch-upgrade-review.md`（Y2 行状态「plan 待写」→「plan v2 执行中」）
+
+- [ ] **Step 1**: 三文件状态行更新→commit `docs(y2): spec v2.10 确认+plan v3 入库`。
+
+### Task A1：增量夹具+测试骨架（commit ②）
+
+**Files:** Test: `apps/web/src/stores/projectCanvas.equivalence.test.ts`（新——等价域对拍唯一宿主〔projectCanvas 在 apps/web，shared 无法反向 import〕）、`apps/web/src/stores/projectCanvas.increment.test.ts`（新——≥200 节点含一个分镜组夹具+全量重建对照）——**skip 形态骨架**（describe.todo/it.skip）；红测条目随各实现任务落位（A2a 携等价域+墓碑、A2b 携写计数/身份、A3 携 census、A4 携手势）——红在实现者工作区跑红留证、绿与实现同 commit（Global Constraints「测试与实现同 commit」纪律；纯红测独立 commit 会卡死 verify fast 每 commit 门）
+
+- [ ] **Step 1**: 夹具落位——≥200 节点含分镜组+全量对照（口径写进测试注释，阈值不得宽于全量对照量级）；等价域/墓碑/写计数/身份/census/手势六组骨架（skip 形态）。→ commit `test(y2-①): 增量夹具+等价域骨架（skip 形态）`。
+
+### Task A2a：projectCanvas 纯函数+装配序（commit ③）
+
+**Files:** Add: `apps/web/src/utils/projectCanvas.ts`（宿主实现者定，参数唯一读点）/ Modify: `packages/shared/src/canvas/renderCanvas.ts`（liveFrame 可选入参按组 id 索引——公开页不传恒 undefined，现有 27 处直接调用全量回归绿=等价域证据）/ Test: `apps/web/src/stores/projectCanvas.equivalence.test.ts`（等价域+墓碑红测落位——编译级红先例 frame-deny.spec:2 头注）、`packages/shared/src/canvas/renderCanvas.test.ts`+`packages/shared/src/canvas/geometry.test.ts`（liveFrame 扩参回归——**非等价域宿主**）
+
+- [ ] **Step 1: 红测试落位**：①等价域——空覆盖（gesture/runtime/mediaFacts/localPreview 皆空+liveFrame 不传）下 projectCanvas 节点几何/parent/hidden 剔除/边集与 deriveRenderCanvas 逐位相等；②墓碑——活动墓碑节点不进 auto 组帧（组 origin 不受死节点影响）、不进 cellNodes；③分镜子被 hidden 剔除时 cellNodes 仍有内容（格子覆盖回剔除前作者记录——本步实现当步真红）。跑红留证。
+- [ ] **Step 2: 实现 D1 装配序五步**：墓碑前置剔除（isActiveTombstone 谓词复用不重写——吃运行时条目，从 records 副本先去）→gesture 折入记录再进内核（叶子/顶层 position/width/height 折入副本；resize 中组=会话矩形作 liveFrame 传 deriveGroupFrame——经 renderCanvas frameOf 组装传递）/ deriveRenderCanvas 产出→执行覆盖（主槽=解析语义雏形：`data.fileId 非空用它，否则运行时产物`——B3 换 mediaId+resolvePrimaryMediaId；execStatus 只来自投影；**localPreview 只在主槽解析为空时盖面**；**格子覆盖按格子 id 回到剔除前作者记录**取值写进 cellNodes——只遍历 React Flow 输出节点的格子是空的）→mediaFacts 只供尺寸。
+- [ ] **Step 3**: 红测①②③转绿+liveFrame 扩参回归全绿（renderCanvas.test.ts 现有 27 处不传）。→ commit `feat(y2-①): projectCanvas 装配序+liveFrame 进内核`。
+
+### Task A2b：接线——renderNodes/applyDocToStore 换芯/D3 增量管线（commit ④）
+
+**Files:** Modify: `apps/web/src/stores/canvasStore.ts`（CanvasState:194 加 renderNodes——作者缓存与渲染列表**同一次 zustand set**）/ `apps/web/src/stores/canvasCollabRuntime.ts`（applyDocToStore:1739 换芯——不再做渲染出口；hydrate setState:1753-1763 改双写；尾断言新形态〔裁决 2〕；onRemote:2585 本地短路**cancel 已挂定时器**；去抖:2590-2616 改 idle 50ms+max-wait 200ms 自首个脏事件起；同步投影读事务后 toReadModel(doc)）/ `apps/web/src/pages/canvas/components/CanvasView.tsx`（:103/:526 ReactFlow 改接 renderNodes）/ `apps/web/src/stores/canvasIntents.ts`（diff 桥后立刻重填渲染列表——dispatchProjectionDiff 尾）
+
+- [ ] **Step 1: 红测试落位**：③单键编辑写计数——**装置钉死=本地作者事务路径跨 store 写计数（canvasStore+nodeStore 合计，现状≥2 必红）**（远端无手势批现状已=1，不可用作红相）；④身份复用——applyDocToStore :1760 `nodes.map(n=>({...n}))` 全量换新破身份（现状必红；比较对象=上一帧**最终渲染对象**含 cellNodes 引用；≥200 节点夹具上断言格子未变时组节点复用）。
+- [ ] **Step 2: D3 增量管线**：每 doc 批次全量 deriveRenderCanvas+逐字段身份复用（**复用在执行覆盖写完之后**）；边 observeDeep 与节点分开（:2618-2619 两独立注册现状保留——只改边时重跑边过滤）。
+- [ ] **Step 3**: 接线+换芯；hidden 属性写机制退役（:1559-1581 写域⑤删——可见集合由内核剔除承担，groupDerive 判定侧保留至 A3 处置）；手势中止分支保留（裁决 6——远端删会话节点⇒endGesture('removed')）；③④转绿；telemetry.spec:119-130+invariant.spec:139-149 **源码文本锚同批重写**（performance.now 包裹形态/onRemote 接线锚——断言的是源码字符串非行为，易漏）。→ commit `feat(y2-①): renderNodes 接线+applyDocToStore 换芯+增量管线`。
+
+### Task A3：删 reconcile 四处+仲裁零件全链（commit ⑤）
+
+**Files:** Delete: `apps/web/src/stores/geometryTrap.ts`+`packages/shared/src/canvas/geometryWriterRegistry.ts`（withGeometryWriter 全链挂点 canvasStore:1720/:1873、canvasCollabRuntime:1576/:1753 等 8+ 处同批删）/ Modify: `apps/web/src/stores/canvasCollabRuntime.ts`（reconcileGroupGeometry:1403+RECONCILE_EPS:1368+reconcileWriteLedger:1378+assertReconcileSingleWriterWindow:1382+recordReconcileWrite:1395+尾挂:1789+保护序 :1642/:1677/:1706）/ `apps/web/src/stores/canvasIntents.ts`（:459 漏斗尾+:462 窗口断言+:662 diff 首行）/ `apps/web/src/stores/canvasStore.ts`（:1739 endGesture 尾）/ Test: `canvasCollabRuntime.geometry.test.ts`（census :596 恰 4→恰 0+几何族改 projectCanvas 对拍）、`group-frame-writer-guard.test.ts`（ALLOW_FN 去 reconcile）、`geometryTrap.test.ts`（先改会失败再删）、`canvas-dispatch-ratchet.test.ts`（随删）、`canvasB41/B42/B51/B52`（直接 import reconcile 的 4 处+「无自有 reconcile」文本断言 2 处重写）、`canvasO0b3/O0b4`（保护序/hidden 恢复链重写）
+
+- [ ] **Step 1: 前置四步按序**（D2 钉死——防假绿）：①geometryTrap 假门禁先改成会失败的测试（只计数不抛→抛；单写者窗口恒真→真断言）跑红；②census 断言改 0+ALLOW_FN 白名单去 reconcile；③几何测试改 projectCanvas 与 deriveRenderCanvas 对拍；④E17 与投影不变量改新形态（作者缓存≡doc 读模型〔abs+全节点〕∧渲染列表≡projectCanvas(作者缓存,空覆盖)——裁决 2 断言落位）。
+- [ ] **Step 2**: 删实现（reconcile 本体+零件+registry+挂点全链）；跑绿 census 红测⑥（生产 reconcile 调用=0——本任务落位）。→ commit `refactor(y2-①): reconcile 退役——仲裁零件全链删除+census 归零`。
+
+### Task A4：D4 叶子 resize 会话化（commit ⑥）
+
+**Files:** Modify: `apps/web/src/pages/canvas/components/nodes/ImageGenNode.tsx`（:1114/:1119/:869/:1314-1315）/ `VideoGenNode.tsx`（:554/:562/:578/:606/:714-715）/ `TextInputNode.tsx`（:171-172 NodeResizeControl）/ `apps/web/src/stores/canvasStore.ts`（beginLeafResize:1693/endLeafResize:1708 退役 resizePending 标记与悬挂兜底 :1700-1706；onNodesChange:1753 门判据②:1825-1833 与无 session 常规路由 :1834-1862 的叶子逐帧 doc 写消除——会话期只写 gesture 表）/ `apps/web/src/stores/canvasIntents.ts`（dispatchFixtureSizeIntents:498 判据 :505 session∨resizePending→session 判据）/ Test: `ImageGenNode.test.tsx`/`VideoGenNode.test.tsx`/`TextInputNode.test.tsx`（组件级——ReactFlowProvider+@xyflow mock 先例）+`canvasB41.dragSession.test.ts`（store 层 doc update/transact 计数——手势红测⑤落位）
+
+- [ ] **Step 1: 红测试落位（⑤）**：pointerdown setPointerCapture；四提交点（pointerup/pointercancel/pagehide/visibilitychange∧hidden）任一到达恰一次提交（一次性标志）——store 层断言 transact 次数（现状叶子 resize 逐帧落 doc 必红）；不变量检查在生产常开且在 transact **之前**（纯函数判定「意图应用后的作者记录」+与 transact 同一同步调用无 await）——失败路径不写 doc、清 gesture、走既有 invariant_violation 遥测。
+- [ ] **Step 2**: 实现（doc update 恰 1 次；undo origin=LocalUser 单步〔裁决 5〕）；⑤转绿。→ commit `feat(y2-①): 叶子 resize 会话化——四提交点+事务前判定`。
+
+### Task A5：删 composeRenderFromNodeStore+分镜 cellNodes 通道+cells 缓存收敛（commit ⑦）
+
+**Files:** Delete: `apps/web/src/stores/runtimeStore.ts` composeRenderFromNodeStore:228（Test: runtimeStore.t22.spec 用例删/改）/ Modify: `apps/web/src/pages/canvas/components/groups/GroupNode.tsx`（StoryboardGroupRendererCellNodes:66-85 现拼扫描删——改消费渲染节点 data.cellNodes；:73 双通道谓词 data.cells 读改派生）/ `apps/web/src/pages/canvas/components/groups/StoryboardGroupRenderer.tsx`（:37-38 主画布通道 data.cells 在场读改渲染节点 cellNodes）/ `apps/web/src/pages/canvas/components/groups/StitchButton.tsx`（:65-80 cells 读改 computeStoryboardCellsPatch——拼接主槽判定收敛归 B3）/ `apps/web/src/pages/canvas/components/groups/StoryboardTitlesLayer.tsx`（:32 同款改派生）/ `apps/web/src/components/storyboard/StoryboardCell.tsx`（CellNodeInfo.fileId:10 改名 **mediaId**〔裁决=随第①步 cellNodes 覆盖落地〕+useMediaUrl :28）/ `apps/web/src/stores/canvasCollabRuntime.ts`（deriveStoryboardCellsCache:1586/:1594 写域⑥删〔裁决 1〕）/ `apps/web/src/stores/canvasStore.ts`（placeGrid:2336 与删除善后 :1059/:1904 改读侧现算 computeStoryboardCellsPatch〔裁决 1 四组件+两 store 面〕）
+
+- [ ] **Step 1: 红测试**：①分镜渲染零 store 扫描（GroupNode 源码无 filter parentId 扫描——源码文本锚，现状必红）；②**cells 缓存退役面**——远端写 data.cells 后 cs 镜像不再出现该字段（deriveStoryboardCellsCache 退役断言，现状必红）；③水合后 placeGrid 占格/删除善后行为不变（**行为保通回归锚**——非红测，绿态保持）。分镜 hidden 剔除用例已在 A2a 落位。
+- [ ] **Step 2**: 实现+删 composeRenderFromNodeStore；`projectCanvasNodes`（EPHEMERAL 剥键）**不删**——同名异构。→ commit `refactor(y2-①): 分镜只走 cellNodes+cells 缓存收敛单写者`。
+
+### Task A6：第①步出口复核（commit ⑧）
+
+- [ ] **Step 1**: 出口核对（spec §4 第①步出口全表）：生产 reconcile 调用=0；等价域逐位相等；墓碑用例绿；单键 setState=1 且未改节点身份不变；任一手势 doc update 恰 1 次+失败路径不写 doc；无手势时作者缓存≡doc、渲染列表≡projectCanvas(空覆盖)；ReactFlow 消费 renderNodes 非 nodes；分镜渲染零 store 扫描；带复用投影短于全量对照。→ `pnpm verify`（fast）+ commit `chore(y2-①): 第①步出口复核`（无代码则 `--allow-empty` 不用——有测试侧微调即实体 commit；全绿无改动则并入 A5 commit 说明）。
+
+---
+
+## 第②步 写者改 mediaId+D8 服务端腿（commits ⑨-⑯）
+
+### Task B1：冻结两列迁移+ClaimInput 必填+rearm 三态+plan 行占位（commit ⑨）
+
+**Files:** Modify: `apps/api/prisma/schema.prisma`（GenerationIntent :1473-1536 两列——authorSlotFrozen Boolean 无默认+authorMediaId String?，列位 :1515 claimArtifactRev 附近；ExecutionNodePlan :1074-1092 同款）/ Add: `apps/api/prisma/migrations/<ts>_y2_author_slot_frozen/`（段序钉死：ADD COLUMN 两列 nullable→UPDATE 双表回填 false→ALTER SET NOT NULL〔裁决 12〕）/ `apps/api/src/modules/execution/generation-intent.service.ts`（ClaimInput :53-72 加 authorSlotFrozen:boolean/authorMediaId:string|null **必填**；rearm updateMany :234-249 显式数据集补两列——REARMABLE=['FAILED','VOIDED','UNKNOWN'] :41 三态全列重写本次受理值）/ `apps/api/src/modules/execution/execution.service.ts`（claimForNode:126-140 签名加两列透传——**B1~B2 之间传占位值 authorSlotFrozen:false/authorMediaId:null**〔两列此间零读者；**占位值严禁改为读现场槽**——spec D8「claim 禁现读」：受理与 claim 间放置会被当旧值胜臂误删；B2 换 authorSlots 表/内存表/plan 行真值〕）/ `apps/api/src/modules/execution/execution-request.service.ts`（planRows :410-427 加两列**占位** authorSlotFrozen:true/authorMediaId:null——ExecutionNodePlan NOT NULL 无默认后 createMany :451 不含该列即断链 admitRequest 整链；B2 换 buildFrozenSlice 会话内读槽真捕获）/ `apps/api/src/modules/ai-image-edit/ai-image-edit.controller.ts`（:57 claim 补两列**过渡占位** false/null——B2d 换受理读槽真值〔裁决 13〕）/ `apps/api/src/modules/ai-image-edit/lighting/lighting.controller.ts`（:49 同款）/ Test: 14 个 spec 文件 36 处 `.claim({...})` 补字段（group-idempotency.int.spec 10 处/t23-resource-recovery 3/exec-partial-success 3/funds-four-way/deliver-refund/deadline-reaper/execseq-generation/artifact-commit.int 等——第一批改动）
+
+- [ ] **Step 1: 红测试**：①两列必填——删任一新字段 TS 编译红（类型层）+非画布两链 claim 插行成功（惰性值落列）；②rearm 三态各一测——FAILED/VOIDED/UNKNOWN 再激活后两列=本次受理值（红测 d）；③takeover 后两列保留首代值（:196-201 data 不含两列）+same-job-alive 零写；④createMany ...rest 流入（剔除集 {pricing,teamId,gestureToken,traceId}）；⑤admitRequest 插 plan 行携带两列（占位形态——防 NOT NULL 断链）；⑥**防回归 grep 锚**——generation-intent.service 内无 `result==='rearm'` 分支写两列（禁事后补写）+claim 路径无 doc 现场读（禁现读——readCanvas 仅存在于受理三入口与 execute 开头存活过滤）。
+- [ ] **Step 2**: 迁移+实现；int 跑 fresh replay 必验。→ commit `feat(y2-②): 冻结两列迁移+ClaimInput 必填四处+rearm 三态+plan 行占位`。
+
+### Task B2a：两封闭操作+resolvePrimaryMediaId（commit ⑩）
+
+**Files:** Add: `packages/shared/src/canvas/resolvePrimaryMediaId.ts`（data.mediaId 非空→作者键；否则运行时产物 artifact.mediaId；都空→空）/ Add: `apps/api/src/modules/collab/author-slot.service.ts`（**两封闭操作逻辑宿主**——服务端装意图行核对项目/节点/代际+冻结两列读出+readAuthorSlot 回调只读 Y.Doc+releaseAuthorSlot 回调〔禁 await〕内现场=冻结值才删+collectMediaRefsForNode 快照作回调返回值〔与写帧原子〕；**withSession 返回之后、200 之前**用快照调 projectBindings〔delta 三态；失败同样非 2xx〕；释放幂等=槽空/别 id 不删但快照照收投影照跑）/ Modify: `apps/api/src/modules/collab/collab-write.port.ts`（接口 :34-49 加两封闭操作+DirectCollabWritePort 委托 author-slot.service+HttpCollabWritePort.request :165 method 类型扩——裁决 11）/ `apps/api/src/modules/collab/collab-write.controller.ts`（新增 read-author-slot/release-author-slot 两端点——verifyScope :134-143+enforceScopeBinding :147-159 复用；请求体只 intentRowId、worker 不传 mediaId）/ Test: `author-slot.service.spec.ts`（新——条件删键/快照原子/projectBindings 失败非 2xx/幂等；withSession 直投真 Y.Doc 形态照 collab-recovery-import.binding.int.spec.ts:92 先例）、`collab-write.controller.spec.ts`+`collab-write.port.http.spec.ts`（端点+HMAC）、resolvePrimaryMediaId shared 单测（四形态：只有作者键/只有产物/两者皆有作者键胜/两者皆无）
+
+- [ ] **Step 1: 红测试**：两封闭操作端口不存在（编译级红）；解析四形态断言。
+- [ ] **Step 2**: 实现。**门：端口单测绿**（resolvePrimaryMediaId 的读者切换不在此 commit——B3/B4 才换读点）。→ commit `feat(y2-②): 两封闭操作+resolvePrimaryMediaId——端口与 HMAC 端点`。
+
+### Task B2b：authorVoid 作废臂+两处短路+闸序+保留矩阵与出清（commit ⑪）
+
+**Files:** Modify: `apps/api/src/modules/artifact-core/artifact-commit.service.ts`（commitImage:228 +finalizeVideo:318 加**可选 authorVoid 参数**（不传=今天胜/败臂原样）；idempotentOutcome :266-281 重构序——status≠SUCCEEDED→null→execSeq 失配→intent-stale→**〔精确键 author-void:{intentRowId}:{execSeq} 等值查命中→返回 superseded+回填〕**→creditsConsumed≠cost→null→锚行回填 committed；finalizeInTx:502 作废臂在 casUpsert :576 之前岔开——intent CAS+Media 提升入素材库+**不写 NodeArtifact**+author-void superseded 投影行〔artifactRev=0〕+settle 同事务核销；:520 幂等分支同序插键检查〔creditsConsumed 合取之前〕——胜臂原幂等分支 :520-551 不动；**两处短路共用同一精确键构造函数+同一回填源**〔按 (sourceIntentRowId,sourceExecSeq,artifactIndex) 从已提升 Media 行——video :543-548 先例同款〕）/ `apps/api/src/modules/execution/intent-reconcile.service.ts`（cleanTerminalIntents:519-535 保留谓词加 Media.sourceIntentRowId+author-void 投影行两臂；**意图行物理删时同批删其 author-void 投影行**（出清半边）；cleanProjection:540-547 作废行豁免——DELETE 谓词排除 author-void 键）/ Test: `artifact-commit.int.spec.ts`+`artifact-commit-video.int.spec.ts`+`artifact-commit.spec.ts`（闸序/作废臂/回填源/零 stage 零下载零上传）、`intent-reconcile-r3.int.spec.ts`+`intent-reconcile.service.spec.ts`（保留矩阵两臂+30d 豁免+**出清半边**——意图行删除后 author-void 行随之消失）
+
+- [ ] **Step 1: 红测试**：作废后重驱（含冻结链 creditsConsumed=0 形态）→两处预检精确键短路：零 stage 零下载零上传（对象键数不变、attempts 不耗）；作废意图 7d/30d 后仍在且短路仍命中；意图行删除后 author-void 行出清。
+- [ ] **Step 2**: 实现。**门：artifact-commit 与 reconcile int 绿**。→ commit `feat(y2-②): authorVoid 作废臂+两处精确键短路+闸序+保留矩阵与出清`。
+
+### Task B2c：三路径受理捕获+工作集封口+释放四处+有上限重排（commit ⑫）
+
+**Files:** Modify: `apps/api/src/modules/execution/execution.controller.ts`（enqueue:91 入队前建表——:26 已注入 CollabDocumentService，readCanvas 直调+TopologyService 注入；按 execute 同款节点集规则建 `job.data.authorSlots`；job.data :104-114 加第六字段）/ `apps/api/src/modules/execution/execution.types.ts`（ExecutionJobData :1-21 加 authorSlots?——ticket 后）/ `apps/api/src/modules/execution/execution.service.ts`（**工作集封口**：execute :200-209 带表路径 scopeNodes=表键集∩当帧 allNodes、getScope 退役；表内已删剔除；表外被 claim 写 false 防御兜底——execute 直达路径开头 readCanvas 内存表进 claimForNode〔**换掉 B1 占位——此提交后画布 claim 不再传 false 字面量**〕；**回放臂 :334-342**——先查精确作废键〔text kind 分叉〕命中→emit done 不带 fileId 不释放/未命中→emit done 带 fileId+release；**读槽时点**=:390 后 :409 前；video/image 两支 authorVoid 传入；**新鲜出口**=:436 后 release 先于 :453 emit——superseded 不携；catch :456 首位 AuthorSlotReleaseError re-throw+:475-479 臂收窄只吞 emit〔头注 :285 同步改〕；**同步直达 3 次重试→5xx**；冻结链 :669——claim :708-713 从 plan 行抄/回放臂 :718-734 两档/读槽 :759 后/:763-767 authorVoid/:784 superseded 不携+release 先于 emit）/ `apps/api/src/modules/execution/execution.processor.ts`（:74-79 catch 识别 AuthorSlotReleaseError→**releaseAttempts 有上限 moveToDelayed**〔裁决 14：读-改-写 {...job.data,releaseAttempts:n+1} **await 后**才 throw DelayedError；n≥3→job completed+author_slot_release_exhausted 计数；间隔 1s/5s/15s〕）/ `apps/api/src/modules/execution/execution-request.service.ts`（buildFrozenSlice 会话内读 data.mediaId 落 plan 行两列真值——**换掉 B1 占位**）/ `apps/api/src/modules/execution/exec.metrics.ts`（author_slot_release_exhausted Counter+spec §10 metric-names 同步）/ Test: `execution.service.spec.ts`（回放两档/顺序共享 call log/接受窗/工作集封口）、`execution.processor.spec.ts`（b——重排非 completed+**3 次上限耗尽 completed+计数**）、`execseq-generation.int.spec.ts` 形态新增（c 全链）、`generation-intent.int.spec.ts`（六测②⑤⑥/入队封口三形态）
+
+- [ ] **Step 1: 红测试**：主槽解析六测②③④⑤⑥+回放两档+v2.9 a/b/c/d/g/h 条+R5 新鲜路径（:436/:453/:784 superseded 不携）。
+- [ ] **Step 2**: 实现。**门：execution int 绿；画布 claim 不再传 false**（grep 锚——execution 链 claim 调用点零 `authorSlotFrozen:false` 字面量）。→ commit `feat(y2-②): 三路径受理捕获+工作集封口+释放入口四处+有上限重排`。
+
+### Task B2d：AI 编辑/打光接入+六处 emit 收窄（commit ⑬）
+
+**Files:** Modify: `apps/api/src/modules/ai-image-edit/ai-image-edit.controller.ts`（受理读作者槽——已注入 CollabDocumentService，readCanvas 读 data.mediaId→claim 传 **true+槽值**〔换掉 B1 占位 false/null〕）/ `apps/api/src/modules/ai-image-edit/lighting/lighting.controller.ts`（:49 同款）/ `apps/api/src/modules/ai-image-edit/ai-image-edit.processor.ts`（完成点 :189 自己走 readAuthorSlot→比较→authorVoid 传入 commitImage→仅 committed 才 release〔经 author-slot.service 进程内直调——worker 形态 HMAC〕；:204-210 emit 收窄只 committed 携 fileId；:213 job 返回值不动）/ `apps/api/src/modules/ai-image-edit/lighting/lighting.consumer.ts`（完成点 :164 同款三段+release；:192-229 emit 收窄）/ Test: `ai-image-edit.processor.spec.ts`+`lighting.consumer.spec.ts`（**e 条 v3 反转**：节点已有 mediaId 时编辑成功→旧键被删画面变新产物〔A 挡 B 修复主红测〕；两链 claim 落列 true+槽值；fail 路径置 FAILED 零释放；release 不进 commitImage——五消费面绿态锁定回归锚；superseded emit 不携 fileId/resultUrl）
+
+- [ ] **Step 1: 红测试**：A 挡 B 主红测（已有 mediaId 编辑→committed→release 删旧键→画面变新产物）+两链受理读槽落列+fail 零释放+emit 收窄。
+- [ ] **Step 2**: 实现。**门：已有 mediaId 的编辑红测转绿；两链零「惰性 false」**（grep 锚——两 controller claim 调用点零 false 字面量；工作集封口动态兜底不在此面）。→ commit `feat(y2-②): AI 编辑/打光接入作者槽链+六处 emit 收窄`。
+### Task B3：客户端固化写消除+矩阵加键+桥白名单+projectCanvas 换键（commit ⑭）
+
+**Files:** Modify: `apps/web/src/stores/nodeStore.ts`（setStatus:737/updateMultiImageNodeStatus:861/setTrimTaskStatus:898/setTrimmedResult:913 四 dispatch 删；setFileResult:753 本地双 store 写删〔applyDataPatchToStores:296 本体保留——canvasIntents:344/nodeStore:624 仍依赖〕；mergeNodeData status:'idle' 默认值 :335 删〔裁决 7〕）/ `apps/web/src/stores/canvasStore.ts`（dropImageIntoStoryboardInner :2635/mergeStoryboard :2775/addImageToStoryboardCell :3155 三处 data{status:'done',fileId} 消除——用户放置改写 data.mediaId 不写 status）/ `apps/web/src/pages/canvas/components/nodes/VideoGenNode.tsx`（**裁剪 :171-176 与分离 :195-218 子节点=新节点作者放置〔裁决 15〕——addChildNode/addChildNodes 建行照旧、data 只写 mediaId〔=产物 id〕，不写 status/fileId/trimmedFileId；audio 子节点无 model/ratio 不对称保留；:171-176 trim 的 setTrimmedResult doc 写删除〔trimmedFileId 组件零读者实证〕、进度留 useTrimTaskStatus）/ `ImageGenNode.tsx`（**:1098 AI 编辑固化写消除**〔裁决 9——B2d 已接服务端交付〕+:1089-1090 过时注释勘正〔「T10 直写 doc」与 T15 后实际矛盾〕）/ `apps/web/src/pages/canvas/components/groups/StitchButton.tsx`（:65-80 cells 读改 computeStoryboardCellsPatch+**:78 拼接收集改 resolvePrimaryMediaId**〔第二份主槽判定〕+:67 cells 缺失守卫语义连带改）/ `apps/web/src/pages/canvas/components/groups/StoryboardTitlesLayer.tsx`（:32 cells 读改派生）/ `apps/web/src/pages/canvas/components/groups/NormalGroupRenderer.tsx`（:37 fileId||referenceImage 改解析）/ `apps/web/src/utils/collectDownloadables.ts`（:38 同款改解析）/ `apps/web/src/pages/canvas/components/nodes/ImageGenNode.tsx`（**:143/:163/:222/:236 四处 targetFileId=fileId||referenceImage 改解析**〔裁决 15 九处全列〕）/ `apps/web/src/components/canvas/ImageNodeToolbar.tsx`（:367 双 truthy 判定改解析型）/ `packages/shared/src/canvas/doc-schema-v4.ts`（**imageGen/imageExtGen/videoGen/audioGen 四类型 data 加 `mediaId: mediaLww()`**——fileId: forbidden() 保留至 C1 翻禁执法；矩阵无条目=unknown-key 拒，不加键则放置写 mediaId 被 L1 拒死）/ `packages/shared/src/canvas/copyPlan.ts`（normalizeCopiedNodeData :13-14 fileId 保留规则翻转——副本槽不携媒体 id〔裁决 4〕+status 归一分支改写）/ `apps/web/src/stores/canvasStore.ts`（rebindCopiedMedia :574 fileIdOf 改 resolvePrimaryMediaId 解析值）/ `packages/shared/src/canvas/docShape.ts`（CANVAS_BRIDGE_KEYS :66 {fileId,referenceImage,status,images}→{mediaId,referenceImage,images}——status/fileId 出白名单防禁键经 cs 镜像回流 doc）/ `apps/web/src/utils/projectCanvas.ts`（**执行覆盖与 cellNodes 覆盖取值的作者键从 data.fileId 切到 data.mediaId/resolvePrimaryMediaId**——写者换键与读键同 commit，否则新放置画面丢失）/ `apps/web/src/utils/imageNodeGuards.ts`（isImageCompletedNode:11 :14 fileId||referenceImage 改解析——referenceImage 不再兜底）/ `apps/web/src/stores/canvasStore.ts`（splitImageNode :1964 兜底改解析）
+
+- [ ] **Step 1: 红测试**：放置写入并读回 mediaId（**依赖矩阵加键**——帧内写 data.mediaId 期望放行，今天 unknown-key 拒必红）；裁剪/分离子节点 data.mediaId=产物 id 且零 status/fileId/trimmedFileId；setFileResult 路径不再写 doc 也不写本地 data 面；节点状态无 node:status 时仍随投影变化；余额订阅仍在；桥白名单收口后 fileId/status 不再到达 cs 镜像+mediaId 桥通；副本节点 data 无 fileId（copyPlan 断言翻转）；projectCanvas 主槽读 data.mediaId（新放置图上画面）；**全仓 `fileId || referenceImage` 与 `fileId||referenceImage` 生产代码零残留 grep 锚**（九处全收敛）。
+- [ ] **Step 2**: 实现。→ commit `feat(y2-②): 客户端固化写消除+矩阵 mediaId 加键+桥白名单收口+projectCanvas 换键`。
+
+### Task B4：约束同批收紧+词表+读点收敛（commit ⑮——迁移与写者同 commit，spec 第②步 6 七件全套）
+
+**Files:** Add: `apps/api/prisma/migrations/<ts>_y2_target_field_mediaid/`（**段序钉死**：UPDATE 三表存量 'fileId'→'mediaId'→**DELETE FROM MediaBinding WHERE targetField IN ('trimmedFileId','videoFileId','audioFileId')**〔三键随词表退役——B3 已删写者；不删则 CHECK 收紧在真实 dev 库失败，fresh replay 空库测不出〕→收紧三表 CHECK→MediaBinding @default 改——**不可换序**〔裁决 12〕；迁移头注写明段序依赖）/ Modify: `apps/api/prisma/schema.prisma`（NodeArtifact :1591 CHECK 白名单/ArtifactProjection :1617 CHECK/MediaBinding targetField @default("mediaId") **:1643**〔勘察勘正〕）/ `apps/api/src/modules/artifact-core/node-artifact.service.ts`（targetFieldOfKind:17-19 'fileId'→'mediaId'+ArtifactSlot:22-28 类型）/ `apps/api/src/modules/collab/collab-media.controller.ts`（**五处**：:32 类型/:66 findUnique/:71 返回/**:114 casUpsert/:135 projection**〔裁决 9〕）/ `packages/shared/src/canvas/media-refs.ts`（MEDIA_REF_TARGET_FIELDS :25-28 九键收六键+SCALAR_REF_FIELDS :33-35 换名——**与 CHECK 同 commit**〔spec item 6 机理：词表先行=投影器产 mediaId 行撞旧 CHECK 必炸〕；collectMediaRefsForNode 扫描域自动跟随）/ `apps/api/src/modules/execution/upstream-media.service.ts`（readUpstreamMediaId:32-41 两份 SQL 之一**消失**改调 resolvePrimaryMediaId）/ `apps/api/src/modules/execution/execution-request.service.ts`（readUpstreamMediaId:239-247 :241 raw SQL 之二**消失**）/ `apps/api/src/modules/video-work/video-work.service.ts`（computeThumbnailUrls:347-366 两处回落 :348-352/:362 改解析——公开分镜即有图）/ Test: 夹具 fileId 字面量清理（node-artifact.int.spec/artifact-commit 系/collab 装置）+`media-refs.test.ts`（:87 九键顺序断言收六键重写）+`upstream-media.service.spec.ts`（SQL 消失重写——「生产代码不再出现写死 targetField:'fileId' 的槽查询」grep 断言）
+
+- [ ] **Step 1: 红测试**：五处生产写点 grep 断言零 'fileId' 字面量残留；约束失败形态（写旧值即拒——int 验证段序）；词表六键断言；两份 SQL 消失；公开缩略图对「只有 data.mediaId」与「只有产物」两种节点都注出 thumbnailUrl（int）。
+- [ ] **Step 2**: 迁移+写点+词表+读点+夹具同 commit；fresh replay 必验。→ commit `feat(y2-②): targetField 收紧 mediaId——迁移+词表+五写点+读点收敛同批`。
+
+### Task B5：D6 census+第②步出口复核（commit ⑯）
+
+- [ ] **Step 1**: D6 census——生产代码写 doc 的调用全经 dispatchCanvasIntent（发现绕过改到漏斗，不另开机制）；VIEWER 四处回归绿。
+- [ ] **Step 2**: 第②步出口全表核对（spec §4）：全仓生产写入不再出现禁键；mediaId 唯一主槽作者键；上游两 SQL 消失；公开快照两形态注图；桥白名单三键；node:status 生产消费只剩余额；生成胜/作废/重放/释放失败/入队封口各断言（spec 出口段逐条）；生产按钮链空槽出图（int）；**回归锚——单人团队 awareness 双向短路（Y0b-4 T13）维持绿**（spec §6 末条）。→ `pnpm verify`（fast）+ commit `chore(y2-②): D6 census+出口复核`。
+
+---
+
+## 第③步 翻禁+版本 4（commit ⑰）
+
+### Task C1：五处翻禁+双常量 bump+@default 4+测试批改（单 commit，spec「三件同批」）
+
+**Files:** Modify: `packages/shared/src/canvas/frame-deny.ts`（**五处** server-forbidden 从放行改返回失败 reason=forbidden-data-key：L1 :222 continue→return 失败+L2 :442/:472/:499/:513 四处各改〔**:442/:513 在现行矩阵下为 map-children 死分支**——全部 server-forbidden 键均为顶层 data 键，map children 无 forbidden 条目；仍同批一致翻转并留防漂移注释，无行为红测〕；:219-221 D9 注记同批更新——翻禁执法面=全键族〔fileId×4/status×3/trimTaskStatus/trimmedFileId/nodeStatus，doc-schema-v4.ts 共 10+ forbidden 条目〕）/ `packages/shared/src/constants/collab-protocol.ts`（CLIENT_PROTOCOL_VERSION :11 3→4+:9-10 头注勘正）/ `packages/shared/src/canvas/docShape.ts`（CANVAS_DOC_SCHEMA_VERSION :57 3→4+:51-56 头注）/ `apps/api/prisma/schema.prisma`（:898 @default(3)→@default(4)；:891 陈旧注记核对；**勿动** ExecutionInput.schemaVersion :1104〔语义独立〕）/ Test+布景批改：frame-deny.spec（红测试主落点——新增独立含禁键构造器，不动「8 类型全放行」负控）、collab-protocol.test :6 值锚 3→4、collab-auth-reason.test :98 同、docShape.schema.test :54-57、docShape.fillRead.test :113、**collab-version-gate.spec :170-186 行 schemaVersion=3 当放行必改（3 拒/4 放对调+sv=3 拒载红测试）**、**collab-t9-ownership-switch.spec :105/:107/:110 裸 csv=3 必改常量插值**、canvas-doc-t12-vacuum.int.spec :112-125 布景 sv 字面量、硬编码 schemaVersion:3 的建行/mock int+unit 套件清单（binding-rebuild.int:67/245、canvas-doc-append-gap.c30/c31、canvas-doc-compact-publish、canvas-doc-hydration、canvas-doc-update.repository 系、collab-t12-generation-channel、collab-maintenance.t27、collab-recovery-import.binding、collab-shrink:469/804、deletion-barrier:139、projection-backfill 五处、media-gc 系——按消费链归并：仅装载门/断言链消费的行值才红）
+
+- [ ] **Step 1: 红测试先行**：帧内写 data.status/data.fileId 期望连接因 forbidden-data-key 关闭（L1 :222——今天 continue 让它失败不了）；**L2 可达两处各一条**（:472 dataValueShapeOk 既有节点 data.set 禁键/:499 validateNodeShape NODE_CREATED 带禁键）——**:442/:513 矩阵死分支无行为红测**（注记+同批翻转）；**覆盖 trimTaskStatus/trimmedFileId/nodeStatus 至少各一条**（防只翻两键的窄实现——Review Focus 7）；csv=3 被拒、schemaVersion=3 的行拒载、@default 缺省插入落 4。**恢复导入链红测试**：collab-recovery-import :275 commitDiff 同表 L1——旧键草稿信封导入拒（RECOVERY_IMPORT_CONTENT_REJECTED）。
+- [ ] **Step 2**: 五处翻禁+双常量+@default 三件同批+全部布景批改；把 csv=3 当放行的测试同 commit 改拒连。**前置校验**：B3 桥白名单已收口（docShape.ts:66 只含 {mediaId,referenceImage,images}）——否则 web cs→doc 桥镜像写以 4411 自杀。
+- [ ] **Step 3**: 本地库清行——`reset-collab.mjs`（precheck→drop-recreate→migrate→seed→quarantine-spool→bump-history→verify；**禁只 UPDATE schemaVersion 列留旧 Y.Doc 字节**；rebuild-gen 换代复制 sv=3∧gen>0=绕过拒启断言的半服务形态——reset 或 DELETE 行是唯一清理入口）。→ commit `feat(y2-③): 翻禁五处+版本 4+布景批改`。
+
+---
+
+## 第④步 跨团队粘贴服务端腿（commits ⑱-㉒）
+
+### Task D1t：命令体五字段+迁移②+客户端重写（commit ⑱）
+
+**Files:** Add: `apps/api/prisma/migrations/<ts>_y2_bind_command/`（Media 三幂等列 bindCommandId/bindSourceMediaId/bindTargetProjectId 可空+@@unique([teamId,bindCommandId])〔PG 多 NULL 相容〕）/ Modify: `packages/shared/src/collab/runtime-projection.ts`（BindMediaCommand :232-239 删 expectedRev 加 sourceProjectId+commandId〔幂等范围=源媒体→目标节点，N 带媒体节点=N commandId〕+COPY_PASTE_COMMAND_CONTRACT :243-249 文案同批）/ `apps/web/src/api/collabApi.ts`（bindMedia :238-249 五字段+SLOT_OCCUPIED/BIND_COMMAND_MISMATCH 分档映射+BindingCommandResult :233 双侧同步——api controller :26 与本文件独立定义）/ `apps/web/src/stores/canvasStore.ts`（rebindCopiedMedia :562-600 重写——N commandId 独立幂等〔一个失败不影响其余〕+分档 toast+失败/槽占**按节点 id 清** localPreview 项；duplicateNodes :3219 同项目路径 sourceProjectId=当前项目仍发命令〔同团队三档〕）/ Test: collabApi.test（五字段+409 两档）、canvasStore.t25b-binding.spec（五字段+commandId 独立幂等+localPreview 清除）、runtime-projection.spec :227-239（字段断言）、copyPlan.test（fileId 剥离——B3 已翻转此处回归）
+
+- [ ] **Step 1: 红测试**：命令体五字段断言（spec 锚定 Object.keys 排序）；N 节点 N commandId 各自独立（一败不影响其余）；409 两档分档映射。
+- [ ] **Step 2**: 迁移+实现（服务端 controller 本 commit 不动——客户端发新字段服务端忽略旧字段兼容由 D2t 接收；四步同分支不部署中间态）。→ commit `feat(y2-④): BindMedia 命令体五字段+迁移②+客户端独立幂等`。
+
+### Task D2t：受理层——权限三查+两腿查源项目+占坑+去重拷贝（commit ⑲）
+
+**Files:** Modify: `apps/api/src/modules/minio/minio.service.ts`（新增 copyObject(sourceBucket,sourceKey,destKey)——**显式 bucket 参数**〔该文件首个跨桶方法——勿抄 'flowai' 字面量，按源行 bucket 列〕+import CopyObjectCommand）/ `apps/api/src/modules/collab/collab-binding.controller.ts`（command :37-65 重写：**权限三查**〔assertEditorWithTeam :44 目标编辑+assertTeamMember〔team.util :27-42〕源团队+resolveWithTeam〔project-permission :18-37 role!=null〕能读源项目〕+**源域两腿改查源项目**〔pairArtifact :81-84 NodeArtifact 三维对齐 sourceProjectId 域+readNodeRefs :87-101 doc 兜底扫 mediaId〕+源 Media ACTIVE 未软删+**size 非空非零拒**；**幂等查** (teamId,bindCommandId) 命中 completed→返回已有 id 不拷/pending→沿用行上新键/源·团队·项目任一不同→409 BIND_COMMAND_MISMATCH〔应用层比对——唯一约束多 NULL 挡不住换源〕；**事务内占坑**=assertCanUploadInTx〔storage-quota :59 内 lockTeamQuota :51 串行化〕+插 pending Media 行〔新键 buildKey、三幂等列、pendingExpiresAt、复制 mimeType/size〔BigInt 列保持、调用边界转 number〕/originalName/type/naturalWidth·Height/sniffedMimeType/objectSha256、bucket=源行、teamId=目标、probeState=pending、**不复制** projectId/nodeId/taskId/clientUploadId/sourceRegistrationKey〕+StorageReservation(ACTIVE,upperBoundBytes=源.size) 同事务——**唯一冲突 catch 在 $transaction 外**〔照抄 prepareUpload 先例 media-registration :78-85；事务内 catch=aborted 后重读 25P02 仍 500——node-artifact:7-9 纪律〕；**同桶 CopyObject 按源键去重**——key/非空 thumbnailKey/非空 objectKey 同对象共用同一把新键、不建 ObjectManifest 行；**CopyObject 失败**=删本轮已拷新键〔404 容忍〕+deletePending〔删行+预留 RELEASED 同事务〕不写槽。**expectedRev/CAS/ArtifactProjection 段 :106-133 全删**+MAX_EXPECTED_REV import :24 删+NodeArtifactService 注入 :33 删。**本 commit 槽写未就位**——CopyObject 成功后不写槽，pending 行由现有 TTL 清扫兜底〔24h——D3t 落地槽条件写后闭环〕）/ Test: collab-binding.controller.spec+int（权限三查各拒档/跨项目源配对命中/源 size 空零拒不落 pending 行/命中 bindCommandId 不二次拷贝/**409 BIND_COMMAND_MISMATCH**〔本任务落位〕/并发两笔超限只一笔过门〔真 PG 行锁——media-registration.int.spec:59 并发先例〕/CopyObject 中途失败→已拷键删除+无 pending 残留+不写槽/三把新键与源不同+两源键同对象共用新键/源对象仍在）
+
+- [ ] **Step 1: 红测试**（int 为主）：上述全档。
+- [ ] **Step 2**: 实现。→ commit `feat(y2-④): 受理层——权限三查+两腿查源项目+占坑先行+去重拷贝`。
+
+### Task D3t：槽条件写+同团队三档+完成事务+快照直调（commit ⑳）
+
+**Files:** Add: `apps/api/src/modules/collab/slot-write.port.ts`（**COLLAB_SLOT_WRITE_PORT** token+DirectCollabSlotWriteAdapter 一行委托 withSession(write)〔裁决 10——防 DI 环，对照 media-refs-read.port 先例〕）/ Modify: `apps/api/src/modules/collab/collab-binding.controller.ts`（**同团队三档**——同团队判定后经同一槽条件写机制：槽空才写原 id〔驻留会话同步回调〕/槽=源 id→上次崩溃续走：不删对象、按全量快照补绑定、再完成/槽=他 id→409 SLOT_OCCUPIED **不调 deletePending 不删任何对象**〔同团队没有新行新键——先于占坑判定档〕；**跨团队槽条件写三档**=withSession(write) 同步回调〔禁 await——SERVER_TRANSACT_ORIGIN 档〕内读槽：空→才写 data.mediaId/槽=本行 id→不删对象按全量快照补绑定再完成/槽=他 id→删已拷新键+deletePending+doc 保持对方值+409；**快照=回调内 collectMediaRefsForNode 返回值**〔与写帧原子——禁写完另开 read 会话〕；**槽写成后**=先直调 projectBindings（delta 三态：空数组=零引用全槽清不得省略 nodeId/null=整节点删除/省略=空 delta 零动作；**只传单格=差分删同节点其余槽**）再完成事务；**完成独立小函数**——同一事务恰四件事：pending→completed CAS+预留 ACTIVE→SETTLED+factVersion+1+state fact〔**不整段调 confirmInTx**——它覆写 size/sniff/probeState；粘贴留复制值、probeState 留 pending 让探针重算〕；**完成 CAS 0 行**→重读分诊：已 completed→返回原 id 不删对象/仍 pending→只重试完成不进失败清理）/ Test: collab-binding.int.spec 扩（槽三档×同团队/跨团队〔判源不同：同团队判源 media id、跨团队判新行 id——两套比较对象勿混〕/并发同 commandId 第二次槽=本行 id——不删第一次对象只补绑定+完成/完成 CAS 0 行两分诊/唯一约束冲突→事务外 catch+重读走幂等档+响应非 500/直调 projectBindings 后同节点其余槽绑定仍在/槽写成后崩溃窗〔projectBindings 后完成前〕——清扫后绑定由装入重扫清+doc 槽 resolve 为空）
+
+- [ ] **Step 1: 红测试**：上述全档。
+- [ ] **Step 2**: 实现。→ commit `feat(y2-④): 槽条件写三档+同团队三档+完成独立函数+快照直调`。
+
+### Task D4t：执法腿三件+装入重扫+sweep 扩三键（commit ㉑）
+
+**Files:** Modify: `apps/api/src/modules/collab/collab-binding.controller.ts`（执法腿：删键/写槽事务 origin=SERVER_TRANSACT_ORIGIN〔docShape.ts:73 常量〕——maintenance 档落库〔classifyDocUpdateOrigin **packages/shared**/src/canvas/doc-update-origin.ts:33-40——锚勘正〕；删后直调 projectBindings〔delta=回调内快照〕；**禁 DirectConnection**）/ `apps/api/src/modules/collab/collab-doc-registry.service.ts`（**装入重扫三段式**〔裁决 10 宿主〕：①装载时 withSession(read) 活 doc 上 collectMediaRefsForNode 全词表同步收集候选键〔与帧投影同一读面〕→②事务外 await 读 Media 行+admitMediaRef 谓词判定〔missing/cross-team/soft-deleted——写进 doc.transact 异步回调=掉出 SERVER_TRANSACT_ORIGIN〕→③withSession(write) 同步回调删键〔候选已定零 await〕→④返回后按写后全量快照 projectBindings；键已不在=空操作；计数=bindingSkipTotal 现有 skip 面；同连接短窗口反复写将删键——关闭连接）/ `apps/api/src/modules/artifact-core/media-registration.service.ts`（sweepExpiredPending :301-328 扩去重三键——select 加 thumbnailKey/objectKey、删除前去重+空键跳过〔C2〕）/ Test: 装入重扫 int（**新增布景装置**——Y.Doc 写非法键 encodeStateAsUpdate 播种进 seedRow〔canvas-doc-row.ts:7 收原始 update 字节；装载路径不跑 frame-deny——validateFrameDeny 仅 actor 准入 :1146 与 recovery-import :275〕：含对方团队 id 的文档装入后删键帧 origin=maintenance 落库+非法键从持久化帧消失+绑定行与文档一致）、执法删键后同节点存活槽不被误删、执法删键且键已不在=no-op、TTL 清扫删去重三键
+
+- [ ] **Step 1: 红测试**：上述全档。
+- [ ] **Step 2**: 实现。→ commit `feat(y2-④): 执法腿 origin 档+装入重扫三段式+sweep 扩三键`。
+
+### Task D5t：客户端 localPreview+第④步出口（commit ㉒）
+
+**Files:** Modify: `apps/web/src/stores/canvasStore.ts`（localPreview 表——节点 id→blob URL；复制时自本会话字节建 blob；只在 resolvePrimaryMediaId 解析为空时显示〔projectCanvas 参数——第①步已留位〕；命令失败/槽被占**按节点 id 清**对应项；不进作者缓存/diff/doc；作者缓存与渲染列表同一次 zustand set）/ `apps/web/src/utils/projectCanvas.ts`（localPreview 参数已有——接数据源）/ Test: `canvasStore.t25b-binding.spec` 扩+projectCanvas 侧 localPreview spec（新）
+
+- [ ] **Step 1: 红测试**（spec §6 D5 组全表）：localPreview 只在解析为空时显示；命令失败/槽=他 id 清掉；不进 diff/doc；同团队 BindMedia 不拷贝字节不建行；**第④步出口全表**（spec §4 第④步出口括号内逐条：跨团队返回新 id/teamId=目标团队/三键与源不同/源对象仍在/N commandId 各自幂等/同一 commandId 并发不拆自己/CAS 0 行两档/唯一冲突非 500/size 空拒/CopyObject 失败无残留/**全程不产生 NodeArtifact 行**/预留终态迁移落账/同节点其余槽绑定仍在/装入重扫帧消失+origin=maintenance/执法 no-op/TTL 三键/doc 不含源 id 且槽不被覆盖/localPreview 清掉）。→ commit `feat(y2-④): localPreview+第④步出口复核`。
+
+---
+
+## 批末出口（commit ㉓ 收口）
+
+- [ ] **Step 1**: `pnpm verify` full 36/36+int 全绿（`DATABASE_URL` prefix 形态+实跑数核对）；四步出口全表复核仍绿（第③步出口含「第①②步出口复核仍绿」）；回归锚——单人团队 awareness 双向短路维持绿。
+- [ ] **Step 2**: 双评审（spec 合规评审——对照 spec v2.9 逐 D 节核对；质量评审——根因修复/无垫片/无防御性兼容层）；修正随独立 commit 收口（惯例「质评收口」）。
+- [ ] **Step 3**: **push=确认门**——四步同一分支做完呈报用户后按当轮确认 push+部署（第③步部署序：代码 bump 与本地 reset-collab 同窗、服务器窗由用户排期——`§Global Constraints 部署序`）。commit `chore(y2): 批末收口——verify full+双评审`。
+
+## 执行序与依赖
+
+- 严格 A→B→C→D 顺序（C 硬依赖 B3 桥白名单；D1t 依赖 B3 的 copyPlan 剥离与 B4 的 mediaId 词表；D3t 依赖 D1t 命令体+D2t 占坑链）；步内任务按编号序。
+- **B2a→B2b→B2c→B2d 连续执行、B3 不得插在中间**（spec「同 commit」红线实质=禁读者换键先行的中间部署态——四步一次 push 下拆分只为逐段评审九条红测；每 commit verify fast 绿）。B2c 门=画布 claim 不再传 false 字面量；B2d 门=两链零惰性 false+「已有 mediaId 编辑红测转绿」。
+- B1→B2c 过渡期占位值钉死（claimForNode 与两链 claim 传 false/null、planRows 传 true/null——**严禁读现场槽**，B2c/B2d 换真值）；D1t→D3t 过渡期 pending 行由 TTL 清扫兜底。
+- 每 commit 后跑 `pnpm verify`（fast）；int 任务（B1/B2b/B2c/B2d/B4/C1/D2t/D4t）在 commit 前跑对应 int 套件。
+- 行号锚开工前重新 grep（漂移已在裁决区登记四处；以符号名为准）。
+
+
