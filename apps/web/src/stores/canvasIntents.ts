@@ -30,7 +30,7 @@ import { Origin } from './canvasUndo';
 // ——全仓唯一）同源导入（循环依赖裁定同 getDoc——顶层 import 声明，调用体运行时才执行）。
 // B7-1（O0b-7 投影写体 + O0b-4 transact 边界断言）追加同裁定：withGeometryWriter/
 // assertReconcileSingleWriterWindow 顶层仅 import 声明，调用体运行时才执行。
-import { getDoc, measureLocalDocNow, reconcileGroupGeometry, readGroupFrameModes, assertReconcileSingleWriterWindow } from './canvasCollabRuntime';
+import { getDoc, measureLocalDocNow, reconcileGroupGeometry, readGroupFrameModes, assertReconcileSingleWriterWindow, recomputeRenderNodes } from './canvasCollabRuntime';
 import { recordCollabDiag } from '@/utils/collabDiagnostics';
 import { withGeometryWriter } from './geometryTrap';
 
@@ -460,6 +460,9 @@ export function dispatchCanvasIntent(intent: CanvasIntent | CanvasIntent[], orig
   // B7-1（O0b-4 接线）：transact 边界字段级一写者断言（reconcileWriteLedger 窗口收口+reset——
   // 窗口=本次 dispatch 全链[diff 首行 reconcile('cs') 携前序命令体写]至漏斗尾 reconcile 后）
   assertReconcileSingleWriterWindow();
+  // Y2 A2b（D2）：漏斗尾渲染列表立即重填——本地作者事务后 renderNodes 同步跟随 doc
+  //（身份复用见 recomputeRenderNodes；早退分支零写不触发本行=零 doc 写零渲染变更）。
+  useCanvasStore.setState({ renderNodes: recomputeRenderNodes(d) });
   return outcomes;
 }
 
@@ -660,6 +663,9 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
 export function dispatchProjectionDiff(before: StoreProjectionSnapshot, origin: string): void {
   const rd = resolveDoc();
   if (rd) reconcileGroupGeometry(rd, 'cs');
+  // Y2 A2b（D2）：cs 域几何回流即时反映进渲染列表——零 intent 早退路径（diff 空批 return）
+  // 也覆盖；intents 非空时漏斗尾会再重算一次（身份复用下第二次为幂等低成本）。
+  if (rd) useCanvasStore.setState({ renderNodes: recomputeRenderNodes(rd) });
   const intents = diffProjectionToIntents(before, captureStoreProjection());
   if (intents.length === 0) return;
   dispatchCanvasIntent(intents, origin);

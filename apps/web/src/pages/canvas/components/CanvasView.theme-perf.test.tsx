@@ -42,7 +42,8 @@ vi.mock('@/stores/canvasStore', () => {
     marqueeSelecting: false,
     localCollapsed: {},
   };
-  const state = { nodes: mockNodes, ...stable, ...actions };
+  // Y2 A2b：RF 消费渲染列表——mock 同列表（双轨下 mock 面=同一份节点表）
+  const state = { nodes: mockNodes, renderNodes: mockNodes, ...stable, ...actions };
   const useCanvasStore: any = vi.fn((selector?: any) =>
     typeof selector === 'function' ? selector(state) : state
   );

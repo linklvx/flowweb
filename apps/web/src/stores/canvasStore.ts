@@ -6,7 +6,7 @@ import {
 } from '@xyflow/react';
 import { useNodeStore, IMAGE_EXT_DEFAULTS, NODE_TYPES, CANVAS_NODE_TYPES } from './nodeStore';
 import type { ImageItem, AiToolId, AppNode } from './nodeStore';
-import type { MaterialFile, ArrangeMode, CanvasNodeRecord, CopyPlan, DragSession, Rect, GeometryWriterCategory } from '@flowweb/shared';
+import type { MaterialFile, ArrangeMode, CanvasNodeRecord, CopyPlan, DragSession, Rect, GeometryWriterCategory, RenderNode } from '@flowweb/shared';
 import { normalizeSelection, participation, arrangeRects, buildCopyPlan, normalizeSize, emptyGroupSealFrame, utf8Bytes, orderRecords, deriveStoryboardCells, readPlacement, EDIT_COMMAND_DENY_THROTTLE_MS, ensureTextDomainDefaults, ensureXmlDomainDefaults, ensureArrayDomainDefaults, NODE_TYPE_ALIASES } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
@@ -193,6 +193,10 @@ interface CreateDerivedExtNodeParams {
 
 export interface CanvasState {
   nodes: Node[];
+  /** Y2 A2b（D2 双轨）：渲染列表=projectCanvas 输出，React Flow 唯一消费面（CanvasView）。
+   *  与 nodes（作者缓存轨道——A2b 期现状语义全保留，A3 reconcile 退役后翻 abs 读模型）同一次
+   *  zustand set 写入；未变节点沿用上一帧对象（D3 身份复用）。只渲染、不进 diff、不回灌 doc。 */
+  renderNodes: RenderNode[];
   edges: Edge[];
   viewport: { x: number; y: number; zoom: number };
   selectedId: string | null;
@@ -885,6 +889,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
   return {
   nodes: [],
+  renderNodes: [],
   edges: [],
   viewport: { x: 0, y: 0, zoom: 1 },
   selectedId: null,
@@ -1871,7 +1876,12 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // registry 上下文；单一 set 窗按批主导面取类（混批[position+setAttributes 同批=左上柄]时
     // dimensions 写优先标——首测固化路径的写者面）
     withGeometryWriter(hasResizeAttr ? 'dimensions-attribute' : 'reconcile', () => {
-      set((s) => ({ nodes: applyNodeChanges(routed, s.nodes) as Node[] }));
+      // Y2 A2b 双轨：手势活值同步落渲染列表（RF rel 域自洽——cs 与 renderNodes 同批同值；
+      // 覆盖层等价：远端重算时手势活值节点保留旧对象〔recomputeRenderNodes〕）
+      set((s) => ({
+        nodes: applyNodeChanges(routed, s.nodes) as Node[],
+        renderNodes: applyNodeChanges(routed, s.renderNodes as unknown as Node[]) as unknown as RenderNode[],
+      }));
     });
     // B4'-2 手势期本地自删：remove 命中被拖集合/resize 目标 ⇒ 会话收尾（'removed'——幸存者回
     // baseline 事后回滚；doc 删已在上 structIntents 落地）

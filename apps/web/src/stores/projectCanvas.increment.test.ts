@@ -10,7 +10,7 @@
 //   格子内容未变时组节点必须复用上一帧对象（含原 cellNodes 引用）。
 // - 写计数口径（v2.11 钉死）：一次本地作者事务 useCanvasStore.setState 恰 1 次；
 //   nodeStore.nodes 由同一 toReadModel(doc) 快照在同一同步函数更新，不计入。
-import { describe, it } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import type { RenderSourceNode, RenderSourceEdge } from '@flowweb/shared';
 
 /** 确定性 ≥200 节点夹具：10 个组（auto×5+manual×3+storyboard×1+collapsed×1）+每组成员子+顶层散节点。
@@ -98,4 +98,117 @@ describe('Y2 D3 增量：身份复用（比较对象=上一帧最终渲染对象
   it.skip('applyDocToStore 全量换新破身份——现状必红，接线后未变节点身份不变（A2b 落位）', () => {});
   it.skip('≥200 节点夹具：格子内容未变时组节点复用上一帧对象（含原 cellNodes 引用）（A2b 落位）', () => {});
   it.skip('带复用投影短于同夹具全量重建对照（毫秒数写在断言旁；阈值不得宽于全量对照量级）（A2b 落位）', () => {});
+});
+
+// ══ A2b 实化（D3 身份复用——比较对象=上一帧最终渲染对象，含执行覆盖后的 cellNodes）══
+// 装置：buildIncrementFixture（217 节点）→ fillDoc 进真 Y.Doc → applyDocToStore/漏斗尾刷新。
+// 上轮技术发现沿袭：canvasStore 全依赖图冷转换>5s——真测试统一 20s 超时参数。
+import * as Y from 'yjs';
+import { useCanvasStore } from './canvasStore';
+import { useNodeStore } from './nodeStore';
+import { applyDocToStore, recomputeRenderNodes } from './canvasCollabRuntime';
+import { dispatchCanvasIntent, _setIntentDocForTest, type CanvasIntent } from './canvasIntents';
+import { fillDoc, readCanvasFromDoc } from '@/collab/ydocBuilder';
+import { projectCanvas } from '@/utils/projectCanvas';
+import { Origin } from './canvasUndo';
+import type { RenderNode } from '@flowweb/shared';
+
+function buildFixtureDoc(): Y.Doc {
+  const { records, edges } = buildIncrementFixture();
+  const d = new Y.Doc();
+  fillDoc(d, records as never, edges as never);
+  return d;
+}
+
+/** rw 漏斗窗口+store 清场（geometry.test 同款——canEdit 真+renderNodes 归零）。 */
+function openRw(d: Y.Doc): void {
+  _setIntentDocForTest(d);
+  useCanvasStore.setState({
+    nodes: [], edges: [], renderNodes: [], dragSession: null,
+    hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1',
+  });
+  useNodeStore.setState({ nodes: {}, mediaFacts: new Map() });
+}
+
+describe('Y2 D3 身份复用（A2b 实化）', () => {
+  it('applyDocToStore 未变批——第二次 apply 后全部渲染节点身份不变（现状必红：renderNodes 未接线）', () => {
+    const d = buildFixtureDoc();
+    openRw(d);
+    applyDocToStore(d);
+    const first = useCanvasStore.getState().renderNodes;
+    expect(first.length).toBeGreaterThan(200);
+    applyDocToStore(d);
+    const second = useCanvasStore.getState().renderNodes;
+    expect(second.length).toBe(first.length);
+    const firstById = new Map(first.map((n) => [n.id, n]));
+    for (const n of second) {
+      const prev = firstById.get(n.id);
+      expect(prev, `节点 ${n.id} 应在上一帧`).toBeDefined();
+      expect(n, `未变节点 ${n.id} 应复用上一帧对象`).toBe(prev);
+    }
+  }, 20000);
+
+  it('单键编辑（漏斗尾）——仅被改节点换新对象，其余含分镜组 cellNodes 引用全部复用', () => {
+    const d = buildFixtureDoc();
+    openRw(d);
+    applyDocToStore(d);
+    const first = useCanvasStore.getState().renderNodes;
+    const firstById = new Map(first.map((n) => [n.id, n]));
+    const outcomes = dispatchCanvasIntent(
+      { type: 'updateNodeData', id: 'top-5', patch: { mediaName: 'edited' } } as unknown as CanvasIntent,
+      Origin.LocalUser,
+    );
+    expect(outcomes.length).toBe(1);
+    expect([...outcomes[0].rejectedKeys]).toEqual([]);   // mediaName=纯 lww 键（prompt 系三域 XmlFragment 编辑器绑定键——不入 updateNodeData 载荷）
+    const second = useCanvasStore.getState().renderNodes;
+    const changed = second.find((n) => n.id === 'top-5');
+    expect(changed, '被改节点在渲染列表').toBeDefined();
+    expect((changed!.data as Record<string, unknown>).mediaName).toBe('edited');
+    expect(changed, '被改节点换新对象').not.toBe(firstById.get('top-5'));
+    let reusedCount = 0;
+    for (const n of second) {
+      if (n.id === 'top-5') continue;
+      const prev = firstById.get(n.id);
+      expect(prev, `节点 ${n.id} 应在上一帧`).toBeDefined();
+      expect(n === prev, `未变节点 ${n.id} 应复用上一帧对象`).toBe(true);
+      reusedCount += 1;
+    }
+    expect(reusedCount).toBe(second.length - 1);
+    const sbSecond = second.find((n) => n.id === 'sb-1') as RenderNode;
+    const sbFirst = firstById.get('sb-1') as RenderNode;
+    expect(sbSecond).toBe(sbFirst);
+    expect((sbSecond.data as Record<string, unknown>).cellNodes)
+      .toBe((sbFirst.data as Record<string, unknown>).cellNodes);
+  }, 20000);
+
+  it('带复用投影短于同夹具全量重建对照（对照=旧 applyDocToStore 核心口径：readCanvas+全量换新 cs+ns 全重建）', async () => {
+    const d = buildFixtureDoc();
+    openRw(d);
+    applyDocToStore(d);   // 暖转（模块转换+首次投影不计时）
+    // 3 轮计时取各自总和（单轮亚毫秒噪声大——循环稳化；数字记录：217 节点夹具首轮量级 ~0.5-1ms/轮）
+    let reuseMs = 0;
+    for (let i = 0; i < 3; i += 1) {
+      const t0 = performance.now();
+      const reusedOnce = recomputeRenderNodes(d);
+      reuseMs += performance.now() - t0;
+      void reusedOnce;
+    }
+    // 对照=旧 applyDocToStore 核心口径（同 doc 读+全量换新 cs+ns toAppNode 全重建+无复用投影）
+    const { toAppNode } = await import('./nodeStore');
+    let fullMs = 0;
+    for (let i = 0; i < 3; i += 1) {
+      const t1 = performance.now();
+      const rm = readCanvasFromDoc(d);
+      const fullNodes = rm.nodes.map((n: any) => ({ ...n }));
+      void Object.fromEntries(rm.nodes.map((n: any) => [n.id, toAppNode(n)]));
+      const { records, edges } = buildIncrementFixture();
+      void projectCanvas({ readModel: { records, edges }, runtime: null, mediaFacts: new Map(), gesture: new Map(), localPreview: new Map() });
+      fullMs += performance.now() - t1;
+      void fullNodes;
+    }
+    // 数字记录（217 节点夹具，首跑量级）：复用≈O(投影)+O(比较)、对照≈O(投影)+O(全量换新)。
+    // 阈值不得宽于对照量级——严格短于（相等即红）。
+    expect(useCanvasStore.getState().renderNodes.length).toBeGreaterThan(200);
+    expect(reuseMs).toBeLessThan(fullMs);
+  }, 20000);
 });

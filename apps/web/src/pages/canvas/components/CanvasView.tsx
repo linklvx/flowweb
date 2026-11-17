@@ -100,6 +100,9 @@ function CanvasViewComponent(_props: Props) {
   const [minimapOpen, setMinimapOpen] = useState(false);
   const [snapEnabled, setSnapEnabled] = useState(false);
   const [groupContextMenu, setGroupContextMenu] = useState<{ groupId: string; x: number; y: number } | null>(null);
+  // Y2 A2b（D2 双轨）：React Flow 消费渲染列表（projectCanvas 输出）；nodes=作者缓存轨道
+  //（绝对坐标域逻辑——拖放判定 absoluteRectsOf/组选择——继续读缓存，A3 reconcile 退役后翻 abs 读模型）
+  const renderNodes = useCanvasStore((s) => s.renderNodes);
   const nodes = useCanvasStore((s) => s.nodes);
   const edges = useCanvasStore((s) => s.edges);
   const viewport = useCanvasStore((s) => s.viewport);
@@ -523,7 +526,7 @@ function CanvasViewComponent(_props: Props) {
       onPointerDownCapture={dragGuard.onPointerDownCapture}
     >
       <ReactFlow
-        nodes={nodes}
+        nodes={renderNodes as any}
         edges={edges}
         onNodesChange={onNodesChange as OnNodesChange}
         onEdgesChange={onEdgesChange as OnEdgesChange}

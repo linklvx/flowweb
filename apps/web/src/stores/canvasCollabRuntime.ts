@@ -31,7 +31,7 @@ import { projectCanvasNodes } from '@/utils/projectCanvasNodes';
 import {
   DEFAULT_CHILD_SIZE,
   deriveGroupFrame, hasStoryboardConfig, frameMode, type Rect, type FrameMode,
-  type DragSession,
+  type DragSession, type RenderNode, type RenderSourceNode, type RenderSourceEdge,
   assertDocAbsMatchesCsRel, assertStoryboardMembership, reportShapeViolation,
   assertAllPositionsFinite, GeometryWriteLedger, type GeometryField,
 } from '@flowweb/shared';
@@ -44,8 +44,9 @@ import { AwarenessBridge } from '@/collab/awareness';
 // Y1b T16：mediaFacts 拉取/暂存/消费会话编排（nodeStore.mediaFacts 唯一写者——三挂点：
 // 重连全量拉/fileId 到达判定/切项目清空；本模块零事实逻辑，全在 mediaFactsRuntime）
 import { pullMediaFactsFull, onDocRefsChanged, resetMediaFacts, pullMediaFactsForIds } from './mediaFactsRuntime';
-import { setRuntimeArtifactSinkDirect, setRuntimeIdbEnabled, runtimeFeedFetchers } from './runtimeStore';
+import { setRuntimeArtifactSinkDirect, setRuntimeIdbEnabled, runtimeFeedFetchers, useRuntimeFeedStore } from './runtimeStore';
 import { initRuntimeFeed, resetRuntimeFeed, handleFeedHint, projectRuntimeExecToNodeStore } from './runtimeStore';
+import { projectCanvas } from '@/utils/projectCanvas';
 // Y1c T22 收口批（C-1）：runtime feed HTTP 游标客户端（生产 fetcher 注入源——armSession 接线）
 import { fetchRuntimeFeedSnapshot, fetchRuntimeFeedEvents } from '@/api/collabApi';
 // 批1-0 transport 薄层（门 B 裁决）——Y0b-5 T3b 起改形为 socket 单实例注册表（needKick 语义废弃）：
@@ -1736,6 +1737,80 @@ export function resolveDraggingIdsFromGesture(nodes: ReadonlyArray<{ id: string 
  *  read→assert→保护捕获→hydrate setState[abs 过渡态]→保护回写→ns→reconcile(doc，含 hidden
  *  派生——O0b-4 并入单内核，独立派生步骤核销)→尾挂断言。全程同步无 await/渲染分隔；
  *  session 缺席⇒捕获 null=零保护=现状行为。 */
+/** Y2 A2b（D3 全量+身份复用）：渲染列表重算——doc 读模型经 projectCanvas（runtime 投影+
+ *  ns mediaFacts 覆盖；gesture/localPreview 空表——手势活值经 onNodesChange applyNodeChanges
+ *  直写 renderNodes=覆盖层，重算时手势活值节点保留旧对象）。与上一帧 renderNodes 逐字段比较：
+ *  相等复用原对象、数组浅建——比较对象=上一帧最终渲染对象（含执行覆盖后的 cellNodes，值比较）。 */
+export function recomputeRenderNodes(d: Y.Doc): RenderNode[] {
+  const { nodes: records, edges } = readCanvasFromDoc(d);
+  const csState = useCanvasStore.getState();
+  const prev = csState.renderNodes;
+  const next = projectCanvas({
+    readModel: { records: records as unknown as RenderSourceNode[], edges: edges as unknown as RenderSourceEdge[] },
+    runtime: useRuntimeFeedStore.getState().projection,
+    mediaFacts: useNodeStore.getState().mediaFacts,
+    gesture: EMPTY_RENDER_OVERLAYS.gesture,
+    localPreview: EMPTY_RENDER_OVERLAYS.localPreview,
+  });
+  // 手势活值节点：保留旧对象（活值只在 renderNodes 上——doc 派生值是提交前旧值）
+  const gestureLive = new Set<string>();
+  const sess = csState.dragSession;
+  if (sess) {
+    for (const id of sess.draggingIds) gestureLive.add(id);
+    if (sess.resizeTargetId != null) gestureLive.add(sess.resizeTargetId);
+  }
+  const prevById = new Map(prev.map((n) => [n.id, n]));
+  return next.nodes.map((n) => {
+    if (gestureLive.has(n.id)) return prevById.get(n.id) ?? n;
+    const p = prevById.get(n.id);
+    return p !== undefined && renderNodeValueEqual(p, n) ? p : n;
+  });
+}
+
+/** 空覆盖常量（gesture/localPreview 不经 projectCanvas 重算通道——活值/预览均为覆盖层）。 */
+const EMPTY_RENDER_OVERLAYS = {
+  gesture: new Map<string, import('@/utils/projectCanvas').GestureOverlay>(),
+  localPreview: new Map<string, string>(),
+};
+
+/** 逐字段值相等（身份复用判据）：顶层字段+data 浅比（cellNodes 逐格浅比——数组值内容而非引用）。 */
+function renderNodeValueEqual(a: RenderNode, b: RenderNode): boolean {
+  if (a.id !== b.id || a.type !== b.type || a.parentId !== b.parentId) return false;
+  if (a.hidden !== b.hidden || a.width !== b.width || a.height !== b.height) return false;
+  if (a.position?.x !== b.position?.x || a.position?.y !== b.position?.y) return false;
+  if (a.data === b.data) return true;
+  const da = a.data as Record<string, unknown>;
+  const db = b.data as Record<string, unknown>;
+  const ka = Object.keys(da);
+  if (ka.length !== Object.keys(db).length) return false;
+  for (const k of ka) {
+    const va = da[k];
+    const vb = db[k];
+    if (va === vb) continue;
+    if (Array.isArray(va) && Array.isArray(vb)) {
+      if (va.length !== vb.length) return false;
+      for (let i = 0; i < va.length; i += 1) {
+        const ea = va[i] as Record<string, unknown>;
+        const eb = vb[i] as Record<string, unknown>;
+        if (typeof ea === 'object' && ea !== null && typeof eb === 'object' && eb !== null) {
+          const eks = Object.keys(ea);
+          if (eks.length !== Object.keys(eb).length) return false;
+          for (const ek of eks) if (ea[ek] !== eb[ek]) return false;
+        } else if (ea !== eb) return false;
+      }
+      continue;
+    }
+    if (typeof va === 'object' && va !== null && typeof vb === 'object' && vb !== null) {
+      const oks = Object.keys(va as Record<string, unknown>);
+      if (oks.length !== Object.keys(vb as Record<string, unknown>).length) return false;
+      for (const ok of oks) if ((va as Record<string, unknown>)[ok] !== (vb as Record<string, unknown>)[ok]) return false;
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
 export function applyDocToStore(d: Y.Doc) {
   const { nodes, edges } = readCanvasFromDoc(d);
   // 批5 判据⑥ dev 巡检：影子信箱已删——nodes 出现 /^shadow-/ 即结构性违例（存量数据须 truncate
@@ -1750,6 +1825,8 @@ export function applyDocToStore(d: Y.Doc) {
   // hydrate 直吃作者态记录（O0b-0：normalizeLoadedCanvas 补缺层整删——doc=abs 空间过渡态直拷，
   // 子节点 rel 语义由尾挂 reconcile 同 tick 修正）
   // O0b-7：水合投影写体写者上下文（registry applyDocToStore 条目 projection-default）
+  // Y2 A2b 双轨：同一次 setState 写作者缓存+渲染列表（D2——recompute 前置于块外读 prev）
+  const nextRenderNodes = recomputeRenderNodes(d);
   withGeometryWriter('projection-default', () => {
     useCanvasStore.setState({
       nodes: ensureParentOrder(nodes.map((n: any) => ({
@@ -1758,6 +1835,7 @@ export function applyDocToStore(d: Y.Doc) {
         position: n.position ?? { x: 0, y: 0 },
         width: n.width ?? undefined, height: n.height ?? undefined,
       }))) as any,
+      renderNodes: nextRenderNodes,
       edges: edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
     });
   });

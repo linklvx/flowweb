@@ -61,7 +61,7 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     //（interface +9/初始值 +3）+rebindCopiedMedia helper +31——13 行整体 +40 漂移（集合不变）
     // C3a-8 批：HEAD=a953e55a（C3a-7 收口）在 canvasStore:561 附近注释段净 +1 行未同步本表
     //（本卡零 web 改动——机械行号同步，集合不变；隔离复跑绿）
-    'stores/canvasStore.ts': [1108, 1109, 1115, 1116, 1179, 1180, 1258, 1259, 1265, 1266, 1425, 1968, 1969],   // T25b 收口 +11 漂移 → C3a-8 批 +1 机械同步（集合不变）
+    'stores/canvasStore.ts': [1113, 1114, 1120, 1121, 1184, 1185, 1263, 1264, 1270, 1271, 1430, 1978, 1979],   // T25b 收口 +11 漂移 → C3a-8 批 +1 机械同步（集合不变）→ Y2 A2b renderNodes 字段/双轨注释 +5/+10 机械同步（集合不变）
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [53, 54],  // Y1c T1：注释+import 插入 +4 漂移
     'pages/canvas/video-editor/export/product-node.ts': [16],  // Y1c T1：import 插入 +1 漂移

@@ -416,6 +416,24 @@
    "fixtures": [
     "fixture-29-01"
    ]
+  },
+  {
+   "id": "web-runtime-recompute-render-nodes",
+   "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+   "fields": [
+    "data",
+    "edges",
+    "id",
+    "nodes",
+    "parentId",
+    "position",
+    "type"
+   ],
+   "testAnchor": "apps/web/src/stores/projectCanvas.increment.test.ts",
+   "shapeHash": "0bda01b82b16f9699b1dfdef810f1571bd7c652acf0676f9ed9b29e82ffa7dc9",
+   "fixtures": [
+    "fixture-30-01"
+   ]
   }
  ]
 }

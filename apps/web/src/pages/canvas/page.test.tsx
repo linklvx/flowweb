@@ -46,6 +46,8 @@ vi.mock('@/stores/canvasStore', () => ({
     vi.fn((selector?: any) => {
       const state = {
         nodes: mockCanvasNodes,
+        // Y2 A2b：RF 消费渲染列表——mock 同列表（双轨下 mock 面=同一份节点表）
+        renderNodes: mockCanvasNodes,
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
         selectedId: null,
