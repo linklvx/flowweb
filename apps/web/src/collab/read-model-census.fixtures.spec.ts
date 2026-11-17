@@ -69,10 +69,10 @@ describe('Y1c T19：web 读单源=CanvasReadModel（编译期差异表）', () =
   });
 });
 
-describe('Y1c T19：web census 条目（10/27）+读单源恒等', () => {
-  it('web 条目=10 条（runtime×4/intents×3/canvasStore/local-backup/ydocBuilder）；fields/testAnchor 与 json 冻结一致', () => {
+describe('Y1c T19：web census 条目（11/30）+读单源恒等', () => {
+  it('web 条目=11 条（runtime×5/intents×3/canvasStore/local-backup/ydocBuilder——Y2 A2b +recomputeRenderNodes）；fields/testAnchor 与 json 冻结一致', () => {
     const web = CENSUS.entries.filter((e) => e.file.startsWith('apps/web/'));
-    expect(web).toHaveLength(10);
+    expect(web).toHaveLength(11);
     expect(web.every((e) => e.fixtures.length >= 1)).toBe(true);
     for (const e of web) expect(existsSync(join(findRepoRoot(process.cwd()), e.testAnchor))).toBe(true);
   });

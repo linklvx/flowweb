@@ -1773,42 +1773,79 @@ const EMPTY_RENDER_OVERLAYS = {
   localPreview: new Map<string, string>(),
 };
 
-/** 逐字段值相等（身份复用判据）：顶层字段+data 浅比（cellNodes 逐格浅比——数组值内容而非引用）。 */
+/** Y2 A2b（裁决 3 v4——漏斗尾 ns 快照）：nodeStore.nodes 由同一份 doc 读模型快照在同一同步
+ *  函数里刷新——未变节点沿用旧对象引用（照 renderNodes 身份复用同款，防每笔本地事务全量
+ *  组件重渲染）；被变节点保留 ns 本地字段（selected/dragging——非 doc 面）。 */
+export function refreshNodeStoreFromDoc(d: Y.Doc): void {
+  const { nodes: records } = readCanvasFromDoc(d);
+  const prev = useNodeStore.getState().nodes;
+  const next: Record<string, ReturnType<typeof toAppNode>> = {};
+  for (const r of records) {
+    const p = prev[r.id];
+    if (p !== undefined && shallowDataEqual(p.data as unknown as Record<string, unknown>, r.data as Record<string, unknown>)) {
+      next[r.id] = p;
+      continue;
+    }
+    next[r.id] = p !== undefined ? { ...p, data: r.data as never } : toAppNode(r);
+  }
+  useNodeStore.setState({ nodes: next });
+}
+
+/** 逐字段值相等（身份复用判据）：顶层字段+data 零分配浅比（for-in 免键数组分配——热路径
+ *  每 doc 批次 × 每节点执行；cellNodes 逐格浅比——数组值内容而非引用；嵌套对象一层浅比）。 */
 function renderNodeValueEqual(a: RenderNode, b: RenderNode): boolean {
   if (a.id !== b.id || a.type !== b.type || a.parentId !== b.parentId) return false;
   if (a.hidden !== b.hidden || a.width !== b.width || a.height !== b.height) return false;
   if (a.position?.x !== b.position?.x || a.position?.y !== b.position?.y) return false;
-  if (a.data === b.data) return true;
-  const da = a.data as Record<string, unknown>;
-  const db = b.data as Record<string, unknown>;
-  const ka = Object.keys(da);
-  if (ka.length !== Object.keys(db).length) return false;
-  for (const k of ka) {
-    const va = da[k];
-    const vb = db[k];
+  return shallowDataEqual(a.data, b.data);
+}
+
+/** data 零分配浅比（for-in+计数免 Object.keys；数组逐项浅比/嵌套对象一层浅比）。 */
+function shallowDataEqual(x: Record<string, unknown> | undefined, y: Record<string, unknown> | undefined): boolean {
+  if (x === y) return true;
+  if (x === undefined || y === undefined) return false;
+  let count = 0;
+  for (const k in x) {
+    count += 1;
+    const va = x[k];
+    const vb = y[k];
     if (va === vb) continue;
     if (Array.isArray(va) && Array.isArray(vb)) {
       if (va.length !== vb.length) return false;
       for (let i = 0; i < va.length; i += 1) {
-        const ea = va[i] as Record<string, unknown>;
-        const eb = vb[i] as Record<string, unknown>;
+        const ea = va[i] as Record<string, unknown> | null;
+        const eb = vb[i] as Record<string, unknown> | null;
         if (typeof ea === 'object' && ea !== null && typeof eb === 'object' && eb !== null) {
-          const eks = Object.keys(ea);
-          if (eks.length !== Object.keys(eb).length) return false;
-          for (const ek of eks) if (ea[ek] !== eb[ek]) return false;
+          let n = 0;
+          for (const ek in ea) {
+            n += 1;
+            if (ea[ek] !== eb[ek]) return false;
+          }
+          let m = 0;
+          for (const ek in eb) m += 1;
+          if (n !== m) return false;
         } else if (ea !== eb) return false;
       }
       continue;
     }
     if (typeof va === 'object' && va !== null && typeof vb === 'object' && vb !== null) {
-      const oks = Object.keys(va as Record<string, unknown>);
-      if (oks.length !== Object.keys(vb as Record<string, unknown>).length) return false;
-      for (const ok of oks) if ((va as Record<string, unknown>)[ok] !== (vb as Record<string, unknown>)[ok]) return false;
+      const oa = va as Record<string, unknown>;
+      const ob = vb as Record<string, unknown>;
+      let n = 0;
+      for (const ok in oa) {
+        n += 1;
+        if (oa[ok] !== ob[ok]) return false;
+      }
+      let m = 0;
+      for (const ok in ob) m += 1;
+      if (n !== m) return false;
       continue;
     }
     return false;
   }
-  return true;
+  let yc = 0;
+  for (const k in y) yc += 1;
+  return count === yc;
 }
 
 export function applyDocToStore(d: Y.Doc) {

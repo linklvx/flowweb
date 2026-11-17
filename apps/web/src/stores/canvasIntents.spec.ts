@@ -707,8 +707,11 @@ describe('Spec B editMode 分片：ephemeral 键集守卫（editMode/transformMo
     expect(docData.get('editMode')).toBeUndefined();       // ephemeral 禁入 doc（漏斗入口剥键）
     expect(docData.get('transformMode')).toBeUndefined();
     expect(docData.get('style')).toBe('写实');              // 持久键照常落 doc
-    // ns=本地瞬态面：ephemeral 键保留（编辑态组件读 ns data）
-    expect(useNodeStore.getState().nodes['n1'].data).toMatchObject({ editMode: 'crop', transformMode: true });
+    // Y2 A2b：ns=doc 快照——ephemeral 键不落 doc 即不落 ns（本地瞬态直写面退役，读面 ?? 兜底）；
+    // 持久键 style 经快照落 ns=dispatch 实走漏斗的防恒真探针
+    expect(useNodeStore.getState().nodes['n1'].data).toMatchObject({ style: '写实' });
+    expect(useNodeStore.getState().nodes['n1'].data).not.toHaveProperty('editMode');
+    expect(useNodeStore.getState().nodes['n1'].data).not.toHaveProperty('transformMode');
     expect(checkProjectionInvariant(doc)).toBe(true);       // 投影出口剥键一致——ephemeral 键不破 doc≡store
   });
 
@@ -767,13 +770,16 @@ describe('Spec B editMode 分片：ephemeral 键集守卫（editMode/transformMo
     const docData = (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>;
     const snapshot = () => Object.fromEntries([...docData.keys()].map((k) => [k, docData.get(k)]));
     const before = snapshot();
-    dispatchCanvasIntent(
+    const outcomes = dispatchCanvasIntent(
       { type: 'updateNodeData', id: 'n1', patch: { editMode: 'crop' } },
       Origin.LocalUser,
     );
     expect(snapshot()).toEqual(before);                    // 全瞬态 patch：doc 零变更（逐键相等）
-    // dispatch 实走漏斗（ns 瞬态面生效——防恒真）
-    expect(useNodeStore.getState().nodes['n1'].data).toMatchObject({ editMode: 'crop' });
+    // Y2 A2b：ns=doc 快照——ephemeral 键不落 doc 即不落 ns；防恒真探针改 outcomes 非早退
+    //（早退分支=[]；全瞬态无拒绝=空 rejectedKeys）
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].rejectedKeys.size).toBe(0);
+    expect(useNodeStore.getState().nodes['n1'].data).not.toHaveProperty('editMode');
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 });
@@ -961,10 +967,11 @@ describe('T11：客户端更新路径禁写键 strip（{fileId,result}——服�
     expect(data.has('result')).toBe(false);                 // 禁写键不落 doc
     expect(data.get('referenceImage')).toBe('ref-1');       // 上传引用键照写
     expect(data.get('allImages')).toEqual([{ id: 'a1' }]);  // 上传引用键照写
-    // ns 本地照旧（本地 UI——乐观态在 store 维护，权威写归 replaceMedia 命令/服务端交付）
+    // Y2 A2b：ns=doc 快照——禁写键不落 doc 即不落 ns（本地乐观面随直写体退役；权威写归
+    // replaceMedia 命令/服务端交付，ns 呈 doc 真值 m-old/无 result）
     const nsData = useNodeStore.getState().nodes['n1'].data as unknown as Record<string, unknown>;
-    expect(nsData.fileId).toBe('m-new');
-    expect(nsData.result).toBe('server-text');
+    expect(nsData.fileId).toBe('m-old');
+    expect(nsData.result).toBeUndefined();
   });
 
   it('红② diff 投影 dataPatch：本地 fileId 变更不生成（diff 生成侧剥）∧referenceImage 变更照落 doc', () => {

@@ -271,7 +271,9 @@ describe('T15 收口 A（Q-I-1）：拒写半落根修——doc 拒 ⇒ store �
     dispatchCanvasIntent({ type: 'updateNodeData', id: 'a3', patch: { prompt: 'x', model: 'm2' } }, Origin.LocalUser);
     const nsData = useNodeStore.getState().nodes['a3']?.data as unknown as Record<string, unknown>;
     expect(doc.getMap('nodes').get('a3')).toBeTruthy();
-    expect(nsData?.model).toBe('m-audio');   // 全键拒——model 不落（现状红：ns.model='m2' doc 拒/ns 落半落）
+    // Y2 A2b：ns=doc 快照——data-map-missing 档 doc 真值 data={}（ns 旧值 m-audio 不保）；
+    // 本卡性质锚=被拒键值不落 ns（rejectAllKeys ⇒ 投影剥光 ⇒ 快照无 m2 半落）
+    expect(nsData?.model).not.toBe('m2');   // 全键拒——被拒键值不落（doc 拒/ns 落半落根修保持）
     expect(nsData?.prompt).toBeUndefined();
   });
 

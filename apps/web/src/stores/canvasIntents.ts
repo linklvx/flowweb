@@ -30,7 +30,7 @@ import { Origin } from './canvasUndo';
 // ——全仓唯一）同源导入（循环依赖裁定同 getDoc——顶层 import 声明，调用体运行时才执行）。
 // B7-1（O0b-7 投影写体 + O0b-4 transact 边界断言）追加同裁定：withGeometryWriter/
 // assertReconcileSingleWriterWindow 顶层仅 import 声明，调用体运行时才执行。
-import { getDoc, measureLocalDocNow, reconcileGroupGeometry, readGroupFrameModes, assertReconcileSingleWriterWindow, recomputeRenderNodes } from './canvasCollabRuntime';
+import { getDoc, measureLocalDocNow, reconcileGroupGeometry, readGroupFrameModes, assertReconcileSingleWriterWindow, recomputeRenderNodes, refreshNodeStoreFromDoc } from './canvasCollabRuntime';
 import { recordCollabDiag } from '@/utils/collabDiagnostics';
 import { withGeometryWriter } from './geometryTrap';
 
@@ -460,9 +460,11 @@ export function dispatchCanvasIntent(intent: CanvasIntent | CanvasIntent[], orig
   // B7-1（O0b-4 接线）：transact 边界字段级一写者断言（reconcileWriteLedger 窗口收口+reset——
   // 窗口=本次 dispatch 全链[diff 首行 reconcile('cs') 携前序命令体写]至漏斗尾 reconcile 后）
   assertReconcileSingleWriterWindow();
-  // Y2 A2b（D2）：漏斗尾渲染列表立即重填——本地作者事务后 renderNodes 同步跟随 doc
-  //（身份复用见 recomputeRenderNodes；早退分支零写不触发本行=零 doc 写零渲染变更）。
+  // Y2 A2b（D2+裁决 3 v4）：漏斗尾渲染列表立即重填+ns 同快照刷新——本地作者事务后 renderNodes/
+  //  nodeStore 同步跟随 doc（身份复用见 recomputeRenderNodes/refreshNodeStoreFromDoc；早退分支
+  //  零写不触发=零 doc 写零渲染/ns 变更；三桥退役后 ns 本地刷新唯一通道=本快照）。
   useCanvasStore.setState({ renderNodes: recomputeRenderNodes(d) });
+  if (compositeStagingDepth === 0) refreshNodeStoreFromDoc(d);   // 复合暂存窗内暂缓——复合尾统一刷新
   return outcomes;
 }
 
@@ -547,7 +549,30 @@ export function readGroupStoredFrameFromDoc(groupId: string): {
 }
 
 /** 复合 action 起点捕获投影快照（dispatchProjectionDiff 的 before 侧）。 */
+/** Y2 A2b（裁决 3 v4 配套——复合暂存窗）：captureStoreProjection→dispatchProjectionDiff 括号内
+ *  ns 是差分暂存面（convertGroup/resizeStoryboardGrid 等先暂存 slot 写、命令尾差分翻译落 doc）。
+ *  窗内漏斗尾 ns 快照暂缓（快照=doc 真值会清未落 doc 的暂存写=分镜格位丢失）；复合尾
+ *  （depth 归零）统一刷新。中途 dispatch 直发段照旧（renderNodes 重填不受影响——只渲染）。 */
+let compositeStagingDepth = 0;
+/** 泄漏窗自动收口：复合命令恒同步（capture→diff 同 tick）——微任务边界窗必已闭合；早退路径
+ *  （canEdit 拒后 return 不经 diff）在此归零+补刷新，泄漏不可能跨 tick 存活。 */
+let stagingResetQueued = false;
+function scheduleStagingReset(): void {
+  if (stagingResetQueued) return;
+  stagingResetQueued = true;
+  queueMicrotask(() => {
+    stagingResetQueued = false;
+    if (compositeStagingDepth > 0) {
+      compositeStagingDepth = 0;
+      const rd = resolveDoc();
+      if (rd) refreshNodeStoreFromDoc(rd);
+    }
+  });
+}
+
 export function captureStoreProjection(): StoreProjectionSnapshot {
+  compositeStagingDepth += 1;
+  scheduleStagingReset();
   const cs = useCanvasStore.getState();
   const ns = useNodeStore.getState();
   return {
@@ -661,6 +686,7 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
  *  abs 归一（auto 组帧从 cs 子 abs 重派生/manual/storyboard 用 cs 活值帧；写域②③④直拷跳过防吞
  *  命令写），此后差分快照才不丢命令几何。无 doc（会话外）跳过——oracle 缺席无从判定帧模式。 */
 export function dispatchProjectionDiff(before: StoreProjectionSnapshot, origin: string): void {
+  try {
   const rd = resolveDoc();
   if (rd) reconcileGroupGeometry(rd, 'cs');
   // Y2 A2b（D2）：cs 域几何回流即时反映进渲染列表——零 intent 早退路径（diff 空批 return）
@@ -682,6 +708,13 @@ export function dispatchProjectionDiff(before: StoreProjectionSnapshot, origin: 
       assertStoryboardChildNoPosition(tailRecords);
       assertNoCsDerivedKeysInData(tailRecords);
       assertNoDunderKeysInGroupData(tailRecords);
+    }
+  }
+  } finally {
+    compositeStagingDepth = Math.max(0, compositeStagingDepth - 1);
+    if (compositeStagingDepth === 0) {
+      const rd2 = resolveDoc();
+      if (rd2) refreshNodeStoreFromDoc(rd2);   // 复合尾统一刷新（含暂存 slot 已随差分落 doc 后的真值）
     }
   }
 }

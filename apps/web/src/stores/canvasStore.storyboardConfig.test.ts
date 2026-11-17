@@ -4,6 +4,7 @@ import * as Y from 'yjs';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import { _setIntentDocForTest } from './canvasIntents';
+import { fillDoc } from '@/collab/ydocBuilder';
 import { openRwWindow } from '@/test/fixtures/canvas';
 import { CONVERT_GAP, calcStoryboardSize } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
@@ -32,6 +33,9 @@ beforeEach(() => {
       d: { id: 'd', type: 'imageGen', position: { x: 500, y: 400 }, data: { status: 'done', fileId: 'f-d' } },
     } as any,
   });
+  // Y2 A2b（裁决 3 v4）：ns=漏斗尾 doc 快照——既有节点须在案 doc（生产形态：节点经 dispatch 落
+  // doc；装置直播 cs/ns 不播 doc 时，首笔 dispatch 快照会把 ns 刷成 doc 真值=节点消失）
+  fillDoc(doc, [doneImage('a'), doneImage('b', 500, 100), doneImage('c', 100, 400), doneImage('d', 500, 400)] as any, []);
 });
 
 afterEach(() => {

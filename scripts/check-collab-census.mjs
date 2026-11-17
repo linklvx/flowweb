@@ -1713,7 +1713,7 @@ if (isMain()) {
     'apps/api/src/modules/video-work/video-work.service.ts': 1,        // snapshotCached 公开快照读（读径①）
     'apps/web/src/collab/canvas-local-backup.ts': 1,                   // readCanvasFromDoc .json 反投影
     'apps/web/src/collab/ydocBuilder.ts': 2,                           // readCanvasFromDoc def+toReadModel（web 读单源）
-    'apps/web/src/stores/canvasCollabRuntime.ts': 6,                   // readCanvasFromDoc×6（oracle/装载投影/对账/缓存快照+T25b B2 boot 合并异常检测+Y2 A2b recomputeRenderNodes 渲染列表重算——全模型只读扫描，消费形=web-runtime-apply-doc-to-store 同款全模型）
+    'apps/web/src/stores/canvasCollabRuntime.ts': 7,                   // readCanvasFromDoc×7（oracle/装载投影/对账/缓存快照+T25b B2 boot 合并异常检测+Y2 A2b recomputeRenderNodes 渲染列表重算+refreshNodeStoreFromDoc 漏斗尾 ns 快照——全模型只读扫描，消费形=web-runtime-apply-doc-to-store 同款全模型）
     'apps/web/src/stores/canvasIntents.ts': 3,                         // toReadModel×3（键集 oracle/组 record/差分尾）
     'apps/web/src/stores/canvasStore.ts': 1,                           // readCanvasFromDoc commitIntents 差分
   };

@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
+import * as Y from 'yjs';
 import { useStyleLibrary } from './useStyleLibrary';
 import * as api from '@/api/stylesApi';
 import { useNodeStore } from '@/stores/nodeStore';
+import { useCanvasStore } from '@/stores/canvasStore';
+import { _setIntentDocForTest } from '@/stores/canvasIntents';
 
 vi.mock('@/api/stylesApi', () => ({
   fetchStyleCategories: vi.fn().mockResolvedValue([{ id: 'c1', name: '摄影写真', sortOrder: 1 }]),
@@ -20,6 +23,16 @@ describe('useStyleLibrary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useNodeStore.setState({ nodes: { img1: { id: 'img1', type: 'imageGen', data: {} } } as any });
+    // Y2 A2b（裁决 3 v4）：updateConfig 写经 dispatch 漏斗（ns=漏斗尾 doc 快照）——真 doc 种子+rw
+    //（styleId/styleName=plain LWW 键照落 doc ⇒ ns 断言保持；store 注入=本组用例存在目的）
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      const dm = new Y.Map();
+      const n = new Y.Map(); n.set('type', 'imageGen'); n.set('data', dm);
+      doc.getMap('nodes').set('img1', n);
+    });
+    _setIntentDocForTest(doc);
+    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
   });
 
   it('初始加载 tab=all 第一页并带分类', async () => {

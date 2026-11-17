@@ -12,7 +12,7 @@ export const READ_MODEL_CENSUS_FILENAME = 'read-model-census.json' as const;
 /** fixture 计数冻结（plan T19 卡：27 fixture——T19 填充达成；本常量=T19 侧数量门的单源）。
  *  T25b 微批 C-1：+1（api-canvas-read-user-face——B 场景裁定 current 侧用户面读端点）→28。
  *  Y1c T27：+1（api-maintenance-export——维护 EXPORTING/VERIFYING records 真值读面）→29。 */
-export const READ_MODEL_CENSUS_FIXTURE_COUNT = 30 as const;   // Y2 A2b +1（web-runtime-recompute-render-nodes——recomputeRenderNodes 渲染列表重算读面）
+export const READ_MODEL_CENSUS_FIXTURE_COUNT = 31 as const;   // Y2 A2b +2（web-runtime-recompute-render-nodes 渲染列表重算+web-runtime-ns-snapshot 漏斗尾 ns 快照读面）
 
 /** 单条 census 条目（读模型读者面登记——id/file/fields/test 锚+shape hash+fixtures）。 */
 export interface ReadModelCensusEntry {

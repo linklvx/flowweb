@@ -434,6 +434,20 @@
    "fixtures": [
     "fixture-30-01"
    ]
+  },
+  {
+   "id": "web-runtime-ns-snapshot",
+   "file": "apps/web/src/stores/canvasCollabRuntime.ts",
+   "fields": [
+    "data",
+    "id",
+    "nodes"
+   ],
+   "testAnchor": "apps/web/src/stores/nodeStore.test.ts",
+   "shapeHash": "69fe757836222a32f4ca966c7b7479404fb89f1f829d7f8b3eaa26931605c5af",
+   "fixtures": [
+    "fixture-31-01"
+   ]
   }
  ]
 }

@@ -303,14 +303,24 @@ describe('canvasStore', () => {
   });
 
   it('addNodeWithEdge should copy source node image data to new node', () => {
-    const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 100 });
-    useNodeStore.getState().updateConfig(sourceId, { fileId: 'img-xyz' });
+    // Y2 A2b（裁决 3 v4）：真 doc+rw——addNode/addNodeWithEdge 写经漏斗（ns=doc 快照）。fileId=
+    // CLIENT_FORBIDDEN_ON_UPDATE（服务端权威域）——updateConfig 不再能携至 ns；本地 fileId 写点=
+    // setFileResult（T11 本地 UI 面，doc 收敛归服务端写经 Yjs 回流）
+    const doc = new Y.Doc();
+    _setIntentDocForTest(doc);
+    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
+    try {
+      const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 100 });
+      useNodeStore.getState().setFileResult(sourceId, 'img-xyz');
 
-    const { addNodeWithEdge } = useCanvasStore.getState() as any;
-    const newId = addNodeWithEdge(sourceId);
+      const { addNodeWithEdge } = useCanvasStore.getState() as any;
+      const newId = addNodeWithEdge(sourceId);
 
-    const nsNode = useNodeStore.getState().nodes[newId];
-    expect((nsNode.data as ImageNodeData).fileId).toBe('img-xyz');
+      const nsNode = useNodeStore.getState().nodes[newId];
+      expect((nsNode.data as ImageNodeData).fileId).toBe('img-xyz');
+    } finally {
+      _setIntentDocForTest(null);
+    }
   });
 
   // ── deleteTransformNode ──

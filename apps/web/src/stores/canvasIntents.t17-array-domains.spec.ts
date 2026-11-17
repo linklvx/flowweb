@@ -338,7 +338,8 @@ describe('Y1c T17 updateConfig C-1：全量摊开载荷先剔数组域键（现�
     expect(idsOf(c)).toEqual(['X', 'R']);              // doc 权威保持（现状红：被 stale ns [X] 覆盖）
     const nsData = useNodeStore.getState().nodes['c1']?.data as unknown as Record<string, unknown>;
     expect(nsData.model).toBe('m2');
-    expect((nsData.allImages as unknown[]).map((x) => (x as { id: string }).id)).toEqual(['X']);   // ns 域键保留（不静默消失）
+    // Y2 A2b：ns=doc 快照——域键=doc 容器解码值（stale [X] 自愈为权威 [X,R]；域键在位不消失）
+    expect((nsData.allImages as unknown[]).map((x) => (x as { id: string }).id)).toEqual(['X', 'R']);   // ns 域键保留（不静默消失）
     expect(getRecentCollabDiag().filter((e) => e.type === 'write_reject')).toHaveLength(0);        // 零噪声
   });
 

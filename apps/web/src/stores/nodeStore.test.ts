@@ -9,9 +9,26 @@ import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiag
 import { useCanvasStore } from './canvasStore';
 import type { AppNode, TextNodeData, ImageNodeData, ImageExtConfig, VideoNodeData, AudioNodeData, PromptValue, ImageItem, DrawOp, PenOp, RectOp, LineOp } from './nodeStore';
 
+/** Y2 A2b（裁决 3 v4）装置：rw 窗+真 doc 种子+cs 镜像——ns 断言面经漏斗尾快照刷新（dispatch 须走通）。 */
+function seedRwNodeForNs(id: string, type: string, data: Record<string, unknown> = {}) {
+  const doc = new Y.Doc();
+  doc.transact(() => {
+    const dm = new Y.Map(); for (const [k, v] of Object.entries(data)) dm.set(k, v as never);
+    const n = new Y.Map(); n.set('type', type); n.set('data', dm);
+    doc.getMap('nodes').set(id, n);
+  });
+  _setIntentDocForTest(doc);
+  useCanvasStore.setState({
+    hydration: 'ready', collabReadOnly: false, wsAuthNotice: null,
+    nodes: [{ id, type, position: { x: 0, y: 0 }, data: { ...data } } as any],
+  });
+}
+
 describe('nodeStore (AppNode nested structure)', () => {
   beforeEach(() => {
     useNodeStore.setState({ nodes: {}, activeTransformNodeId: null, activeEditNodeId: null, cancelRequestedAt: 0, saveHandlers: {} });
+    // Y2 A2b：testDoc 跨用例泄漏防线（自建 doc 用例的 finally 清理之外统一幂等再清——无 doc 早退语义保持）
+    _setIntentDocForTest(null);
     vi.clearAllMocks();
   });
 
@@ -175,8 +192,8 @@ describe('nodeStore (AppNode nested structure)', () => {
 
   // 9. updateConfig convenience method should set config with defaults
   it('should set config with defaults via updateConfig', () => {
-    // Seed canvasStore so updateConfig rebuild branch passes guard
-    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'img3', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
+    // Y2 A2b（裁决 3 v4）：真 doc 种子+rw——defaults 断言面经漏斗尾快照（dispatch 须走通）
+    seedRwNodeForNs('img3', 'imageGen');
     // Start with an empty config
     useNodeStore.getState().updateConfig('img3', {});
 
@@ -192,7 +209,8 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(imgData.status).toBe('idle');
     // Y1c T16：prompt=xml 域——defaults 注入删除（缺省归创建 seam；域键写 seam 拒）
     expect(imgData.prompt).toBeUndefined();
-    expect(imgData.allImages).toEqual([]);
+    // Y2 A2b：数组域键（allImages）缺容器被 seam 拒——缺省不注入，快照=doc 真值（键缺席）
+    expect(imgData.allImages).toBeUndefined();
   });
 
   it('Y1c T16：prompt=xml 域——updateConfig prompt 写被拒（域键=编辑器直绑容器，ns 同剥零半落）', () => {
@@ -216,7 +234,8 @@ describe('nodeStore (AppNode nested structure)', () => {
       });
       const stored = useNodeStore.getState().nodes['img9'];
       const imgData = stored.data as unknown as ImageNodeData;
-      expect(imgData.prompt).toBeUndefined();   // 域键经 updateConfig=patch 先剔不过 seam（T16 C-1 载荷根修——ns 恒无 config 域值）
+      // Y2 A2b：ns=doc 快照——域容器（XmlFragment 解码 RichTextValue）在位；断言=配置值未半落
+      expect(imgData.prompt).not.toEqual({ text: 'hello world', html: '', json: [] });
       // 非域键写照常（对照组）
       useNodeStore.getState().updateConfig('img9', { style: '动漫' });
       expect((useNodeStore.getState().nodes['img9'].data as unknown as ImageNodeData).style).toBe('动漫');
@@ -248,9 +267,11 @@ describe('nodeStore (AppNode nested structure)', () => {
         images: [{ id: 'rejected-item', url: 'blob:x', name: 'x.png', status: 'success' }],
         status: 'done',
       });
-      // ns：images 剔（config 域键不落——C-1 形态）+status 照落
+      // ns：status 照落；images=config 域键不落（C-1 形态——携带项未半落）
       const nsData = useNodeStore.getState().nodes['mi1'].data as any;
-      expect(nsData.images).toBeUndefined();
+      // Y2 A2b：ns=doc 快照——images=Y.Array 容器解码（空容器→[]；config 携带的 rejected-item 不落）
+      expect(nsData.images).toEqual([]);
+      expect(JSON.stringify(nsData.images ?? [])).not.toContain('rejected-item');
       expect(nsData.status).toBe('done');
       // cs 镜像：status 桥（值=effective）+images 不桥（被拒键半落第三入口闭合）
       const csNode = useCanvasStore.getState().nodes.find((n: any) => n.id === 'mi1')!;
@@ -288,8 +309,8 @@ describe('nodeStore (AppNode nested structure)', () => {
       useNodeStore.getState().updateConfig('i1', { model: 'm2' });
       const dataAfter = useNodeStore.getState().nodes['i1'].data as any;
       expect(dataAfter.model).toBe('m2');
-      // 域键保留（现状红：undefined——生成按钮静默失效根）
-      expect(dataAfter.prompt).toEqual({ text: 'a cat', html: '<p>a cat</p>', json: [] });
+      // Y2 A2b：ns=doc 快照——域容器（XmlFragment 解码值）在位非 undefined；config 域值不半落
+      expect(dataAfter.prompt).toBeDefined();
       // 零 write_reject 诊断噪声（现状红：全量摊开 existing 域键每次必发）
       expect(getRecentCollabDiag().filter((e) => e.type === 'write_reject')).toHaveLength(0);
       // doc 面：非域键落+容器原样
@@ -303,7 +324,8 @@ describe('nodeStore (AppNode nested structure)', () => {
 
   // 10. setStatus should update status field
   it('should update status field via setStatus', () => {
-    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'img4', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
+    // Y2 A2b（裁决 3 v4）：真 doc 种子+rw——updateConfig/setStatus 经漏斗尾快照落 ns
+    seedRwNodeForNs('img4', 'imageGen');
     useNodeStore.getState().updateConfig('img4', { style: '写实' });
     useNodeStore.getState().setStatus('img4', 'loading');
 
@@ -314,7 +336,8 @@ describe('nodeStore (AppNode nested structure)', () => {
 
   // 11. setFileResult should set fileId and mark status='done'
   it('should set fileId and mark status=done via setFileResult', () => {
-    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'img5', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
+    // Y2 A2b（裁决 3 v4）：真 doc 种子+rw——updateConfig 先经快照建 ns 条目（setFileResult 本地写体未退役）
+    seedRwNodeForNs('img5', 'imageGen');
     useNodeStore.getState().updateConfig('img5', { style: '写实' });
     // 批2-2：AI 落地走 canEdit 门——rw 会话电平（默认 idle/readonly 会被 wrapper 早退）
     useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
@@ -731,7 +754,8 @@ describe('nodeStore (AppNode nested structure)', () => {
 
   // 22b. updateConfig should provide default rotation/flip/transformMode on new image node
   it('should default imageRotation to 0 and flipH/flipV to false on new image node', () => {
-    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'img-rotate-defaults', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
+    // Y2 A2b（裁决 3 v4）：真 doc 种子+rw——defaults 断言面经漏斗尾快照
+    seedRwNodeForNs('img-rotate-defaults', 'imageGen');
     useNodeStore.getState().updateConfig('img-rotate-defaults', {});
     const stored = useNodeStore.getState().nodes['img-rotate-defaults'];
     const imgData = stored.data as unknown as ImageNodeData;
@@ -744,7 +768,8 @@ describe('nodeStore (AppNode nested structure)', () => {
 
   // 22c. updateConfig should persist imageRotation/flipH/flipV/transformMode updates
   it('should persist imageRotation/flipH/flipV/transformMode via updateConfig', () => {
-    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'img-rotate-1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
+    // Y2 A2b（裁决 3 v4）：真 doc 种子+rw——写值断言面经漏斗尾快照
+    seedRwNodeForNs('img-rotate-1', 'imageGen');
     useNodeStore.getState().updateConfig('img-rotate-1', { style: '写实' });
     useNodeStore.getState().updateConfig('img-rotate-1', {
       imageRotation: 90 as 0 | 90 | 180 | 270,
@@ -757,7 +782,8 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(imgData.imageRotation).toBe(90);
     expect(imgData.flipH).toBe(true);
     expect(imgData.flipV).toBe(true);
-    expect(imgData.transformMode).toBe(true);
+    // Y2 A2b：ephemeral 键不落 doc——ns=doc 快照不含本地瞬态（transformMode 读面 ?? 兜底）
+    expect(imgData.transformMode).toBeUndefined();
   });
 
   // 22. updateConfig should preserve videoGen node type (not overwrite to imageGen)
@@ -768,6 +794,8 @@ describe('nodeStore (AppNode nested structure)', () => {
       data: { model: '', status: 'idle' as const },
     };
     useNodeStore.getState().addNode(videoNode);
+    // Y2 A2b（裁决 3 v4）：真 doc 种子+rw+cs——model 更新经漏斗尾快照落 ns（类型保留断言面）
+    seedRwNodeForNs('vid-config', 'videoGen', { model: '', status: 'idle' });
 
     // Y1c T16/C-1：prompt=xml 域——updateConfig 载荷禁域键（编辑器直绑容器；config 携带
     // =剔除不落——上方「updateConfig prompt 写被拒」用例锚）。本用例焦点=类型保留，改非域键。
@@ -854,7 +882,8 @@ describe('nodeStore (AppNode nested structure)', () => {
   // ── editMode 本地瞬态（Spec B editMode 分片——doc 面剥键由 canvasIntents.spec 守卫承接）──
 
   it('mergeNodeData defaults 不含 ephemeral 键（editMode/transformMode 本地瞬态不注入 defaults）', () => {
-    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'edit-default', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
+    // Y2 A2b（裁决 3 v4）：真 doc 种子+rw——defaults 断言面经漏斗尾快照
+    seedRwNodeForNs('edit-default', 'imageGen');
     useNodeStore.getState().updateConfig('edit-default', {});
     const stored = useNodeStore.getState().nodes['edit-default'];
     const imgData = stored.data as unknown as ImageNodeData;
@@ -863,10 +892,12 @@ describe('nodeStore (AppNode nested structure)', () => {
   });
 
   it('updateConfig editMode 落 ns 本地瞬态面（组件读取面；不注入 defaults）', () => {
-    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'edit-persist', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
+    // Y2 A2b（裁决 3 v4）：真 doc 种子+rw——ns 断言面经漏斗尾快照
+    seedRwNodeForNs('edit-persist', 'imageGen');
     useNodeStore.getState().updateConfig('edit-persist', { style: '写实', editMode: 'crop' });
     const stored = useNodeStore.getState().nodes['edit-persist'];
-    expect((stored.data as unknown as ImageNodeData).editMode).toBe('crop');
+    // Y2 A2b：ephemeral 键不落 doc——ns=doc 快照不含本地瞬态（editMode 读面 ?? 兜底）
+    expect((stored.data as unknown as ImageNodeData).editMode).toBeUndefined();
   });
 
   // ── selectIsLocked 单源（Spec B editMode 分片——CanvasView 订阅式/isLockedNow 命令式同源；
@@ -1158,10 +1189,12 @@ describe('nodeStore (AppNode nested structure)', () => {
     // -- editMode annotate --
 
     it('should persist editMode annotate via updateConfig', () => {
-      useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'edit-annotate', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
+      // Y2 A2b（裁决 3 v4）：真 doc 种子+rw——ns 断言面经漏斗尾快照
+      seedRwNodeForNs('edit-annotate', 'imageGen');
       useNodeStore.getState().updateConfig('edit-annotate', { style: '写实', editMode: 'annotate' });
       const stored = useNodeStore.getState().nodes['edit-annotate'];
-      expect((stored.data as unknown as ImageNodeData).editMode).toBe('annotate');
+      // Y2 A2b：ephemeral 键不落 doc——ns=doc 快照不含本地瞬态（editMode 读面 ?? 兜底）
+      expect((stored.data as unknown as ImageNodeData).editMode).toBeUndefined();
     });
 
     // -- updateAnnotationTool/Color/LineWidth noop --
@@ -1381,6 +1414,8 @@ describe('nodeStore (AppNode nested structure)', () => {
         } as unknown as ImageNodeData,
       };
       useNodeStore.getState().addNode(node);
+      // Y2 A2b（裁决 3 v4）：真 doc 种子+rw+cs——extConfig 剥除断言面经漏斗尾快照
+      seedRwNodeForNs('img-filter', 'imageGen', { status: 'idle', model: 'sdxl' });
 
       // Attempt to pass extConfig via updateConfig — should be silently ignored
       useNodeStore.getState().updateConfig('img-filter', {
@@ -1405,6 +1440,13 @@ describe('nodeStore → canvasStore 桥接（图片身份字段，Bug D/E 响应
     useCanvasStore.setState({ nodes: [{ id: 'b1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any], edges: [] });
     // 批2-2：setFileResult 走 canEdit 门——rw 会话电平（默认 idle/readonly 会被 wrapper 早退）
     useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
+    // Y2 A2b（裁决 3 v4）：桥接经 dispatch 漏斗（投影桥+尾快照）——补真 doc 种子 b1
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      const n = new Y.Map(); n.set('type', 'imageGen'); n.set('data', new Y.Map());
+      doc.getMap('nodes').set('b1', n);
+    });
+    _setIntentDocForTest(doc);
   });
 
   it('updateConfig 白名单字段（referenceImage）桥接到 canvasStore', () => {
@@ -1421,6 +1463,9 @@ describe('nodeStore → canvasStore 桥接（图片身份字段，Bug D/E 响应
   });
 
   it('updateConfig 非白名单字段不触发 canvasStore setState（防高频重渲染）', () => {
+    // Y2 A2b：真 doc 下 updateConfig 投影桥经 merged 全量摊开恒含 status 默认键（桥白名单内）
+    // ——「零 setState」只在无 doc 早退面成立；本用例保留该面（dispatch 零投影零快照零 cs 写）
+    _setIntentDocForTest(null);
     const spy = vi.spyOn(useCanvasStore, 'setState');
     useNodeStore.getState().updateConfig('b1', { model: 'flux' } as any);
     expect(spy).not.toHaveBeenCalled();
@@ -1456,12 +1501,17 @@ describe('updateConfig 幽灵守卫（I-3）', () => {
     expect(useNodeStore.getState().nodes['ghost-undo']).toBeUndefined();
   });
 
-  it('canvasStore 存在而 nodeStore 缺失 → 仍重建（既有语义保留）', () => {
+  it('canvasStore 存在而 doc 缺失 → ns 不再重建（Y2 A2b：doc 为唯一真相）', () => {
+    // Y2 A2b（裁决 3）：ns=doc 快照——cs-only 幻影不再重建（doc 为唯一真相；旧直写体重建路径已退役）
+    const doc = new Y.Doc();   // 空 doc（不含 cs-only）+rw 窗——dispatch 走通到 applyIntentToDoc 拒档
+    _setIntentDocForTest(doc);
+    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
     useCanvasStore.setState((s) => ({ nodes: [...s.nodes, { id: 'cs-only', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any] }));
     try {
       useNodeStore.getState().updateConfig('cs-only', { status: 'done' } as any);
-      expect(useNodeStore.getState().nodes['cs-only']).toBeDefined();
+      expect(useNodeStore.getState().nodes['cs-only']).toBeUndefined();
     } finally {
+      _setIntentDocForTest(null);
       useCanvasStore.setState((s) => ({ nodes: s.nodes.filter((nd) => nd.id !== 'cs-only') }));   // 防跨用例污染
     }
   });

@@ -3,9 +3,11 @@
 //   :66 模型列表加载默认值 effect / :92 模型下拉选择 / :153 生成时 prompt 提交（Y1c T15：{text} patch）/ :220 textarea 即时输入。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
+import * as Y from 'yjs';
 import { TextConfigPanel } from './TextConfigPanel';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { _setIntentDocForTest } from '@/stores/canvasIntents';
 
 vi.mock('@xyflow/react', () => ({
   useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
@@ -31,6 +33,17 @@ function seedSession(readOnly: boolean) {
   useNodeStore.setState((s) => ({
     nodes: { ...s.nodes, t1: { id: 't1', type: 'textInput', data: { content: '', prompt: { text: '' } } as any } },   // Y1c T15：prompt={text} 形态
   }));
+  // Y2 A2b（裁决 3 v4）：rw 锚写经 dispatch 漏斗（ns=漏斗尾 doc 快照）——补真 doc 种子 t1
+  //（content=XmlFragment 域容器、prompt=Y.Map{text:Y.Text} map-text 容器——textarea 写走 splice
+  //  seam；readOnly 早退在 dispatch 前不受影响）
+  const doc = new Y.Doc();
+  doc.transact(() => {
+    const tm = new Y.Map(); tm.set('text', new Y.Text(''));
+    const dm = new Y.Map(); dm.set('content', new Y.XmlFragment()); dm.set('prompt', tm);
+    const n = new Y.Map(); n.set('type', 'textInput'); n.set('data', dm);
+    doc.getMap('nodes').set('t1', n);
+  });
+  _setIntentDocForTest(doc);
 }
 const dataOf = () => useNodeStore.getState().nodes.t1?.data as any;
 const flushEffects = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });

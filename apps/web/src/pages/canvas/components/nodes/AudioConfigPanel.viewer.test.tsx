@@ -5,9 +5,11 @@
 // rw 锚：read-write 会话同操作落 store（等价旧行为——门不过度拦截）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
+import * as Y from 'yjs';
 import { AudioConfigPanel } from './AudioConfigPanel';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { _setIntentDocForTest } from '@/stores/canvasIntents';
 
 vi.mock('@xyflow/react', () => ({
   useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
@@ -34,6 +36,15 @@ function seedSession(readOnly: boolean) {
   useNodeStore.setState((s) => ({
     nodes: { ...s.nodes, a1: { id: 'a1', type: 'audioGen', data: { prompt: '', status: 'idle' } as any } },   // Y1c T15：content→prompt 迁移
   }));
+  // Y2 A2b（裁决 3 v4）：rw 锚写经 dispatch 漏斗（ns=漏斗尾 doc 快照）——补真 doc 种子 a1
+  //（prompt=Y.Text 域容器——textarea 写走 splice seam；readOnly 早退在 dispatch 前不受影响）
+  const doc = new Y.Doc();
+  doc.transact(() => {
+    const dm = new Y.Map(); dm.set('prompt', new Y.Text('')); dm.set('status', 'idle');
+    const n = new Y.Map(); n.set('type', 'audioGen'); n.set('data', dm);
+    doc.getMap('nodes').set('a1', n);
+  });
+  _setIntentDocForTest(doc);
 }
 const dataOf = () => useNodeStore.getState().nodes.a1?.data as any;
 /** flush 模型列表加载 effect（fetch resolve + setState） */

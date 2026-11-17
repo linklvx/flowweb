@@ -616,12 +616,11 @@ export const useNodeStore = create<NodeState>((set, get) => ({
       }
       return;
     }
-    // 批4b-1 换芯：协作语义走意图漏斗（doc 首写+投影回填；dispatch 前置门重复拦截无害）；
-    // 下方写入体保留——与投影双写同值幂等（组 2 删旧路径后投影是唯一 store 写者）。
-    // Y1c T15 收口 A（Q-I-1）：直写体消费 dispatch outcome——被拒域键同剥（doc 拒 ⇒ ns 拒，
-    // 半落「面板显示新值/reload 静默消失」根修；全拒=空 patch no-op）。
-    const [outcome] = dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch }, Origin.LocalUser);
-    applyDataPatchToStores(nodeId, stripRejectedPatchKeys(patch, outcome));
+    // 批4b-1 换芯：协作语义走意图漏斗（doc 首写+投影回填；dispatch 前置门重复拦截无害）。
+    // Y2 A2b（裁决 3 v4）：直写体退役——ns 由漏斗尾 refreshNodeStoreFromDoc 同快照刷新、
+    // cs 由 per-intent 投影回填（projectIntentToStore→applyDataPatchToStores）；被拒域键
+    // 不落 doc 即不落 ns（doc ≡ ns 同拒同落语义随快照结构性成立）。
+    dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch }, Origin.LocalUser);
   },
 
   updateConfig: (id, config) => {
@@ -673,43 +672,10 @@ export const useNodeStore = create<NodeState>((set, get) => ({
       { type: 'updateNodeData', id, patch: dispatchPatch },
       Origin.LocalUser,
     );
-    // ns 终态：域键回填 existing 投影值（config 域键不落）+T15 收口 A outcome 消费（非域
-    // 键的拒=结构错误同剥——半落防护原语义保持）
-    let mergedEffective = { ...(merged as unknown as Record<string, unknown>) };
-    if (existingData !== undefined) {
-      for (const k of Object.keys(existingData)) {
-        if (isSeamDomainKey(k)) mergedEffective[k] = existingData[k];
-      }
-    }
-    for (const k of Object.keys(config)) {
-      if (isSeamDomainKey(k) && existingData?.[k] === undefined) delete mergedEffective[k];
-    }
-    mergedEffective = stripRejectedPatchKeys(mergedEffective, outcome) as Record<string, unknown>;
-    const effective = mergedEffective as unknown as NodeData;
-    set((s) => ({
-      nodes: {
-        ...s.nodes,
-        [id]: {
-          id,
-          // Preserve node type — never overwrite (image/video/text each own their type)
-          type: nodeType ?? NODE_TYPES.IMAGE_GEN,
-          selected: existing?.selected,
-          dragging: existing?.dragging,
-          data: effective,
-        },
-      },
-    }));
-
-    // 桥接白名单字段到 canvasStore（图片身份/状态 → 多选工具条等订阅方实时响应）。
-    // T17 复核残留（半落第三入口）：桥源=实际落 ns 的 effective 且限本次 config 键——config
-    // 显式携带域键（C-1 对抗形态：doc/ns 均剔）与结构缺全键拒档（rejectAllKeys）下，被拒键
-    // 不再落 cs 镜像（原从原始 config 桥=doc/ns 拒而 cs 落）。
-    const bridged = Object.entries(effective as unknown as Record<string, unknown>).filter(
-      ([k]) => CANVAS_BRIDGE_KEYS.has(k) && k in config,
-    );
-    if (bridged.length > 0) {
-      bridgeToCanvasStore(id, Object.fromEntries(bridged));
-    }
+    // Y2 A2b（裁决 3 v4）：自有 ns set+桥退役——ns 由漏斗尾 refreshNodeStoreFromDoc 同快照刷新
+    //（域键保真：doc 携带 Y.Text/XmlFragment/Y.Array 域键真值、被拒键不落 doc 即不落 ns——
+    // doc ≡ ns 同拒同落语义随快照结构性成立）；cs 白名单镜像由 per-intent 投影回填。
+    void outcome;
   },
 
   updateExtConfig: (nodeId, partial) => {
@@ -809,20 +775,10 @@ export const useNodeStore = create<NodeState>((set, get) => ({
       patch.mainImageIndex = 0;
     }
     const [outcome] = dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch }, Origin.LocalUser);
-    const effective = stripRejectedPatchKeys(patch, outcome);
-    set((s) => ({
-      nodes: {
-        ...s.nodes,
-        [nodeId]: {
-          ...existing,
-          data: {
-            ...existing.data,
-            ...effective,
-          },
-        },
-      },
-    }));
-    if ('images' in effective) bridgeToCanvasStore(nodeId, { images: effective.images });
+    // Y2 A2b（裁决 3 v4）：自有 ns set+桥退役——ns 由漏斗尾 refreshNodeStoreFromDoc 同快照刷新
+    //（images 域键=Y.Array 真值、伴随键 LWW；被拒 ⇒ doc 不落即 ns 不落）；cs 白名单镜像由
+    // per-intent 投影回填。
+    void outcome;
   },
 
   setMainImageIndex: (nodeId, index) => {

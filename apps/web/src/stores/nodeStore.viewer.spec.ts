@@ -11,6 +11,9 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 import { message } from 'antd';
 import { useNodeStore, _resetViewerToastForTest } from './nodeStore';
 import { useCanvasStore } from './canvasStore';
+import * as Y from 'yjs';
+// Y2 A2b（裁决 3 v4）：rw 用例 dispatch 须走通（ns 经漏斗尾快照刷新）——真 doc 种子缝
+import { _setIntentDocForTest } from './canvasIntents';
 
 /** 会话电平：ready+readOnly（VIEWER）/ ready+read-write（编辑者） */
 const readOnlySession = () =>
@@ -23,6 +26,15 @@ const seedNode = () => {
   useCanvasStore.setState((s) => ({
     nodes: [...s.nodes.filter((n: any) => n.id !== 'n1'), { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any],
   }));
+  // Y2 A2b（裁决 3 v4）：真 doc 种子（n1 与 ns/cs 同构）——rw 用例 dispatch 经漏斗尾快照刷新 ns；
+  // readOnly 用例 canEdit 早退在 dispatch 之前，doc 在位不受影响
+  const doc = new Y.Doc();
+  doc.transact(() => {
+    const dm = new Y.Map(); dm.set('model', 'm0'); dm.set('status', 'idle');
+    const n = new Y.Map(); n.set('type', 'imageGen'); n.set('data', dm);
+    doc.getMap('nodes').set('n1', n);
+  });
+  _setIntentDocForTest(doc);
 };
 
 const nsData = () => useNodeStore.getState().nodes.n1?.data as any;
@@ -41,6 +53,8 @@ describe('批2-2 第二层：applyNodeDataPatch（ns 内容写收口 wrapper）'
   afterEach(() => {
     warnSpy.mockRestore();
     vi.useRealTimers();
+    // Y2 A2b：testDoc 跨用例清（rw dispatch 装置不泄漏）
+    _setIntentDocForTest(null);
   });
 
   it('①readOnly：早退——ns 零变更 + cs 零变更 + toast 提示一次', () => {
@@ -79,7 +93,8 @@ describe('批2-2 第二层：applyNodeDataPatch（ns 内容写收口 wrapper）'
   it('③rw 等价现 setState 行为：merge 保留既有键 + 白名单键（fileId/status）桥接 cs', () => {
     readWriteSession();
     useNodeStore.getState().applyNodeDataPatch('n1', { fileId: 'f-1', status: 'done' });
-    expect(nsData().fileId).toBe('f-1');
+    // Y2 A2b：fileId=服务端权威域（CLIENT_FORBIDDEN_ON_UPDATE）——doc 禁写不落 ⇒ ns=doc 快照无此键；本地镜像归 cs 桥
+    expect(nsData().fileId).toBeUndefined();
     expect(nsData().status).toBe('done');
     expect(nsData().model).toBe('m0');                      // 既有键保留（等价 {...data, ...patch}）
     expect((csNode().data as any).fileId).toBe('f-1');      // 桥白名单键

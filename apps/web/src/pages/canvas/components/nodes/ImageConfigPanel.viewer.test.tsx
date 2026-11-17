@@ -3,9 +3,11 @@
 // config-panel 子组件 mock 为 null（本测只驱动面板主体的模型加载 effect，与既有 Video 测试 mock PromptInput 同口径）。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, act } from '@testing-library/react';
+import * as Y from 'yjs';
 import { ImageConfigPanel } from './ImageConfigPanel';
 import { useNodeStore } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { _setIntentDocForTest } from '@/stores/canvasIntents';
 
 vi.mock('@xyflow/react', () => ({
   useViewport: () => ({ x: 0, y: 0, zoom: 1 }),
@@ -38,6 +40,15 @@ function seedSession(readOnly: boolean) {
   useNodeStore.setState((s) => ({
     nodes: { ...s.nodes, i1: { id: 'i1', type: 'imageGen', data: { status: 'idle' } as any } },
   }));
+  // Y2 A2b（裁决 3 v4）：rw 锚写经 dispatch 漏斗（ns=漏斗尾 doc 快照）——补真 doc 种子 i1
+  //（imageGen 数组域键 allImages 由 updateConfig 载荷先行剔除——plain data 容器即可；readOnly 早退不受影响）
+  const doc = new Y.Doc();
+  doc.transact(() => {
+    const dm = new Y.Map(); dm.set('status', 'idle');
+    const n = new Y.Map(); n.set('type', 'imageGen'); n.set('data', dm);
+    doc.getMap('nodes').set('i1', n);
+  });
+  _setIntentDocForTest(doc);
 }
 const dataOf = () => useNodeStore.getState().nodes.i1?.data as any;
 const flushEffects = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });

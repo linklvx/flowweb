@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import * as Y from 'yjs';
 import { StyleLibraryModal } from './StyleLibraryModal';
 import { useMenuStore } from '@/stores/menuStore';
 import { useNodeStore } from '@/stores/nodeStore';
+import { useCanvasStore } from '@/stores/canvasStore';
+import { _setIntentDocForTest } from '@/stores/canvasIntents';
 import * as api from '@/api/stylesApi';
 
 vi.mock('@/api/stylesApi', () => ({
@@ -22,6 +25,16 @@ describe('StyleLibraryModal', () => {
     vi.clearAllMocks();
     useMenuStore.getState().closeStyleLibrary();
     useNodeStore.setState({ nodes: { img1: { id: 'img1', type: 'imageGen', data: {} } } as any });
+    // Y2 A2b（裁决 3 v4）：clearStyle 写 null 经 dispatch 漏斗（ns=漏斗尾 doc 快照）——真 doc 种子+rw
+    //（styleId=null=plain LWW 值照落 doc ⇒ 墓碑断言保持；store 注入=本组用例存在目的）
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      const dm = new Y.Map();
+      const n = new Y.Map(); n.set('type', 'imageGen'); n.set('data', dm);
+      doc.getMap('nodes').set('img1', n);
+    });
+    _setIntentDocForTest(doc);
+    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
   });
 
   it('未打开不渲染且不发请求（H1——hook 只在内层挂载）', () => {
