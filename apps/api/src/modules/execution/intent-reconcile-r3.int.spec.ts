@@ -311,6 +311,35 @@ const agePastGrace = async (id: string) =>
     expect(await rowOf(t4.id)).not.toBeNull();   // 有 artifact 锚行不物理删（悬空锚根修）
   }, 30_000);
 
+  it('Y2 B2b 保留矩阵两臂+出清半边（先红）：Media 锚/author-void 行保 intent+旧代 void 行随删+cleanProjection 作废行豁免', async () => {
+    const old8 = new Date(Date.now() - 8 * 24 * 3600_000);
+    const old35 = new Date(Date.now() - 35 * 24 * 3600_000);
+    // ⑤ Media 锚行臂：sourceIntentRowId 指向的 intent 7d 外不删
+    const t5 = await createIntentFixture(prisma as unknown as PrismaService, { projectId: PID, teamId: TID, nodeId: 'n-y2b2b-t5', userId: UID, intentId: `y2b2b-t5-${Date.now()}`, kind: 'image', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 0, reservedCredits: 0, creditsConsumed: 0, completedAt: old8 });
+    await prisma.media.create({ data: { id: `m-y2b2b-${Date.now()}`, userId: UID, teamId: TID, key: `uploads/${UID}/y2b2b/${Date.now()}.png`, originalName: 'a.png', mimeType: 'image/png', size: 1n, type: 'uploaded', sourceIntentRowId: t5.id, sourceExecSeq: t5.execSeq } });
+    // ⑥ author-void 投影行臂（当前代键）：7d 外不删
+    const t6 = await createIntentFixture(prisma as unknown as PrismaService, { projectId: PID, teamId: TID, nodeId: 'n-y2b2b-t6', userId: UID, intentId: `y2b2b-t6-${Date.now()}`, kind: 'image', paramsHash: 'h', status: 'VOIDED', creditCost: 1, reservedCredits: 0, completedAt: old8 });
+    await prisma.artifactProjection.create({ data: { artifactId: `author-void:${t6.id}:${t6.execSeq}`, artifactRev: 0, projectId: PID, nodeId: 'n-y2b2b-t6', targetField: 'fileId', targetItemId: '', state: 'superseded', createdAt: old8 } });
+    // ⑦ 旧代 void 行（execSeq 失配——换代后残行）：intent 删除+其 void 行同批出清
+    const t7 = await createIntentFixture(prisma as unknown as PrismaService, { projectId: PID, teamId: TID, nodeId: 'n-y2b2b-t7', userId: UID, intentId: `y2b2b-t7-${Date.now()}`, kind: 'image', paramsHash: 'h', status: 'FAILED', creditCost: 0, reservedCredits: 0, completedAt: old8 });
+    const t7VoidId = `author-void:${t7.id}:${t7.execSeq - 1n}`;   // 旧代键（keep 臂不认）
+    await prisma.artifactProjection.create({ data: { artifactId: t7VoidId, artifactRev: 0, projectId: PID, nodeId: 'n-y2b2b-t7', targetField: 'fileId', targetItemId: '', state: 'superseded', createdAt: old8 } });
+
+    await (reconcile as any).cleanTerminalIntents();
+
+    expect(await rowOf(t5.id)).not.toBeNull();   // Media 锚臂保 intent
+    expect(await rowOf(t6.id)).not.toBeNull();   // author-void 当前代键保 intent
+    expect(await rowOf(t7.id)).toBeNull();       // 旧代键不保——intent 删
+    expect(await prisma.artifactProjection.findFirst({ where: { artifactId: t7VoidId } })).toBeNull();   // 出清半边：同批删
+
+    // cleanProjection 作废行豁免：35d 的 author-void 行不删；普通 superseded 35d 删
+    const keepVoid = await prisma.artifactProjection.findFirst({ where: { artifactId: `author-void:${t6.id}:${t6.execSeq}` } });
+    expect(keepVoid).not.toBeNull();   // 35d+ 仍在（豁免——出清半边归 intent 删除链）
+    await prisma.artifactProjection.create({ data: { artifactId: `ap-y2b2b-normal-${Date.now()}`, artifactRev: 1, projectId: PID, nodeId: 'n-y2b2b-t6', targetField: 'fileId', targetItemId: '', state: 'superseded', createdAt: old35 } });
+    await (reconcile as any).cleanProjection();
+    expect(await prisma.artifactProjection.findFirst({ where: { artifactId: `author-void:${t6.id}:${t6.execSeq}` } })).not.toBeNull();   // 豁免维持
+  }, 30_000);
+
   it('评审 Important#1：悬留窗用户 replace（槽位 rev 前进）⇒ finalizeFromStage 持久 claimRev 失配=superseded——不覆盖用户值+资金独立判照常 settle（红：改前现读 claimCapture 必胜出=旧代产物覆盖用户值）', async () => {
     const { intent } = await claimIntent();
     await teamCredit.reserve(UID, { intentRowId: intent.id, execSeq: intent.execSeq });

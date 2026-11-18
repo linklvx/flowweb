@@ -514,8 +514,11 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
   }
 
   /** F7+T13 保留矩阵：终态行清理——冻结未销禁删（stranded 计数告警）；resultText 非空行 90d
-   *  （text 产物正文）；有 NodeArtifact 锚行的 intent 不物理删（Media.sourceIntentRowId 悬空锚
-   *  根修——spec Z18''⑥）；默认 7d。NOT EXISTS 判定=raw DELETE（Prisma deleteMany 无反连接）。 */
+   *  （text 产物正文）；有 NodeArtifact 锚行/Media 资金锚/author-void 当前代键的 intent 不物理删
+   *  （Media.sourceIntentRowId 悬空锚根修——spec Z18''⑥；Y2 B2b 两臂：Media 锚+作废键——作废意图
+   *  的短路标记存活期与意图行同寿）；默认 7d。NOT EXISTS 判定=raw DELETE（Prisma deleteMany 无
+   *  反连接）。Y2 B2b 出清半边：意图行物理删时同批删其 author-void 投影行（CTE 级联——旧代键
+   *  残行随行出清，禁孤儿标记）。 */
   private async cleanTerminalIntents(): Promise<void> {
     const cutoff = new Date(Date.now() - RETENTION_MS);
     const stuck = await this.prisma.generationIntent.count({
@@ -523,15 +526,22 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     });
     if (stuck > 0) strandedTotal.inc(stuck);
     await this.prisma.$executeRaw`
-      DELETE FROM "GenerationIntent" gi
-      WHERE gi.status IN ('SUCCEEDED', 'FAILED', 'VOIDED')
-        AND gi."reservedCredits" = 0
-        AND gi."completedAt" < (now() - (${RETENTION_MS} * interval '1 millisecond'))
-        AND (
-          gi."resultText" IS NULL
-          OR gi."resultText" IS NOT NULL AND gi."completedAt" < (now() - (${TEXT_RETENTION_MS} * interval '1 millisecond'))
-        )
-        AND NOT EXISTS (SELECT 1 FROM "NodeArtifact" na WHERE na."sourceIntentRowId" = gi.id)`;
+      WITH del AS (
+        DELETE FROM "GenerationIntent" gi
+        WHERE gi.status IN ('SUCCEEDED', 'FAILED', 'VOIDED')
+          AND gi."reservedCredits" = 0
+          AND gi."completedAt" < (now() - (${RETENTION_MS} * interval '1 millisecond'))
+          AND (
+            gi."resultText" IS NULL
+            OR gi."resultText" IS NOT NULL AND gi."completedAt" < (now() - (${TEXT_RETENTION_MS} * interval '1 millisecond'))
+          )
+          AND NOT EXISTS (SELECT 1 FROM "NodeArtifact" na WHERE na."sourceIntentRowId" = gi.id)
+          AND NOT EXISTS (SELECT 1 FROM "Media" m WHERE m."sourceIntentRowId" = gi.id)
+          AND NOT EXISTS (SELECT 1 FROM "ArtifactProjection" ap WHERE ap."artifactId" = 'author-void:' || gi.id || ':' || gi."execSeq")
+        RETURNING gi.id, gi."execSeq"
+      )
+      DELETE FROM "ArtifactProjection" ap USING del
+      WHERE ap."artifactId" LIKE 'author-void:' || del.id || ':%'`;
   }
 
   /** T13 保留矩阵：ArtifactProjection 终态（projected=delivered 语义/orphaned/superseded/dead）30d
@@ -539,7 +549,9 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
    *  退役——写点 C2-2 改道后表断流，补偿拉取语义随读道切当前态表消亡；表暂留 C1 物删）。 */
   private async cleanProjection(): Promise<void> {
     await this.prisma.artifactProjection.deleteMany({
-      where: { state: { in: ['projected', 'orphaned', 'superseded', 'dead'] }, createdAt: { lt: new Date(Date.now() - PROJECTION_RETENTION_MS) } },
+      // Y2 B2b：作废行豁免——author-void 键行=作废短路的持久标记（存活期与意图行同寿，出清归
+      // cleanTerminalIntents 的 CTE 级联——30d 通用清理禁误删）。
+      where: { state: { in: ['projected', 'orphaned', 'superseded', 'dead'] }, createdAt: { lt: new Date(Date.now() - PROJECTION_RETENTION_MS) }, artifactId: { not: { startsWith: 'author-void:' } } },
     });
     // 评审 Minor#6：ReconcileAction 审计行 90d 清理（与 text 产物保留对齐；Important#2 去重面下增长有界——
     // 'finalize-from-stage-failed' 失败计数除外〔每败一行〕，90d 滚动清理防预算计数跨窗残留误伤）。

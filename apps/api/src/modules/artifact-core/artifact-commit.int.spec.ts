@@ -517,4 +517,57 @@ const restoreBalance = async () => {
       expect(await ledgerRows(c.intent.id, 'settle')).toHaveLength(0);
     });
   });
+
+  // ══════════ Y2 B2b：authorVoid 作废臂+两处精确键短路（先红）══════════
+  describe('Y2 B2b authorVoid 作废臂（B2c/B2d 前机制面——不传=原样）', () => {
+    it('作废臂：authorVoid=true → 槽位零写（NodeArtifact 无行）+intent CAS SUCCEEDED+author-void 投影行（artifactRev=0）+Media 入素材库+settle 核销+outcome superseded 回填 mediaId', async () => {
+      const c = await claimIntent({ jobId: 'y2b2b-void' });
+      await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
+      const out = await commitFor(c, { authorVoid: true });
+      expect(out.outcome).toBe('superseded');
+      expect(out.mediaId).toBeTruthy();   // 回填源=已提升 Media 行
+      expect(await slotRow(c.intent.nodeId)).toBeNull();   // 不写 NodeArtifact（用户槽位不被作废产物覆盖）
+      const intent = await prisma.generationIntent.findUnique({ where: { id: c.intent.id } });
+      expect(intent!.status).toBe('SUCCEEDED');            // intent CAS 照走（资金/终态语义不因作废改变）
+      expect(Number(intent!.creditsConsumed)).toBe(PRICING.creditCost);   // settle 同事务核销
+      const voidRow = await prisma.artifactProjection.findFirst({
+        where: { artifactId: `author-void:${c.intent.id}:${c.intent.execSeq}` },
+      });
+      expect(voidRow).not.toBeNull();
+      expect(voidRow!.artifactRev).toBe(0);
+      expect(voidRow!.state).toBe('superseded');
+      expect(await ledgerRows(c.intent.id, 'settle')).toHaveLength(1);
+    });
+
+    it('作废后重驱 → 入口预检精确键短路：零 stage 零下载零上传（fetch/upload 零调用+Media 行数不变）+outcome superseded 回填', async () => {
+      const c = await claimIntent({ jobId: 'y2b2b-redrive' });
+      await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
+      const first = await commitFor(c, { authorVoid: true });
+      expect(first.outcome).toBe('superseded');
+      const mediaCount = await prisma.media.count({ where: { sourceIntentRowId: c.intent.id } });
+      fakeMinio.upload.mockClear();
+      fakeFetch.fetchBuffer.mockClear();
+      const again = await commitFor(c);   // 不携 authorVoid 复驱——键命中即短路（creditsConsumed=cost 形态）
+      expect(again.outcome).toBe('superseded');
+      expect(again.mediaId).toBe(first.mediaId);
+      expect(fakeMinio.upload).not.toHaveBeenCalled();   // 零上传
+      expect(fakeFetch.fetchBuffer).not.toHaveBeenCalled();   // 零下载零 stage
+      expect(await prisma.media.count({ where: { sourceIntentRowId: c.intent.id } })).toBe(mediaCount);
+    });
+
+    it('冻结链 creditsConsumed≠cost 形态（作废意图退款档）：键命中先于 creditsConsumed 判 ⇒ 短路照命中（闸序重构——旧序该形态 null 走全链）', async () => {
+      const c = await claimIntent({ jobId: 'y2b2b-frozen' });
+      await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
+      const first = await commitFor(c, { authorVoid: true });
+      expect(first.outcome).toBe('superseded');
+      // 冻结链形态：SUCCEEDED 保持∧consumed 归零（退款/settle 未达档——key 行仍在；判别=key 检查
+      // 先于 creditsConsumed≠cost 的 null 出口——brief 钉序 status≠SUCCEEDED→null 在先）
+      await prisma.generationIntent.update({ where: { id: c.intent.id }, data: { creditsConsumed: 0 } });
+      fakeMinio.upload.mockClear();
+      fakeFetch.fetchBuffer.mockClear();
+      const again = await commitFor(c);
+      expect(again.outcome).toBe('superseded');   // 精确键等值查先于 creditsConsumed≠cost 的 null 出口
+      expect(fakeMinio.upload).not.toHaveBeenCalled();
+    });
+  });
 });

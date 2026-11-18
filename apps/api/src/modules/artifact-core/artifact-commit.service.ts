@@ -56,6 +56,12 @@ export function artifactObjectKeyBase(teamId: string, intentRowId: string, execS
   return `artifacts/${teamId}/${intentRowId}/${execSeq}/${artifactIndex}`;
 }
 
+/** Y2 B2b：author-void 精确键（ArtifactProjection.artifactId 载体——作废臂写行/两处预检等值查/
+ *  reconcile 保留谓词+出清半边四消费面单源构造）。execSeq wire=string（bigint 模板字面量自然十进制）。 */
+export function authorVoidProjectionKey(intentRowId: string, execSeq: bigint): string {
+  return `author-void:${intentRowId}:${execSeq}`;
+}
+
 export interface CommitImageParams {
   projectId: string;
   nodeId: string;
@@ -77,6 +83,9 @@ export interface CommitImageParams {
   originalNameBase?: string;
   /** T21（C1）：结算档（缺省='intent' 旧链——全部既有调用方零变化） */
   settlement?: FinalizeSettlement;
+  /** Y2 B2b：作者槽作废旗（B2c/B2d 前机制面——不传=今天胜/败臂原样；true=finalize 走作废臂：
+   *  不写 NodeArtifact+author-void superseded 投影行+intent CAS/settle/素材库照走）。 */
+  authorVoid?: boolean;
 }
 
 export interface FinalizeTextParams {
@@ -110,6 +119,8 @@ export interface FinalizeVideoParams {
   artifactIndex?: number;
   /** T21（C1）：结算档（缺省='intent' 旧链——全部既有调用方零变化） */
   settlement?: FinalizeSettlement;
+  /** Y2 B2b：作者槽作废旗（同 CommitImageParams——不传=原样）。 */
+  authorVoid?: boolean;
 }
 
 /** T21（C1 收口）结算档参数化：'intent'=旧链（intent reserve→settleInTx——逐字节不动）；
@@ -185,6 +196,8 @@ interface FinalizeParams {
   artifactIndex: number;
   /** T21（C1）：结算档（缺省='intent'） */
   settlement?: FinalizeSettlement;
+  /** Y2 B2b：作者槽作废旗（finalizeInTx 作废臂岔开——不传=胜/败臂原样）。 */
+  authorVoid?: boolean;
 }
 
 /** finalize 事务内 intent CAS 失败信号——throw 即整体回滚（NodeArtifact/binding/投影/Media 提升全撤），
@@ -248,6 +261,7 @@ export class ArtifactCommitService {
       intentRowId: params.intentRowId, execSeq: params.execSeq, expectedRev: params.expectedRev,
       kind: 'image', resultRef: stage.mediaId, artifactIndex,
       settlement: params.settlement,
+      authorVoid: params.authorVoid,
       media: {
         mediaId: stage.mediaId, key, sha256,
         mimeType, sniffedMimeType: sniffed, size: fetched.buffer.length,
@@ -268,8 +282,21 @@ export class ArtifactCommitService {
       where: { id: intentRowId },
       select: { status: true, execSeq: true, creditsConsumed: true, creditCost: true },
     });
-    if (!intent || intent.status !== 'SUCCEEDED' || intent.creditsConsumed !== intent.creditCost) return null;
+    if (!intent || intent.status !== 'SUCCEEDED') return null;
     if (intent.execSeq !== execSeq) return { outcome: 'intent-stale' };
+    // Y2 B2b：author-void 精确键等值查（creditsConsumed≠cost 判之前——作废意图退款档 consumed=0
+    // 形态必须短路命中，旧序该形态 null 走全链白耗下载）；回填源=已提升 Media 行（两处短路同源）。
+    const voidRow = await this.prisma.artifactProjection.findUnique({
+      where: { artifactId_artifactRev: { artifactId: authorVoidProjectionKey(intentRowId, execSeq), artifactRev: 0 } },
+    });
+    if (voidRow) {
+      const anchored = await this.prisma.media.findFirst({
+        where: { sourceIntentRowId: intentRowId, sourceExecSeq: execSeq, artifactIndex },
+        orderBy: { createdAt: 'asc' },
+      });
+      return { outcome: 'superseded', mediaId: anchored?.id, key: anchored?.key };
+    }
+    if (intent.creditsConsumed !== intent.creditCost) return null;
     const existing = await this.prisma.nodeArtifact.findUnique({
       where: { sourceIntentRowId_sourceExecSeq_artifactIndex: { sourceIntentRowId: intentRowId, sourceExecSeq: execSeq, artifactIndex } },
     });
@@ -324,6 +351,7 @@ export class ArtifactCommitService {
       intentRowId: params.intentRowId, execSeq: params.execSeq, expectedRev: params.expectedRev,
       kind: 'video', resultRef: '',   // 实参=事务内 videoMedia.id（行在 finalize 事务内建——见 finalizeInTx）
       settlement: params.settlement,
+      authorVoid: params.authorVoid,
       video: {
         sourceUrl: params.sourceUrl,
         sourceMimeType: params.sourceMimeType ?? 'video/mp4',
@@ -517,6 +545,20 @@ export class ArtifactCommitService {
     //    F1 代际守卫：SUCCEEDED 为终态不换代，成功代恒=行 execSeq——旧代（execSeq<N）重复 finalize
     //    不得误判「本 finalize 曾成功」（否则旧代产物冒领 committed 出口）；失配自然落入下行
     //    IntentStaleSignal → outcome 'intent-stale'（外层 void 旧冻结=已核销行幂等 no-op，零副作用）。 ──
+    // Y2 B2b：author-void 键检查同序插此（creditsConsumed 合取之前——胜臂原幂等分支以下不动）；
+    //    命中=本 finalize 作废臂曾完整成功（事务内短路——入口预检缺席面兜底）。
+    if (rows[0].status === 'SUCCEEDED' && rows[0].execSeq === params.execSeq) {
+      const voidRow = await tx.artifactProjection.findUnique({
+        where: { artifactId_artifactRev: { artifactId: authorVoidProjectionKey(params.intentRowId, params.execSeq), artifactRev: 0 } },
+      });
+      if (voidRow) {
+        const anchored = await tx.media.findFirst({
+          where: { sourceIntentRowId: params.intentRowId, sourceExecSeq: params.execSeq, artifactIndex: params.artifactIndex },
+          orderBy: { createdAt: 'asc' },
+        });
+        return { outcome: 'superseded', mediaId: anchored?.id, key: anchored?.key };
+      }
+    }
     if (rows[0].status === 'SUCCEEDED' && rows[0].execSeq === params.execSeq && rows[0].creditsConsumed === rows[0].creditCost) {
       const existing = await tx.nodeArtifact.findUnique({
         where: { sourceIntentRowId_sourceExecSeq_artifactIndex: { sourceIntentRowId: params.intentRowId, sourceExecSeq: params.execSeq, artifactIndex: params.artifactIndex } },
@@ -571,9 +613,33 @@ export class ArtifactCommitService {
     }
     const artifactMediaId = params.media?.mediaId ?? videoMedia?.id ?? null;
 
+    // ── Y2 B2b：authorVoid 作废臂（casUpsert 之前岔开）——不写 NodeArtifact（用户槽位不被作废产物
+    //    覆盖）：intent CAS+Media 提升入素材库+author-void superseded 投影行（artifactRev=0）+
+    //    settle 同事务核销（落共同尾段——F1 硬门同款）。键=authorVoidProjectionKey 单源（两处预检
+    //    等值查/reconcile 保留+出清四消费面同构）。 ──
+    let cas: Awaited<ReturnType<NodeArtifactService['casUpsert']>> | null = null;
+    if (params.authorVoid) {
+      const gated = await this.intents.completeInTx(
+        tx, params.intentRowId,
+        videoMedia ? videoMedia.id : params.resultRef,
+        params.execSeq,
+      );
+      if (gated !== 1) throw new IntentStaleSignal('intent CAS 0 命中（作废臂）');
+      if (params.media) await this.registration.completeRegisteredInTx(tx, params.media);
+      await tx.artifactProjection.createMany({
+        data: [{
+          artifactId: authorVoidProjectionKey(params.intentRowId, params.execSeq), artifactRev: 0,
+          projectId: params.projectId, nodeId: params.nodeId,
+          targetField: targetFieldOfKind(params.kind), targetItemId: '',
+          mediaId: artifactMediaId, state: 'superseded',
+        }],
+        skipDuplicates: true,   // [artifactId,artifactRev] 唯一——作废幂等
+      });
+    } else {
+
     // ── NodeArtifact CAS（0 行=superseded：生成在飞用户 replace/新代——不更新不投影槽位；
     //    video 胜者态=materializing〔㉔-2〕——materialize 成功升 stored/终态失败 failed 归 MaterializeJob） ──
-    const cas = await this.nodeArtifacts.casUpsert(tx, {
+    cas = await this.nodeArtifacts.casUpsert(tx, {
       projectId: params.projectId, nodeId: params.nodeId, teamId: params.teamId,
       targetField: targetFieldOfKind(params.kind),
       expectedRev: params.expectedRev, source: 'generated',
@@ -623,6 +689,8 @@ export class ArtifactCommitService {
       });
       this.logger.warn(`[finalize] 意图 ${params.intentRowId} NodeArtifact CAS 0 行（槽位 rev=${cas.rev}≠期望 ${params.expectedRev}）——superseded：产物入素材库（Media 保留）+settle 走资金独立判（核销凭据不成立仍会被硬门整体回滚）`);
     }
+
+    }   // Y2 B2b：!authorVoid（胜/败臂）到此——作废臂不写 cas，两路共同落 settle 尾段
 
     // ── settle（资金独立判：provider 成功∧intent CAS 成功 ⇒ 照常核销——superseded 亦然；
     //    失败（throw）整体回滚——产物/intent 终态/settle 原子）。
@@ -681,8 +749,12 @@ export class ArtifactCommitService {
     }
     }
 
+    // Y2 B2b：作废臂出口=superseded（回填=本轮描述符）；胜/败臂原样
+    if (params.authorVoid) {
+      return { outcome: 'superseded', mediaId: artifactMediaId ?? undefined, key: params.media?.key ?? videoMedia?.key ?? undefined };
+    }
     return {
-      outcome: cas.won ? 'committed' : 'superseded',
+      outcome: cas!.won ? 'committed' : 'superseded',
       mediaId: params.media?.mediaId ?? videoMedia?.id,
       key: params.media?.key ?? videoMedia?.key,   // video=key 预分配 base（content-addressed 后缀归 materialize）
     };
