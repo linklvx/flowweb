@@ -101,7 +101,6 @@ afterEach(() => {
     if (st.dragSession.gestureKind === 'drag') st.commitIntents();
     else st.commitResizeGesture();
   }
-  useCanvasStore.getState().endLeafResize();
   warnSpy?.mockRestore();
   resetCanvasStores();
 });
@@ -315,30 +314,29 @@ describe("B4'-2 门判据②分型", () => {
     expect(csNode('t1').width).toBe(220);                        // 松手重载不回跳（doc=cs 同 tick）
   });
 
-  it('叶子 resizePending 标记（三叶子 resizer 接线）：置位期间 position-only 批照常派发零告警', () => {
+  it('Y2 A4 重写：叶子 resize 会话期 position-only 批零告警零 doc 写（会话豁免——旧 resizePending 标记退役）', () => {
     openRwWindow();
     const d = buildDoc();
     _setIntentDocForTest(d);
     applyDocToStore(d);
-    useCanvasStore.getState().beginLeafResize();
+    useCanvasStore.getState().beginResize('t1', 1);   // 叶子会话（Y2 A4：与组同轨）
     useCanvasStore.getState().onNodesChange([
       { type: 'position', id: 't1', position: { x: 695, y: 8 }, dragging: false } as any,
     ]);
-    expect(warnSpy).not.toHaveBeenCalled();                      // resizePending 豁免（终裁 30）
-    expect(docPos(d, 't1')).toEqual({ x: 695, y: 8 });           // 逐帧落 doc（叶子 resize 现状）
-    useCanvasStore.getState().endLeafResize();
+    expect(warnSpy).not.toHaveBeenCalled();                      // 会话豁免（终裁 30 沿袭）
+    expect(docPos(d, 't1')).toEqual({ x: 700, y: 0 });           // 会话期 doc 零写（旧逐帧落 doc 洞关闭）
+    useCanvasStore.getState().commitResizeGesture();             // 单提交收尾（幂等）
   });
 
-  it('resizePending 悬挂兜底（spec 评发现#1——RF resizeDetected 守卫跳过 onResizeEnd 的只点不拖）：'
-    + 'pointerup 一次性兜底清 ⇒ 标记不悬挂（后续 position 批恢复门判据②告警+固化不再被永久抑制）', () => {
+  it('Y2 A4 重写：只点不拖（无 onResizeEnd）⇒ pointerup 四提交点兜底收尾（会话不悬挂——幂等提交）', () => {
     openRwWindow();
     const d = buildDoc();
     _setIntentDocForTest(d);
     applyDocToStore(d);
-    useCanvasStore.getState().beginLeafResize();
-    expect(useCanvasStore.getState().resizePending).toBe(true);
+    useCanvasStore.getState().beginResize('t1', 1);
+    expect(useCanvasStore.getState().dragSession).not.toBeNull();
     window.dispatchEvent(new Event('pointerup'));                 // 只点不拖：无 onResizeEnd、pointerup 兜底
-    expect(useCanvasStore.getState().resizePending).toBe(false);  // 悬挂关闭
+    expect(useCanvasStore.getState().dragSession).toBeNull();     // 会话收尾（悬挂关闭——四提交点）
   });
 
   it('混批固化不丢（spec 评发现#2）：position+非 setAttributes dimensions 同批（无 session）⇒ 告警照发'

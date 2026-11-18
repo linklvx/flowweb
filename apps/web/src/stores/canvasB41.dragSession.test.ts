@@ -31,6 +31,7 @@ import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
 import { type StoredNodeRecord } from '@flowweb/shared';
 import { _setIntentDocForTest } from './canvasIntents';
 import { seedCanvas, openRwWindow, resetCanvasStores } from '@/test/fixtures/canvas';
+import { _resetCollabDiagForTest, getRecentCollabDiag } from '@/utils/collabDiagnostics';
 
 // Y2 A3（坐标域终裁）：手势活值唯一宿主=渲染列表（rel 域）——原 csNode 断言域整体换轨
 const csNode = (id: string) => useCanvasStore.getState().renderNodes.find((n: any) => n.id === id) as any;
@@ -141,7 +142,7 @@ describe("B4'-1 beginResize 首行 discard", () => {
     useCanvasStore.getState().beginResize('g1', 3);
     const s = session()!;
     expect(s.gestureKind).toBe('resize');
-    expect(s.resizePending).toBe(true);
+    // Y2 A4：resizePending 退役（叶子会话化）
     expect(s.resizeTargetId).toBe('g1');
     expect(s.draggingIds.size).toBe(0);            // 旧 drag 残留清空
     expect(s.frozenFrames.size).toBe(0);
@@ -424,5 +425,66 @@ describe("B4'-1 O0b-3 行为锚补齐（真实生命周期——非骨架注入�
     expect(useCanvasStore.getState().nodes.some((n: any) => n.id === 'c1')).toBe(false);
     expect(csNode('t1').position).toEqual({ x: 700, y: 0 });   // 事后回滚=baseline
     expect(csNode('g1').position).toEqual({ x: 100, y: 50 });  // 组帧善后完好
+  });
+});
+
+// ══════════ Y2 A4（D4）：叶子 resize 会话化——四提交点+事务前判定（红测⑤落位）══════════
+describe('Y2 A4 叶子 resize 会话化（D4——先红）', () => {
+  const leafRig = () => {
+    openRwWindow();
+    const d = new Y.Doc();
+    fillDoc(d, [{ id: 't1', type: 'textInput', position: { x: 700, y: 0 }, width: 300, height: 200, data: {} } as any], []);
+    _setIntentDocForTest(d);
+    applyDocToStore(d);
+    let tx = 0;
+    d.on('afterTransaction', () => { tx += 1; });
+    return { d, txOf: () => tx };
+  };
+  const resizeFrame = (w: number, h: number) =>
+    useCanvasStore.getState().onNodesChange([
+      { type: 'dimensions', id: 't1', dimensions: { width: w, height: h }, setAttributes: true } as any,
+    ]);
+
+  it('⑤ 会话期 doc 零写+单提交恰 1 transact（末帧三键 envelope+undo 单步 LocalUser）', () => {
+    const { d, txOf } = leafRig();
+    useCanvasStore.getState().beginResize('t1', 9);
+    resizeFrame(400, 300);
+    resizeFrame(500, 360);
+    expect(txOf()).toBe(0);   // 会话期 doc 零写（手势活值=渲染列表——逐帧落 doc 洞关闭）
+    useCanvasStore.getState().commitResizeGesture();
+    expect(txOf()).toBe(1);   // 提交恰 1 transact
+    const m = d.getMap('nodes').get('t1') as any;
+    expect(m.get('width')).toBe(500);   // 末帧三键
+    expect(m.get('height')).toBe(360);
+    expect((m.get('position') as any).toJSON()).toEqual({ x: 700, y: 0 });
+  });
+
+  it('四提交点（pointerup/pointercancel/pagehide/visibilitychange∧hidden）任一到达恰一次提交（一次性标志）', () => {
+    const { txOf } = leafRig();
+    useCanvasStore.getState().beginResize('t1', 9);
+    resizeFrame(400, 300);
+    window.dispatchEvent(new MouseEvent('pointerup'));          // 提交点①先到
+    expect(useCanvasStore.getState().dragSession).toBeNull();   // 已提交收尾
+    expect(txOf()).toBe(1);                                      // 恰 1 transact
+    // 其余三点到达=零再提交（一次性标志）
+    window.dispatchEvent(new MouseEvent('pointercancel'));
+    window.dispatchEvent(new Event('pagehide'));
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(txOf()).toBe(1);                                      // 仍恰 1（无二次提交）
+  });
+
+  it('提交前不变量（生产常开、transact 前）：末帧非有限 ⇒ 零 doc 写+session 清+invariant_violation 遥测', () => {
+    const { txOf } = leafRig();
+    _resetCollabDiagForTest();
+    useCanvasStore.getState().beginResize('t1', 9);
+    // 非有限末帧（脏值直达提交面——纯函数判定「意图应用后的作者记录」拦截）
+    useCanvasStore.setState((s) => ({
+      renderNodes: s.renderNodes.map((n: any) => n.id === 't1' ? { ...n, width: Number.NaN } : n),
+    }) as any);
+    useCanvasStore.getState().commitResizeGesture();
+    expect(txOf()).toBe(0);                                      // 失败路径不写 doc
+    expect(useCanvasStore.getState().dragSession).toBeNull();    // 清 gesture
+    expect(getRecentCollabDiag().some((e) => e.type === 'invariant_violation')).toBe(true);   // 既有遥测
   });
 });

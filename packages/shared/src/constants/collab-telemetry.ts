@@ -103,7 +103,9 @@ export const TELEMETRY_DETAIL_SCHEMA: Readonly<Record<CollabTelemetryEventType, 
     command: { sink: 'log-only' },   // T17 七命令名（EditableCommandName 7 值域归 web 单源，log-only 无 label 基数面不枚举〔name/frame 先例〕）
   },
   invariant_violation: {
-    where: { sink: 'log-only', values: ['applyRemote', 'applyBootstrap', 'react-boundary'] },
+    // Y2 A4：commitResizeGesture-pretransact（D4 提交前不变量——叶子 resize 会话化失败路径遥测）
+    where: { sink: 'log-only', values: ['applyRemote', 'applyBootstrap', 'react-boundary', 'commitResizeGesture-pretransact'] },
+    id: { sink: 'log-only' },   // Y2 A4：违例目标节点 id（log-only 无基数面——name/frame 先例）
     // Y0b-5 T2 ErrorBoundary 受控栈键（log-only——无 label 基数面）：name=error.name /
     // frame=error.stack 首帧 file:line（仅此字符串无整栈——受控枚举纪律，Y5 前可诊断非只知崩了）
     name: { sink: 'log-only' },

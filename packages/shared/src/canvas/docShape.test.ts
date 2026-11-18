@@ -32,7 +32,7 @@ type _AnchorDocNodeKeys = _AssertNever<_ExactKeysDiff<StoredNodeRecord, ['id', '
 type _AnchorRenderNodeKeys = _AssertNever<_ExactKeysDiff<RenderNode, ['id', 'type', 'parentId', 'position', 'width', 'height', 'data', 'hidden']>>;  // 勿删——删即静默失去键集防护
 type _AnchorDragSessionKeys = _AssertNever<_ExactKeysDiff<DragSession, [
   'baseline', 'groupBaseline', 'delta', 'draggingIds', 'dragProtectedIds', 'draggedGroupIds',
-  'frozenFrames', 'gestureKind', 'resizePending', 'lastActivityAt', 'activePointers',
+  'frozenFrames', 'gestureKind', 'lastActivityAt', 'activePointers',
   'gestureAbandoned', 'resizeTargetId',
 ]>>;  // 勿删——删即静默失去键集防护
 type _AnchorFrameModeInputKeys = _AssertNever<_ExactKeysDiff<Parameters<typeof frameMode>[0], ['data', 'storedFrame']>>;  // 勿删——删即静默失去键集防护
@@ -122,7 +122,6 @@ describe('DragSession 键集（draggingIds=被拖集合 / dragProtectedIds=保�
     expectTypeOf<DragSession['draggedGroupIds']>().toEqualTypeOf<ReadonlySet<string>>();
     expectTypeOf<DragSession['frozenFrames']>().toEqualTypeOf<ReadonlyMap<string, Rect>>();
     expectTypeOf<DragSession['gestureKind']>().toEqualTypeOf<'drag' | 'resize'>();
-    expectTypeOf<DragSession['resizePending']>().toEqualTypeOf<boolean>();
     expectTypeOf<DragSession['lastActivityAt']>().toEqualTypeOf<number>();
     expectTypeOf<DragSession['activePointers']>().toEqualTypeOf<Set<number>>();
     expectTypeOf<DragSession['gestureAbandoned']>().toEqualTypeOf<boolean>();

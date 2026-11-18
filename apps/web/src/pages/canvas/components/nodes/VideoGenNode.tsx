@@ -551,7 +551,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
 
   const handleResizeStart = useCallback(() => {
     setIsResizing(true);
-    useCanvasStore.getState().beginLeafResize();   // B4'-2（终裁 30）：叶子 resize 标记（门判据②豁免+固化抑制）
+    useCanvasStore.getState().beginResize(id, null);   // Y2 A4（D4）：叶子 resize 会话化（四提交点+单次提交）
     if (videoRef.current) {
       videoRef.current.style.pointerEvents = 'none';
     }
@@ -559,7 +559,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
     const onFallback = () => {
       finishResize();
       setIsResizing(false);
-      useCanvasStore.getState().endLeafResize();   // fallback 路径（mouseup/blur 兜底）同样复位——防标记悬挂
+      useCanvasStore.getState().commitResizeGesture();   // Y2 A4：fallback 路径（mouseup/blur 兜底）单次提交——防悬挂
     };
     window.addEventListener('mouseup', onFallback);
     window.addEventListener('blur', onFallback);
@@ -575,7 +575,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
 
   const handleResizeEnd = useCallback(() => {
     setIsResizing(false);
-    useCanvasStore.getState().endLeafResize();     // B4'-2：标记复位
+    useCanvasStore.getState().commitResizeGesture();   // Y2 A4：单提交（末帧三键）
     finishResize();
     stopCapturing();
   }, [finishResize]);
@@ -603,7 +603,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
         fallbackCleanupRef.current();
         fallbackCleanupRef.current = null;
       }
-      useCanvasStore.getState().endLeafResize();   // B4'-2：消失路径标记复位（onResizeEnd 不达——防悬挂）
+      useCanvasStore.getState().commitResizeGesture();   // Y2 A4：消失路径=四提交点兜底（防悬挂）
       setIsResizing(false);
     }
   }, [showResizeHandles, isResizing, id, nodeWidth, nodeHeight, getNodes]);

@@ -866,7 +866,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
           reportNodeSize(id, w, h);
         }
       }
-      useCanvasStore.getState().endLeafResize();   // B4'-2：消失路径标记复位（onResizeEnd 不达——防悬挂）
+      useCanvasStore.getState().commitResizeGesture();   // Y2 A4：消失路径=四提交点兜底（onResizeEnd 不达——防悬挂）
       setIsResizing(false);
     }
   }, [showResizeHandles, isResizing, id, nodeWidth, nodeHeight, getNodes]);
@@ -1111,12 +1111,12 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
 
   const handleResizeStart = useCallback(() => {
     setIsResizing(true);
-    useCanvasStore.getState().beginLeafResize();   // B4'-2（终裁 30）：叶子 resize 标记（门判据②豁免+固化抑制）
+    useCanvasStore.getState().beginResize(id, null);   // Y2 A4（D4）：叶子 resize 会话化（四提交点+单次提交）
   }, []);
 
   const handleResizeEnd = useCallback(() => {
     setIsResizing(false);
-    useCanvasStore.getState().endLeafResize();     // B4'-2：标记复位
+    useCanvasStore.getState().commitResizeGesture();   // Y2 A4：单提交（末帧三键——一次一次性）
     // O0b-2 (iv) resize 提交写者=onNodesChange setAttributes dimensions（envelope intent——
     // 已在松手时落 doc）；此处只同步 imgSize 局部态（edit overlay 用新尺寸——等价守卫②）
     const currentNode = getNodes().find((n) => n.id === id);

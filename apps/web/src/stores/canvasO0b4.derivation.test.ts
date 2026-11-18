@@ -91,7 +91,7 @@ function sessionSkeleton(over: Partial<DragSession>): DragSession {
     baseline: new Map(), groupBaseline: new Map(), delta: { x: 0, y: 0 },
     draggingIds: new Set<string>(), dragProtectedIds: new Set<string>(),
     draggedGroupIds: new Set<string>(), frozenFrames: new Map(),
-    gestureKind: 'drag', resizePending: false, lastActivityAt: 0,
+    gestureKind: 'drag', lastActivityAt: 0,
     activePointers: new Set<number>(), gestureAbandoned: false, resizeTargetId: null,
     ...over,
   };

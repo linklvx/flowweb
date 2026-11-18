@@ -320,21 +320,8 @@ describe('批4b-1：首批换芯接线锚（store action→intent 漏斗实贯�
     expect(useCanvasStore.getState().nodes).toEqual([]);
   });
 
-  it("moveNode 漏斗锚（B4'-2 后无 session 常规路径=叶子 resize position 批）：doc position 直写 + 不变量（origin=Geometry）——拖动批=手势期零 intent（session 驱动，B5'-1 提交=commitIntents LocalUser）", () => {
-    const id = useCanvasStore.getState().addNode('text', { x: 10, y: 0 });
-    const origins: unknown[] = [];
-    doc.on('afterTransaction', (tr) => origins.push(tr.origin));
-    useCanvasStore.getState().beginLeafResize();   // 叶子 resize 标记（终裁 30——position-only 批照常派发）
-    useCanvasStore.getState().onNodesChange([
-      { type: 'position', id, position: { x: 99, y: 88 }, dragging: false },
-    ]);
-    useCanvasStore.getState().endLeafResize();
-    const pos = ((doc.getMap('nodes').get(id) as Y.Map<any>).get('position') as Y.Map<any>).toJSON();
-    expect(pos).toEqual({ x: 99, y: 88 });
-    expect(useCanvasStore.getState().nodes[0].position).toEqual({ x: 99, y: 88 });
-    expect(origins).toContain(Origin.Geometry);  // 叶子 resize 常规路径不入栈（拖动提交自 B5'-1 起=LocalUser 入栈）
-    expect(checkProjectionInvariant(doc)).toBe(true);
-  });
+    // Y2 A4 退役注记：叶子 resize position 批常规路径锚（旧 beginLeafResize 标记豁免+逐帧
+  // moveNode Geometry）随叶子会话化退役——会话期零 intent、提交=单 envelope LocalUser（B41 ⑤ 新锚）。
 
   it('updateStoryboardConfig：改配置⇒cs 帧≡calcStoryboardSize（配置单源重算）+doc 单 transact+零 moveNode 意图（O0b-5——applyGroupFrameRect 退役）', () => {
     const id1 = useCanvasStore.getState().addNode('image', { x: 10, y: 10 }, { status: 'done', fileId: 'f1' });

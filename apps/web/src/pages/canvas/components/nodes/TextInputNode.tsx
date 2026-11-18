@@ -5,7 +5,6 @@ import { NodeHandle } from './NodeHandle';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { useNodeStore, isTextNode } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { stopCapturing } from '@/stores/canvasUndo';
 import { resolveDoc } from '@/stores/canvasIntents';
 import { resolveNodeXmlFragment, ySyncHostExtension } from '@/collab/yXmlFragmentBinding';
 import { buildTextContentSchemaExtensions } from './textExtensions';
@@ -168,8 +167,8 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
           maxWidth={RESIZE_CONFIG.maxWidth}
           maxHeight={RESIZE_CONFIG.maxHeight}
           keepAspectRatio={false}
-          onResizeStart={() => { setIsResizing(true); useCanvasStore.getState().beginLeafResize(); }}
-          onResizeEnd={() => { useCanvasStore.getState().endLeafResize(); stopCapturing(); setIsResizing(false); }}
+          onResizeStart={(e: unknown) => { setIsResizing(true); useCanvasStore.getState().beginResize(id, (e as { sourceEvent?: { pointerId?: number } })?.sourceEvent?.pointerId ?? null); }}
+          onResizeEnd={() => { useCanvasStore.getState().commitResizeGesture(); setIsResizing(false); }}
           style={{
             width: 24,
             height: 24,

@@ -110,6 +110,7 @@ vi.mock('@/stores/nodeStore', async (importOriginal) => {
 import { TextInputNode } from './TextInputNode';
 import * as Y from 'yjs';
 import { _setIntentDocForTest } from '@/stores/canvasIntents';
+import { useCanvasStore } from '@/stores/canvasStore';
 
 describe('TextInputNode (Tiptap)', () => {
   const defaultProps = { id: 'n1', data: { content: 'initial' }, selected: false } as any;
@@ -150,6 +151,35 @@ describe('TextInputNode (Tiptap)', () => {
 
   afterEach(() => {
     _setIntentDocForTest(null);
+  });
+
+  // ══ Y2 A4（D4 叶子 resize 会话化——组件级红测⑤）：现 wiring（beginLeafResize+逐帧 setAttributes）
+  // 逐帧落 doc 必红；会话化后同驱动=恰 1 transact（末帧三键） ══
+  it('Y2 A4 ⑤：resize 全程（start→2 帧→end）doc 恰 1 transact=末帧三键 envelope（现逐帧落 doc 必红）', () => {
+    const d = new Y.Doc();
+    d.transact(() => {
+      const n = new Y.Map();
+      n.set('type', 'textInput');
+      n.set('position', new Y.Map([['x', 0], ['y', 0]]));
+      n.set('width', 300); n.set('height', 200);
+      n.set('data', new Y.Map());
+      d.getMap('nodes').set('n1', n);
+    });
+    _setIntentDocForTest(d);
+    useCanvasStore.setState({ nodes: [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, width: 300, height: 200, data: {} } as any], edges: [], renderNodes: [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, width: 300, height: 200, data: {} } as any], hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' } as any);
+    const txOrigins: unknown[] = [];
+    d.on('afterTransaction', (tr: any) => { txOrigins.push(String(tr.origin)); });
+    const tx = { get n() { return txOrigins.length; } };
+    renderNode({ selected: true });   // 单选态=四角 resize 控件在场（mock impl 注册）
+    mockOnResizeStart();   // onResizeStart（wiring 驱动——RF 形态）
+    const oc = useCanvasStore.getState().onNodesChange;
+    oc([{ type: 'dimensions', id: 'n1', dimensions: { width: 400, height: 250 }, setAttributes: true } as any]);
+    oc([{ type: 'dimensions', id: 'n1', dimensions: { width: 500, height: 300 }, setAttributes: true } as any]);
+    mockOnResizeEnd();     // onResizeEnd（提交点）
+    expect(tx.n, `origins=${JSON.stringify(txOrigins)}`).toBe(1);   // 全程恰 1 transact
+    const m = d.getMap('nodes').get('n1') as any;
+    expect(m.get('width')).toBe(500);   // 末帧三键
+    expect(m.get('height')).toBe(300);
   });
 
   it('should render node title', () => {

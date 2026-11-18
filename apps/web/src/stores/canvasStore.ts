@@ -246,11 +246,7 @@ export interface CanvasState {
    *  STALE_MS=5s）；消费面=applyDocToStore 保护捕获/回写+reconcile 让位豁免+remove 谓词。
    *  null=无活跃手势。不进 history/localStorage 快照 */
   dragSession: DragSession | null;
-  /** B4'-2（终裁 30）叶子 resize 标记（非会话——resize 会话仅对组）：三处叶子 resizer
-   *  （ImageGen/VideoGen/TextInput NodeResizeControl）onResizeStart/End 接线。消费面=门判据②
-   *  豁免（position 批∧无 session∧无同批 resize∧无本标记⇒DEV 告警）+首测固化抑制
-   *  （session∨resizePending 不固化，终裁 59①[iii]）。UI 瞬态——不进 history/localStorage 快照 */
-  resizePending: boolean;
+  // Y2 A4 退役：resizePending 叶子标记（叶子 resize 会话化——beginResize 同轨；首测固化门判据改纯 session）
   /** sessionExpiry 401 面电平（批3 接线；canEdit 不读——反向断言锚）。不进快照 */
   httpExpired: boolean;
   /** 协作连接状态（Task15：autosave 退役）：不进 history/localStorage 快照 */
@@ -438,10 +434,6 @@ export interface CanvasState {
    *  不经 abort 族收尾链。生产接线=GroupNode NodeResizer onResizeEnd（先于尾批 onEnd——F10）。
    *  幂等：无 resize 会话=no-op。 */
   commitResizeGesture: () => void;
-  /** B4'-2（终裁 30）叶子 resize 标记置位/复位（三叶子 resizer onResizeStart/End 接线）——
-   *  见 resizePending 字段 JSDoc。 */
-  beginLeafResize: () => void;
-  endLeafResize: () => void;
   /** B4'-1（Spec B）单收尾函数（终裁 54②——中止/自愈/remove 谓词三分支共用，其内唯一 1 处
    *  reconcile[收尾链：回滚→清 session（frozenFrames 同步块+watchdog clearTimeout）→reconcile('doc')
    *  →invariant]——reconcile census 四元组第 4 成员）。reason：'aborted'=watchdog 终结（指针已抬+
@@ -648,6 +640,28 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   const placementBesideGroup =
     (frame: { x: number; y: number; width: number }, index = 0): { x: number; y: number } =>
       ({ x: frame.x + frame.width + 20, y: frame.y + index * 200 });
+
+  /** Y2 A4（D4）：resize 四提交点兜底（pointerup/pointercancel/pagehide/visibilitychange∧hidden）
+   *  ——一次性标志保证恰一次提交；组件层 onResizeEnd=首选路径（先于 RF 尾批——F10），本窗为
+   *  吞 pointerup/窗外释手等失联档的安全网。commitResizeGesture 自身幂等（无 session=no-op），
+   *  双保险不冲突。 */
+  const armResizeCommitPoints = () => {
+    let done = false;
+    const commitOnce = () => {
+      if (done) return;
+      done = true;
+      window.removeEventListener('pointerup', commitOnce);
+      window.removeEventListener('pointercancel', commitOnce);
+      window.removeEventListener('pagehide', commitOnce);
+      document.removeEventListener('visibilitychange', onVis);
+      get().commitResizeGesture();
+    };
+    const onVis = () => { if (document.hidden) commitOnce(); };
+    window.addEventListener('pointerup', commitOnce);
+    window.addEventListener('pointercancel', commitOnce);
+    window.addEventListener('pagehide', commitOnce);
+    document.addEventListener('visibilitychange', onVis);
+  };
 
   /** B5'-1（Spec B 终裁 78⑩）提交族收尾同步块：清 session（frozenFrames/activePointers/
    *  gestureAbandoned/resizePending/resizeTargetId 随 dragSession=null 整对象清）+watchdog
@@ -921,7 +935,6 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   wsAuthNotice: null,
   wsQuotaTerminal: null,
   dragSession: null,
-  resizePending: false,
   httpExpired: false,
   connStatus: 'connecting',
   collabEscapePending: false,
@@ -1518,7 +1531,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         draggedGroupIds,
         frozenFrames,
         gestureKind: 'drag',
-        resizePending: false,
+        // Y2 A4：resizePending 退役（叶子会话化）
         lastActivityAt: Date.now(),
         activePointers: new Set(pointerId != null ? [pointerId] : []),   // 键控集合（终裁 31①）
         gestureAbandoned: false,
@@ -1543,7 +1556,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         draggedGroupIds: new Set(),
         frozenFrames: new Map(),
         gestureKind: 'resize',
-        resizePending: true,
+        // Y2 A4：resizePending 退役（叶子会话化）
         lastActivityAt: Date.now(),
         activePointers: new Set(pointerId != null ? [pointerId] : []),
         gestureAbandoned: false,
@@ -1551,6 +1564,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       },
     });
     armDragWatchdog();
+    armResizeCommitPoints();   // Y2 A4（D4）：四提交点（window 级兜底——RF onResizeEnd 为首选路径）
   },
 
   commitResizeGesture: () => {
@@ -1565,23 +1579,28 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // isFinite 守卫（质评 Minor-3）：目标缺席/wh 非有限（如整帧被远端删的窄窗）⇒ 跳过提交 intent
     // 但仍走"跳过但完成"收尾——清 session 同步块无条件执行（会话必须终结，
     // 残帧不落 doc=保守不写而非写脏值）。
-    if (target && Number.isFinite(target.width) && Number.isFinite(target.height)) {   // isFinite 失败档（质评 Minor-3）
-      finalizeGestureSession();   // 提交族收尾（不回滚、不走 abort 族收尾链——B5'-1 终裁 78⑩）
-      dispatchCanvasIntent([{
-        type: 'updateNodeEnvelope', id: s.resizeTargetId,
-        patch: {
-          position: { x: target.position.x, y: target.position.y },
-          width: target.width,
-          height: target.height,
-        },
-      }], Origin.LocalUser);   // 单 transact=单 undo 步（LocalUser 入栈）
-      stopCapturing();   // 手势=单 undo 步（捕获窗关闭——旧 GroupNode onResizeEnd 语义随迁）
-    } else {
-      // isFinite 失败/目标缺席档（质评 Minor-3）：零提交 intent ⇒ 无 dispatch ⇒ 无漏斗尾 reconcile
-      //——cs 预览帧停末值（下一命令差分首行收敛）；此处随后的 invariant 在该窄窗可假红（fail-loud
-      // 方向、可达性极低——守卫本身防御态）。
-      finalizeGestureSession();
+    // Y2 A4（D4）：提交前不变量——生产常开、transact 前（纯函数判定「意图应用后的作者记录」：
+    // 末帧三键+position 全有限；失败路径零 doc 写+清 gesture+渲染列表回算 doc 派生值+既有
+    // invariant_violation 遥测——吞并旧 isFinite 守卫〔Minor-3 档〕的保守不写语义并补齐收尾）
+    const targetFinite = target != null
+      && Number.isFinite(target.width) && Number.isFinite(target.height)
+      && Number.isFinite(target.position?.x) && Number.isFinite(target.position?.y);
+    if (!targetFinite) {
+      recordCollabDiag('invariant_violation', { where: 'commitResizeGesture-pretransact', id: s.resizeTargetId });
+      finalizeGestureSession();   // 清 gesture（失败路径收尾——会话必须终结）
+      if (d) set({ renderNodes: recomputeRenderNodes(d) });   // 脏末帧出清（渲染列表回算 doc 值）
+      return;
     }
+    finalizeGestureSession();   // 提交族收尾（不回滚、不走 abort 族收尾链——B5'-1 终裁 78⑩）
+    dispatchCanvasIntent([{
+      type: 'updateNodeEnvelope', id: s.resizeTargetId,
+      patch: {
+        position: { x: target!.position.x, y: target!.position.y },
+        width: target!.width,
+        height: target!.height,
+      },
+    }], Origin.LocalUser);   // 单 transact=单 undo 步（LocalUser 入栈）
+    stopCapturing();   // 手势=单 undo 步（捕获窗关闭——旧 GroupNode onResizeEnd 语义随迁）
     // canEdit 门拦（viewer 窗口）⇒ dispatch 零写、cs 停末帧=设计内分叉（下一 reconcile 收敛）——
     // invariant 断言面只覆盖 dispatch 真跑（rw）窗
     if (import.meta.env.DEV && d && canEdit(get()) && !checkProjectionInvariant(d)) {
@@ -1711,23 +1730,6 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     stopCapturing();   // 窗右边界（commitIntents 同款——归属+位置同窗=一步 undo，下一步命令不并栈）
   },
 
-  beginLeafResize: () => {
-    set({ resizePending: true });
-    // 悬挂兜底（B4'-2 spec 评发现#1）：只点不拖（RF resizeDetected 守卫跳过 onResizeEnd）⇒ 标记
-    // 永悬（固化被永久抑制+门判据②错路由）。pointerup/pointercancel 一次性兜底清——真 resize 的
-    // 末批自带 setAttributes（批内判据照常 else 路由），两类清零幂等无冲突。
-    // 质评 Minor-1 有界化：once 对只各自摘自身——未触发的孪生监听器会跨手势滞留（慢泄漏），
-    // 共享 clear 双摘封顶每手势零残留。
-    const clear = () => {
-      window.removeEventListener('pointerup', clear, { capture: true });
-      window.removeEventListener('pointercancel', clear, { capture: true });
-      set({ resizePending: false });
-    };
-    window.addEventListener('pointerup', clear, { capture: true });
-    window.addEventListener('pointercancel', clear, { capture: true });
-  },
-  endLeafResize: () => set({ resizePending: false }),
-
   endGesture: (reason) => {
     void reason;   // 三分支（aborted/healed/removed）收尾同构——reason 仅诊断面（单收尾终裁 54②）
     const s = get().dragSession;
@@ -1829,7 +1831,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       // commitResizeGesture（B4'-2）；拖动=commitIntents（B5'-1——CanvasView onNodeDragStop 头部，
       // 拖入组路由 B5'-2 单一路径化）。end 重放批（dragging:false——F1）落 session 内零告警；
       // remove 见上方 structIntents。
-    } else if (hasPosition && !hasResizeAttr && !get().resizePending) {
+    } else if (hasPosition && !hasResizeAttr) {
       // ── 门判据②（终裁 30 分型）：position 批∧无 session∧无 resize 批（同批无 dimensions/
       // setAttributes 且无 resizePending 叶子标记）⇒ 零 intent+DEV 告警——外视写入（不变量
       // "cs position 批⇐session∨resize 批，否则告警"）；cs 照常吞 RF 批（受控面一致，下一

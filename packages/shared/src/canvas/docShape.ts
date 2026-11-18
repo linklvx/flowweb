@@ -372,7 +372,7 @@ export interface DragSession {
   draggedGroupIds: ReadonlySet<string>;
   frozenFrames: ReadonlyMap<string, Rect>;
   gestureKind: 'drag' | 'resize';
-  resizePending: boolean;
+  // Y2 A4 退役：resizePending（叶子标记——叶子 resize 会话化随 beginResize 同轨）
   lastActivityAt: number;
   activePointers: Set<number>;
   gestureAbandoned: boolean;
