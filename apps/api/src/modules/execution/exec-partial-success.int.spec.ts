@@ -128,7 +128,9 @@ const statusOf = async (nodeId: string) =>
       projectId: PID, nodeId: n2.id, userId: UID, gestureToken: `occ-${randomUUID().slice(0, 8)}`,
       kind: 'image', paramsHash: `h-${randomUUID().slice(0, 8)}`, teamId: TID,
       pricing: PAID,
-    });
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     const { svc, writeExecCalls, writeNodeCalls } = makeExec([n1, n2, n3]);
     const r = await svc.execute(PID, undefined, UID, [n1.id, n2.id, n3.id], `eps-busy-${randomUUID().slice(0, 6)}`);
     expect(r.success).toBe(false);
@@ -229,7 +231,9 @@ const statusOf = async (nodeId: string) =>
       projectId: PID, nodeId, userId: UID, gestureToken: `eps-pj-${randomUUID().slice(0, 8)}`,
       kind: 'image', paramsHash: `h-${randomUUID().slice(0, 8)}`, teamId: TID,
       pricing: PAID,
-    });
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     await teamCredit.reserve(UID, { intentRowId: intent.id });
     await teamCredit.settle({ intentRowId: intent.id });
     await prisma.generationIntent.update({
@@ -256,7 +260,9 @@ const statusOf = async (nodeId: string) =>
       projectId: PID, nodeId, userId: UID, gestureToken: `eps-pj2-${randomUUID().slice(0, 8)}`,
       kind: 'image', paramsHash: `h-${randomUUID().slice(0, 8)}`, teamId: TID,
       pricing: PAID,
-    });
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     await teamCredit.reserve(UID, { intentRowId: intent.id });
     await prisma.generationIntent.update({
       where: { id: intent.id },

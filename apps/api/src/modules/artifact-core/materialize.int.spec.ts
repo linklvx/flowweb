@@ -90,7 +90,9 @@ async function seedMaterializing(over: Record<string, unknown> = {}): Promise<Se
     projectId: PID, nodeId, userId: UID, kind: 'video',
     paramsHash: `h-${randomUUID().slice(0, 8)}`, teamId: TID, pricing: PRICING,
     jobId: over['jobId'] as string ?? `t12mz-${Date.now()}`,
-  });
+  
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
   await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
   const sourceUrl = `https://provider.example.com/v-${randomUUID().slice(0, 8)}.mp4`;
   const keyBase = `artifacts/${TID}/${c.intent.id}/${c.intent.execSeq}/0`;

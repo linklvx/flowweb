@@ -149,29 +149,29 @@ model Template {
 }
 
 model CanvasProject {
-  id             String              @id @default(cuid())
-  name           String
-  userId         String?
-  teamId         String
+  id                  String                     @id @default(cuid())
+  name                String
+  userId              String?
+  teamId              String
   // C1-0（R15/R17 生产就绪收尾批）：lifecycleState=持久 fence 判据列（ACTIVE|DELETING——非 ACTIVE
   // 写路径拒绝〔fenceProject FOR SHARE 行锁读〕；状态机接线/HTTP 映射归 C4）+origin=谱系列
   // （值域单源 shared CANVAS_PROJECT_ORIGINS=['user','clone']——governance 单源写点〔C2-0 两创建
   // 路径均 'user'〕；'clone' 谱系 video-work clone 接线+cleanDrafts 谓词消费，C4 接线）。
-  lifecycleState String              @default("ACTIVE")
-  origin         String?
-  templates      Template[]
-  canvasDoc      CanvasDoc?
-  docSnapshots   CanvasDocSnapshot[] // Y1c T7：载体族快照反向关系（双侧全补）
-  projectMembers ProjectMember[]
-  docUpdates     CanvasDocUpdate[]
-  videoProjects  VideoProject[]
+  lifecycleState      String                     @default("ACTIVE")
+  origin              String?
+  templates           Template[]
+  canvasDoc           CanvasDoc?
+  docSnapshots        CanvasDocSnapshot[] // Y1c T7：载体族快照反向关系（双侧全补）
+  projectMembers      ProjectMember[]
+  docUpdates          CanvasDocUpdate[]
+  videoProjects       VideoProject[]
   // C1-1（v5.2 终态）：MediaBinding.projectId FK Cascade 反向关系——项目删除零残留
-  mediaBindings  MediaBinding[]
+  mediaBindings       MediaBinding[]
   // C3b-1（spec §3.4-2/v5.2 ⑧）：oracle 双表 project FK Cascade 反向关系——项目删除零残留
   referenceOracles    CanvasReferenceOracle[]
   referenceOracleScan CanvasReferenceOracleScan?
-  createdAt      DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime            @updatedAt @db.Timestamptz(3)
+  createdAt           DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime                   @updatedAt @db.Timestamptz(3)
 
   user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
   team Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
@@ -349,15 +349,15 @@ model Media {
   expiresAt DateTime? @db.Timestamptz(3) // 临时文件过期时间
 
   // 素材库关联
-  folderId      String? // 关联素材库文件夹
-  isFavorite    Boolean   @default(false) // 收藏标记
-  thumbnailKey  String? // 缩略图对象键（URL动态生成，避免过期）
-  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
-  deletedAt     DateTime? @db.Timestamptz(3) // 软删除
+  folderId            String? // 关联素材库文件夹
+  isFavorite          Boolean   @default(false) // 收藏标记
+  thumbnailKey        String? // 缩略图对象键（URL动态生成，避免过期）
+  updatedAt           DateTime  @updatedAt @db.Timestamptz(3)
+  deletedAt           DateTime? @db.Timestamptz(3) // 软删除
   // C3a-2（spec §0 C3b/§3.2-6）：删除事务态 ACTIVE|DELETING——DELETING=删除事务进行中（doc 帧照写
   // binding=recheck 证人，「引用即中止删除」；列本卡落位解 C1 前引用冲突，**消费归 C3b-4**）。
   // DB CHECK IN ('ACTIVE','DELETING') 为 raw 迁移附（Prisma 不可表达——MediaFact.factType 同款先例）。
-  deletionState String    @default("ACTIVE")
+  deletionState       String    @default("ACTIVE")
   // C3b-4（spec §3.4-5 :81）：DELETING 状态机审计三列——CAS 抢占（ACTIVE→DELETING）时落值；
   // 回退 ACTIVE 保留值=最近一次删除尝试的审计痕迹（runbook §13.2——ACTIVE∧非空=上次尝试中止/失败）。
   deletionRequestedAt DateTime? @db.Timestamptz(3)
@@ -1086,6 +1086,10 @@ model ExecutionNodePlan {
   status             String  @default("PENDING")
   generationIntentId String?
   execSeq            BigInt?
+  // Y2 B1（裁决 16）：plan 行同款前两列（无 released——plan 表无释放面）；admitRequest 携占位
+  // true/null（防 NOT NULL 断链——B2 换 buildFrozenSlice 会话内读槽真捕获）。
+  authorSlotFrozen   Boolean
+  authorMediaId      String?
 
   @@id([requestId, nodeId])
   @@index([requestId, order])
@@ -1513,6 +1517,14 @@ model GenerationIntent {
   // 落列——worker 崩溃后 R3 finalizeFromStage 凭此重建 expectedRev；悬留窗内用户 replace/clear 使槽位
   // rev 前进 ⇒ 持久值失配 ⇒ superseded 不覆盖用户值——T10「生成在飞 replace→superseded」不变量的 R3 面）。
   claimArtifactRev     Int?
+  // Y2 B1（裁决 16/D8）：作者槽冻结三列——claim/rearm 捕获受理时刻槽位真值（B1~B2 占位 false/null；
+  // B2 换真值）。authorSlotFrozen=无默认 NOT NULL（迁移④段 SET NOT NULL——回填覆盖全部余行）；released
+  // =释放置位（B2a 两封闭操作成功投影后 UPDATE true——v5 改死二顺序钉死）；部分索引
+  // GenerationIntent_release_pending_idx（migration-SQL-only 三先例同款——四标量谓词，text 永不释放死行
+  // 不进索引）。
+  authorSlotFrozen     Boolean
+  authorMediaId        String?
+  authorSlotReleased   Boolean      @default(false)
   providerRequestId    String? // v13b write-ahead：submit 前落库（Idempotency-Key——消灭 submit→DB 崩溃窗）
   // Y1c T21（迁移二）：claim 创建关联 requestId——paramsHash/pricing 只读 ExecutionNodePlan 不重算
   // （spec §6.1「GenerationIntent=claim 创建关联 requestId」；worker 零 doc 读）

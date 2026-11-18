@@ -225,7 +225,8 @@ maybe('C3b-5：消费面切换+shadow 对拍+回滚开关（真 PG）', () => {
     await purgeStrayCandidates();
     const m = await seedMedia({ deletedAt: GRACE_OLD });
     // LightingTask.resultMediaId=旧 GC 四源+doc 扫外引用（C3b-4 ②b 同形态）——registry 臂独有证人
-    await prisma.lightingTask.create({ data: { userId: UID, nodeId: 'n-c3b5-1', projectId: P2, originalImageUrl: 'http://x/l.png', params: {}, resultMediaId: m.id, teamId: TID } });
+    await prisma.lightingTask.create({ data: { userId: UID, nodeId: 'n-c3b5-1', projectId: P2, originalImageUrl: 'http://x/l.png', params: {}, resultMediaId: m.id, teamId: TID ,
+} });
     const s = await gcSweep(realPort);
     expect(s.guarded).toBeGreaterThanOrEqual(1);          // 阻断保留（决策面=并集）
     expect(s.deleted).toBe(0);
@@ -280,7 +281,9 @@ maybe('C3b-5：消费面切换+shadow 对拍+回滚开关（真 PG）', () => {
       data: {
         projectId: PO, nodeId: 'n-1', userId: UID, teamId: ER_TID, intentId: `it-c3b5-${stamp}`, kind: 'image',
         paramsHash: 'c3b5-hash', creditCost: 0, heartbeatAt: new Date(), deadlineAt: new Date(), idemKey: `idem-c3b5-${stamp}`, execSeq: 930001n, resultRef: mMiss.id,
-      },
+      
+        authorSlotFrozen: false,   // Y2 B1：NOT NULL 列（fixture 补列）
+},
     });
     await tombstone(pid);
     await poller.tick();

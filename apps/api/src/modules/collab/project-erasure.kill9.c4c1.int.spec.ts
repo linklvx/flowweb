@@ -61,9 +61,13 @@ const okBarrier = (): DeletionBarrierPort => ({
         data: { id: `${pid}-m-${s}`, userId: owner, teamId, projectId: pid, bucket: 'flowai', key: `${pid}/${s}.bin`, originalName: s, mimeType: 'application/octet-stream', size: 1n, type: s === 'lib' ? 'uploaded' : 'generated' },
       });
     }
-    await prisma.videoWork.create({ data: { id: `${pid}-w0`, title: 'w', authorName: owner, videoKey: `${pid}/work.mp4`, canvasProjectId: pid } });
+    await prisma.videoWork.create({ data: { id: `${pid}-w0`, title: 'w', authorName: owner, videoKey: `${pid}/work.mp4`, canvasProjectId: pid ,
+} });
     const intent = await prisma.generationIntent.create({
-      data: { projectId: pid, nodeId: 'n1', userId: owner, teamId, intentId: `it-${pid}`, kind: 'text', paramsHash: 'ph', creditCost: 2, creditsConsumed: 2, resultText: '正文', gestureKey: 'gk', resultRef: 'ref', heartbeatAt: new Date(), deadlineAt: new Date(), idemKey: `idem-${pid}`, execSeq: execSeq++ },
+      data: { projectId: pid, nodeId: 'n1', userId: owner, teamId, intentId: `it-${pid}`, kind: 'text', paramsHash: 'ph', creditCost: 2, creditsConsumed: 2, resultText: '正文', gestureKey: 'gk', resultRef: 'ref', heartbeatAt: new Date(), deadlineAt: new Date(), idemKey: `idem-${pid}`, execSeq: execSeq++ ,
+        authorSlotFrozen: false,   // Y2 B1：NOT NULL 列（fixture 补列）
+},
+    
     });
     await prisma.refundObligation.create({ data: { intentRowId: intent.id, execSeq: 1n, reversesId: 'r', creditAmount: 1, state: 'SETTLED' } });
     await prisma.template.create({ data: { name: 'tpl', userId: owner, projectId: pid, teamId } });

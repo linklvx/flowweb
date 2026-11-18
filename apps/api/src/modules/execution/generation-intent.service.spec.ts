@@ -46,7 +46,8 @@ const row = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-/** claim 输入（默认与 row 同上下文；Y0b-2：gestureToken 替代 intentId 入参——行身份由 claim 铸造） */
+/** claim 输入（默认与 row 同上下文；Y0b-2：gestureToken 替代 intentId 入参——行身份由 claim 铸造）
+ *  Y2 B1：冻结两列缺省占位 false/null（ClaimInput 必填面——单测统一占位）。 */
 const input = (over: Record<string, unknown> = {}) => ({
   projectId: 'p1',
   nodeId: 'n1',
@@ -55,6 +56,8 @@ const input = (over: Record<string, unknown> = {}) => ({
   paramsHash: 'h1',
   teamId: 'team-1',
   pricing: { pricingRuleId: 'pr1', modelId: 'm1', resolutionId: null, durationId: null, creditCost: 1 },
+  authorSlotFrozen: false,
+  authorMediaId: null,
   ...over,
 });
 
@@ -151,7 +154,9 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
       prisma.generationIntent.findUniqueOrThrow.mockResolvedValue(row());
       await expect(
         // @ts-expect-error pricing 必填——缺省即类型错误（tsc --noEmit 红相=本用例红相）
-        service.claim({ projectId: 'p1', nodeId: 'n1', userId: 'u1', kind: 'image', paramsHash: 'h1', teamId: 'team-1' }),
+        service.claim({ projectId: 'p1', nodeId: 'n1', userId: 'u1', kind: 'image', paramsHash: 'h1', teamId: 'team-1',
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null, }),
       ).rejects.toThrow(); // 运行时：pricing undefined → 固化字段访问 TypeError → 拒绝（无静默免费路径）
     });
 
@@ -291,6 +296,10 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
           attempts: { increment: 1 },
           heartbeatAt: expect.any(Date),   // Z68：rearm 重置生命线
           deadlineAt: expect.any(Date),
+          // Y2 B1：冻结三列=本次受理值（占位）+released 显式重置 false
+          authorSlotFrozen: false,
+          authorMediaId: null,
+          authorSlotReleased: false,
         },
       });
     });
@@ -720,5 +729,96 @@ describe('Y0b-2 T1：intent-key.util（Z82/Z79/Z68）', () => {
     expect(deadlineMsForKind('redraw')).toBe(EXEC_DEFAULTS.DEADLINE_EDIT);
     expect(deadlineMsForKind('lighting')).toBe(EXEC_DEFAULTS.DEADLINE_LIGHTING);
     expect(deadlineMsForKind('unknown-kind')).toBe(EXEC_DEFAULTS.DEADLINE_EDIT); // 未知 kind 保守短档
+  });
+});
+
+// ══════════ Y2 B1：冻结两列（D8——先红；裁决 16 三列/裁决 v5 released 重置）══════════
+describe('Y2 B1 冻结两列（先红）', () => {
+  // 装置同主 describe（mock prisma 直通事务）；B1~B2 之间 claim 传占位值 false/null
+  // （两列此间零读者；占位值严禁改为读现场槽——spec D8「claim 禁现读」，B2 换真值）。
+  let service: GenerationIntentService;
+  let prisma: any;
+  beforeEach(async () => {
+    prisma = {
+      generationIntent: {
+        findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), findFirst: vi.fn(),
+        create: vi.fn(), createMany: vi.fn(), updateMany: vi.fn(), update: vi.fn(), findMany: vi.fn(),
+      },
+      $transaction: vi.fn((fn: (tx: any) => Promise<unknown>) => fn(prisma)),
+      artifactProjection: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      nodeArtifact: { findUnique: vi.fn().mockResolvedValue(null) },
+      canvasDoc: { findUnique: vi.fn().mockResolvedValue({ generation: 3 }) },
+      $queryRaw: vi.fn().mockImplementation(async (q: unknown) =>
+        /nextval/.test(String(q)) ? [{ v: 9n }] : [{ status: 'ACTIVE' }]),
+      $executeRaw: vi.fn().mockResolvedValue(0),
+    };
+    const teamCredit = { voidInTx: vi.fn().mockResolvedValue(undefined) };
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        GenerationIntentService,
+        NodeArtifactService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: TeamCreditService, useValue: teamCredit },
+      ],
+    }).compile();
+    service = module.get(GenerationIntentService);
+  });
+
+  it('①④ 新行 createMany：占位两列经 ...rest 流入（剔除集 {pricing,teamId,gestureToken,traceId} 外四键）', async () => {
+    prisma.generationIntent.findFirst.mockResolvedValue(null);   // ⓪ RUNNING 闸空
+    prisma.generationIntent.findUnique.mockResolvedValue(null);  // ③ 内容键无行
+    prisma.generationIntent.createMany.mockResolvedValue({ count: 1 });
+    prisma.generationIntent.findUniqueOrThrow.mockResolvedValue(row());
+    await service.claim(input({ authorSlotFrozen: false, authorMediaId: null }));
+    const data = prisma.generationIntent.createMany.mock.calls[0][0].data[0];
+    expect(data.authorSlotFrozen).toBe(false);   // B1~B2 占位（D8：claim 禁现读现场槽）
+    expect(data.authorMediaId).toBe(null);
+    expect(data.authorSlotReleased).toBeUndefined();   // 新行不写——列默认 false（released 非 ClaimInput 面）
+  });
+
+  it('② rearm 三态（FAILED/VOIDED/UNKNOWN）：updateMany data 携三列=本次受理值+released 重置 false（上代 true 残留=新代释放失败零兜底——v5 改死一）', async () => {
+    for (const status of ['FAILED', 'VOIDED', 'UNKNOWN'] as const) {
+      prisma.generationIntent.updateMany.mockClear();
+      prisma.generationIntent.findFirst.mockResolvedValue(null);
+      prisma.generationIntent.findUnique
+        .mockResolvedValueOnce(row({ status, attempts: 1, authorSlotFrozen: true, authorMediaId: 'm-old', authorSlotReleased: true }))
+        .mockResolvedValueOnce(row({ status: 'RUNNING' }));
+      prisma.generationIntent.updateMany.mockResolvedValue({ count: 1 });
+      const r = await service.claim(input({ authorSlotFrozen: true, authorMediaId: 'm-new' }));
+      expect(r.result).toBe('rearm');
+      const arg = prisma.generationIntent.updateMany.mock.calls[0][0];
+      expect(arg.data.authorSlotFrozen).toBe(true);        // 本次受理值（非旧值保留）
+      expect(arg.data.authorMediaId).toBe('m-new');
+      expect(arg.data.authorSlotReleased).toBe(false);     // 显式重置（残 true 档新代永释放失败）
+    }
+  });
+
+  it('③ takeover data 不含三列（保留首代冻结值）∧ same-job-alive 零写（无 updateMany）', async () => {
+    // 态② takeover：心跳过期同 job 重入——换代重锚但不写冻结三列（首代冻结值随行存活）
+    prisma.generationIntent.findFirst.mockResolvedValue(row({
+      jobId: 'j-1', heartbeatAt: new Date(Date.now() - 120_000),   // > EXEC_SAME_JOB_ALIVE_MS
+      authorSlotFrozen: true, authorMediaId: 'm-gen1', authorSlotReleased: false,
+    }));
+    prisma.generationIntent.updateMany.mockResolvedValue({ count: 1 });
+    prisma.generationIntent.findUniqueOrThrow.mockResolvedValue(row({ jobId: 'j-1' }));
+    await service.claim(input({ jobId: 'j-1', authorSlotFrozen: false, authorMediaId: null }));
+    const data = prisma.generationIntent.updateMany.mock.calls[0][0].data;
+    expect('authorSlotFrozen' in data).toBe(false);   // takeover 不覆盖（同 job 续跑非用户受理面）
+    expect('authorMediaId' in data).toBe(false);
+    expect('authorSlotReleased' in data).toBe(false);
+    // 态① same-job-alive：心跳新鲜——零写让位（行完全归旧 worker）
+    prisma.generationIntent.updateMany.mockClear();
+    prisma.generationIntent.findFirst.mockResolvedValue(row({ jobId: 'j-1', heartbeatAt: new Date() }));
+    const r2 = await service.claim(input({ jobId: 'j-1', authorSlotFrozen: true, authorMediaId: 'm-x' }));
+    expect(r2.result).toBe('same-job-alive');
+    expect(prisma.generationIntent.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('⑥ 防回归 grep 锚：无 result===rearm 事后补写分支 ∧ claim 路径零 doc 现场读（D8——readCanvas/Y.Doc/getMap 禁入本服务）', () => {
+    const { readFileSync } = require('node:fs');
+    const { join } = require('node:path');
+    const src = readFileSync(join(__dirname, 'generation-intent.service.ts'), 'utf8');
+    expect(src).not.toMatch(/result\s*===\s*['"]rearm['"]/);   // 禁事后补写（列只在 rearm updateMany/createMany 内联写）
+    expect(src).not.toMatch(/readCanvas|Y\.Doc|getMap\(/);     // claim 禁现读（doc 读只存在于受理三入口/execute 存活过滤——他文件）
   });
 });

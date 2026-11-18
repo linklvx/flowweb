@@ -191,6 +191,11 @@
           "src": "apps/web/src/utils/projectCanvas.ts",
           "line": 2,
           "text": "// Y2 第①步（A2a）：主画布唯一渲染出口——D1 装配序五步（spec 2026-11-17-y2-projection-convergence D1）："
+        },
+        {
+          "src": "scripts/check-migration-additive.mjs",
+          "line": 41,
+          "text": "// Y2 B1（裁决 16/plan v6 段序④段——2026-11-17-y2-projection-convergence 用户确认 2026-11-17）："
         }
       ]
     },

@@ -37,7 +37,16 @@ const DROP_INDEX = /\bDROP\s+INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+EXISTS\s+)?(?:"
 // 豁免登记（controller 裁定专属——reset runbook 全表部署语义，无存量数据不受 expand/contract 保护）。
 // 元数据（S0.1 2026-10-20 补全）：reason=放行依据 / owner=豁免裁定责任人 / since=登记日期。
 // C1-1 rebaseline：旧六登记随旧链目录删除清零（空集=新 init 上零负债；未来登记须用户裁定+同 commit）。
-export const EXEMPTIONS = {};
+export const EXEMPTIONS = {
+  // Y2 B1（裁决 16/plan v6 段序④段——2026-11-17-y2-projection-convergence 用户确认 2026-11-17）：
+  // 冻结两列终态化 SET NOT NULL。放行依据=①段 DELETE 非终态行+③段回填覆盖全部余行 ⇒ SET 前全行
+  // 有值；且 B1 起两列 ClaimInput 必填/受理 createMany 恒写=无 drain 期旧代码缺列写面
+  //（开发测试档 reset runbook 同语义）。
+  '20261118140000_y2_author_slot_frozen': {
+    GenerationIntent: { reason: 'Y2 B1 冻结列终态化——回填前置覆盖全部余行（plan v6 段序钉死）', owner: 'Y2 plan v6 用户确认（2026-11-17）', since: '2026-11-18' },
+    ExecutionNodePlan: { reason: '同款 plan 行两列（受理 createMany 恒携列——NOT NULL 无断链）', owner: 'Y2 plan v6 用户确认（2026-11-17）', since: '2026-11-18' },
+  },
+};
 
 /** BREAKING 语句所属表名提取（ALTER/DROP/TRUNCATE TABLE "X" 或 DROP TYPE "X" 首个引用）；
  *  提取不到=null=不可豁免（保守兜底——表名不明即维持硬拦）。

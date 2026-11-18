@@ -38,6 +38,8 @@ const input = (over: Record<string, unknown> = {}) => ({
   paramsHash: 'h1',
   teamId: TID,
   pricing: PRICING,
+  authorSlotFrozen: false,   // Y2 B1：冻结两列占位缺省（ClaimInput 必填面）
+  authorMediaId: null,
   ...over,
 });
 
@@ -89,8 +91,12 @@ const input = (over: Record<string, unknown> = {}) => ({
     const base = { projectId: PID, nodeId: `conc-${Date.now()}`, userId: INT_UID, kind: 'text', paramsHash: 'h',
       teamId: TID, pricing: PRICING };
     const r = await Promise.allSettled([
-      svc.claim({ ...base, gestureToken: `conc-a-${Date.now()}` }),
-      svc.claim({ ...base, gestureToken: `conc-b-${Date.now()}` }), // 同 nodeId 异 idemKey——撞 active partial unique
+      svc.claim({ ...base, gestureToken: `conc-a-${Date.now()}` ,
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,}),
+      svc.claim({ ...base, gestureToken: `conc-b-${Date.now()}` ,
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,}), // 同 nodeId 异 idemKey——撞 active partial unique
     ]);
     expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
     const rej = r.find((x) => x.status === 'rejected') as PromiseRejectedResult;
@@ -114,8 +120,12 @@ const input = (over: Record<string, unknown> = {}) => ({
     const nodeId = `z104-${Date.now()}`;
     const base = { projectId: PID, nodeId, userId: INT_UID, kind: 'text', paramsHash: 'h', teamId: TID, pricing: PRICING };
     const r = await Promise.allSettled([
-      svc.claim({ ...base }),  // 无 token——内容键
-      svc.claim({ ...base }),  // 同内容键并发（同步双击形态）
+      svc.claim({ ...base ,
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,}),  // 无 token——内容键
+      svc.claim({ ...base ,
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,}),  // 同内容键并发（同步双击形态）
     ]);
     expect(r.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
     const rej = r.find((x) => x.status === 'rejected') as PromiseRejectedResult;
@@ -128,21 +138,31 @@ const input = (over: Record<string, unknown> = {}) => ({
     const nodeId = `z109-${Date.now()}`;
     const base = { projectId: PID, nodeId, userId: INT_UID, kind: 'text', paramsHash: 'h', teamId: TID, pricing: PRICING };
     // 无 token 路径：内容键命中 claim②③——同 jobId 可重入/异 jobId NodeBusy
-    const a = await svc.claim({ ...base, jobId: 'j-run' });
+    const a = await svc.claim({ ...base, jobId: 'j-run' ,
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     expect(a.created).toBe(true);
     expect(a.intent.gestureKey).toBeNull(); // 无 token 行 gestureKey=null——行身份 intentId（铸造 UUID）不进 token 位
-    const reentry = await svc.claim({ ...base, jobId: 'j-run' });
+    const reentry = await svc.claim({ ...base, jobId: 'j-run' ,
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     // T9 态①：同 jobId 即时重入（心跳新鲜）=same-job-alive 让位（created:false 零写——重排 worker moveToDelayed）
     expect(reentry.created).toBe(false);
     expect((reentry as any).result).toBe('same-job-alive');
     // T9 态②：心跳陈旧（旧 worker 真死）=takeover 接管（created:true 换代续跑——同 jobId 可重入的 T9 形态）
     await prisma.generationIntent.update({ where: { id: a.intent.id }, data: { heartbeatAt: new Date(Date.now() - 61_000) } });
-    const takeover = await svc.claim({ ...base, jobId: 'j-run' });
+    const takeover = await svc.claim({ ...base, jobId: 'j-run' ,
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     expect(takeover.created).toBe(true);
-    await expect(svc.claim({ ...base, jobId: 'j-other' })).rejects.toMatchObject({ errorCode: 'NODE_BUSY' }); // ③ 异 jobId 互斥
+    await expect(svc.claim({ ...base, jobId: 'j-other' ,
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,})).rejects.toMatchObject({ errorCode: 'NODE_BUSY' }); // ③ 异 jobId 互斥
     expect(await svc.complete(a.intent.id, 'text:done', takeover.intent.execSeq)).toBe(1);   // 重新生成的真实前置——前跑终态（T9：换代后按新代 complete）
     // 手势路径：新手势 id=新行（同内容不同 token）
-    const regen = await svc.claim({ ...base, gestureToken: `rg-${Date.now()}` });
+    const regen = await svc.claim({ ...base, gestureToken: `rg-${Date.now()}` ,
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     expect(regen.created).toBe(true);
     expect(regen.intent.id).not.toBe(a.intent.id); // 新行新扣费
     const rows = await prisma.generationIntent.findMany({ where: { projectId: PID, nodeId } });

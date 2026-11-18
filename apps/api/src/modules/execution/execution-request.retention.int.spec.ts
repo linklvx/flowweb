@@ -79,7 +79,8 @@ const sweepRequests = () => prisma.$transaction((tx) => retention.sweepExpiredIn
     // void 面 lockBalance 前置（无钱包行=TEAM_BALANCE_MISSING——真链注资走 ensureBalance 单点）
     await ledger.runInTx((tx) => ledger.ensureBalance(tx, TID));
     await prisma.canvasProject.create({ data: { id: PID, name: PID, teamId: TID, userId: UID } });
-    await prisma.canvasProject.create({ data: { id: PID_DELETING, name: PID_DELETING, teamId: TID, userId: UID, lifecycleState: 'DELETING' } });
+    await prisma.canvasProject.create({ data: { id: PID_DELETING, name: PID_DELETING, teamId: TID, userId: UID, lifecycleState: 'DELETING' ,
+} });
   }, 20_000);
 
   afterAll(async () => {
@@ -126,7 +127,8 @@ const sweepRequests = () => prisma.$transaction((tx) => retention.sweepExpiredIn
     expect((await sweepInputs()).deleted).toBeGreaterThanOrEqual(0);   // 终态后 <30d：本行不删（计数面下界=共享库其他victim不计）
     expect(await prisma.executionInput.findUnique({ where: { requestId: r } })).not.toBeNull();   // 行命运：不删
 
-    await prisma.executionInput.update({ where: { requestId: r }, data: { expiresAt: new Date(Date.now() - 1000) } });   // 模拟终态后 30d
+    await prisma.executionInput.update({ where: { requestId: r }, data: { expiresAt: new Date(Date.now() - 1000) ,
+} });   // 模拟终态后 30d
     expect((await sweepInputs()).deleted).toBeGreaterThanOrEqual(1);
     expect(await prisma.executionInput.findUnique({ where: { requestId: r } })).toBeNull();       // 行命运：终态后 30d → 删
   });
@@ -157,12 +159,14 @@ const sweepRequests = () => prisma.$transaction((tx) => retention.sweepExpiredIn
     const deletingAdmitted = randomUUID();
     reqIds.push(admittedStuck, admittedFresh, executingStuck, executingFresh, deletingAdmitted);
     await insertRequest({ id: admittedStuck, projectId: PID, state: 'ADMITTED', inputAgeMs: 0 });
-    await prisma.executionRequest.update({ where: { id: admittedStuck }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    await prisma.executionRequest.update({ where: { id: admittedStuck }, data: { expiresAt: new Date(Date.now() - 1000) ,
+} });
     await insertRequest({ id: admittedFresh, projectId: PID, state: 'ADMITTED', inputAgeMs: 0, requestExpiresAtMs: 3600_000 });
     await insertRequest({ id: executingStuck, projectId: PID, state: 'EXECUTING', inputAgeMs: 0 });
     await insertRequest({ id: executingFresh, projectId: PID, state: 'EXECUTING', inputAgeMs: 0 });
     await insertRequest({ id: deletingAdmitted, projectId: PID_DELETING, state: 'ADMITTED', inputAgeMs: 0 });
-    await prisma.executionRequest.update({ where: { id: deletingAdmitted }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    await prisma.executionRequest.update({ where: { id: deletingAdmitted }, data: { expiresAt: new Date(Date.now() - 1000) ,
+} });
 
     const mkIntent = async (requestId: string, deadlineOffsetMs: number) => {
       const id = randomUUID();
@@ -173,7 +177,10 @@ const sweepRequests = () => prisma.$transaction((tx) => retention.sweepExpiredIn
         creditCost: 0, idemKey: `idem-${id}`, heartbeatAt: new Date(Date.now() - 3600_000),
         deadlineAt: new Date(Date.now() + deadlineOffsetMs), execSeq: BigInt(Date.now()) + BigInt(intentIds.length),
         executionRequestId: requestId,
-      } });
+      
+        authorSlotFrozen: false,   // Y2 B1：NOT NULL 列（fixture 补列）
+} ,
+    });
     };
     await mkIntent(executingStuck, -1000);    // RUNNING∧deadline 已过 → stuck
     await mkIntent(executingFresh, 3600_000); // RUNNING∧deadline 未过 → 不 stuck
@@ -213,7 +220,10 @@ const sweepRequests = () => prisma.$transaction((tx) => retention.sweepExpiredIn
       creditCost: 0, idemKey: `idem-${iid}`, heartbeatAt: new Date(Date.now() - 3600_000),
       deadlineAt: new Date(Date.now() + 3600_000), execSeq: BigInt(Date.now()) + BigInt(intentIds.length),
       executionRequestId: withRunning,
-    } });
+    
+      authorSlotFrozen: false,   // Y2 B1：NOT NULL 列（fixture 补列）
+} ,
+    });
 
     const stuck = await prisma.$transaction((tx) => retention.countStuckInTx(tx));
     expect(stuck.orphan - baseline.orphan).toBe(1);   // 孤儿 → EXECUTING_ORPHAN 档恰 +1（RUNNING 在场对照不进档）
@@ -274,8 +284,8 @@ const sweepRequests = () => prisma.$transaction((tx) => retention.sweepExpiredIn
     await insertRequest({ id: r, projectId: PID, state: 'EXECUTING', inputAgeMs: 0 });
     // 幂等身份域基线（plan 集与 replay nodeIds 同集）
     await prisma.executionNodePlan.createMany({ data: [
-      { requestId: r, nodeId: 'n1', order: 0, type: 'textGen', paramsHash: 'd'.repeat(64), status: 'SETTLED' },
-      { requestId: r, nodeId: 'n2', order: 1, type: 'textGen', paramsHash: 'e'.repeat(64), status: 'SKIPPED' },
+      { requestId: r, nodeId: 'n1', order: 0, type: 'textGen', paramsHash: 'd'.repeat(64), status: 'SETTLED', authorSlotFrozen: false },
+      { requestId: r, nodeId: 'n2', order: 1, type: 'textGen', paramsHash: 'e'.repeat(64), status: 'SKIPPED', authorSlotFrozen: false },
     ] });
     await requests.transitionRequestTerminal(r, 'FAILED');
     await prisma.executionInput.update({ where: { requestId: r }, data: { expiresAt: new Date(Date.now() - 1000) } });

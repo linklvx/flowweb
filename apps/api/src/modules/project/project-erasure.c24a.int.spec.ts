@@ -135,7 +135,8 @@ maybe('C4-a 红①②⑦ project tombstone-only（真 PG）', () => {
         requestId: `rq-${idExec}`, projectId: idExec, generation: 1, historyId: 'h', docSeq: 1n, frozenDocSeq: 1n,
         userId: FIXTURE_USER, teamId: FIXTURE_TEAM, kind: 'text', state: 'ADMITTED', reservedCredit: 5, totalCredit: 5,
         planHash: 'a'.repeat(64), inputHash: 'b'.repeat(64), expiresAt: new Date(Date.now() + 3_600_000),
-      },
+      
+},
     });
     await expect(service.delete(idExec, FIXTURE_USER)).rejects.toMatchObject({ errorCode: 'TEAM_HAS_ACTIVE_FUNDS', status: 409 });
     expect((await prisma.canvasProject.findUniqueOrThrow({ where: { id: idExec } })).lifecycleState).toBe('ACTIVE');
@@ -146,7 +147,9 @@ maybe('C4-a 红①②⑦ project tombstone-only（真 PG）', () => {
       data: {
         projectId: idRefund, nodeId: 'n1', userId: FIXTURE_USER, teamId: FIXTURE_TEAM, intentId: `it-${idRefund}`,
         kind: 'text', paramsHash: 'ph', creditCost: 1, heartbeatAt: new Date(), deadlineAt: new Date(), idemKey: `idem-${idRefund}`, execSeq: BigInt(Date.now()),
-      },
+      
+        authorSlotFrozen: false,   // Y2 B1：NOT NULL 列（fixture 补列）
+},
     });
     await prisma.refundObligation.create({ data: { intentRowId: gi.id, execSeq: 1n, reversesId: 'r1', creditAmount: 1 } });
     await expect(service.delete(idRefund, FIXTURE_USER)).rejects.toMatchObject({ errorCode: 'TEAM_HAS_ACTIVE_FUNDS', status: 409 });

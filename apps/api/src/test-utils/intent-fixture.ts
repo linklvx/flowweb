@@ -24,6 +24,7 @@ export async function createIntentFixture(
     execSeq: over.execSeq ?? ((await prisma.$queryRaw<{ v: bigint }[]>`SELECT nextval('exec_seq') AS v`)[0].v),
     heartbeatAt: over.heartbeatAt ?? new Date(),
     deadlineAt: over.deadlineAt ?? new Date(Date.now() + 90_000),
+    authorSlotFrozen: over.authorSlotFrozen ?? false,   // Y2 B1：NOT NULL 列夹具缺省（B1~B2 占位语义）
   };
   return prisma.generationIntent.create({ data });
 }

@@ -241,7 +241,9 @@ const rowsOf = async (nodeId: string) =>
       projectId: PID, nodeId: n, userId: UID, gestureToken: 'occ-a7-token',
       kind: 'image', paramsHash: 'h7',
       teamId: TID, pricing: PAID,
-    });
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     const rowsBefore = (await rowsOf(n)).length;
     const e = makeExec([imageNode(n)]);
     const r = await e.svc.execute(PID, undefined, UID, [n], 'regen-token-0007', 'job-a7');
@@ -258,7 +260,9 @@ const rowsOf = async (nodeId: string) =>
       projectId: PID, nodeId: n, userId: UID, gestureToken: 'exhausted-seed-tok',
       kind: 'image', paramsHash: normalizeIntentParams('image', { prompt: 'p', model: 'seed-model-hy-image' }),
       teamId: TID, pricing: PAID,
-    });
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     await prisma.generationIntent.update({
       where: { id: seeded.intent.id }, data: { status: 'FAILED', attempts: 3, error: 'exhausted' },
     });
@@ -267,7 +271,9 @@ const rowsOf = async (nodeId: string) =>
       projectId: PID, nodeId: n, userId: UID, gestureToken: 'exhausted-seed-tok',
       kind: 'image', paramsHash: normalizeIntentParams('image', { prompt: 'p', model: 'seed-model-hy-image' }),
       teamId: TID, pricing: PAID,
-    })).rejects.toBeInstanceOf(IntentExhaustedError);
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,})).rejects.toBeInstanceOf(IntentExhaustedError);
     // 新 token（新手势）→ 新行照常（execute 全链）
     const e = makeExec([imageNode(n)]);
     await e.svc.execute(PID, undefined, UID, [n], 'regen-token-0008');
@@ -284,12 +290,16 @@ const rowsOf = async (nodeId: string) =>
     const c1 = await intentSvc.claim({
       projectId: PID, nodeId: n, userId: UID, kind: 'erase',
       paramsHash: normalizeIntentParams('erase', p1), teamId: TID, pricing: PAID,
-    });
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     await prisma.generationIntent.update({ where: { id: c1.intent.id }, data: { status: 'SUCCEEDED', resultRef: 'media-a9' } });
     const c2 = await intentSvc.claim({
       projectId: PID, nodeId: n, userId: UID, kind: 'erase',
       paramsHash: normalizeIntentParams('erase', p2), teamId: TID, pricing: PAID,
-    });
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     expect(c2.created).toBe(true);            // 新键新行（改前=同 sha256('{}') 常量键回放 created:false）
     expect(c2.intent.id).not.toBe(c1.intent.id);
     expect(normalizeIntentParams('erase', p1)).not.toBe(normalizeIntentParams('erase', p2));
@@ -298,7 +308,9 @@ const rowsOf = async (nodeId: string) =>
     const c3 = await intentSvc.claim({
       projectId: PID, nodeId: n, userId: UID, kind: 'erase',
       paramsHash: normalizeIntentParams('erase', p2), teamId: TID, pricing: PAID,
-    });
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     expect(c3.created).toBe(false);
     expect(c3.intent.resultRef).toBe('media-b9');
   });
@@ -348,7 +360,9 @@ const rowsOf = async (nodeId: string) =>
       projectId: PID, nodeId: n, userId: UID, gestureToken: 'occ-a12-token',
       kind: 'image', paramsHash: normalizeIntentParams('image', { prompt: 'p', model: 'seed-model-hy-image' }),
       teamId: TID, pricing: PAID,
-    });
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     expect(occ.intent.status).toBe('RUNNING');
     // 无 token 普通点击 → ⓪ 拦（改前=回放内容键 v1 旧产物+emit done 闪旧版）
     const led1 = await ledgerOf();
@@ -370,14 +384,18 @@ const rowsOf = async (nodeId: string) =>
       projectId: PID, nodeId: n, userId: UID, gestureToken: 'a14-stall-token',
       kind: 'image', paramsHash: normalizeIntentParams('image', { prompt: 'p', model: 'seed-model-hy-image' }),
       teamId: TID, pricing: PAID, jobId: 'job-a14',
-    });
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     expect(first.intent.status).toBe('RUNNING');
     // 重排段（心跳新鲜——旧 worker 在飞）：**漂移后的 hash**+同 jobId ⇒ T9 态① same-job-alive 零写让位
     const alive = await intentSvc.claim({
       projectId: PID, nodeId: n, userId: UID, gestureToken: 'a14-stall-token',
       kind: 'image', paramsHash: normalizeIntentParams('image', { prompt: 'p', model: undefined as any }),
       teamId: TID, pricing: PAID, jobId: 'job-a14',
-    });
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     expect(alive.created).toBe(false);                        // T9：新鲜=让位（重排 worker moveToDelayed 不 ack）
     expect((alive as any).result).toBe('same-job-alive');
     // 心跳陈旧（旧 worker 真死）⇒ 态② takeover：漂移 hash+同 jobId 续跑同行（行身份=jobId+partial unique 非 hash）
@@ -386,7 +404,9 @@ const rowsOf = async (nodeId: string) =>
       projectId: PID, nodeId: n, userId: UID, gestureToken: 'a14-stall-token',
       kind: 'image', paramsHash: normalizeIntentParams('image', { prompt: 'p', model: undefined as any }),
       teamId: TID, pricing: PAID, jobId: 'job-a14',
-    });
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     expect(drifted.created).toBe(true);
     expect(drifted.intent.id).toBe(first.intent.id);          // 同一行（takeover 换代续跑）
     expect(BigInt(drifted.intent.execSeq)).toBeGreaterThan(BigInt(first.intent.execSeq)); // T9：换代

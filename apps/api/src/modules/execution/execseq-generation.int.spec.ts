@@ -52,7 +52,9 @@ const claimIntent = async (over: Record<string, unknown> = {}) =>
     teamId: TID,
     pricing: PRICING,
     ...over,
-  });
+  
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
 
 const rowOf = (id: string) => prisma.generationIntent.findUnique({ where: { id } });
 const txOf = async (intentRowId: string, type: string) =>

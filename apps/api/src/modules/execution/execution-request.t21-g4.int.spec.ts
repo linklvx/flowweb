@@ -361,6 +361,19 @@ const admit = (s: string, nodeIds: string[], docSeq = 0n) =>
     expect(loaded!.input.nodes.n2!.promptText).toBe(sharedText);
     expect(loaded!.input.nodes.n1!.upstreamTexts).toEqual([sharedText]);
   });
+
+  it('Y2 B1 ⑤：admitRequest 插 plan 行携带冻结两列占位（authorSlotFrozen:true/authorMediaId:null——防 ExecutionNodePlan NOT NULL 断链；B2 换 buildFrozenSlice 会话内读槽真捕获）', async () => {
+    await restoreBaseline();
+    const a = await admit('y2b1plan', ['n1']);
+    expect(a.ok).toBe(true);
+    if (!a.ok) return;
+    const plans = await prisma.executionNodePlan.findMany({ where: { requestId: a.id } });
+    expect(plans.length).toBeGreaterThan(0);
+    for (const plan of plans) {
+      expect(plan.authorSlotFrozen).toBe(true);   // 占位形态（plan 表 NOT NULL 无默认——缺列即 admitRequest 断链）
+      expect(plan.authorMediaId).toBe(null);
+    }
+  });
 });
 
 // Prisma 命名空间引用（防 tree-shake 误报——afterAll 清理用）

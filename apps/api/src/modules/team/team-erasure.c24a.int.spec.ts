@@ -243,7 +243,8 @@ maybe('C4-a 红④⑤⑤-b⑥-a team tombstone-only+会合（真 PG）', () => {
         requestId: `rq-p26a-${t1}`, projectId: 'p26-any', generation: 1, historyId: 'h', docSeq: 1n, frozenDocSeq: 1n,
         userId: owner, teamId: t1, kind: 'text', state: 'EXECUTING', reservedCredit: 2, totalCredit: 2,
         planHash: 'a'.repeat(64), inputHash: 'b'.repeat(64), expiresAt: new Date(Date.now() + 3_600_000),
-      },
+      
+},
     });
     await expect(fundsGate.assertSettled(prisma as any, { teamId: t1 })).rejects.toMatchObject({ errorCode: 'TEAM_HAS_ACTIVE_FUNDS' });
     await prisma.executionRequest.deleteMany({ where: { teamId: t1 } });
@@ -254,7 +255,9 @@ maybe('C4-a 红④⑤⑤-b⑥-a team tombstone-only+会合（真 PG）', () => {
         projectId: 'p26-any2', nodeId: 'n1', userId: owner, teamId: t2, intentId: `it-p26-${t2}`,
         kind: 'text', paramsHash: 'ph', creditCost: 1, heartbeatAt: new Date(), deadlineAt: new Date(),
         idemKey: `idem-p26-${t2}-${Date.now()}`, execSeq: BigInt(Date.now() + 1),
-      },
+      
+        authorSlotFrozen: false,   // Y2 B1：NOT NULL 列（fixture 补列）
+},
     });
     await prisma.refundObligation.create({ data: { intentRowId: gi.id, execSeq: 1n, reversesId: 'r1', creditAmount: 1 } });
     await expect(fundsGate.assertSettled(prisma as any, { teamId: t2 })).rejects.toMatchObject({ errorCode: 'TEAM_HAS_ACTIVE_FUNDS' });

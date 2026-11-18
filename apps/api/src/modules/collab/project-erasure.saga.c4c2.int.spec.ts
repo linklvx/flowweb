@@ -108,7 +108,8 @@ const okBarrier = (): DeletionBarrierPort => ({
     await minio.upload(`${pid}/lib.bin`, Buffer.from('v2'), 'application/octet-stream');
     await minio.upload(`${pid}/exc.bin`, Buffer.from('e'), 'application/octet-stream');
     await prisma.videoWork.create({
-      data: { id: `${pid}-w0`, title: 'w', authorName: owner, videoKey: `${pid}/work.mp4`, coverKey: `${pid}/cover.jpg`, canvasProjectId: pid, videoMediaId: `${pid}-m-lib`, viewCount: 9 },
+      data: { id: `${pid}-w0`, title: 'w', authorName: owner, videoKey: `${pid}/work.mp4`, coverKey: `${pid}/cover.jpg`, canvasProjectId: pid, videoMediaId: `${pid}-m-lib`, viewCount: 9 ,
+},
     });
     // Redis 键族实弹：process 两代+url+like/view
     await redis.set(`videoWork:process:${pid}-w0:v2:meta`, 'm');
@@ -119,7 +120,10 @@ const okBarrier = (): DeletionBarrierPort => ({
     await redis.set(`videoWork:view:${pid}-w0:ip`, '1');
     // 资金族（计费列存活断言面）
     const intent = await prisma.generationIntent.create({
-      data: { projectId: pid, nodeId: 'n1', userId: owner, teamId, intentId: `it-${pid}`, kind: 'text', paramsHash: 'ph', creditCost: 4, creditsConsumed: 4, resultText: '正文', gestureKey: 'gk', resultRef: `${pid}-m-exc`, heartbeatAt: new Date(), deadlineAt: new Date(), idemKey: `idem-${pid}`, execSeq: execSeq++ },
+      data: { projectId: pid, nodeId: 'n1', userId: owner, teamId, intentId: `it-${pid}`, kind: 'text', paramsHash: 'ph', creditCost: 4, creditsConsumed: 4, resultText: '正文', gestureKey: 'gk', resultRef: `${pid}-m-exc`, heartbeatAt: new Date(), deadlineAt: new Date(), idemKey: `idem-${pid}`, execSeq: execSeq++ ,
+        authorSlotFrozen: false,   // Y2 B1：NOT NULL 列（fixture 补列）
+},
+    
     });
     const request = await prisma.executionRequest.create({
       data: { requestId: `rq-${pid}`, projectId: pid, generation: 1, historyId: 'h', docSeq: 1n, frozenDocSeq: 1n, userId: owner, teamId, kind: 'text', state: 'DONE', reservedCredit: 0, totalCredit: 4, planHash: 'a'.repeat(64), inputHash: 'b'.repeat(64), expiresAt: new Date(Date.now() + 3_600_000) },

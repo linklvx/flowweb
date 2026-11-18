@@ -61,7 +61,9 @@ describe('Y0b-1 团队/项目生命周期资金门（§1.4ter/Z4）', () => {
     await expect(svc.claim({
       projectId: 'it-p', nodeId: 'n', userId: S.keeper, intentId: `lf-dis-${ts}`, kind: 'text', paramsHash: 'h',
       teamId: team, pricing: { pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 1 },
-    } as any)).rejects.toMatchObject({ errorCode: 'TEAM_CLOSED' });
+    
+      authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+      authorMediaId: null,} as any)).rejects.toMatchObject({ errorCode: 'TEAM_CLOSED' });
     await deleteTeamsWithPass(prisma as unknown as PrismaService, [team]);
   }, 20000);
 

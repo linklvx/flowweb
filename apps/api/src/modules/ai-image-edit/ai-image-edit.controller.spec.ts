@@ -319,4 +319,11 @@ describe('AiImageEditController', () => {
       expect(service.enqueueRedraw).not.toHaveBeenCalled();
     });
   });
+
+  // ══════════ Y2 B1：非画布编辑链 claim 占位（B2d 换受理读槽真值〔裁决 13〕）══════════
+  it('Y2 B1 outpaint claim 携 authorSlotFrozen:false/authorMediaId:null（B1~B2 占位——D8 禁现读现场槽）', async () => {
+    const body = { projectId: 'proj1', nodeId: 'node1', fileId: 'file-1', rect: { x: 0, y: 0, width: 64, height: 64 }, imageWidth: 512, imageHeight: 512, stateVector: SV_OK };
+    await controller.outpaint(body, { user: { id: 'u1' } } as any);
+    expect(intentSvc.claim).toHaveBeenCalledWith(expect.objectContaining({ authorSlotFrozen: false, authorMediaId: null }));
+  });
 });

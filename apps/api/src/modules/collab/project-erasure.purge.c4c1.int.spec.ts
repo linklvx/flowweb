@@ -79,16 +79,23 @@ const okBarrier = (): DeletionBarrierPort => ({
     await media('workm');
     await media('exc');
     await prisma.videoWork.create({
-      data: { id: `${pid}-w0`, title: 'w0', authorName: owner, videoKey: `${pid}/work.mp4`, coverKey: `${pid}/cover.jpg`, canvasProjectId: pid, videoMediaId: `${pid}-m-workm`, viewCount: 7 },
+      data: { id: `${pid}-w0`, title: 'w0', authorName: owner, videoKey: `${pid}/work.mp4`, coverKey: `${pid}/cover.jpg`, canvasProjectId: pid, videoMediaId: `${pid}-m-workm`, viewCount: 7 ,
+},
     });
     // 资金族：intent（内容列+计费列）+request/input/plan+refund/reconcile 桥
     const intent = await prisma.generationIntent.create({
-      data: { projectId: pid, nodeId: 'n1', userId: owner, teamId, intentId: `it-${pid}`, kind: 'text', paramsHash: 'ph', creditCost: 3, creditsConsumed: 3, resultText: '机密产物正文', gestureKey: 'gk', resultRef: `${pid}-m-exc`, heartbeatAt: new Date(), deadlineAt: new Date(), idemKey: `idem-${pid}`, execSeq: execSeq++ },
+      data: { projectId: pid, nodeId: 'n1', userId: owner, teamId, intentId: `it-${pid}`, kind: 'text', paramsHash: 'ph', creditCost: 3, creditsConsumed: 3, resultText: '机密产物正文', gestureKey: 'gk', resultRef: `${pid}-m-exc`, heartbeatAt: new Date(), deadlineAt: new Date(), idemKey: `idem-${pid}`, execSeq: execSeq++ ,
+        authorSlotFrozen: false,   // Y2 B1：NOT NULL 列（fixture 补列）
+},
+    
     });
     const request = await prisma.executionRequest.create({
-      data: { requestId: `rq-${pid}`, projectId: pid, generation: 1, historyId: 'h', docSeq: 1n, frozenDocSeq: 1n, userId: owner, teamId, kind: 'text', state: 'DONE', reservedCredit: 0, totalCredit: 3, planHash: 'a'.repeat(64), inputHash: 'b'.repeat(64), expiresAt: new Date(Date.now() + 3_600_000) },
+      data: { requestId: `rq-${pid}`, projectId: pid, generation: 1, historyId: 'h', docSeq: 1n, frozenDocSeq: 1n, userId: owner, teamId, kind: 'text', state: 'DONE', reservedCredit: 0, totalCredit: 3, planHash: 'a'.repeat(64), inputHash: 'b'.repeat(64), expiresAt: new Date(Date.now() + 3_600_000) ,
+},
     });
-    await prisma.executionNodePlan.create({ data: { requestId: request.id, nodeId: 'n1', order: 0, type: 'text', paramsHash: 'ph' } });
+    await prisma.executionNodePlan.create({ data: { requestId: request.id, nodeId: 'n1', order: 0, type: 'text', paramsHash: 'ph' ,
+      authorSlotFrozen: false,   // Y2 B1：NOT NULL 列（fixture 补列）
+} });
     await prisma.executionInput.create({ data: { requestId: request.id, encoding: 'json+gzip', content: Buffer.from('x'), contentHash: 'c'.repeat(64), rawBytes: 1, storedBytes: 1, schemaVersion: 1, expiresAt: new Date() } });
     await prisma.refundObligation.create({ data: { intentRowId: intent.id, execSeq: 1n, reversesId: 'r1', creditAmount: 1, state: 'SETTLED' } });
     await prisma.reconcileAction.create({ data: { intentRowId: intent.id, action: 'settle-backfill' } });

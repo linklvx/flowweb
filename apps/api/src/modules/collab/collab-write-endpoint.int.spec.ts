@@ -58,8 +58,10 @@ async function seedIntentRow(id: string, nodeId: string, execSeq: bigint): Promi
       intentId: `ii-${id}`, kind: 'image', paramsHash: `ph-${id}`, status: 'RUNNING',
       creditCost: 0, heartbeatAt: new Date(), deadlineAt: new Date(Date.now() + 3600_000),
       idemKey: `ik-${id}`, execSeq,
-    },
-  });
+    
+      authorSlotFrozen: false,   // Y2 B1：NOT NULL 列（fixture 补列）
+},
+    });
 }
 let gateway: CollabGateway;
 let residency: CollabResidencyService;

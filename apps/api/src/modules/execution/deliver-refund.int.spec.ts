@@ -67,7 +67,9 @@ const claimIntent = async (over: Record<string, unknown> = {}) =>
     teamId: TID,
     pricing: PRICING,
     ...over,
-  });
+  
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
 
 const rowOf = async (id: string) => prisma.generationIntent.findUnique({ where: { id } });
 const status = async (id: string) => (await rowOf(id))!.status;
@@ -358,7 +360,9 @@ const agePastGrace = async (id: string) =>
       projectId, nodeId, userId: UID, gestureToken: `dr2-l-${randomUUID().slice(0, 6)}`,
       kind: 'lighting', paramsHash: normalizeIntentParams('lighting', { prompt: '打光' }),
       pricing, teamId: TID,
-    });
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     // processor/consumer 直构：真 prisma/teamCredit/intentService；minio/apiCaller/collabDoc/gateway stub
     const minio: any = {
       generatePresignedGetUrl: async () => 'https://minio/signed',

@@ -55,7 +55,9 @@ const claimIntent = async (over: Record<string, unknown> = {}) =>
     teamId: TID,
     pricing: PRICING,
     ...over,
-  });
+  
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
 
 const commitFor = (c: { intent: any; artifactRev: number }, over: Record<string, unknown> = {}) =>
   artifactCommit.commitImage({

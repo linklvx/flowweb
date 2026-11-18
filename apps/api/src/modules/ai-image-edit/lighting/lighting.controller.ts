@@ -59,6 +59,9 @@ export class LightingController {
       }),
       pricing,
       teamId,
+      // Y2 B1：冻结两列过渡占位 false/null（B2d 换受理读槽真值〔裁决 13〕；D8 禁现读现场槽）
+      authorSlotFrozen: false,
+      authorMediaId: null,
     });
     if (!created) {
       // SUCCEEDED 幂等重放——零 enqueue 零扣费，回放既有产物引用

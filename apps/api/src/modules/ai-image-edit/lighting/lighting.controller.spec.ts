@@ -263,4 +263,12 @@ describe('LightingController', () => {
       await expect(controller.getTask('nonexistent', mockReq())).rejects.toThrow('任务不存在');
     });
   });
+
+  // ══════════ Y2 B1：lighting 链 claim 占位（B2d 换受理读槽真值〔裁决 13〕）══════════
+  it('Y2 B1 createTask 前置 claim 携 authorSlotFrozen:false/authorMediaId:null（B1~B2 占位——D8 禁现读现场槽）', async () => {
+    await controller.createTask({
+      projectId: 'proj1', nodeId: 'node1', params: { position: { x: 0, y: 0, z: 6 }, brightness: 10 }, stateVector: SV_OK,
+    } as any, { user: { id: 'u1' } } as any);
+    expect(intentSvc.claim).toHaveBeenCalledWith(expect.objectContaining({ authorSlotFrozen: false, authorMediaId: null }));
+  });
 });

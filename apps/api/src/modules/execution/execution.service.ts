@@ -122,10 +122,13 @@ export class ExecutionService {
    *  （组执行全节点同 token：idemKey 含 nodeId 故无碰撞）；行身份 intentId 由 claim 内部铸造
    *  （旧"首个 exec 落 token、其余派 UUID"的门随 T1 删——token 不再是行键，无需选择落点）。
    *  Y0b-1（E1）：pricing/teamId 必填透传——定价快照自 validation plans（预估=plan 同源，TOCTOU 消除）。
-   *  Y0b-5 T13：traceId 透传（HTTP 直达=controller 自 ALS 读；enqueue 管道=job.data 自 processor 透）——落审计列。 */
+   *  Y0b-5 T13：traceId 透传（HTTP 直达=controller 自 ALS 读；enqueue 管道=job.data 自 processor 透）——落审计列。
+   *  Y2 B1（D8）：冻结两列透传——B1~B2 之间占位值 false/null（两列此间零读者；**占位值严禁改为读
+   *  现场槽**——claim 禁现读；B2 换 authorSlots 表/内存表/plan 行真值）。 */
   private claimForNode(
     projectId: string, node: any, userId: string, gestureToken: string | undefined,
     kind: string, params: Record<string, unknown>, pricing: ClaimPricing, teamId: string, jobId?: string, traceId?: string | null,
+    authorSlotFrozen = false, authorMediaId: string | null = null,
   ) {
     return this.intentService.claim({
       projectId, nodeId: node.id, userId, gestureToken, kind,
@@ -136,6 +139,7 @@ export class ExecutionService {
         durationId: pricing.durationId, creditCost: pricing.creditCost,
       },
       teamId, jobId, traceId,
+      authorSlotFrozen, authorMediaId,
     });
   }
 
@@ -705,11 +709,13 @@ export class ExecutionService {
       try {
         // M2/M-5（幂等域收口）：paramsHash 直读 plan.paramsHash（受理时铸造一次——「只读不重算」
         // 逐字达成；双哈希域收口：claim 零 normalizeIntentParams 重算）。
+        // Y2 B1：冻结两列 B1~B2 占位 false/null（此路径 B2c 换 plan 行真值；D8 禁现读）。
         const { intent, created, result: claimResult, artifactRev } = await this.intentService.claim({
           projectId, nodeId: plan.nodeId, userId, gestureToken: gestureToken ?? undefined,
           kind: entry.kind, paramsHash: plan.paramsHash,
           pricing: { pricingRuleId: plan.pricingRuleId ?? '', modelId: plan.model, resolutionId: plan.resolution, durationId: null, creditCost: plan.creditCost },
           teamId: frozen.request.teamId, jobId, traceId,
+          authorSlotFrozen: false, authorMediaId: null,
         });
         if (claimResult === 'same-job-alive') {
           errors.push({ nodeId: plan.nodeId, status: 'skipped', error: 'INTENT_SAME_JOB_ALIVE', errorCode: 'INTENT_SAME_JOB_ALIVE' });

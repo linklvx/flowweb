@@ -69,6 +69,12 @@ export interface ClaimInput {
    *  （新执行段）随 claim 覆写。来源：HTTP 直达=controller 自 ALS 读；enqueue 管道=job.data.traceId
    *  （worker 无 HTTP ALS——ALS 不过 Redis，跨进程经 job.data 显式携带）。 */
   traceId?: string | null;
+  /** Y2 B1（D8/裁决 16）：作者槽冻结两列——**必填**（受理时刻槽位真值随 claim 事务落列；rearm=本次
+   *  受理值覆写+released 重置 false）。B1~B2 之间调用方传占位值 false/null（两列此间零读者）；
+   *  **占位值严禁改为读现场槽**——spec D8「claim 禁现读」：受理与 claim 间放置会被当旧值胜臂误删；
+   *  B2 换 authorSlots 表/内存表/plan 行真值。 */
+  authorSlotFrozen: boolean;
+  authorMediaId: string | null;
 }
 
 @Injectable()
@@ -245,6 +251,11 @@ export class GenerationIntentService {
             heartbeatAt: new Date(), // Z68：rearm 重置生命线（deadline/heartbeat reaper 判据——不刷则 rearm 即刻超龄）
             deadlineAt: new Date(Date.now() + deadlineMsForKind(input.kind)),
             ...(input.traceId ? { traceId: input.traceId } : {}), // T13：新执行段新 trace 覆写审计锚（旧 job 无 traceId 保持原值）
+            // Y2 B1（裁决 16/v5 改死一）：rearm=本次受理值覆写+released 显式重置 false——上代置 true
+            // 残留=新代释放失败零兜底（B2a 释放面依赖）；列随 claim 事务原子落（禁事后补写——测试⑥锚）。
+            authorSlotFrozen: input.authorSlotFrozen,
+            authorMediaId: input.authorMediaId,
+            authorSlotReleased: false,
           },
         });
         if (rearmed.count === 1) {

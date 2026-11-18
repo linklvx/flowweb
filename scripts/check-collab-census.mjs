@@ -1948,6 +1948,10 @@ if (isMain()) {
       'CanvasReferenceOracle.mediaId': 'isMediaReferenced Oracle 臂（join header 决策级校验——PG 证人）',
       'MediaFact.mediaId': 'media 自身事实行 FK（随行级联非引用）',
       'StorageReservation.mediaId': '上传配额预留锚（@unique 1:1 生命周期伴随列非引用）',
+      // Y2 B1（D8/裁决 16）：authorMediaId=受理时刻冻结作者槽**快照**（释放后超期快照非活引用；
+      // 活引用保护面=Y2 B2a MediaBinding 投影臂——释放序 projectBindings→released=true）
+      'GenerationIntent.authorMediaId': 'Y2 冻结作者槽快照（claim 捕获——非删除保护引用面，活引用=B2a 投影臂）',
+      'ExecutionNodePlan.authorMediaId': 'Y2 plan 行同款冻结快照（B2 换真捕获——非删除保护引用面）',
     };
     const registeredCols = new Set(entries.map((e) => `${e.table}.${e.column}`));
     for (const [model, cols] of schemaModels) {

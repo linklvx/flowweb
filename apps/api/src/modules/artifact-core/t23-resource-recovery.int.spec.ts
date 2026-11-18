@@ -111,7 +111,9 @@ const balanceFrozenOf = async () => {
       paramsHash, teamId: TID, pricing: PRICING,
       gestureToken: 'g-t23-1a',
       jobId: `t23-${Date.now()}`,
-    });
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     expect(c1.result).toBe('new');
     createdIntentRowIds.push(c1.intent.id);
     const N1 = c1.intent.execSeq;
@@ -128,7 +130,9 @@ const balanceFrozenOf = async () => {
       projectId: PID, nodeId, userId: UID, kind: 'text',
       paramsHash, teamId: TID, pricing: PRICING,
       gestureToken: 'g-t23-1a', jobId: `t23-2-${Date.now()}`,
-    });
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     expect(c2.result).toBe('rearm');
     expect(c2.intent.execSeq).toBeGreaterThan(N1);
     await teamCredit.reserve(UID, { intentRowId: c2.intent.id, execSeq: c2.intent.execSeq });
@@ -159,7 +163,9 @@ const balanceFrozenOf = async () => {
       projectId: PID, nodeId, userId: UID, kind: 'text',
       paramsHash: `h-${randomUUID().slice(0, 8)}`, teamId: TID, pricing: PRICING,
       gestureToken: 'g-t23-2b', jobId: `t23-3-${Date.now()}`,
-    });
+    
+    authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
+    authorMediaId: null,});
     createdIntentRowIds.push(c1.intent.id);
     await teamCredit.reserve(UID, { intentRowId: c1.intent.id, execSeq: c1.intent.execSeq });
     const before = await balanceFrozenOf();

@@ -209,7 +209,9 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
         projectId: PID, nodeId: 'n1', userId: 'u-x', teamId: 't-x', intentId: 'i-1', kind: 'text',
         paramsHash: 'h', creditCost: 0, heartbeatAt: new Date(), deadlineAt: new Date(Date.now() + 60_000),
         idemKey: `idem-${randomUUID()}`, execSeq: 900001n,
-      } as never,
+      
+        authorSlotFrozen: false,   // Y2 B1：NOT NULL 列（fixture 补列）
+} as never,
     });
     const run = await maintenance.run(req.maintenanceId, { drainBudgetMs: 50 });
     expect(run.result).toBe('failed');
@@ -247,7 +249,9 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
         projectId: PID, nodeId: 'n1', userId: 'u-x', teamId: 't-x', intentId: 'i-2', kind: 'text',
         paramsHash: 'h', creditCost: 0, heartbeatAt: new Date(), deadlineAt: new Date(Date.now() + 60_000),
         idemKey: `idem-${randomUUID()}`, execSeq: 900002n,
-      } as never,
+      
+        authorSlotFrozen: false,   // Y2 B1：NOT NULL 列（fixture 补列）
+} as never,
     });
     const blocked = await maintenance.request({ projectId: PID, idempotencyKey: `k-${randomUUID()}`, requestedBy: 'vacuum', source: 'vacuum', requireNoInFlight: true });
     expect(blocked).toMatchObject({ ok: false, code: 'IN_FLIGHT_EXECUTIONS' });
@@ -388,7 +392,10 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
     const gi = await prisma.generationIntent.create({
       data: { projectId: PID, nodeId: 'n1', userId: 'u-x', teamId: 't-x', intentId: 'i-f1', kind: 'text',
         paramsHash: 'h', creditCost: 0, heartbeatAt: new Date(), deadlineAt: new Date(Date.now() + 60_000),
-        idemKey: `idem-${randomUUID()}`, execSeq: 900011n } as never,
+        idemKey: `idem-${randomUUID()}`, execSeq: 900011n ,
+          authorSlotFrozen: false,   // Y2 B1：NOT NULL 列（fixture 补列）
+} as never,
+    
     });
     const failed = await maintenance.request({ projectId: PID, idempotencyKey: `k-${randomUUID()}`, requestedBy: 'int', source: 'rest' });
     expect(failed.ok).toBe(true);
@@ -432,7 +439,10 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
     const gi = await prisma.generationIntent.create({
       data: { projectId: PID, nodeId: 'n1', userId: 'u-x', teamId: 't-x', intentId: 'i-f2', kind: 'text',
         paramsHash: 'h', creditCost: 0, heartbeatAt: new Date(), deadlineAt: new Date(Date.now() + 60_000),
-        idemKey: `idem-${randomUUID()}`, execSeq: 900012n } as never,
+        idemKey: `idem-${randomUUID()}`, execSeq: 900012n ,
+          authorSlotFrozen: false,   // Y2 B1：NOT NULL 列（fixture 补列）
+} as never,
+    
     });
     const req = await maintenance.request({ projectId: PID, idempotencyKey: `k-${randomUUID()}`, requestedBy: 'int', source: 'rest' });
     expect((await maintenance.run(req.ok ? req.maintenanceId : '', { drainBudgetMs: 50 })).result).toBe('failed');

@@ -153,6 +153,7 @@ maybe('C3b-3：decision snapshot+isMediaReferenced+referrer registry', () => {
       data: {
         projectId: PID_B, nodeId: 'n-1', userId: FIXTURE_USER, teamId: FIXTURE_TEAM, intentId: 'c3b3-intent', kind: 'image',
         paramsHash: 'c3b3-hash', creditCost: 0, heartbeatAt: new Date(), deadlineAt: new Date(), idemKey: 'c3b3-idem', execSeq: 910001n, resultRef: M.intent,
+        authorSlotFrozen: false,   // Y2 B1：NOT NULL 列（fixture 补列）
       },
     });
     await prisma.videoTrimTask.create({ data: { userId: FIXTURE_USER, workflowId: PID_B, nodeId: 'n-1', sourceFileId: M.trimSrc, startTime: 0, endTime: 1, teamId: FIXTURE_TEAM, status: 'done', outputFileId: M.trimOut } });

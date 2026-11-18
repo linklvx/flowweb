@@ -423,6 +423,10 @@ export class ExecutionRequestService {
         // remaining 收口（PENDING/EXECUTING 计数）可达终态；值域注记：PENDING/EXECUTING/SETTLED/
         // VOIDED/SKIPPED 五值（SKIPPED=T21 收口新增——零成本零执行分支语义；值域单源=shared §3b）。
         status: isExecutableNode(n) ? PLAN_STATE.PENDING : PLAN_STATE.SKIPPED,
+        // Y2 B1（裁决 16）：plan 行冻结两列**占位** true/null——ExecutionNodePlan NOT NULL 无默认后
+        // createMany 不含该列即断链 admitRequest 整链；B2 换 buildFrozenSlice 会话内读槽真捕获。
+        authorSlotFrozen: true,
+        authorMediaId: null,
       };
     });
     const planHash = sha256hex(canonicalPlanHashPayload(planRows as never[]));
