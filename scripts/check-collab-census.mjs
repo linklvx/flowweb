@@ -1224,8 +1224,8 @@ if (isMain()) {
     'apps/api/src/modules/collab/worker-write-auth.guard.ts': {   // 方法内（canActivate 惰性——同上）
       WORKER_WRITE_TOKEN: 1, NODE_ENV: 1,
     },
-    'apps/api/src/modules/collab/collab-write.controller.ts': {   // T13（plan v11.2 ①）：writeBatch 方法内惰性读（scope 验签密钥派生源+dev fail-open 判据与 guard 同判据同向——census ㉒登记）
-      WORKER_WRITE_TOKEN: 1,
+    'apps/api/src/modules/collab/collab-write.controller.ts': {   // T13（plan v11.2 ①）：writeExecStatus 方法内惰性读（scope 验签密钥派生源+dev fail-open 判据与 guard 同判据同向）+Y2 B2a requireScope 方法内读（两端点 fail-closed 判据——census ㉒登记 2）
+      WORKER_WRITE_TOKEN: 2,
     },
     'apps/api/src/modules/collab/collab-erasure-runtime.ts': {   // TD-33/C1b T14：构造器默认参惰性读（registry refresh 周期，缺省 10s/上限 60s——env.ts 已登记 schema）
       COLLAB_ERASURE_REFRESH_MS: 1,

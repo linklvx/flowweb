@@ -24,13 +24,16 @@ import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { Counter, register } from 'prom-client';
 import * as Y from 'yjs';
 import { CollabDocumentService, type ExecStatusPatch } from './collab-document.service';
+import { AuthorSlotService, type AuthorSlotRead, type AuthorSlotRelease } from './author-slot.service';
 import { mintWorkerScopeToken, WORKER_SCOPE_HEADER, type WorkerWriteScope } from './worker-scope-token';
 import type { CanvasReadModel } from '@flowweb/shared';
 
 /** worker 作用域上下文（铸造侧形态——intentRowId/execSeq 缺省=裸项目档：见 worker-scope-token.ts 头注）。 */
 export type { WorkerWriteScope } from './worker-scope-token';
 
-/** collab 写端口（5 方法抽象面——签名逐字对齐 CollabDocumentService 公开签名，withDoc 含泛型）。 */
+/** collab 写端口（5 方法抽象面——签名逐字对齐 CollabDocumentService 公开签名，withDoc 含泛型；
+ *  Y2 B2a（裁决 11）+2：两封闭操作委托 AuthorSlotService〔逻辑宿主〕——worker 侧受理读槽/
+ *  释放消费面，Http 形态走内部端点+scope HMAC）。 */
 export abstract class CollabWritePort {
   /** Q1 单实例铁律：业务服务端写 doc 一律走 Hocuspocus 直连（try/finally disconnect 保证 unload flush）；
    *  首行租约门+真空档 503 语义随实现继承（契约见 CollabDocumentService.withDoc 头注）。 */
@@ -46,13 +49,20 @@ export abstract class CollabWritePort {
    *  （瞬态/永久档计数），无 typed 悬留腿。T15：data 域写（writeNodeData）随交付归投影 poller 从
    *  端口删除；T32：批写（writeBatch）随 write-batch 端点退役删除——本方法=worker 通道唯一写面。 */
   abstract writeExecStatus(projectId: string, nodeId: string, patch: ExecStatusPatch, scope?: WorkerWriteScope): Promise<void>;
+  /** Y2 B2a：封闭读——意图行核对+冻结两列读出（worker 受理读槽；语义/顺序见 AuthorSlotService 头注）。 */
+  abstract readAuthorSlot(projectId: string, intentRowId: string, scope?: WorkerWriteScope): Promise<AuthorSlotRead>;
+  /** Y2 B2a：封闭释放——条件删键→快照→投影→置位（v5/v6 顺序钉死；语义见 AuthorSlotService 头注）。 */
+  abstract releaseAuthorSlot(projectId: string, intentRowId: string, scope?: WorkerWriteScope): Promise<AuthorSlotRelease>;
 }
 
-/** Direct 形态（api 进程内直调）：构造注入 CollabDocumentService，5 方法一行委托——行为零变化
+/** Direct 形态（api 进程内直调）：构造注入 CollabDocumentService，方法一行委托——行为零变化
  *  （infra 失败仍抛 503 族——调用面既有 .catch 语义保持）。 */
 @Injectable()
 export class DirectCollabWritePort extends CollabWritePort {
-  constructor(private readonly svc: CollabDocumentService) {
+  constructor(
+    private readonly svc: CollabDocumentService,
+    private readonly authorSlot: AuthorSlotService,
+  ) {
     super();
   }
 
@@ -74,6 +84,14 @@ export class DirectCollabWritePort extends CollabWritePort {
 
   override writeExecStatus(projectId: string, nodeId: string, patch: ExecStatusPatch): Promise<void> {
     return this.svc.writeExecStatus(projectId, nodeId, patch);
+  }
+
+  override readAuthorSlot(projectId: string, intentRowId: string): Promise<AuthorSlotRead> {
+    return this.authorSlot.readAuthorSlot(projectId, intentRowId);
+  }
+
+  override releaseAuthorSlot(projectId: string, intentRowId: string): Promise<AuthorSlotRelease> {
+    return this.authorSlot.releaseAuthorSlot(projectId, intentRowId);
   }
 }
 
@@ -161,8 +179,10 @@ export class HttpCollabWritePort extends CollabWritePort {
     return h;
   }
 
-  /** 三分单点：网络错误/5xx=瞬态族（预算内退避重试）；2xx=ok；其余=永久。计数全档落本方法。 */
-  private async request(method: 'writeExecStatus' | 'readCanvas', url: string, init: { method: string; headers: Record<string, string>; body?: string }): Promise<HttpTriOutcome> {
+  /** 三分单点：网络错误/5xx=瞬态族（预算内退避重试）；2xx=ok；其余=永久。计数全档落本方法。
+   *  Y2 B2a（裁决 11）：method 类型扩 readAuthorSlot/releaseAuthorSlot——两封闭操作同三分语义
+   *  （瞬态耗尽/永久=非 2xx 上抛给 worker 调用面——释放序不可静默吞）。 */
+  private async request(method: 'writeExecStatus' | 'readCanvas' | 'readAuthorSlot' | 'releaseAuthorSlot', url: string, init: { method: string; headers: Record<string, string>; body?: string }): Promise<HttpTriOutcome> {
     for (let attempt = 1; ; attempt += 1) {
       let status: number;
       let json: () => Promise<unknown> = async () => undefined;   // 网络错误档（status=-1）不读 body——占位初始化
@@ -235,6 +255,32 @@ export class HttpCollabWritePort extends CollabWritePort {
   /** worker 不消费（Z100 实测：isDocResident 消费面=intent-reconcile——role=api Daemon，Z98）。 */
   override isDocResident(_projectId: string): boolean {
     throw new Error('NotImplemented: HttpCollabWritePort.isDocResident —— worker 不消费（消费面=intent-reconcile，role=api Daemon）');
+  }
+
+  /** Y2 B2a：封闭读经内部端点（请求体只 intentRowId——projectId 绑 scope；三分非 ok 档上抛）。 */
+  override async readAuthorSlot(projectId: string, intentRowId: string, scope?: WorkerWriteScope): Promise<AuthorSlotRead> {
+    const out = await this.request('readAuthorSlot', `${this.baseUrl}/api/collab/doc/read-author-slot`, {
+      method: 'POST', headers: this.headers(scope, projectId),
+      body: JSON.stringify({ intentRowId }),
+    });
+    if (out.kind === 'ok') return out.body as AuthorSlotRead;
+    if (out.kind === 'transient-exhausted') {
+      throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'collab write port readAuthorSlot: transient exhausted' });
+    }
+    throw new Error(`collab write port readAuthorSlot permanent: ${out.status}`);
+  }
+
+  /** Y2 B2a：封闭释放经内部端点（同三分语义——释放序失败不可静默吞，worker 侧按瞬态族退避）。 */
+  override async releaseAuthorSlot(projectId: string, intentRowId: string, scope?: WorkerWriteScope): Promise<AuthorSlotRelease> {
+    const out = await this.request('releaseAuthorSlot', `${this.baseUrl}/api/collab/doc/release-author-slot`, {
+      method: 'POST', headers: this.headers(scope, projectId),
+      body: JSON.stringify({ intentRowId }),
+    });
+    if (out.kind === 'ok') return out.body as AuthorSlotRelease;
+    if (out.kind === 'transient-exhausted') {
+      throw new ServiceUnavailableException({ code: 'COLLAB_NOT_SERVING', message: 'collab write port releaseAuthorSlot: transient exhausted' });
+    }
+    throw new Error(`collab write port releaseAuthorSlot permanent: ${out.status}`);
   }
 
 }

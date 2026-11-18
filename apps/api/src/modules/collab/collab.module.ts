@@ -15,6 +15,7 @@ import { CollabFrameGateService } from './collab-frame-gate.service';
 import { CollabDocumentService } from './collab-document.service';
 import { CollabResidencyService } from './collab-residency.service';
 import { CollabWritePort, DirectCollabWritePort } from './collab-write.port';
+import { AuthorSlotService } from './author-slot.service';   // Y2 B2a：两封闭操作逻辑宿主
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabSpoolService } from './collab-spool.service';
 import { CollabErasureRegistryService } from './collab-erasure-registry.service';
@@ -66,6 +67,7 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
     CollabGateway,
     CollabDocumentService,
     CollabResidencyService,   // Y0c T15（A2）：常驻会话单例——会话表/withSession 读写二分/releaseSessionFor 原语（Z59/Z109/Z111/Z113）
+    AuthorSlotService,   // Y2 B2a：两封闭操作逻辑宿主（read/release-author-slot 端点+Direct 端口委托）
     DirectCollabWritePort,   // Y0c T13b：写端口 Direct 形态（api 进程内直调 CollabDocumentService）
     { provide: CollabWritePort, useExisting: DirectCollabWritePort },   // Y0c T13b：端口令牌→Direct 形态（T24 补 Http 形态）
     CanvasDocUpdateRepository,

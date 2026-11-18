@@ -16,7 +16,7 @@ function makePort() {
     isDocResident: vi.fn(() => false),
     writeExecStatus: vi.fn(async () => undefined),
   };
-  const port = new DirectCollabWritePort(svc as unknown as CollabDocumentService);
+  const port = new DirectCollabWritePort(svc as unknown as CollabDocumentService, { readAuthorSlot: vi.fn(), releaseAuthorSlot: vi.fn() } as never);   // Y2 B2a：authorSlot 宿主
   return { port, svc };
 }
 

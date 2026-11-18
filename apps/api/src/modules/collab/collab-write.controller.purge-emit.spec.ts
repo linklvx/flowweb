@@ -5,7 +5,7 @@ import { BadRequestException } from '@nestjs/common';
 import { CollabWriteController } from './collab-write.controller';
 
 const build = (spool: { purgeErasureScope: ReturnType<typeof vi.fn> }, events: { emit: ReturnType<typeof vi.fn> }) =>
-  new CollabWriteController({} as never, {} as never, spool as never, {} as never, {} as never, events as never);
+  new CollabWriteController({} as never, {} as never, spool as never, {} as never, {} as never, {} as never, events as never);   // Y2 B2a：authorSlot 第 6 参
 
 describe('TD-33 T13：purgeScope emit project.gone', () => {
   it('marked 非空→emit 一次（list 透传）；返回 purgedSegments', async () => {

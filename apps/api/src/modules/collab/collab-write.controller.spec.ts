@@ -33,6 +33,7 @@ function mkController(docs: ReturnType<typeof docsStub>, row: { projectId: strin
     {} as any,   // C4-c1：CollabSpoolService（media-refs 端点面——exec-status 用例零消费）
     {} as any,   // C3b-4a：DeletionBarrierService（deletion-barrier 端点面——exec-status 用例零消费）
     {} as any,   // TD-33/C1b T14：CollabErasureRegistryService（purge 端点面——exec-status 用例零消费）
+    {} as any,   // Y2 B2a：AuthorSlotService（author-slot 两端点面——exec-status 用例零消费）
   );
 }
 
@@ -145,5 +146,81 @@ describe('T13（plan v11.2 ①）scope 验签+全档绑定（token 已设档）'
     const c = mkController(docs, null);
     await expect(c.writeExecStatus({ projectId: 'p1', nodeId: 'n1', patch: { status: 'error', attempts: 0, errorCode: 'PLAN_MISSING' } }, bareScope())).resolves.toBeDefined();
     expect(docs.writeExecStatus).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ══════════ Y2 B2a：read/release-author-slot 两端点（先红——裁决 11/请求体只 intentRowId）══════════
+describe('Y2 B2a author-slot 两端点（POST api/collab/doc/*）', () => {
+  let savedToken: string | undefined;
+  beforeEach(() => {
+    savedToken = process.env.WORKER_WRITE_TOKEN;
+    process.env.WORKER_WRITE_TOKEN = TOKEN;
+  });
+  afterEach(() => {
+    if (savedToken === undefined) delete process.env.WORKER_WRITE_TOKEN; else process.env.WORKER_WRITE_TOKEN = savedToken;
+  });
+
+  const intentRow = { projectId: 'p1', nodeId: 'n1', execSeq: 77n };
+  const fullScope = () => mintWorkerScopeToken(TOKEN, 'p1', { intentRowId: 'gi-1', execSeq: '77' });
+
+  /** 控制器装置：authorSlot 服务 stub（记录调用）。 */
+  const mkCtrl = (authorSlot: Record<string, unknown>, row: { projectId: string; nodeId: string; execSeq: bigint } | null = intentRow) =>
+    new (CollabWriteController as any)(
+      { writeExecStatus: vi.fn(async () => undefined) },
+      { generationIntent: { findUnique: vi.fn().mockResolvedValue(row) } },
+      {} as any, {} as any, {} as any,
+      authorSlot as any,
+    );
+
+  it('路由形态：POST read-author-slot / release-author-slot；@NoTransform；WorkerWriteAuthGuard', () => {
+    for (const handler of [CollabWriteController.prototype.readAuthorSlot, CollabWriteController.prototype.releaseAuthorSlot]) {
+      expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(RequestMethod.POST);
+      expect(Reflect.getMetadata(NO_TRANSFORM_KEY, handler)).toBe(true);
+      const guards: any[] = Reflect.getMetadata('__guards__', handler) ?? [];
+      expect(guards.map((g) => g.name ?? String(g))).toContain('WorkerWriteAuthGuard');
+    }
+    expect(Reflect.getMetadata(PATH_METADATA, CollabWriteController.prototype.readAuthorSlot)).toBe('read-author-slot');
+    expect(Reflect.getMetadata(PATH_METADATA, CollabWriteController.prototype.releaseAuthorSlot)).toBe('release-author-slot');
+  });
+
+  it('body 形态：intentRowId 非空 string（请求体只 intentRowId——worker 不传 mediaId）⇒ 缺/错 400 零服务调用', async () => {
+    const authorSlot = { readAuthorSlot: vi.fn(), releaseAuthorSlot: vi.fn() };
+    const c = mkCtrl(authorSlot);
+    await expect((c as any).readAuthorSlot({ intentRowId: '' }, fullScope())).rejects.toMatchObject({ status: 400 });
+    await expect((c as any).readAuthorSlot({}, fullScope())).rejects.toMatchObject({ status: 400 });
+    await expect((c as any).releaseAuthorSlot(undefined, fullScope())).rejects.toMatchObject({ status: 400 });
+    expect(authorSlot.readAuthorSlot).not.toHaveBeenCalled();
+    expect(authorSlot.releaseAuthorSlot).not.toHaveBeenCalled();
+  });
+
+  it('验签复用：scope 缺失/伪造 ⇒ 403；projectId 不符 ⇒ 403 WORKER_SCOPE_PROJECT_MISMATCH（零服务调用）', async () => {
+    const authorSlot = { readAuthorSlot: vi.fn(), releaseAuthorSlot: vi.fn() };
+    const c = mkCtrl(authorSlot);
+    await expect((c as any).readAuthorSlot({ intentRowId: 'gi-1' }, undefined)).rejects.toMatchObject({ status: 403 });
+    await expect((c as any).releaseAuthorSlot({ intentRowId: 'gi-1' }, mintWorkerScopeToken('attacker', 'p1', { intentRowId: 'gi-1', execSeq: '77' }))).rejects.toMatchObject({ status: 403 });
+    expect(authorSlot.readAuthorSlot).not.toHaveBeenCalled();
+    expect(authorSlot.releaseAuthorSlot).not.toHaveBeenCalled();
+  });
+
+  it('全档合法：read/release 直调服务（projectId=scope.p+intentRowId）透传返回', async () => {
+    const authorSlot = {
+      readAuthorSlot: vi.fn().mockResolvedValue({ nodeId: 'n1', kind: 'image', frozen: true, authorMediaId: 'm-a' }),
+      releaseAuthorSlot: vi.fn().mockResolvedValue({ released: true, deletedSlot: true, bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } } }),
+    };
+    const c = mkCtrl(authorSlot);
+    await expect((c as any).readAuthorSlot({ intentRowId: 'gi-1' }, fullScope())).resolves.toMatchObject({ nodeId: 'n1' });
+    await expect((c as any).releaseAuthorSlot({ intentRowId: 'gi-1' }, fullScope())).resolves.toMatchObject({ released: true });
+    expect(authorSlot.readAuthorSlot).toHaveBeenCalledWith('p1', 'gi-1');
+    expect(authorSlot.releaseAuthorSlot).toHaveBeenCalledWith('p1', 'gi-1');
+  });
+
+  it('intent/execSeq 绑定复用（enforceScopeBinding——伪造他代际 403 零服务调用）；token 未设=fail-closed（资金语义面禁裸档）', async () => {
+    const authorSlot = { readAuthorSlot: vi.fn(), releaseAuthorSlot: vi.fn() };
+    const c = mkCtrl(authorSlot, { projectId: 'p1', nodeId: 'n1', execSeq: 88n });
+    await expect((c as any).readAuthorSlot({ intentRowId: 'gi-1' }, fullScope())).rejects.toMatchObject({ status: 403 });
+    expect(authorSlot.readAuthorSlot).not.toHaveBeenCalled();
+    delete process.env.WORKER_WRITE_TOKEN;
+    await expect((c as any).readAuthorSlot({ intentRowId: 'gi-1' }, undefined)).rejects.toMatchObject({ status: 403 });   // fail-closed（无 token 无 projectId 锚——禁裸档放行）
+    expect(authorSlot.readAuthorSlot).not.toHaveBeenCalled();
   });
 });

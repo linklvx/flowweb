@@ -179,3 +179,28 @@ describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFa
     expect(results).toHaveLength(1);
   });
 });
+
+// ══════════ Y2 B2a：Http 形态两封闭操作（先红——裁决 11 request method 类型扩）══════════
+describe('Y2 B2a HttpCollabWritePort 两封闭操作', () => {
+  it('readAuthorSlot：POST /api/collab/doc/read-author-slot 携 scope 头（Bearer+HMAC）透传 body', async () => {
+    const calls: any[] = [];
+    const fetchImpl = async (url: string, init: any) => { calls.push({ url, init }); return { status: 200, json: async () => ({ nodeId: 'n1', kind: 'image', frozen: true, authorMediaId: 'm-a' }) }; };
+    const port = new HttpCollabWritePort({ baseUrl: 'http://api', token: 'tok', fetchImpl, maxAttempts: 1 });
+    const scope = { intentRowId: 'gi-1', execSeq: '77' } as const;
+    const r = await port.readAuthorSlot('p1', 'gi-1', scope);
+    expect(r).toMatchObject({ nodeId: 'n1', authorMediaId: 'm-a' });
+    expect(calls[0].url).toBe('http://api/api/collab/doc/read-author-slot');
+    expect(calls[0].init.method).toBe('POST');
+    expect(calls[0].init.headers.authorization).toBe('Bearer tok');
+    expect(typeof calls[0].init.headers['x-worker-scope']).toBe('string');
+    expect(JSON.parse(calls[0].init.body)).toEqual({ intentRowId: 'gi-1' });   // 请求体只 intentRowId
+  });
+
+  it('releaseAuthorSlot：POST release-author-slot 同款；瞬态耗尽=typed 上抛（非 2xx 语义经端点透传）', async () => {
+    let n = 0;
+    const fetchImpl = async () => { n += 1; return { status: 503, json: async () => ({}) }; };
+    const port = new HttpCollabWritePort({ baseUrl: 'http://api', token: 'tok', fetchImpl, maxAttempts: 1, backoffBaseMs: 1 });
+    await expect(port.releaseAuthorSlot('p1', 'gi-1')).rejects.toThrow();   // 503 族=瞬态耗尽（这里无重试预算即抛）
+    expect(n).toBe(1);
+  });
+});

@@ -22,12 +22,14 @@ import { NoTransform } from '../../common/decorators/no-transform.decorator';
 import { CollabDocumentService } from './collab-document.service';
 import { CollabSpoolService } from './collab-spool.service';
 import { PurgeScopeDto } from './dto/purge-scope.dto';
+import { AuthorSlotDto } from './dto/author-slot.dto';
 import { DeletionBarrierDto } from './dto/deletion-barrier.dto';
 import { DeletionBarrierService } from './deletion-barrier.service';
 import { CollabErasureRegistryService } from './collab-erasure-registry.service';
 import { mapPrepareToWire } from './deletion-barrier.port';
 import { WorkerWriteAuthGuard } from './worker-write-auth.guard';
 import { verifyWorkerScopeToken, WORKER_SCOPE_HEADER, type WorkerScopePayload } from './worker-scope-token';
+import { AuthorSlotService } from './author-slot.service';
 
 /** T32：worker 通道 exec status 黑名单（本地常量——shared WORKER_EXEC_FORBIDDEN_STATUSES 随
  *  write-batch 词汇退役删除，语义原样迁移：done=deliverArtifact 复合事务专写）。 */
@@ -43,6 +45,7 @@ export class CollabWriteController {
     @Inject(CollabSpoolService) private readonly spool: CollabSpoolService,
     @Inject(DeletionBarrierService) private readonly deletionBarrier: DeletionBarrierService,
     @Inject(CollabErasureRegistryService) private readonly erasure: CollabErasureRegistryService,   // TD-33/C1b T14：purge 复检+mark（live）
+    @Inject(AuthorSlotService) private readonly authorSlot: AuthorSlotService,   // Y2 B2a：两封闭操作逻辑宿主（read/release-author-slot 端点面）
     @Optional() @Inject(EventEmitter2) private readonly events?: EventEmitter2,   // TD-33/C1b T13：purge emit project.gone（finally 仅 marked）
   ) {}
 
@@ -142,9 +145,10 @@ export class CollabWriteController {
     return v.payload;
   }
 
-  /** 全档绑定：intent 行在场∧projectId/execSeq 匹配∧nodeId===intent.nodeId（伪造他
-   *  intent/execSeq/nodeId 的写=403）。裸项目档（scope.i===''——pre-claim 断言路径）跳过行核。 */
-  private async enforceScopeBinding(nodeId: string, scope: WorkerScopePayload): Promise<void> {
+  /** 全档绑定：intent 行在场∧projectId/execSeq 匹配∧（body 携 nodeId 时）nodeId===intent.nodeId
+   *  （伪造他 intent/execSeq/nodeId 的写=403）。裸项目档（scope.i===''——pre-claim 断言路径）跳过行核；
+   *  Y2 B2a 两端点 body 无 nodeId——nodeId=undefined 跳过节点锚（行核 projectId/execSeq 面仍全）。 */
+  private async enforceScopeBinding(nodeId: string | undefined, scope: WorkerScopePayload): Promise<void> {
     if (scope.i === '') return;
     const row = await this.prisma.generationIntent.findUnique({
       where: { id: scope.i },
@@ -153,8 +157,64 @@ export class CollabWriteController {
     if (!row || row.projectId !== scope.p || row.execSeq !== BigInt(scope.s)) {
       throw new ForbiddenException({ code: 'WORKER_SCOPE_INTENT_MISMATCH', message: 'scope 令牌 intentRowId/execSeq 与 intent 行不符（伪造他意图/代际的写请求拒）' });
     }
-    if (nodeId !== row.nodeId) {
+    if (nodeId !== undefined && nodeId !== row.nodeId) {
       throw new ForbiddenException({ code: 'WORKER_SCOPE_NODE_MISMATCH', message: 'nodeId 与 scope 绑定 intent 行 nodeId 不符——跨节点越权拒' });
     }
+  }
+
+  // ── Y2 B2a（裁决 11）：两封闭操作端点——请求体只 intentRowId（worker 不传 mediaId；projectId
+  //    绑 scope 令牌）。token 未设=fail-closed（资金语义面禁裸档——exec-status 的 fail-open 便利
+  //    依赖 body 自携 projectId，本两端点 body 无项目锚）。 ──
+
+  /** 封闭读：意图行核对+冻结两列读出（语义/顺序见 AuthorSlotService 头注）。 */
+  @Post('read-author-slot')
+  @NoTransform()
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  @UseGuards(WorkerWriteAuthGuard)
+  async readAuthorSlot(
+    @Body() body: AuthorSlotDto,
+    @Headers(WORKER_SCOPE_HEADER) scopeHeader?: string,
+  ) {
+    const intentRowId = this.requireIntentRowId(body);
+    const scope = this.requireScope(scopeHeader);
+    await this.enforceScopeBinding(undefined, scope);   // 绑定核（body 无 nodeId——行核 projectId/execSeq 面，node 锚=服务内行核对）
+    return this.authorSlot.readAuthorSlot(scope.p, intentRowId);
+  }
+
+  /** 封闭释放：条件删键→快照→投影→置位（v5/v6 顺序钉死——语义见 AuthorSlotService 头注）。 */
+  @Post('release-author-slot')
+  @NoTransform()
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  @UseGuards(WorkerWriteAuthGuard)
+  async releaseAuthorSlot(
+    @Body() body: AuthorSlotDto,
+    @Headers(WORKER_SCOPE_HEADER) scopeHeader?: string,
+  ) {
+    const intentRowId = this.requireIntentRowId(body);
+    const scope = this.requireScope(scopeHeader);
+    await this.enforceScopeBinding(undefined, scope);   // 同 read——body 无 nodeId
+    return this.authorSlot.releaseAuthorSlot(scope.p, intentRowId);
+  }
+
+  /** 两封闭操作共用：body.intentRowId 非空 string（pipe 验型后防御收窄——直调/pipe 缺席面兜底 400）。 */
+  private requireIntentRowId(body: AuthorSlotDto): string {
+    if (body === null || typeof body !== 'object' || Array.isArray(body)
+      || typeof body.intentRowId !== 'string' || body.intentRowId === '') {
+      throw new BadRequestException({ code: 'AUTHOR_SLOT_BAD_BODY', message: 'body 须为 { intentRowId: 非空 string }（worker 不传 mediaId）' });
+    }
+    return body.intentRowId;
+  }
+
+  /** 两封闭操作共用：token 必设+验签（fail-closed）——projectId 锚=scope.p（body 无项目锚）。 */
+  private requireScope(scopeHeader: string | undefined): WorkerScopePayload {
+    const bearer = process.env.WORKER_WRITE_TOKEN;
+    if (!bearer) {
+      throw new ForbiddenException({ code: 'WORKER_SCOPE_REQUIRED', message: 'author-slot 端点要求 WORKER_WRITE_TOKEN+x-worker-scope（资金语义面禁裸档——body 无 projectId 锚）' });
+    }
+    const v = verifyWorkerScopeToken(bearer, scopeHeader);
+    if (!v.ok) {
+      throw new ForbiddenException({ code: 'WORKER_SCOPE_INVALID', message: `x-worker-scope 验签失败（${v.reason}）` });
+    }
+    return v.payload;
   }
 }

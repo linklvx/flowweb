@@ -75,6 +75,9 @@ export * from './canvas/media-fact';
 // collectMediaIds 聚合——C3a-1 收口）——api binding-reconcile 惰性 reconcile/GC 引用图与
 // web pendingFacts/fileId 到达判定共用（DocLike 结构入参，fillDoc 同款零 yjs 纪律）。
 export * from './canvas/media-refs';
+// Y2 B2a：主媒体身份解析单源（作者键→产物→multiImageGen 图库回落——projectCanvas 读点切换〔B3〕
+// 与 author-slot 服务端腿〔B2a〕共用，禁双侧各写漂移）。
+export * from './canvas/resolvePrimaryMediaId';
 // Y2 A3 退役注记：geometryWriterRegistry（写者类别+归类账本——GEOMETRY_WRITER_CATEGORIES/
 // withGeometryWriter 消费面）随 geometryTrap 仲裁体系整删（web 侧生产消费已归零）。
 export * from './canvas/geometry';
