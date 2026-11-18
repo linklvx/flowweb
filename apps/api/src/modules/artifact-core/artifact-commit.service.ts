@@ -490,12 +490,14 @@ export class ArtifactCommitService {
     intentRowId: string; execSeq: string; sourceUrl: string;
     projectId: string; nodeId: string; teamId: string; userId: string; kind: string; sourceMimeType: string | null;
     claimArtifactRev: number;
+    authorVoid?: boolean;
   }): Promise<CommitOutcome> {
     return this.commitImage({
       projectId: stage.projectId, nodeId: stage.nodeId, teamId: stage.teamId, userId: stage.userId,
       intentRowId: stage.intentRowId, execSeq: BigInt(stage.execSeq), expectedRev: stage.claimArtifactRev,
       sourceUrl: stage.sourceUrl,
       sourceMimeType: stage.sourceMimeType,
+      authorVoid: stage.authorVoid,
     });
   }
 

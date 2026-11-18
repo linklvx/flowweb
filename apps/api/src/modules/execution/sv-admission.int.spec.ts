@@ -74,6 +74,13 @@ function makeController(nodes: any[]): ExecutionController {
     isLeaseServing: () => true,
     writeNodeData: vi.fn(async () => ({ written: true })),
     writeExecStatus: vi.fn(async () => {}),
+    readAuthorSlot: async (_p: string, intentRowId: string) => ({
+      nodeId: intentRowId, kind: 'image', frozen: true, authorMediaId: null, liveMediaId: null,
+    }),
+    releaseAuthorSlot: async () => ({
+      released: true, deletedSlot: false,
+      bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } },
+    }),
   };
   const svc = new ExecutionService(
     prisma as unknown as PrismaService,
@@ -92,7 +99,7 @@ function makeController(nodes: any[]): ExecutionController {
   queueAdd = vi.fn(async () => ({ id: 'job-sv-1' }));
   // collabDoc 第 5 参=T7 门依赖（readServerSV）——controller 直构同 app 装配形态
   // Y0c T29-II：presence 第 6 参（enqueue 门）——默认放行（单进程拓扑常态，裁决①）
-  return new ExecutionController(svc, perm, { add: queueAdd } as any, intentSvc, collabDoc, { assertAdmittable: async () => {} } as any, undefined as never);   // Y1c T21：executionRequests（spec 不触达）
+  return new ExecutionController(svc, perm, { add: queueAdd } as any, intentSvc, collabDoc, { assertAdmittable: async () => {} } as any, undefined as never, new TopologyService());   // Y1c T21：executionRequests（spec 不触达）；Y2 B2c：topology 第 8 参
 }
 
 const intentCount = (nodeId?: string) =>

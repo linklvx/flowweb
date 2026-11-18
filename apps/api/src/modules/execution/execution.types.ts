@@ -18,6 +18,13 @@ export interface ExecutionJobData {
    *  jobId 故 findByActiveNode(jobId) 必命中新代行——改前 fail(..., running.execSeq) 自读自写=代际
    *  CAS 虚设误杀新代）。DB execSeq 仍是唯一权威（票只作钩子 fence 比对，非 CAS 第二真源）。 */
   ticket?: ExecutionClaimTicket;
+  /** Y2 B2c（裁决 12/15）：受理捕获的作者槽冻结表（nodeId → 主槽 mediaId|null）——enqueue 入队前
+   *  按 execute 同款节点集规则现算（controller readCanvas 直调）。带表路径=工作集封口（表键集∩
+   *  当帧 allNodes——表外新增不入本 job）+claim 真值源（表内 frozen:true+槽值；表外防御档 false）。 */
+  authorSlots?: Record<string, string | null>;
+  /** Y2 B2c（裁决 14）：释放重排计数（processor 识别 AuthorSlotReleaseError 后读-改-写自增——
+   *  moveToDelayed 不耗 attempts 故独立计数；3 次上限〔1s/5s/15s〕耗尽=completed+计数停止）。 */
+  releaseAttempts?: number;
 }
 
 /** T9 收尾：worker 内 claim 成功铸造的代际票（execute 的 onClaimed 回调贯穿 processor——execSeq wire

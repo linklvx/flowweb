@@ -80,6 +80,9 @@ export interface LoadedExecutionPlan {
   model: string | null; resolution: string | null; styleId: string | null; pricingRuleId: string | null;
   creditCost: number; reservedCredit: number; paramsHash: string;
   status: string; generationIntentId: string | null; execSeq: bigint | null;
+  /** Y2 B2c：受理时刻捕获的作者槽冻结真值（B1 占位→B2c 换真值——冻结链 claim 直读）。 */
+  authorSlotFrozen: boolean;
+  authorMediaId: string | null;
 }
 
 export interface LoadedExecution {
@@ -423,10 +426,10 @@ export class ExecutionRequestService {
         // remaining 收口（PENDING/EXECUTING 计数）可达终态；值域注记：PENDING/EXECUTING/SETTLED/
         // VOIDED/SKIPPED 五值（SKIPPED=T21 收口新增——零成本零执行分支语义；值域单源=shared §3b）。
         status: isExecutableNode(n) ? PLAN_STATE.PENDING : PLAN_STATE.SKIPPED,
-        // Y2 B1（裁决 16）：plan 行冻结两列**占位** true/null——ExecutionNodePlan NOT NULL 无默认后
-        // createMany 不含该列即断链 admitRequest 整链；B2 换 buildFrozenSlice 会话内读槽真捕获。
+        // Y2 B2c：冻结两列真值——会话内读槽（受理时刻节点主槽 mediaId；作者键缺席=null——
+        // B3 写者切换前 data.mediaId 尚未普及，null=「受理时无作者键」如实捕获非占位）。
         authorSlotFrozen: true,
-        authorMediaId: null,
+        authorMediaId: (typeof d.mediaId === 'string' && d.mediaId !== '' ? d.mediaId : null),
       };
     });
     const planHash = sha256hex(canonicalPlanHashPayload(planRows as never[]));
@@ -542,6 +545,7 @@ export class ExecutionRequestService {
         resolution: p.resolution, styleId: p.styleId, pricingRuleId: p.pricingRuleId, creditCost: p.creditCost,
         reservedCredit: p.reservedCredit, paramsHash: p.paramsHash, status: p.status,
         generationIntentId: p.generationIntentId, execSeq: p.execSeq,
+        authorSlotFrozen: p.authorSlotFrozen, authorMediaId: p.authorMediaId,   // Y2 B2c：受理冻结真值
       })),
       input,
     };

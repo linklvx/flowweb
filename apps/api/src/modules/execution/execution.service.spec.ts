@@ -45,6 +45,10 @@ describe('ExecutionService', () => {
       isLeaseServing: vi.fn().mockReturnValue(true), // Y0a-3 T8 计费读门——默认放行（本文件焦点在执行链）
       writeNodeData: vi.fn().mockResolvedValue({ kind: 'business', written: true }),   // T13 typed outcome——business 档（transient/permanent=悬留档）, // Y0b-2 T5：交付判据类型化 {written,reason}
       writeExecStatus: vi.fn().mockResolvedValue(undefined), // 批0.5-6 claim 接线最小装置
+      // Y2 B2c：两封闭操作默认桩——readAuthorSlot：无作者键（frozen=false 走胜臂——本文件焦点非作废面）；
+      // releaseAuthorSlot：幂等成功（补释放面无断言用例靠 B2c describe 定点覆盖）
+      readAuthorSlot: vi.fn().mockImplementation(async (_p: string, id: string) => ({ nodeId: id, kind: 'image', frozen: true, authorMediaId: null, liveMediaId: null })),
+      releaseAuthorSlot: vi.fn().mockResolvedValue({ released: true, deletedSlot: false, bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } } }),
     };
     topology = {
       getScope: vi.fn().mockReturnValue([
@@ -628,4 +632,108 @@ describe('ExecutionService', () => {
       }));
     });
   });
+
+// ══════════ Y2 B2c：受理捕获+工作集封口+释放（先红——v2.9 a/b/c/d/g/h/i 核心）══════════
+describe('Y2 B2c 受理捕获+工作集封口+释放（先红）', () => {
+  // 装置复用主 beforeEach（全 mock）；authorSlots 表/释放面在此按用例注入
+  beforeEach(() => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+  });
+  const NODES = [
+    { id: 'n1', type: 'textInput', data: { content: 'hi', model: 'm-text' } },
+    { id: 'n2', type: 'imageGen', data: { model: 'm1', resolution: 'r1' } },
+    { id: 'n3', type: 'imageGen', data: { model: 'm1', resolution: 'r1' } },
+  ];
+
+  it('c-① 工作集封口：带表路径 scope=表键集∩当帧（表外新增节点不入本 job——claim/外呼零触达）', async () => {
+    collabDoc.readCanvas.mockResolvedValue({ nodes: NODES, edges: [] });
+    topology.getScope.mockReturnValue(NODES);
+    topology.sort.mockImplementation((nodes: unknown[]) => nodes);
+    await service.execute('p1', undefined, 'u1', undefined, undefined, undefined, undefined, undefined, undefined, { n2: 'm-author-2' });
+    const claimedNodes = intentSvc.claim.mock.calls.map((c: any[]) => c[0].nodeId);
+    expect(claimedNodes).toEqual(['n2']);   // 表键集={n2}——n1/n3 不入（getScope 结果被封口）
+  });
+
+  it('claim 真值：表内 frozen:true+槽值 / 表外防御档 false+null（B2c 起画布 claim 零 false 字面量——真值源=表）', async () => {
+    collabDoc.readCanvas.mockResolvedValue({ nodes: NODES, edges: [] });
+    topology.getScope.mockReturnValue(NODES);
+    topology.sort.mockImplementation((nodes: unknown[]) => nodes);
+    await service.execute('p1', undefined, 'u1', undefined, undefined, undefined, undefined, undefined, undefined, { n2: 'm-author-2' });
+    const arg = intentSvc.claim.mock.calls[0][0];
+    expect(arg.authorSlotFrozen).toBe(true);
+    expect(arg.authorMediaId).toBe('m-author-2');
+    // 无表直达=受理时点即 execute 开头快照——内存表现算 frozen:true+槽值（动态值非占位字面量；
+    // 夹具节点无 mediaId 键 → null 如实）
+    intentSvc.claim.mockClear();
+    await service.execute('p1', undefined, 'u1');
+    for (const c of intentSvc.claim.mock.calls) {
+      expect(c[0].authorSlotFrozen).toBe(true);
+      expect(c[0].authorMediaId).toBe(null);
+    }
+  });
+
+  it('回放两档：作废键命中→emit done 不带 fileId 零释放 / 未命中→emit done 带 fileId+release 置位', async () => {
+    collabDoc.readCanvas.mockResolvedValue({ nodes: [NODES[1]!], edges: [] });
+    topology.sort.mockImplementation((nodes: unknown[]) => nodes);
+    collabDoc.readAuthorSlot = vi.fn().mockResolvedValue({ nodeId: 'n2', kind: 'image', frozen: true, authorMediaId: 'm-author-2', liveMediaId: 'm-author-2' });
+    collabDoc.releaseAuthorSlot = vi.fn().mockResolvedValue({ released: true, deletedSlot: true, bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } } });
+    prisma.artifactProjection = { findUnique: vi.fn() };
+
+    // 档一：作废键命中（回放臂先查精确作废键）——emit 不带 fileId+零释放
+    prisma.artifactProjection.findUnique.mockResolvedValueOnce({ artifactId: 'x', state: 'superseded' });
+    intentSvc.claim.mockResolvedValueOnce({ created: false, result: 'replay', artifactRev: 0, intent: { id: 'intent-1', intentId: 'i-1', execSeq: 1n, attempts: 1, resultRef: 'm-old', nodeId: 'n2' } });
+    await service.execute('p1', undefined, 'u1');
+    expect(gateway.emitNodeStatus).toHaveBeenLastCalledWith('p1', expect.objectContaining({ nodeId: 'n2', status: 'done' }));
+    expect((gateway.emitNodeStatus.mock.lastCall as any[])[1].fileId).toBeUndefined();   // 不携带
+    expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();
+
+    // 档二：未命中——emit 带 fileId+release（幂等补释放）
+    prisma.artifactProjection.findUnique.mockResolvedValueOnce(null);
+    intentSvc.claim.mockResolvedValueOnce({ created: false, result: 'replay', artifactRev: 0, intent: { id: 'intent-1', intentId: 'i-1', execSeq: 1n, attempts: 1, resultRef: 'm-old', nodeId: 'n2' } });
+    await service.execute('p1', undefined, 'u1');
+    expect((gateway.emitNodeStatus.mock.lastCall as any[])[1].fileId).toBe('m-old');
+    expect(collabDoc.releaseAuthorSlot).toHaveBeenCalledWith('p1', 'intent-1');
+  });
+
+  it('g 败臂：fresh finalize superseded→不释放（作者键保留——用户已换面）∧ emit 不携 fileId', async () => {
+    collabDoc.readCanvas.mockResolvedValue({ nodes: [{ ...NODES[1]!, data: { ...NODES[1]!.data, mediaId: 'm-author-2' } }], edges: [] });
+    topology.sort.mockImplementation((nodes: unknown[]) => nodes);
+    collabDoc.readAuthorSlot = vi.fn().mockResolvedValue({ nodeId: 'n2', kind: 'image', frozen: true, authorMediaId: 'm-author-2', liveMediaId: 'm-user-replaced' });
+    collabDoc.releaseAuthorSlot = vi.fn();
+    // 冻结列=受理捕获；现场槽在外呼返回后已换成别的 id（authorVoid，不释放）
+    collabDoc.readCanvas.mockResolvedValue({ nodes: [{ ...NODES[1]!, data: { ...NODES[1]!.data, mediaId: 'm-author-2' } }], edges: [] });
+    artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'superseded', mediaId: 'm-gen' });
+    await service.execute('p1', undefined, 'u1');
+    expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();   // superseded 不释放（作者键保留）
+    expect((gateway.emitNodeStatus.mock.lastCall as any[])[1].fileId).toBeUndefined();
+  });
+
+  it('h 新鲜 committed：release 先于 emit（顺序共享 call log）∧ slot≠冻结值→deletedSlot=false 幂等', async () => {
+    collabDoc.readCanvas.mockResolvedValue({ nodes: [{ ...NODES[1]!, data: { ...NODES[1]!.data, mediaId: 'm-author-2' } }], edges: [] });
+    topology.sort.mockImplementation((nodes: unknown[]) => nodes);
+    collabDoc.readAuthorSlot = vi.fn().mockResolvedValue({ nodeId: 'n2', kind: 'image', frozen: true, authorMediaId: 'm-author-2', liveMediaId: 'm-author-2' });
+    // 现场槽=冻结值（相等→正常胜臂 committed——release 补上）
+    collabDoc.readCanvas.mockResolvedValue({ nodes: [{ ...NODES[1]!, data: { ...NODES[1]!.data, mediaId: 'm-author-2' } }], edges: [] });
+    const order: string[] = [];
+    collabDoc.releaseAuthorSlot = vi.fn(async () => { order.push('release'); return { released: true, deletedSlot: false, bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } } }; });
+    gateway.emitNodeStatus.mockImplementation(async (_p: string, payload: { status?: string }) => {
+      if (payload.status === 'done') order.push('emit');
+    });
+    artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'committed', mediaId: 'm-gen', key: 'k' });
+    await service.execute('p1', undefined, 'u1');
+    expect(collabDoc.releaseAuthorSlot).toHaveBeenCalledWith('p1', 'intent-1');
+    expect(order).toEqual(['release', 'emit']);   // release 先于 emit（失败可穿透不 emit 假 done）
+  });
+
+  it('i same-job-alive：零 release 调用（前置 return 顺序不变量）', async () => {
+    collabDoc.readCanvas.mockResolvedValue({ nodes: [NODES[1]!], edges: [] });
+    topology.sort.mockImplementation((nodes: unknown[]) => nodes);
+    collabDoc.readAuthorSlot = vi.fn();
+    collabDoc.releaseAuthorSlot = vi.fn();
+    intentSvc.claim.mockResolvedValueOnce({ created: false, result: 'same-job-alive', artifactRev: 0, intent: { id: 'intent-1', intentId: 'i-1', execSeq: 1n, attempts: 1, nodeId: 'n2' } });
+    await service.execute('p1', undefined, 'u1');
+    expect(collabDoc.readAuthorSlot).not.toHaveBeenCalled();
+    expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();
+  });
+});
 });

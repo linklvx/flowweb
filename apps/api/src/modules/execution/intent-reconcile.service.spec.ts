@@ -115,7 +115,11 @@ describe('IntentReconcileService（F12/F13 两档收敛——T13 R3 重写后语
     queue = { getJob: vi.fn().mockResolvedValue(null) };
     imageEditQueue = { getJob: vi.fn().mockResolvedValue(null) };
     // Y0b-2 T5（Z106/Z112）：reaper 投影分治消费面——isDocResident+writeExecStatus 可断言
-    collabDoc = { withDoc: vi.fn(), isDocResident: vi.fn(() => true), writeExecStatus: vi.fn().mockResolvedValue(undefined) };
+    collabDoc = {
+      withDoc: vi.fn(), isDocResident: vi.fn(() => true), writeExecStatus: vi.fn().mockResolvedValue(undefined),
+      readAuthorSlot: vi.fn().mockResolvedValue({ nodeId: 'n1', kind: 'image', frozen: true, authorMediaId: null, liveMediaId: null }),
+      releaseAuthorSlot: vi.fn().mockResolvedValue({ released: true, deletedSlot: false, bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } } }),
+    };
     // T13 R3：动作表单入口 stub——默认 not-recoverable（stale RUNNING 无 stage 行——charge 剩余分支承接）
     artifactCommit = {
       finalizeFromExistingMediaOrText: vi.fn().mockResolvedValue({ action: 'not-recoverable' }),
@@ -514,6 +518,38 @@ describe('IntentReconcileService（F12/F13 两档收敛——T13 R3 重写后语
       vi.advanceTimersByTime(24 * 3600 * 1000);
 
       expect(verifySpy).toHaveBeenCalledTimes(1); // 仅启动那次，定时器已清
+    });
+  });
+
+  describe('Y2 B2c 对账补释放臂', () => {
+    it('j：SUCCEEDED∧frozen∧未释放且有本代锚 → releaseAuthorSlot；失败记 author-slot-release-failed，不进下载预算', async () => {
+      collabDoc.releaseAuthorSlot = vi.fn().mockRejectedValue(new Error('bind down'));
+      prisma.$queryRaw.mockImplementation(async (tpl: any) => {
+        const sql = String(tpl?.[0] ?? '');
+        if (sql.includes('authorSlotReleased')) return [{ id: 'gi-rel', projectId: 'p1' }];
+        return [];
+      });
+      await service.verifyActive();
+      expect(collabDoc.releaseAuthorSlot).toHaveBeenCalledWith('p1', 'gi-rel');
+      expect(prisma.reconcileAction.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ intentRowId: 'gi-rel', action: 'author-slot-release-failed' }),
+      }));
+    });
+
+    it('j：恢复链读槽失败本轮跳过——不调 finalizeFromStage、不记 finalize-from-stage-failed', async () => {
+      const row = intent({ execSeq: 1n, jobId: null, heartbeatAt: new Date(Date.now() - 20 * 60_000) });
+      prisma.generationIntent.findMany.mockResolvedValue([row]);
+      prisma.generationIntent.findUnique.mockResolvedValue({ ...row, reservedCredits: 0, creditCost: 10 });
+      artifactCommit.finalizeFromExistingMediaOrText.mockResolvedValue({
+        action: 'finalize-from-stage',
+        stage: { intentRowId: 'gi-1', execSeq: '1', sourceUrl: 'http://x', projectId: 'p1', nodeId: 'n1', teamId: 't1', userId: 'u1', kind: 'image', sourceMimeType: null, claimArtifactRev: 1 },
+      });
+      collabDoc.readAuthorSlot = vi.fn().mockRejectedValue(new Error('doc down'));
+      await service.verifyActive();
+      expect(artifactCommit.finalizeFromStage).not.toHaveBeenCalled();
+      expect(prisma.reconcileAction.create).not.toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ action: 'finalize-from-stage-failed' }),
+      }));
     });
   });
 });

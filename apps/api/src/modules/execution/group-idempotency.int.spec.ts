@@ -79,6 +79,13 @@ function makeExec(nodes: any[], collabOverrides: Record<string, unknown> = {}) {
     writeExecStatus: vi.fn(async (_p: string, nodeId: string, patch: any) => {
       writeExecCalls.push({ nodeId, patch });
     }),
+    readAuthorSlot: async (_p: string, intentRowId: string) => ({
+      nodeId: intentRowId, kind: 'image', frozen: true, authorMediaId: null, liveMediaId: null,
+    }),
+    releaseAuthorSlot: async () => ({
+      released: true, deletedSlot: false,
+      bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } },
+    }),
     ...collabOverrides,
   };
   const svc = new ExecutionService(

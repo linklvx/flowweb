@@ -146,3 +146,11 @@ export const textUnknownMarkFailedTotal = new Counter({
   help: 'Y1c T23 收口：markUnknown 落库失败计数（UNKNOWN 停驻未达——行留 RUNNING 交 reaper，用户面中性文案）',
   registers: [register],
 });
+
+/** Y2 B2c（裁决 14）：释放重排耗尽计数——processor moveToDelayed 3 次上限/对账补释放臂 3 次停止
+ *  （job completed 后行 SUCCEEDED∧frozen∧!released 由对账 5min 轮接管——本计数为人工对账面）。 */
+export const authorSlotReleaseExhaustedTotal = new Counter({
+  name: 'author_slot_release_exhausted_total',
+  help: 'Y2：作者槽释放重排耗尽计数（moveToDelayed 3 次上限/对账补释放 3 次停止——对账补释放臂人工面）',
+  registers: [register],
+});

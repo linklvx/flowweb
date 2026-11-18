@@ -1,6 +1,7 @@
 import { Injectable, Inject, Logger, ServiceUnavailableException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TopologyService } from './topology.service';
+import { AuthorSlotReleaseError } from '../collab/author-slot.service';
 import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
@@ -123,12 +124,13 @@ export class ExecutionService {
    *  （旧"首个 exec 落 token、其余派 UUID"的门随 T1 删——token 不再是行键，无需选择落点）。
    *  Y0b-1（E1）：pricing/teamId 必填透传——定价快照自 validation plans（预估=plan 同源，TOCTOU 消除）。
    *  Y0b-5 T13：traceId 透传（HTTP 直达=controller 自 ALS 读；enqueue 管道=job.data 自 processor 透）——落审计列。
-   *  Y2 B1（D8）：冻结两列透传——B1~B2 之间占位值 false/null（两列此间零读者；**占位值严禁改为读
-   *  现场槽**——claim 禁现读；B2 换 authorSlots 表/内存表/plan 行真值）。 */
+   *  Y2 B2c（D8）：冻结两列必传——真值源=受理捕获表（表内 true+槽值 / 表外动态 false+null）。
+   *  claim 禁现读现场槽。 */
   private claimForNode(
     projectId: string, node: any, userId: string, gestureToken: string | undefined,
-    kind: string, params: Record<string, unknown>, pricing: ClaimPricing, teamId: string, jobId?: string, traceId?: string | null,
-    authorSlotFrozen = false, authorMediaId: string | null = null,
+    kind: string, params: Record<string, unknown>, pricing: ClaimPricing, teamId: string,
+    jobId: string | undefined, traceId: string | null | undefined,
+    authorSlotFrozen: boolean, authorMediaId: string | null,
   ) {
     return this.intentService.claim({
       projectId, nodeId: node.id, userId, gestureToken, kind,
@@ -141,6 +143,23 @@ export class ExecutionService {
       teamId, jobId, traceId,
       authorSlotFrozen, authorMediaId,
     });
+  }
+
+  /** Y2 B2c（裁决 14）：释放封装——非 2xx/瞬态耗尽/投影失败一律包 AuthorSlotReleaseError（catch 首位
+   *  re-throw 识别；processor 凭专型 moveToDelayed 有上限重排）。 */
+  /** sync=true：同请求内 3 次后仍败再抛（直达 5xx）。队列路径只试 1 次，交给 processor 的 moveToDelayed。 */
+  private async releaseAuthorSlotOrThrow(projectId: string, intentRowId: string, sync: boolean): Promise<void> {
+    const tries = sync ? 3 : 1;
+    let last: unknown;
+    for (let i = 0; i < tries; i += 1) {
+      try {
+        await this.collabDoc.releaseAuthorSlot(projectId, intentRowId);
+        return;
+      } catch (e) {
+        last = e;
+      }
+    }
+    throw new AuthorSlotReleaseError(intentRowId, last);
   }
 
   /** Y0b-2 T5（Z95/Z111）：终态 error 投影 patch——errorCode+rearmable+attempts 与 status:'error' 同 patch
@@ -171,6 +190,9 @@ export class ExecutionService {
     projectId: string, nodeId: string | undefined, userId: string, nodeIds?: string[], intentId?: string, jobId?: string,
     traceId?: string | null, onClaimed?: (ticket: ExecutionClaimTicket) => void,
     requestId?: string,   // Y1c T21：冻结请求执行路径（受理在档——worker 零 doc 读）
+    /** Y2 B2c（裁决 12/15）：受理捕获的作者槽表（enqueue 管道=controller 入队前建；直达=undefined
+     *  ⇒ 开头 readCanvas 内存表现算——工作集封口仅带表路径生效）。 */
+    authorSlots?: Record<string, string | null>,
   ): Promise<ExecutionResult> {
     // 0c-6：权限守卫最先——非成员不可用"项目不存在"响应区分不存在 vs 无权（存在性 oracle）
     await this.perm.assertEditor(projectId, userId);
@@ -206,11 +228,26 @@ export class ExecutionService {
     const allEdges = canvas.edges;
 
     // 2. Determine scope
-    const scopeNodes = nodeIds
+    // Y2 B2c（裁决 15 工作集封口）：带表路径 scope=表键集∩当帧（表外新增不入本 job——enqueue 后
+    // claim 前新增上游不被本 job 外呼/作废/核销）；表内已删剔除（∩ 自然）；无表路径=getScope 原样。
+    const baseScope = nodeIds
       ? allNodes.filter((n) => nodeIds.includes(n.id))
       : nodeId
         ? this.topology.getScope(allNodes, allEdges, nodeId)
         : allNodes;
+    const scopeNodes = authorSlots
+      ? baseScope.filter((n) => Object.prototype.hasOwnProperty.call(authorSlots, n.id))
+      : baseScope;
+    // 直达路径内存表现算（带表路径用表真值；无表=现读现算——B2c 起 claim 零 false 字面量）
+    const authorTable: Record<string, string | null> = authorSlots ?? (() => {
+      const t: Record<string, string | null> = {};
+      for (const n of scopeNodes) {
+        if (!isExecutableNode(n)) continue;
+        const d = n.data as Record<string, unknown> | null | undefined;
+        t[n.id] = typeof d?.mediaId === 'string' && d.mediaId !== '' ? d.mediaId : null;
+      }
+      return t;
+    })();
 
     // Y0b-2 T5（Z44）：请求级错误——循环前 throw 合法（4xx；零外呼零冻结零 attempts 消耗）。
     if (nodeIds) {
@@ -276,7 +313,7 @@ export class ExecutionService {
       this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'loading' });
       await this.runNodeLifecycle({
         projectId, node, userId, gestureToken: intentId, jobId, traceId, onClaimed,
-        teamId: project.teamId, planMap, styleTextOf,
+        teamId: project.teamId, planMap, styleTextOf, authorTable,
         upstreamSource: nodeIds ? allNodes : scopeNodes, allEdges, // nodeIds 模式读全量（上游可在组外）
         results, errors, onDeducted: (c) => { totalDeducted += c; },
       });
@@ -301,11 +338,13 @@ export class ExecutionService {
     projectId: string; node: any; userId: string; gestureToken?: string; jobId?: string; traceId?: string | null;
     teamId: string; planMap: Map<string, any>; upstreamSource: any[]; allEdges: any[];
     styleTextOf: (data: any) => string;
+    /** Y2 B2c：受理捕获表（claim 真值源——表内 true+槽值/表外 false+null）。 */
+    authorTable: Record<string, string | null>;
     results: ExecutionResult['results']; errors: ExecutionErrorEntry[];
     onDeducted: (cost: number) => void;
     onClaimed?: (ticket: ExecutionClaimTicket) => void; // T9 收尾：claim 成功即回调（processor 回写票）
   }): Promise<void> {
-    const { projectId, node, userId, gestureToken, jobId, traceId, teamId, planMap, upstreamSource, allEdges, results, errors, onDeducted, onClaimed } = ctx;
+    const { projectId, node, userId, gestureToken, jobId, traceId, teamId, planMap, upstreamSource, allEdges, results, errors, onDeducted, onClaimed, authorTable } = ctx;
     // A-3（T4 I-2）：poll-abort ⇒ 行已终态，清理由 reaper 完成——onTick 抛出的 PROVIDER_POLL_ABORTED
     // 在下方 catch 被降级为逐节点 error（不 re-throw）；该降级安全仅因"onTick abort ⇔ 行已终态
     // （reaper 已收敛资金）"这一不变量——若 abort 语义扩围须重审此处。
@@ -324,7 +363,13 @@ export class ExecutionService {
 
       // ── claim（外呼实参白名单规范化——paramsHash 身份形态输入；Y1a T8 上游注入读 NodeArtifact PG）──
       const claimPack = await this.nodeClaimPack(projectId, node, ctx);
-      const { intent, created, result: claimResult, artifactRev } = await this.claimForNode(projectId, node, userId, gestureToken, claimPack.kind, claimPack.callArgs, plan, teamId, jobId, traceId);
+      // Y2 B2c（裁决 12）：claim 真值源=受理捕获表——表内 frozen:true+槽值（本 job 工作集内）；
+      // 表外防御档 false/null（工作集封口后理论上零样本——动态查表兜底非字面量）。
+      const slotFrozen = Object.prototype.hasOwnProperty.call(authorTable, node.id);
+      const { intent, created, result: claimResult, artifactRev } = await this.claimForNode(
+        projectId, node, userId, gestureToken, claimPack.kind, claimPack.callArgs, plan, teamId, jobId, traceId,
+        slotFrozen, slotFrozen ? authorTable[node.id] ?? null : null,
+      );
       if (claimResult === 'same-job-alive') {
         // T9 同 job 重入态①（spec ㉒）：旧 worker 心跳新鲜在飞——本重排 worker 静默让位（零终态零
         // emit——交付归旧 worker；skipped 投影非终态=可观测面，Z88 在飞段 done 照常覆盖）；
@@ -341,6 +386,25 @@ export class ExecutionService {
         // 已随原 finalize 事务落 PG，poller 按 pending 行交付；emit 保留即时 UX）。R3 projection-backfill
         // 兜「SUCCEEDED∧锚行在∧投影行缺」的崩溃窗；text resultRef 截断占位禁写 doc 的旧约束随写面
         // 移除自然消解（交付值=NodeArtifact.resultText 权威）。
+        // Y2 B2c（v2.9 ①/v2.10 回放臂两档）：先查精确作废键——命中=该代交付已作废（产物不投递，
+        // 作废臂已核销）⇒ emit done 不带 fileId+零释放；未命中=正常成功交付 ⇒ 带 fileId+幂等补释放
+        // （提交后崩溃=release 补上；release 失败非 2xx 上抛交 processor 重排）。
+        const voidKey = `author-void:${intent.id}:${intent.execSeq}`;
+        let voidRow: unknown = null;
+        try {
+          voidRow = await this.prisma.artifactProjection.findUnique({
+            where: { artifactId_artifactRev: { artifactId: voidKey, artifactRev: 0 } },
+          });
+        } catch {
+          voidRow = null;
+        }
+        if (voidRow) {
+          this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'done' });
+          return;
+        }
+        if (claimPack.kind !== 'text') {
+          await this.releaseAuthorSlotOrThrow(projectId, intent.id, !jobId);
+        }
         this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
         return;
       }
@@ -402,6 +466,20 @@ export class ExecutionService {
       //    同前；video=finalize-first（裁决①/⑮：provider 成功即 settle+finalize——Media(processing)
       //    +state=materializing+fileId 交付 mediaId；字节物化归 MaterializeJob DB poller 异步——零队列）。 ──
       let deliverFileId: string | undefined;   // emit 即时 UX 面（交付本身归投影 poller——doc 零写）
+      // Y2 B2c（v2.3 现场槽≠冻结值判定）：call 前读槽——frozen=false（无作者键）或现场≠冻结值
+      // （含清空）=整次交付作废（authorVoid 传入 finalize 作废臂）；两边皆空=相等走胜臂。text 不传。
+      let authorVoid = false;
+      if (claimPack.kind !== 'text') {
+        let slot: Awaited<ReturnType<CollabWritePort['readAuthorSlot']>>;
+        try {
+          slot = await this.collabDoc.readAuthorSlot(projectId, intent.id);
+        } catch (e) {
+          // 行仍 RUNNING：读槽失败不 void、不 fail（否则核销变退款）。次轮再试。
+          this.logger.warn(`[author-slot] 意图 ${intent.intentId} 读槽失败（本轮跳过）: ${(e as Error)?.message ?? e}`);
+          return;
+        }
+        authorVoid = !slot.frozen || slot.liveMediaId !== slot.authorMediaId;
+      }
       const failDeadlineVoided = async () => {
         artifactDiscardedTotal.inc({ cause: 'deadline-voided' });
         this.logger.warn(`[intent-reconcile] 意图 ${intent.intentId} 已被 VOIDED/换代——跳过产物写入（外呼产物留作证）`);
@@ -422,12 +500,14 @@ export class ExecutionService {
                 intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev,
                 sourceUrl: outcome.resultRef,                       // provider 源 URL——Media(processing).sourceUrl（materialize 下载源）
                 sourceMimeType: outcome.sourceMimeType ?? 'video/mp4',
+                authorVoid,
               })
             : await this.artifactCommit.commitImage({
                 projectId, nodeId: node.id, teamId, userId,
                 intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev,
                 sourceUrl: outcome.resultRef,
                 originalNameBase: `ai-generated-${node.id}`,   // 质评收口 Minor#7：扩展名 sniff 终判分档
+                authorVoid,
               });
         if (committed.outcome === 'intent-stale') {
           // finalize 内 intent CAS 0 命中（行终态/换代——已 void 旧冻结）——旧代产物不投递
@@ -452,12 +532,22 @@ export class ExecutionService {
       // 两附带步骤 best-effort（T6 审查 Important①）：余额读已 .catch 兜底（null 即跳过推送）——
       // 本段残余 throw 落 B-1 时行已 SUCCEEDED（T15：防御观测档零资金动作）。
       if (outcome.resultRow) results.push(outcome.resultRow);
+      // Y2 B2c（v2.10 新鲜出口）：仅 committed→释放（superseded=intent-stale 不释放——作者键保留）；
+      // release 先于 emit（失败上抛 processor 重排——禁 emit 假 done）；superseded 不携 fileId。
+      if (claimPack.kind !== 'text' && deliverFileId !== undefined && !authorVoid) {
+        await this.releaseAuthorSlotOrThrow(projectId, intent.id, !jobId);
+      }
       const bal = await Promise.resolve(this.teamCredit.getBalanceView(teamId, userId))
         .catch(() => null);
       this.emitPort.emitNodeStatus(projectId, {
-        nodeId: node.id, status: 'done', ...(deliverFileId ? { fileId: deliverFileId } : {}), credits: bal ? this.balancePayload(bal) : undefined,
+        nodeId: node.id, status: 'done',
+        ...(deliverFileId !== undefined && !authorVoid ? { fileId: deliverFileId } : {}),
+        credits: bal ? this.balancePayload(bal) : undefined,
       });
     } catch (err: any) {
+      // Y2 B2c（裁决 14）：释放失败专型首行 re-throw（禁吞入防御观测档——否则 emit 假 done 且槽键
+      // 永不释放；processor moveToDelayed 有上限重排 3 次后 completed+对账补释放臂接管）。
+      if (err instanceof AuthorSlotReleaseError) throw err;
       // A-3：BusinessException（409 族/PROVIDER_POLL_ABORTED 等）降级逐节点 error+continue——:367 整批
       // throw 已退役（Z44 部分成功语义）；F13：意图终态必达——外呼/扣费抛错置 FAILED（SIGKILL 场景
       // process catch 不执行，由 processor failed 钩子兜底）；失败先 void_ 解冻（约束②），再置 FAILED。
@@ -709,13 +799,14 @@ export class ExecutionService {
       try {
         // M2/M-5（幂等域收口）：paramsHash 直读 plan.paramsHash（受理时铸造一次——「只读不重算」
         // 逐字达成；双哈希域收口：claim 零 normalizeIntentParams 重算）。
-        // Y2 B1：冻结两列 B1~B2 占位 false/null（此路径 B2c 换 plan 行真值；D8 禁现读）。
+        // Y2 B2c：冻结两列=plan 行受理真值（B2c 换掉 B1 占位——受理时刻捕获，worker 零 doc 现读）。
         const { intent, created, result: claimResult, artifactRev } = await this.intentService.claim({
           projectId, nodeId: plan.nodeId, userId, gestureToken: gestureToken ?? undefined,
           kind: entry.kind, paramsHash: plan.paramsHash,
           pricing: { pricingRuleId: plan.pricingRuleId ?? '', modelId: plan.model, resolutionId: plan.resolution, durationId: null, creditCost: plan.creditCost },
           teamId: frozen.request.teamId, jobId, traceId,
-          authorSlotFrozen: false, authorMediaId: null,
+          authorSlotFrozen: plan.authorSlotFrozen,
+          authorMediaId: plan.authorMediaId,
         });
         if (claimResult === 'same-job-alive') {
           errors.push({ nodeId: plan.nodeId, status: 'skipped', error: 'INTENT_SAME_JOB_ALIVE', errorCode: 'INTENT_SAME_JOB_ALIVE' });
@@ -736,7 +827,23 @@ export class ExecutionService {
                 .catch((e) => this.logger.warn(`[frozen-replay] item settle ${plan.nodeId}: ${e}`));
             }
           }
-          this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'done', fileId: intent.resultRef ?? undefined });
+          // Y2 B2c（v2.10 回放臂两档——冻结链同构）：作废键命中→emit 不带 fileId 零释放 /
+          // 未命中→带 fileId+幂等补释放
+          const voidKey = `author-void:${intent.id}:${intent.execSeq}`;
+          let voidRow: unknown = null;
+          try {
+            voidRow = await this.prisma.artifactProjection.findUnique({
+              where: { artifactId_artifactRev: { artifactId: voidKey, artifactRev: 0 } },
+            });
+          } catch {
+            voidRow = null;
+          }
+          if (voidRow) {
+            this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'done' });
+          } else {
+            if (entry.kind !== 'text') await this.releaseAuthorSlotOrThrow(projectId, intent.id, !jobId);
+            this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'done', fileId: intent.resultRef ?? undefined });
+          }
           continue;
         }
         claimed = intent;
@@ -760,6 +867,19 @@ export class ExecutionService {
         // 资金：受理 per-item 预留在档——本路径跳过 intent reserve（双冻结防护）
         const reanchored = await this.intentService.reanchorDeadline(intent.id, entry.kind, intent.execSeq);
         if (reanchored === 0) continue;
+        // Y2 B2c（v2.10 读槽时点=外呼返回前/三分支前）：现场 vs plan 冻结值比较（frozen=false 或不等
+        // =整次作废；皆空=相等胜臂）。读失败（行仍 RUNNING）本轮跳过次轮再试——不烧下载预算不退款。
+        let authorVoid = false;
+        if (entry.kind !== 'text') {
+          let slot: Awaited<ReturnType<CollabWritePort['readAuthorSlot']>>;
+          try {
+            slot = await this.collabDoc.readAuthorSlot(projectId, intent.id);
+          } catch (e) {
+            this.logger.warn(`[author-slot] 意图 ${intent.intentId} 读槽失败（本轮跳过次轮再试）: ${(e as Error)?.message ?? e}`);
+            continue;
+          }
+          authorVoid = !slot.frozen || slot.liveMediaId !== slot.authorMediaId;
+        }
         // Y1c T23（红④根修）：write-ahead providerRequestId 全 kind 铸键（text 链原被排除=零键零锚）
         const idempotencyKey = await this.intentService.ensureProviderRequestId(intent.id, intent.execSeq);
         const outcome = await this.frozenCall(entry, { onTick: this.intentOnTick(intent.id, intent.execSeq), resumeTaskId: intent.providerTaskId ?? null, idempotencyKey, onProviderTaskId: (taskId) => this.intentService.recordProviderTaskId(intent.id, intent.execSeq, taskId) });
@@ -769,8 +889,8 @@ export class ExecutionService {
         const committed = entry.kind === 'text'
           ? await this.artifactCommit.finalizeText({ projectId, nodeId: plan.nodeId, teamId: frozen.request.teamId, userId, intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev, resultText: outcome.resultText!, settlement })
           : entry.kind === 'video'
-            ? await this.artifactCommit.finalizeVideo({ projectId, nodeId: plan.nodeId, teamId: frozen.request.teamId, userId, intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev, sourceUrl: outcome.resultRef, sourceMimeType: 'video/mp4', settlement })
-            : await this.artifactCommit.commitImage({ projectId, nodeId: plan.nodeId, teamId: frozen.request.teamId, userId, intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev, sourceUrl: outcome.resultRef, originalNameBase: `ai-generated-${plan.nodeId}`, settlement });
+            ? await this.artifactCommit.finalizeVideo({ projectId, nodeId: plan.nodeId, teamId: frozen.request.teamId, userId, intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev, sourceUrl: outcome.resultRef, sourceMimeType: 'video/mp4', settlement, authorVoid })
+            : await this.artifactCommit.commitImage({ projectId, nodeId: plan.nodeId, teamId: frozen.request.teamId, userId, intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev, sourceUrl: outcome.resultRef, originalNameBase: `ai-generated-${plan.nodeId}`, settlement, authorVoid });
         if (committed.outcome === 'intent-stale') {
           await this.teamCredit.voidForExecutionRequestItem({ executionRequestId: frozen.request.id, nodeId: plan.nodeId }).catch(() => {});
           errors.push({ nodeId: plan.nodeId, status: 'error', error: '生成已被系统回收（超时）——产物未投递', errorCode: 'INTENT_DEADLINE_EXCEEDED' });
@@ -787,8 +907,19 @@ export class ExecutionService {
           });
         }
         if (outcome.resultRow) results.push(outcome.resultRow);
-        this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'done', fileId: committed.mediaId });
+        // Y2 B2c（v2.10）：仅 committed→释放（superseded/intent-stale 不释放——作者键保留）；
+        // release 先于 emit（失败上抛处理器重排）；superseded 不携 fileId。
+        if (entry.kind !== 'text' && committed.outcome === 'committed' && !authorVoid) {
+          await this.releaseAuthorSlotOrThrow(projectId, intent.id, !jobId);
+        }
+        this.emitPort.emitNodeStatus(projectId, {
+          nodeId: plan.nodeId, status: 'done',
+          ...(committed.outcome === 'committed' && !authorVoid && committed.mediaId ? { fileId: committed.mediaId } : {}),
+        });
       } catch (err: any) {
+        // 释放发生在 commit 之后：行已 SUCCEEDED。void/fail 会把已核销成功翻成退款。
+        // 上抛给 processor 有上限重排；回放臂补释放。
+        if (err instanceof AuthorSlotReleaseError) throw err;
         if (err instanceof BusinessException && err.errorCode === 'TEXT_PROVIDER_UNKNOWN' && claimed) {
           // Y1c T23 UNKNOWN 纪律（冻结路径）：text 外呼结果不明≠确定失败——per-item 预留**保留**
           //（不 voidForExecutionRequestItem=「reserve 在 UNKNOWN 期间保留」）+markUnknown 替代 fail

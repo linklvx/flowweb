@@ -60,7 +60,16 @@ const artifactCommit = new ArtifactCommitService(
 );
 // fake apiCaller（callTextGen 可控成功/失败——外呼面注入；资金/事务/finalize 面全真）
 const fakeApiCaller = { callTextGen: vi.fn(), callImageGen: vi.fn(), callVideoGen: vi.fn() };
-const fakeCollabDoc = { isLeaseServing: () => true, readCanvas: vi.fn(), writeExecStatus: vi.fn(async () => {}) };
+const fakeCollabDoc = {
+  isLeaseServing: () => true, readCanvas: vi.fn(), writeExecStatus: vi.fn(async () => {}),
+  readAuthorSlot: async (_p: string, intentRowId: string) => ({
+    nodeId: intentRowId, kind: 'image', frozen: true, authorMediaId: null, liveMediaId: null,
+  }),
+  releaseAuthorSlot: async () => ({
+    released: true, deletedSlot: false,
+    bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } },
+  }),
+};
 const fakeEmit = { emitNodeStatus: vi.fn() };
 const perm = new ProjectPermissionService(prisma as unknown as PrismaService);
 const upstreamMedia = new UpstreamMediaService(prisma as unknown as PrismaService, fakeMinio as never);

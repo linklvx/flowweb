@@ -21,12 +21,26 @@ import { targetFieldOfKind } from '../artifact-core/node-artifact.service';
 import { projectBindings, type ProjectionStats } from './media-binding-projector';
 import { CollabDocumentService } from './collab-document.service';
 
+/** Y2 B2c（裁决 14）：释放失败专型——execution 回放臂/新鲜出口/reconcile 恢复链/processor 重排
+ *  四消费面识别（禁进 finalize-from-stage-failed 下载预算——读槽/比较与下载失败分型）；包裹原始
+ *  infra/投影错误（cause 链保留）。 */
+export class AuthorSlotReleaseError extends Error {
+  constructor(intentRowId: string, cause: unknown) {
+    super(`AUTHOR_SLOT_RELEASE_FAILED: 意图 ${intentRowId} 释放失败（${(cause as Error)?.message ?? String(cause)}）`);
+    this.name = 'AuthorSlotReleaseError';
+    (this as { cause?: unknown }).cause = cause;
+  }
+}
+
 /** readAuthorSlot 返回（冻结面只读——worker 侧 B2c/B2d 受理读槽消费）。 */
 export interface AuthorSlotRead {
   nodeId: string;
   kind: string;
   frozen: boolean;
+  /** 受理时写入意图行的冻结值。 */
   authorMediaId: string | null;
+  /** 读槽当时 Y.Doc 上的作者键 data.mediaId。与冻结列分列，调用方用两者判 authorVoid。 */
+  liveMediaId: string | null;
 }
 
 /** releaseAuthorSlot 返回（deletedSlot=现场恰冻结值已删；bindingStats=投影统计——事务提交后已落）。 */
@@ -55,10 +69,16 @@ export class AuthorSlotService {
     return row;
   }
 
-  /** 封闭读：冻结两列读出（行核对+只读——零 doc 写零投影）。 */
+  /** 封闭读：冻结两列在回调外读出；回调只读 Y.Doc 的作者键 mediaId（零写零投影）。 */
   async readAuthorSlot(projectId: string, intentRowId: string): Promise<AuthorSlotRead> {
     const row = await this.requireIntent(projectId, intentRowId);
-    return { nodeId: row.nodeId, kind: row.kind, frozen: row.authorSlotFrozen, authorMediaId: row.authorMediaId };
+    const liveMediaId = await this.docs.withSession(projectId, (doc): string | null => {
+      const node = doc.getMap('nodes').get(row.nodeId);
+      const data = node instanceof Y.Map ? node.get('data') : undefined;
+      const v = data instanceof Y.Map ? data.get('mediaId') : undefined;
+      return typeof v === 'string' && v !== '' ? v : null;
+    }, { mode: 'read' });
+    return { nodeId: row.nodeId, kind: row.kind, frozen: row.authorSlotFrozen, authorMediaId: row.authorMediaId, liveMediaId };
   }
 
   /** 封闭释放（v5/v6 顺序钉死——头注②③④；快照与写帧原子=withSession 回调内 collect）。 */

@@ -15,7 +15,7 @@ import {
   orphanReleaseTotal, orphanUnreleasableTotal,
   reconcileAutoConvergedTotal, reconcileManualRequiredTotal, reconcileInvariantViolation,
 } from './intent-reconcile.metrics';
-import { intentDeadlineExceededTotal, execProjectionDeferredTotal } from './exec.metrics';
+import { intentDeadlineExceededTotal, execProjectionDeferredTotal, authorSlotReleaseExhaustedTotal } from './exec.metrics';
 
 /** RUNNING 孤儿判龄阈值（档一）——claim/rearm/外呼心跳都刷新 heartbeatAt，超龄即进程/调度异常嫌疑
  *  （Y0b-2 T4 判据单源：updatedAt→heartbeatAt——外呼 tick 不刷 updatedAt，旧判据会误收长任务）。 */
@@ -153,6 +153,7 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     await this.sweepProjectionBackfill();
     await this.sweepOrphanedRefund();
     await this.releaseOrphanedReserves();
+    await this.sweepAuthorSlotRelease();
   }
 
   /** T13 R3 窗③（投影缺失）专用扫：SUCCEEDED∧已核销行不进终态悬留批（reserved=0 谓词）——锚行在
@@ -201,6 +202,42 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
         await this.reconcileOneIntent(r.id, BigInt(r.seq));
       } catch (e) {
         this.logger.warn(`[R3] orphaned 退款收敛单行失败 意图行 ${r.id}: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  /** Y2 B2c：SUCCEEDED∧冻结∧未释放∧无作废行∧有本代锚 → 补释放。失败记 author-slot-release-failed，满 3 次停。 */
+  private async sweepAuthorSlotRelease(): Promise<void> {
+    const rows = await this.prisma.$queryRaw<{ id: string; projectId: string }[]>`
+      SELECT gi."id", gi."projectId"
+      FROM "GenerationIntent" gi
+      WHERE gi."status" = 'SUCCEEDED'
+        AND gi."authorSlotFrozen"
+        AND NOT gi."authorSlotReleased"
+        AND gi."kind" IN ('video', 'image', 'outpaint', 'erase', 'redraw', 'lighting')
+        AND NOT EXISTS (
+          SELECT 1 FROM "ArtifactProjection" ap
+          WHERE ap."artifactId" = ('author-void:' || gi."id" || ':' || gi."execSeq"::text)
+            AND ap."artifactRev" = 0
+        )
+        AND EXISTS (
+          SELECT 1 FROM "NodeArtifact" na
+          WHERE na."sourceIntentRowId" = gi."id" AND na."sourceExecSeq" = gi."execSeq"
+        )
+      ORDER BY gi."completedAt"
+      LIMIT 20`;
+    for (const r of rows) {
+      if (!r?.id || !r.projectId) continue;
+      const fails = await this.prisma.reconcileAction.count({ where: { intentRowId: r.id, action: 'author-slot-release-failed' } });
+      if (fails >= 3) continue;
+      try {
+        await this.collabDoc.releaseAuthorSlot(r.projectId, r.id);
+      } catch (e) {
+        await this.prisma.reconcileAction.create({
+          data: { intentRowId: r.id, action: 'author-slot-release-failed', after: { error: String((e as Error).message).slice(0, 200) } },
+        }).catch(() => undefined);
+        if (fails + 1 >= 3) authorSlotReleaseExhaustedTotal.inc();
+        this.logger.warn(`[R3] 意图行 ${r.id} 补释放失败（${fails + 1}/3）: ${(e as Error).message}`);
       }
     }
   }
@@ -388,12 +425,33 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
             this.logger.warn(`[R3] 意图行 ${intentRowId} stage 重下预算耗尽（${R3_STAGE_DOWNLOAD_MAX_ATTEMPTS} 次）——放弃重下走退款（宁退勿吞；行终态后不再进扫描）`);
             return false;
           }
+          const slotRow = await this.prisma.generationIntent.findUnique({
+            where: { id: intentRowId },
+            select: { projectId: true, kind: true },
+          });
+          let authorVoid = false;
+          if (slotRow && slotRow.kind !== 'text') {
+            try {
+              const slot = await this.collabDoc.readAuthorSlot(slotRow.projectId, intentRowId);
+              authorVoid = !slot.frozen || slot.liveMediaId !== slot.authorMediaId;
+            } catch (e) {
+              this.logger.warn(`[R3] 意图行 ${intentRowId} 读槽失败（本轮跳过，不烧下载预算）: ${(e as Error).message}`);
+              return true;
+            }
+          }
           try {
-            const out = await this.artifactCommit.finalizeFromStage(d.stage);
+            const out = await this.artifactCommit.finalizeFromStage({ ...d.stage, authorVoid });
             if (out.outcome !== 'intent-stale') {
               await this.auditAfter(intentRowId, 'finalize-from-stage');
               reconcileAutoConvergedTotal.inc({ action: 'finalize-from-stage' });
               this.logger.warn(`[R3] 意图行 ${intentRowId} stage 行重下 finalize（provider 不重调）——outcome=${out.outcome}`);
+            }
+            if (out.outcome === 'committed' && !authorVoid && slotRow && slotRow.kind !== 'text') {
+              try {
+                await this.collabDoc.releaseAuthorSlot(slotRow.projectId, intentRowId);
+              } catch (e) {
+                this.logger.warn(`[R3] 意图行 ${intentRowId} 恢复链释放失败（不进下载预算）: ${(e as Error).message}`);
+              }
             }
             return true;
           } catch (e) {

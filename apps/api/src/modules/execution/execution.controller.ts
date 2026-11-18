@@ -4,6 +4,8 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ExecutionService } from './execution.service';
 import { ExecutionRequestService } from './execution-request.service';
+import { TopologyService } from './topology.service';
+import { isExecutableNode } from './is-executable-node';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { GenerationIntentService } from './generation-intent.service';
 import { CollabDocumentService } from '../collab/collab-document.service';
@@ -29,6 +31,7 @@ export class ExecutionController {
     // worker-presence.service.ts 裁决①注释；语义两种拓扑下均真实）
     @Inject(WorkerPresenceService) private readonly presence: WorkerPresenceService,
     @Inject(ExecutionRequestService) private readonly executionRequests: ExecutionRequestService,   // Y1c T21：受理冻结（G4 门）
+    @Inject(TopologyService) private readonly topology: TopologyService,   // Y2 B2c：enqueue 受理捕获建表（execute 同款节点集规则）
   ) {}
 
   /** Y0b-2 T6（Z103）：意图 id 请求头已删（无消费者）——token 走 body.regenToken（与 enqueue 单管道对齐）。
@@ -101,6 +104,21 @@ export class ExecutionController {
     //（filter 附）。门序=perm→SV→presence→add：assertSyncAdmitted 纯读（sync-admission.ts）无资源
     // 释放义务，503 路径与既有 throw 路径一致。execute() 直达路径不经队列不设门（R4）。
     await this.presence.assertAdmittable(QUEUE_NAMES.EXECUTION);
+    // Y2 B2c（裁决 12/15）：受理捕获建表——入队前 readCanvas 直调，按 execute 同款节点集规则
+    //（nodeId→topology.getScope；缺省=全画布）对 executable 节点现算主槽（作者键 data.mediaId，
+    // 缺席=null 如实捕获）。SV 门后读=支配性已立（受理时点真值——B2c 起 claim 真值源）。
+    const authorSlots: Record<string, string | null> = {};
+    {
+      const canvas = await this.collabDoc.readCanvas(body.projectId);
+      const scope = body.nodeId
+        ? this.topology.getScope(canvas.nodes, canvas.edges, body.nodeId)
+        : canvas.nodes;
+      for (const n of scope) {
+        if (!isExecutableNode(n)) continue;
+        const d = n.data as Record<string, unknown> | null | undefined;
+        authorSlots[n.id] = typeof d?.mediaId === 'string' && d.mediaId !== '' ? d.mediaId : null;
+      }
+    }
     const job = await this.executionQueue.add('execution', {
       projectId: body.projectId,
       nodeId: body.nodeId,
@@ -111,6 +129,8 @@ export class ExecutionController {
       // Y0b-5 T13：ALS 不过 Redis——traceId 自 ALS（requestTraceStorage）显式携带入 job.data，
       // processor 首行重建（worker 无 HTTP ALS，claim 审计锚凭此落列）。服务端生成值非客户端状态。
       traceId: requestTraceStorage.getStore()?.traceId ?? null,
+      // Y2 B2c：受理捕获表（带表路径工作集封口+claim 真值——ticket 后位）
+      authorSlots,
     });
 
     return {

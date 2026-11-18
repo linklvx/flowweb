@@ -66,6 +66,20 @@ describe('Y2 B2a AuthorSlotService（两封闭操作——先红）', () => {
       expect(r).toMatchObject({ nodeId: 'n1', kind: 'image', frozen: true, authorMediaId: 'm-author' });
     });
 
+    it('现场槽与冻结列分列：doc 上 mediaId 进 liveMediaId，冻结列仍是行上 authorMediaId', async () => {
+      const doc = new Y.Doc();
+      const data = new Y.Map<unknown>();
+      data.set('mediaId', 'm-live');
+      const node = new Y.Map<unknown>();
+      node.set('data', data);
+      doc.getMap('nodes').set('n1', node);
+      const { svc, docs } = mkService(intentRow(), doc);
+      const r = await svc.readAuthorSlot('p1', 'gi-1');
+      expect(r.liveMediaId).toBe('m-live');
+      expect(r.authorMediaId).toBe('m-author');
+      expect(docs.withSession).toHaveBeenCalledWith('p1', expect.any(Function), { mode: 'read' });
+    });
+
     it('行灭失/跨项目 → BusinessException（404 族——禁按空槽放行）', async () => {
       const doc = mkDoc();
       const { svc } = mkService(null, doc);

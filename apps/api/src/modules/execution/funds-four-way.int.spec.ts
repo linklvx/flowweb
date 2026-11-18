@@ -132,6 +132,13 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
       writeNodeData: async () => ({ written: true }), // Y0b-2 T5：交付判据类型化 {written,reason}
       writeExecStatus: async () => {},
       isLeaseServing: () => true,
+      readAuthorSlot: async (_p: string, intentRowId: string) => ({
+        nodeId: intentRowId, kind: 'image', frozen: true, authorMediaId: null, liveMediaId: null,
+      }),
+      releaseAuthorSlot: async () => ({
+        released: true, deletedSlot: false,
+        bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } },
+      }),
     };
     const svc = new ExecutionService(
       prisma as unknown as PrismaService,
@@ -172,6 +179,13 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
       writeNodeData: async () => ({ written: true }), // Y0b-2 T5：交付判据类型化 {written,reason}
       writeExecStatus: async () => {},
       isLeaseServing: () => true,
+      readAuthorSlot: async (_p: string, intentRowId: string) => ({
+        nodeId: intentRowId, kind: 'image', frozen: true, authorMediaId: null, liveMediaId: null,
+      }),
+      releaseAuthorSlot: async () => ({
+        released: true, deletedSlot: false,
+        bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } },
+      }),
     };
     const svc = new ExecutionService(
       prisma as unknown as PrismaService,

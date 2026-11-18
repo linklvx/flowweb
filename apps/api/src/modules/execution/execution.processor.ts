@@ -6,6 +6,8 @@ import { GenerationIntentService } from './generation-intent.service';
 import { CollabWritePort } from '../collab/collab-write.port';
 import { ExecutionJobData, ExecutionJobResult } from './execution.types';
 import { EXECUTION_QUEUE_NAME, EXEC_SAME_JOB_RETRY_DELAY_MS } from './execution.constants';
+import { AuthorSlotReleaseError } from '../collab/author-slot.service';
+import { authorSlotReleaseExhaustedTotal } from './exec.metrics';
 
 /** Y0b-2 T1（Z110 终裁）：maxStalledCount 保持 1——安全链=stall→BullMQ 同 jobId 重排→claim② 可重入→
  *  reserve 门 alreadyReserved→mayCall:false（Z35 结构门）→静默退出零外呼——重复 submit 结构性不可能；
@@ -28,7 +30,7 @@ export class ExecutionProcessor extends WorkerHost {
     // Y0b-5 T13：首行重建 trace 上下文（ALS 不过 Redis——enqueue 点自 requestTraceStorage 显式携带入
     // job.data.traceId，worker 无 HTTP ALS；结构化日志带 traceId 字段跨 Redis 保真：enqueue 的 traceId
     // ==processor 日志 traceId）。WS 不经 HTTP middleware——collab traceId 保持 null 预留位（connectionId=T11 独立）。
-    const { projectId, nodeId, userId, regenToken, traceId } = job.data;
+    const { projectId, nodeId, userId, regenToken, traceId, authorSlots } = job.data;
     this.logger.log(JSON.stringify({ event: 'execution_job_start', traceId: traceId ?? null, jobId: job.id, projectId }));
     await job.updateProgress(10);
 
@@ -46,6 +48,8 @@ export class ExecutionProcessor extends WorkerHost {
           if (t.nodeId !== nodeId) return;
           job.updateData({ ...job.data, ticket: t }).catch(() => {});
         } : undefined,
+        undefined,
+        authorSlots,
       );
       await job.updateProgress(100);
       // Y1a T9（spec ㉒）：skip 非 ack——skipped（NodeBusy 别处在飞/INTENT_SAME_JOB_ALIVE 旧 worker 在飞）
@@ -72,6 +76,31 @@ export class ExecutionProcessor extends WorkerHost {
       this.logger.log(JSON.stringify({ event: 'execution_job_done', traceId: traceId ?? null, jobId: job.id, projectId }));
       return result;
     } catch (error) {
+      // Y2 B2c（裁决 14）：释放失败有上限重排——moveToDelayed 不耗 attempts（Lua skipAttempt 不自增），
+      // releaseAttempts 独立计数 {1s/5s/15s}；<3 次=读-改-写 job.data **await 后** moveToDelayed+DelayedError
+      // （不 ack）；≥3 次=completed（正常 return）+计数（对账补释放臂接管——不擅杀 job）。
+      if (error instanceof AuthorSlotReleaseError) {
+        const n = (job.data.releaseAttempts ?? 0) + 1;
+        // 三次间隔都要用上：n=1/2/3 → 1s/5s/15s，第 4 次才耗尽。plan 稿「n≥3」少了 15s 那一档。
+        if (n <= 3) {
+          await job.updateData({ ...job.data, releaseAttempts: n });
+          const delays = [1_000, 5_000, 15_000];
+          let movedRelease = true;
+          try {
+            await job.moveToDelayed(Date.now() + (delays[n - 1] ?? 15_000), job.token!);
+          } catch {
+            movedRelease = false;
+          }
+          this.logger.warn(JSON.stringify({ event: 'execution_job_release_delayed', traceId: traceId ?? null, jobId: job.id, projectId, releaseAttempts: n }));
+          if (movedRelease) throw new DelayedError('author slot release failed——moveToDelayed 重排补释放（Y2 B2c）');
+          // move 失败退回 ack——交对账补释放臂
+          authorSlotReleaseExhaustedTotal.inc();
+          return { success: false, errors: [], results: [], totalCost: 0 };
+        }
+        authorSlotReleaseExhaustedTotal.inc();
+        this.logger.error(JSON.stringify({ event: 'execution_job_release_exhausted', traceId: traceId ?? null, jobId: job.id, projectId, releaseAttempts: n }));
+        return { success: false, errors: [], results: [], totalCost: 0 };
+      }
       const message = error instanceof Error ? error.message : String(error);
       const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(JSON.stringify({ event: 'execution_job_failed', traceId: traceId ?? null, jobId: job.id, projectId, message, stack }));

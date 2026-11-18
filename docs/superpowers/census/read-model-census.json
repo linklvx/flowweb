@@ -448,6 +448,21 @@
    "fixtures": [
     "fixture-31-01"
    ]
+  },
+  {
+   "id": "api-execution-enqueue-author-slots",
+   "file": "apps/api/src/modules/execution/execution.controller.ts",
+   "fields": [
+    "data",
+    "edges",
+    "id",
+    "nodes"
+   ],
+   "testAnchor": "apps/api/src/modules/execution/execution.controller.spec.ts",
+   "shapeHash": "891cb5cf9497c0868f47d691e1a299c3d774406bc9785c004869a6b4f030f156",
+   "fixtures": [
+    "fixture-32-01"
+   ]
   }
  ]
 }

@@ -318,6 +318,13 @@ const agePastGrace = async (id: string) =>
       isLeaseServing: () => true,
       writeNodeData: vi.fn(async () => ({ kind: 'business' as const, written: false, reason: 'node-deleted' as const })),
       writeExecStatus: vi.fn(async () => {}),
+      readAuthorSlot: async (_p: string, intentRowId: string) => ({
+        nodeId: intentRowId, kind: 'image', frozen: true, authorMediaId: null, liveMediaId: null,
+      }),
+      releaseAuthorSlot: async () => ({
+        released: true, deletedSlot: false,
+        bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } },
+      }),
     };
     const svc = makeExecSvc(collabDoc);
     const r = await svc.execute(PROJECT_ID, undefined, UID, nodes.map((n) => n.id), `dr2-del-${randomUUID().slice(0, 6)}`);

@@ -33,7 +33,19 @@ const { artifactCommit, safeFetch } = makeArtifactCommit(prisma as unknown as Pr
 
 const reconcile = new IntentReconcileService(
   prisma as unknown as any,
-  { isDocResident: () => false, writeExecStatus: vi.fn() } as any,
+  {
+    isDocResident: () => false,
+    writeExecStatus: vi.fn(),
+    // Y2 B2c：恢复链读槽。夹具无现场槽（冻结列 false 的行在此 mock 报「皆空胜臂」）——
+    // 缺方法会让读槽抛错、整轮跳过，stage 重下永远到不了 finalize。
+    readAuthorSlot: async (_projectId: string, intentRowId: string) => ({
+      nodeId: intentRowId, kind: 'image', frozen: true, authorMediaId: null, liveMediaId: null,
+    }),
+    releaseAuthorSlot: async () => ({
+      released: true, deletedSlot: false,
+      bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } },
+    }),
+  } as any,
   ledger,
   { getJob: async () => null } as any, { getJob: async () => null } as any,
   {} as any, teamCredit,

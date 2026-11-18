@@ -63,6 +63,13 @@ function makeExec(nodes: any[], collabOverrides: Record<string, unknown> = {}) {
     writeExecStatus: vi.fn(async (_p: string, nodeId: string, patch: any) => {
       writeExecCalls.push({ nodeId, patch });
     }),
+    readAuthorSlot: async (_p: string, intentRowId: string) => ({
+      nodeId: intentRowId, kind: 'image', frozen: true, authorMediaId: null, liveMediaId: null,
+    }),
+    releaseAuthorSlot: async () => ({
+      released: true, deletedSlot: false,
+      bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } },
+    }),
     ...collabOverrides,
   };
   const svc = new ExecutionService(
@@ -162,7 +169,16 @@ const statusOf = async (nodeId: string) =>
     vi.spyOn(apiCaller, 'callImageGen').mockResolvedValue({ url: 'http://x/1.png' } as any);
     const svc = new ExecutionService(
       prisma as unknown as PrismaService, new TopologyService(), validation, apiCaller, teamCredit, perm,
-      { readCanvas: async () => ({ nodes, edges }), isLeaseServing: () => true, writeNodeData: vi.fn(), writeExecStatus: vi.fn() } as any,
+      {
+        readCanvas: async () => ({ nodes, edges }), isLeaseServing: () => true, writeNodeData: vi.fn(), writeExecStatus: vi.fn(),
+        readAuthorSlot: async (_p: string, intentRowId: string) => ({
+          nodeId: intentRowId, kind: 'image', frozen: true, authorMediaId: null, liveMediaId: null,
+        }),
+        releaseAuthorSlot: async () => ({
+          released: true, deletedSlot: false,
+          bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } },
+        }),
+      } as any,
       { emitNodeStatus: vi.fn() } as any, intentSvc,
       { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia
       makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）,

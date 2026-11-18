@@ -4,6 +4,7 @@ import { ExecutionService } from './execution.service';
 import { CollabWritePort } from '../collab/collab-write.port';
 import { GenerationIntentService } from './generation-intent.service';
 import { Job, DelayedError } from 'bullmq';
+import { AuthorSlotReleaseError } from '../collab/author-slot.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 describe('ExecutionProcessor', () => {
@@ -39,7 +40,7 @@ describe('ExecutionProcessor', () => {
 
     // 第5/6参：regenToken（无则 undefined，Y0b-2 T6 Z91——T7 sv 形参删除后左移）+ jobId（批0.5-6——claim 同 job 可重入）
     // 第7参：traceId（Y0b-5 T13——job.data 无 traceId 时 undefined，禁 fallback jobId：jobId 是 claim 业务 CAS 键）
-    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, 'job-1', undefined, expect.any(Function)); // T9 收尾：第8参=onClaimed 回调（票回写）
+    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, 'job-1', undefined, expect.any(Function), undefined, undefined); // T9 收尾：第8参=onClaimed；第9参 requestId；第10参 authorSlots
     expect(job.updateProgress).toHaveBeenCalledWith(10);
     expect(job.updateProgress).toHaveBeenCalledWith(100);
     expect(result).toEqual({ success: true, errors: [] });
@@ -54,7 +55,7 @@ describe('ExecutionProcessor', () => {
 
     await processor.process(job);
 
-    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, 'held-token-1', 'job-5', undefined, expect.any(Function));
+    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, 'held-token-1', 'job-5', undefined, expect.any(Function), undefined, undefined);
   });
 
   it('should handle job without nodeId', async () => {
@@ -65,7 +66,7 @@ describe('ExecutionProcessor', () => {
     } as unknown as Job;
 
     await processor.process(job);
-    expect(execService.execute).toHaveBeenCalledWith('p1', undefined, 'u1', undefined, undefined, 'job-2', undefined, undefined); // nodeId 缺失⇒onClaimed 不传
+    expect(execService.execute).toHaveBeenCalledWith('p1', undefined, 'u1', undefined, undefined, 'job-2', undefined, undefined, undefined, undefined); // nodeId 缺失⇒onClaimed 不传
   });
 
   it('Y0b-2 T7：job.data 遗留 sv 字段被忽略（载荷零客户端状态——SV 判定在受理端点门）。Y0b-5 T13 豁免说明：job.data.traceId 不违本断言意图——traceId 是服务端生成值（requestTraceMiddleware 的 requestTraceStorage/ALS 来源，非客户端可控状态），enqueue 点显式携带、processor 首行重建（跨 Redis 保真锚——claim 审计列落库凭此，BullMQ worker 无 HTTP ALS）', async () => {
@@ -77,7 +78,7 @@ describe('ExecutionProcessor', () => {
     } as unknown as Job;
 
     await processor.process(job);
-    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, 'job-4', trace, expect.any(Function));
+    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, 'job-4', trace, expect.any(Function), undefined, undefined);
   });
 
   it('Y0b-5 T13：job.data.traceId 缺省（旧 job）→ execute 第7参 undefined 禁 fallback jobId（jobId 是 claim 业务 CAS 键——两键域独立不复用）', async () => {
@@ -88,7 +89,7 @@ describe('ExecutionProcessor', () => {
     } as unknown as Job;
 
     await processor.process(job);
-    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, '42', undefined, expect.any(Function));
+    expect(execService.execute).toHaveBeenCalledWith('p1', 'n1', 'u1', undefined, undefined, '42', undefined, expect.any(Function), undefined, undefined);
   });
 
   it('Y0b-5 T13 微修：完成/失败日志行与 start 行同 JSON 形态携 traceId（跨 Redis trace 全程贯穿——终态行断链即不可关联）', async () => {
@@ -270,5 +271,41 @@ describe('T9 收尾：failed 钩子票守卫（旧 worker 不得误杀 takeover 
 
     await expect(p.process(job)).rejects.toThrow(DelayedError);
     expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('B2c：job.data.authorSlots 透传到 execute 第 10 参', async () => {
+    const { p, executionService } = makeProc();
+    executionService.execute.mockResolvedValue({ success: true, errors: [], results: [], totalCost: 0 });
+    const slots = { n1: 'm-frozen' };
+    const job = {
+      id: 'job-slots',
+      data: { projectId: 'p1', nodeId: 'n1', userId: 'u1', authorSlots: slots },
+      updateProgress: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Job;
+    await p.process(job);
+    expect(executionService.execute).toHaveBeenCalledWith(
+      'p1', 'n1', 'u1', undefined, undefined, 'job-slots', undefined, expect.any(Function), undefined, slots,
+    );
+  });
+
+  it('B2c：释放失败第 3 次仍 moveToDelayed（1s/5s/15s），第 4 次才 completed', async () => {
+    const { p, executionService } = makeProc();
+    executionService.execute.mockRejectedValue(new AuthorSlotReleaseError('gi-1', new Error('down')));
+    const job = {
+      id: 'job-rel',
+      token: 'tok',
+      data: { projectId: 'p1', nodeId: 'n1', userId: 'u1', releaseAttempts: 2 },
+      updateProgress: vi.fn().mockResolvedValue(undefined),
+      updateData: vi.fn().mockResolvedValue(undefined),
+      moveToDelayed: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Job;
+    await expect(p.process(job)).rejects.toThrow(DelayedError);
+    expect(job.updateData).toHaveBeenCalledWith(expect.objectContaining({ releaseAttempts: 3 }));
+    expect(job.moveToDelayed).toHaveBeenCalledWith(expect.any(Number), 'tok');
+
+    (job.data as { releaseAttempts: number }).releaseAttempts = 3;
+    const done = await p.process(job);
+    expect(done).toEqual(expect.objectContaining({ success: false }));
+    expect(job.moveToDelayed).toHaveBeenCalledTimes(1);
   });
 });
