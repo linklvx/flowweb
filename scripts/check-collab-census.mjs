@@ -1709,6 +1709,8 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-write.port.ts': 4,             // readCanvas abstract+Direct def/委托+Http def
     'apps/api/src/modules/execution/execution.service.ts': 1,          // readCanvas 计费读
     'apps/api/src/modules/execution/execution.controller.ts': 1,       // Y2 B2c：enqueue 入队前 readCanvas 建作者槽表
+    'apps/api/src/modules/ai-image-edit/ai-image-edit.controller.ts': 1, // Y2 B2d：outpaint/erase/redraw 受理读作者槽
+    'apps/api/src/modules/ai-image-edit/lighting/lighting.controller.ts': 1, // Y2 B2d：打光受理读作者槽
     'apps/api/src/modules/video-project/video-project.service.ts': 1,  // readCanvas regenerate 读
     'apps/api/src/modules/video-work/video-work-clone.service.ts': 1,  // readCanvas clone 读（读径④）
     'apps/api/src/modules/video-work/video-work.service.ts': 1,        // snapshotCached 公开快照读（读径①）
@@ -1764,7 +1766,7 @@ if (isMain()) {
     const entryFiles = new Set(entries.map((e) => e.file));
     for (const f of entryFiles) if (!(f in READ_MODEL_READER_LEXICAL)) details.push(`census 条目文件 ${f} 不在词法命中面（stale 条目——reader 已消失需核销）`);
     for (const f of Object.keys(READ_MODEL_READER_LEXICAL)) if (!entryFiles.has(f)) details.push(`词法命中文件 ${f} 无 census 条目（未分类即红）`);
-    report('㉟', `read-model-census.json 索引门（T19——32 条目/32 fixture/shapeHash 复算+五 token 族词法对账 ${Object.values(READ_MODEL_READER_LEXICAL).reduce((a, b) => a + b, 0)} 点/${Object.keys(READ_MODEL_READER_LEXICAL).length} 文件；未分类新增即红）`, details.length === 0, details);
+    report('㉟', `read-model-census.json 索引门（T19——34 条目/34 fixture/shapeHash 复算+五 token 族词法对账 ${Object.values(READ_MODEL_READER_LEXICAL).reduce((a, b) => a + b, 0)} 点/${Object.keys(READ_MODEL_READER_LEXICAL).length} 文件；未分类新增即红）`, details.length === 0, details);
   }
 
   // ㊱canvasProject.create 调用点必经 governance（C2-0 plan Task C2-0——schema 闭包扫不到调用路径，

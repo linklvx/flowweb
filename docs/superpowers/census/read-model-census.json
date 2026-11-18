@@ -463,6 +463,34 @@
    "fixtures": [
     "fixture-32-01"
    ]
+  },
+  {
+   "id": "api-image-edit-author-slot",
+   "file": "apps/api/src/modules/ai-image-edit/ai-image-edit.controller.ts",
+   "fields": [
+    "data",
+    "id",
+    "nodes"
+   ],
+   "testAnchor": "apps/api/src/modules/ai-image-edit/ai-image-edit.controller.spec.ts",
+   "shapeHash": "9758c8132d28a1849b707f1b1f33639e009821145c2caaabeb5b0e2002b3ccdb",
+   "fixtures": [
+    "fixture-33-01"
+   ]
+  },
+  {
+   "id": "api-lighting-author-slot",
+   "file": "apps/api/src/modules/ai-image-edit/lighting/lighting.controller.ts",
+   "fields": [
+    "data",
+    "id",
+    "nodes"
+   ],
+   "testAnchor": "apps/api/src/modules/ai-image-edit/lighting/lighting.controller.spec.ts",
+   "shapeHash": "ccbec562e97b6e0aec5de2596be553a2ce9905af3e791cae2717721e219fc0fd",
+   "fixtures": [
+    "fixture-34-01"
+   ]
   }
  ]
 }

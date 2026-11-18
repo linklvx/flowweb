@@ -54,6 +54,11 @@ export class AiImageEditController {
     // 第 4 处 add 在 LightingController.createTask 同款门——不经本方法）。
     await this.presence.assertAdmittable(QUEUE_NAMES.AI_IMAGE_EDIT);
     const pricing = await this.resolver.resolveByNodeTypeKey(input.kind);
+    // Y2 B2d：受理读作者槽（data.mediaId；缺席=null 如实）。claim 传 true+槽值，不读执行期现场。
+    const canvas = await this.collabDoc.readCanvas(input.projectId);
+    const slotNode = canvas.nodes.find((n) => n.id === input.nodeId);
+    const slotData = slotNode?.data as Record<string, unknown> | null | undefined;
+    const authorMediaId = typeof slotData?.mediaId === 'string' && slotData.mediaId !== '' ? slotData.mediaId : null;
     const { intent, created, artifactRev } = await this.intentService.claim({
       projectId: input.projectId,
       nodeId: input.nodeId,
@@ -63,9 +68,8 @@ export class AiImageEditController {
       paramsHash: normalizeIntentParams(input.kind, input.params),
       pricing,
       teamId: input.teamId,
-      // Y2 B1：冻结两列过渡占位 false/null（B2d 换受理读槽真值〔裁决 13〕；D8 禁现读现场槽）
-      authorSlotFrozen: false,
-      authorMediaId: null,
+      authorSlotFrozen: true,
+      authorMediaId,
     });
     if (!created) {
       // SUCCEEDED 幂等重放——零 enqueue 零扣费，回放既有产物引用

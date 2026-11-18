@@ -23,7 +23,7 @@ describe('AiImageEditController', () => {
   let permSvc: { assertEditor: ReturnType<typeof vi.fn>; assertEditorWithTeam: ReturnType<typeof vi.fn> };
   let intentSvc: { claim: ReturnType<typeof vi.fn>; attachJob: ReturnType<typeof vi.fn>; fail: ReturnType<typeof vi.fn>; observeNodeExecution: ReturnType<typeof vi.fn> };
   let resolver: { resolveByNodeTypeKey: ReturnType<typeof vi.fn> };
-  let collabSvc: { readServerSV: ReturnType<typeof vi.fn> };
+  let collabSvc: { readServerSV: ReturnType<typeof vi.fn>; readCanvas: ReturnType<typeof vi.fn> };
   let presence: { assertAdmittable: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
@@ -48,7 +48,10 @@ describe('AiImageEditController', () => {
       resolveByNodeTypeKey: vi.fn().mockResolvedValue({ pricingRuleId: 'pr-kind', modelId: null, resolutionId: null, durationId: null, creditCost: 1 }),
     };
     // Y0b-2 T7：SV 支配门依赖（默认=支配成立）
-    collabSvc = { readServerSV: vi.fn(async () => Y.encodeStateVector(svDoc)) };
+    collabSvc = {
+      readServerSV: vi.fn(async () => Y.encodeStateVector(svDoc)),
+      readCanvas: vi.fn(async () => ({ nodes: [{ id: 'node1', type: 'imageGen', data: { mediaId: 'm-author' } }], edges: [] })),
+    };
     // Y0c T29-II（Z148②）：worker 准入门依赖（默认放行——单进程拓扑常态，裁决①）
     presence = { assertAdmittable: vi.fn().mockResolvedValue(undefined) };
 
@@ -321,9 +324,9 @@ describe('AiImageEditController', () => {
   });
 
   // ══════════ Y2 B1：非画布编辑链 claim 占位（B2d 换受理读槽真值〔裁决 13〕）══════════
-  it('Y2 B1 outpaint claim 携 authorSlotFrozen:false/authorMediaId:null（B1~B2 占位——D8 禁现读现场槽）', async () => {
+  it('Y2 B2d outpaint claim 受理读槽：frozen true + data.mediaId（缺席=null）', async () => {
     const body = { projectId: 'proj1', nodeId: 'node1', fileId: 'file-1', rect: { x: 0, y: 0, width: 64, height: 64 }, imageWidth: 512, imageHeight: 512, stateVector: SV_OK };
     await controller.outpaint(body, { user: { id: 'u1' } } as any);
-    expect(intentSvc.claim).toHaveBeenCalledWith(expect.objectContaining({ authorSlotFrozen: false, authorMediaId: null }));
+    expect(intentSvc.claim).toHaveBeenCalledWith(expect.objectContaining({ authorSlotFrozen: true, authorMediaId: 'm-author' }));
   });
 });
