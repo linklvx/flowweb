@@ -122,7 +122,10 @@ describe('HttpCollabWritePort（Z99 三分契约——真走 HTTP=writeExecStatu
 });
 
 describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFailed 零调用+job 不失败', () => {
-  it('503 全程持续（writeExecStatus 全部瞬态耗尽——worker 唯一投影写面）：runNodeLifecycle 完成（外呼完成+零 throw+errors 空）∧ rollbackDeliveryFailed 零调用', async () => {
+  // Y2 B5 断言翻新（B4 预登记移交裁决）：503 全程含 readAuthorSlot——B2d 读槽语义=外呼后读槽失败
+  // ⇒ 行留 RUNNING 本轮跳过（return 零 fail 零 void——次轮 reconcile 复驱）；「results 长 1」旧断言
+  // 随读槽入链退役。锚不变面=零退款+job 不失败+外呼恰一次；新增锚=零核销（finalize 未达）。
+  it('503 全程持续（writeExecStatus+readAuthorSlot 全部瞬态耗尽）：runNodeLifecycle 读槽失败早退（行 RUNNING 本轮跳过——外呼既成事实恰一次+零核销非退款）∧ rollbackDeliveryFailed 零调用', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(res(503));
     const port = new HttpCollabWritePort({ fetchImpl: fetchImpl as any, maxAttempts: 2, backoffBaseMs: 1 });
     const rollbackDeliveryFailed = vi.fn().mockResolvedValue(true);
@@ -147,6 +150,7 @@ describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFa
       tickFence: vi.fn().mockResolvedValue(undefined),              // T9 onTick 双职+代际
     };
     const emitPort = { emitNodeStatus: vi.fn() };   // T24 改道后消费面注入 EmitPort（锚与 emit 面正交）
+    const artifactCommit = { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t10' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }), finalizeVideo: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t12' }) };   // T10/T12（本用例焦点=503 全程投影面——读槽失败早退须零触达）
     const svc = new ExecutionService(
       { generationIntent: { findUnique: vi.fn().mockResolvedValue(null) } } as any,   // prisma（B-1 分支读态——不触）
       { collectUpstreamData: vi.fn().mockResolvedValue({ textContents: [], imageMediaId: undefined }) } as any,   // topology（Y1a T8：async+身份形态）
@@ -158,7 +162,7 @@ describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFa
       emitPort as any,                                                                                    // emit 端口
       intentSvc as any,                                                                                   // intentService
       { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } as any,   // upstreamMedia（Y1a T8）
-      { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t10' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }), finalizeVideo: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t12' }) } as any,   // T10/T12 artifactCommit（本用例焦点=503 全程投影面——stub 直通）,
+      artifactCommit as any,   // T10/T12 artifactCommit（读槽失败早退零触达锚）
     undefined as never,   // Y1c T21：ExecutionRequestService（spec 不触达）
     );
     const errors: unknown[] = [];
@@ -171,13 +175,16 @@ describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFa
       results, errors, onDeducted: () => {},
       authorTable: { n1: null },   // Y2 B2c 受理捕获表（本用例空槽）
     });
-    // 锚三断言：①零退款 ②job 不失败（零 throw+节点零 error+外呼完成）③外呼/结算照常（作业成败由生成结果决定）
+    // 锚断言（Y2 B5 翻新）：①零退款 ②job 不失败（零 throw+errors 空）③外呼恰一次（既成事实——
+    // 读槽在 call 后）④读槽失败早退=行留 RUNNING 本轮跳过（fail/void/commitImage 零调用=零核销；
+    // 烧下载预算走 rollbackRunning 真退款=「核销变退款」雷——B2c 裁决语义）。
     expect(rollbackDeliveryFailed).not.toHaveBeenCalled();
     expect(errors).toEqual([]);
     expect(apiCaller.callImageGen).toHaveBeenCalledTimes(1);
-    // T10：image 腿 settle 归 finalize 单事务（stub 直通 committed）——settle 直调零
-    expect(teamCredit.settle).not.toHaveBeenCalled();
-    expect(results).toHaveLength(1);
+    expect(intentSvc.fail).not.toHaveBeenCalled();
+    expect(intentSvc.void_).not.toHaveBeenCalled();
+    expect(artifactCommit.commitImage).not.toHaveBeenCalled();   // 零核销（finalize 未达——外呼已花是既成事实，次轮复驱走回放臂补收敛）
+    expect(results).toEqual([]);   // 读槽 503 早退——零交付零核销（次轮 reconcile 复驱重进）
   });
 });
 
