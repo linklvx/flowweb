@@ -87,6 +87,28 @@ describe('MinioService', () => {
     expect(typeof service.ensureBucket).toBe('function');
   });
 
+  // Y2 D2t：跨桶 CopyObject（spec v2.13 §3 D5 ④——同桶去重拷贝的显式源桶参数形态）
+  it('D2t copyObject：显式 sourceBucket 参数（勿抄 this.bucket 字面量——首个跨桶方法）+CopySource="bucket/key"+destKey', async () => {
+    const mockSend = vi.fn().mockResolvedValue({});
+    (service as any).s3Client = { send: mockSend };
+
+    await service.copyObject('flowai', 'uploads/u0/src.png', 'uploads/u1/dst.png');
+
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const cmd = mockSend.mock.calls[0][0];
+    expect(cmd.constructor.name).toBe('CopyObjectCommand');
+    expect(cmd.input).toEqual({ Bucket: 'flowai', CopySource: 'flowai/uploads/u0/src.png', Key: 'uploads/u1/dst.png' });
+  });
+
+  it('D2t copyObject：源桶≠配置桶照发（跨桶能力面——按源行 bucket 列）', async () => {
+    const mockSend = vi.fn().mockResolvedValue({});
+    (service as any).s3Client = { send: mockSend };
+
+    await service.copyObject('other-bucket', 'k/a.png', 'k/b.png');
+
+    expect(mockSend.mock.calls[0][0].input).toEqual({ Bucket: 'other-bucket', CopySource: 'other-bucket/k/a.png', Key: 'k/b.png' });
+  });
+
   describe('ensureBucket', () => {
     it('should log when bucket already exists', async () => {
       const mockSend = vi.fn().mockResolvedValue({});

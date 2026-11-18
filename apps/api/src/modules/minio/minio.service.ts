@@ -16,6 +16,7 @@ import {
   GetBucketReplicationCommand,
   GetObjectLockConfigurationCommand,
   GetBucketLifecycleConfigurationCommand,
+  CopyObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
@@ -181,6 +182,19 @@ export class MinioService {
       new DeleteObjectCommand({
         Bucket: this.bucket,
         Key: key,
+      }),
+    );
+  }
+
+  /** Y2 D2t（spec v2.13 §3 D5 ④）：同桶 CopyObject——**显式 sourceBucket 参数**（本文件首个跨桶
+   *  方法——勿抄 this.bucket/'flowai' 字面量，桶取源行 bucket 列：跨团队粘贴源对象在源团队域，
+   *  目标键在同桶新建）。CopySource=S3 URI 形态 "bucket/key"；失败上抛交调用方失败清理档。 */
+  async copyObject(sourceBucket: string, sourceKey: string, destKey: string): Promise<void> {
+    await this.s3Client.send(
+      new CopyObjectCommand({
+        Bucket: sourceBucket,
+        CopySource: `${sourceBucket}/${sourceKey}`,
+        Key: destKey,
       }),
     );
   }
