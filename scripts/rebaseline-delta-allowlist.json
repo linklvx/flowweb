@@ -338,6 +338,30 @@
         }
       },
       {
+        "key": "Media.bindCommandId",
+        "def": {
+          "is_nullable": "YES",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "Media.bindSourceMediaId",
+        "def": {
+          "is_nullable": "YES",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "Media.bindTargetProjectId",
+        "def": {
+          "is_nullable": "YES",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
         "key": "Media.deletionReason",
         "def": {
           "is_nullable": "YES",
@@ -449,6 +473,12 @@
         "key": "GenerationIntent_release_pending_idx",
         "def": {
           "indexdef": "CREATE INDEX \"GenerationIntent_release_pending_idx\" ON public.\"GenerationIntent\" USING btree (\"completedAt\") WHERE ((status = 'SUCCEEDED'::\"IntentStatus\") AND \"authorSlotFrozen\" AND (NOT \"authorSlotReleased\") AND (kind = ANY (ARRAY['video'::text, 'image'::text, 'outpaint'::text, 'erase'::text, 'redraw'::text, 'lighting'::text])))"
+        }
+      },
+      {
+        "key": "Media_teamId_bindCommandId_key",
+        "def": {
+          "indexdef": "CREATE UNIQUE INDEX \"Media_teamId_bindCommandId_key\" ON public.\"Media\" USING btree (\"teamId\", \"bindCommandId\")"
         }
       },
       {

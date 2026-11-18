@@ -220,32 +220,34 @@ export function formatPublicSnapshotCacheKey(k: PublicSnapshotCacheKeyInput): st
 }
 
 /** ③复制/粘贴 typed 命令：BindMedia=源节点媒体绑到目标节点（源 nodeId/mediaId 作**命令参数**——
- *  非 doc 字段）。C3a-7（spec 2026-11-11-foundation-batch §3.2-4 单写者收口）：BindMedia=校验
- *  （源配对 pairArtifact 唯一腿+doc 源节点兜底窄端口）+NodeArtifact CAS/投影 pending——**零
- *  MediaBinding 读写**（绑定经 appendBatch 帧级投影出现，客户端 doc 帧自足）；CloneBindingCommand
- *  已删（web 生产零调用实证——copy/paste=客户端 doc 帧自足；若产品确需服务端克隆→Y2 doc 命令
- *  执行器立项）。
- *  T25b 字段扩展登记（plan :337「若字段不足按需扩并论证」）：BindMediaCommand+expectedRev——
- *  论证=NodeArtifact 槽位 CAS 纪律（replaceMedia/clearMedia 同门 F2：静默复读槽位换 rev 重试已
- *  退役——盲写覆盖并发生成违反「冲突后保留先提交者」协作语义；粘贴目标槽位与手工替换共享同一
- *  rev 权威面，禁第二套宽松写径）。 */
+ *  非 doc 字段）。C3a-7（spec 2026-11-11-foundation-batch §3.2-4 单写者收口）：BindMedia=校验面，
+ *  CloneBindingCommand 已删（web 生产零调用实证——copy/paste=客户端 doc 帧自足；若产品确需服务端
+ *  克隆→Y2 doc 命令执行器立项）。
+ *  Y2 D1t（spec v2.13 §3 D5）：**五字段命令体**——expectedRev 已随 B4 CAS 删除彻底退役；新增
+ *  sourceProjectId（两腿改查源项目——D2t 受理）+commandId（客户端生成；幂等范围=「一个源媒体到
+ *  一个目标节点」，一次粘贴 N 个带媒体节点=N 个 commandId 各自独立）。 */
 export interface BindMediaCommand {
   type: 'BindMedia';
+  /** 源项目（跨团队粘贴两腿配对改查源项目——D2t；同项目路径=当前项目仍发命令） */
+  sourceProjectId: string;
   sourceNodeId: string;
+  /** 取复制时画面的解析值（作者键非空用作者键，否则产物——resolvePrimaryMediaId 单源） */
   mediaId: string;
   targetNodeId: string;
-  /** 目标槽位期望 rev（CAS——0=新槽 INSERT；并发换代 409 ARTIFACT_REV_CONFLICT 由调用方用户裁定） */
-  expectedRev: number;
+  /** 客户端生成幂等键（服务端 (teamId,bindCommandId) 幂等查——D2t 占坑先行分诊锚） */
+  commandId: string;
 }
 
 /** 复制/粘贴纪律（§6.4 ③行）：复制只复制用户域字段；产物身份族一律清空重产生；cells 格位保留但
- *  媒体引用清空；跨团队粘贴加 media ACL；lifecycleSeq 新生成、NodeArtifact 不挂旧产物。 */
+ *  媒体引用清空；跨团队粘贴加 media ACL；lifecycleSeq 新生成、NodeArtifact 不挂旧产物；
+ *  Y2 D1t 幂等范围=一个源媒体→一个目标节点（N 带媒体节点=N commandId 各自独立——一个失败不影响其余）。 */
 export const COPY_PASTE_COMMAND_CONTRACT = {
   paramsNotDocFields: '源 nodeId/mediaId 作命令参数（非 doc 字段）——服务端校验权限/归属后写 PG binding+发 feed',
   clearedIds: '复制只复制用户域字段——mediaId/fileId/artifactId 一律清空由目标节点重新产生',
   cells: '组 cells 格位保留媒体引用清空（格位结构是用户域；引用身份是产物域）',
   crossTeam: '跨团队粘贴加 media ACL（源团队私有媒体不随粘贴外泄）',
   lifecycle: 'lifecycleSeq 新生成、NodeArtifact 不挂旧产物（复制≠产物继承）',
+  idempotency: '幂等范围=一个源媒体→一个目标节点：N 带媒体节点=N commandId 各自独立（一个失败不影响其余）',
 } as const;
 
 // ═══ §5 Runtime Store 离线语义（§6.4/§7——IDB TTL/stale/unknown）══════════════════════════════

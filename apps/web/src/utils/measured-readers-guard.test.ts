@@ -61,7 +61,7 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     //（interface +9/初始值 +3）+rebindCopiedMedia helper +31——13 行整体 +40 漂移（集合不变）
     // C3a-8 批：HEAD=a953e55a（C3a-7 收口）在 canvasStore:561 附近注释段净 +1 行未同步本表
     //（本卡零 web 改动——机械行号同步，集合不变；隔离复跑绿）
-    'stores/canvasStore.ts': [1134, 1135, 1141, 1142, 1205, 1206, 1284, 1285, 1291, 1292, 1451, 1970, 1971],   // Y2 B3：五写点退役+splitImageNode/放置面改写——13 行机械同步（集合语义不变）   // Y2 A5：±行漂移机械同步（集合语义不变——computeStoryboardCellsPatch 读侧单源化/clearStoryboard 旧档回退删净等增删行所致）
+    'stores/canvasStore.ts': [1140, 1141, 1147, 1148, 1211, 1212, 1290, 1291, 1297, 1298, 1457, 1976, 1977],   // Y2 D1t：rebindCopiedMedia 重写净 +6 行——13 行机械同步（集合语义不变）   // Y2 B3：五写点退役+splitImageNode/放置面改写——行号机械同步（集合语义不变）   // Y2 A5：±行漂移机械同步（集合语义不变——computeStoryboardCellsPatch 读侧单源化/clearStoryboard 旧档回退删净等增删行所致）
     'pages/canvas/components/groups/GroupNode.tsx': [22, 23],   // Y2 B3：折叠卡 resolver 改写行漂移
     'utils/handleMenu.ts': [53, 54],  // Y1c T1：注释+import 插入 +4 漂移
     'pages/canvas/video-editor/export/product-node.ts': [16],  // Y1c T1：import 插入 +1 漂移

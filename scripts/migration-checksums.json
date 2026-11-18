@@ -13,5 +13,8 @@
   },
   "20261118142000_y2_target_field_mediaid": {
     "migration.sql": "136e1b34da92dee7b1bcbcf48d26ed018bcb676fd3bb73be65566efa3cd1a806"
+  },
+  "20261119022027_y2_bind_command": {
+    "migration.sql": "6d083717081f564cf438400120e1b863d5212e24ecb06ccd3a901298d822b17e"
   }
 }

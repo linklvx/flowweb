@@ -227,22 +227,55 @@ export function fetchServerCanvas(projectId: string): Promise<import('@flowweb/s
   return apiFetch<import('@flowweb/shared').CanvasReadModel>(`/projects/${projectId}/collab/canvas`);
 }
 
-// ════ Y1c T25b 四读径③：复制/粘贴 typed BindMedia 命令（shared 契约 typed body；C3a-7：CloneBinding
-// 命令删除——copy/paste=客户端 doc 帧自足，绑定经投影收敛）════
+// ════ Y1c T25b 四读径③ → Y2 D1t（spec v2.13 §3 D5）：复制/粘贴 typed BindMedia 命令（五字段；
+//  expectedRev 已随 B4 CAS 删除退役；sourceProjectId/commandId 入幂等面）════
 
 export type BindingCommandResult = { type: 'BindMedia'; rev: number; mediaId: string };
 
-/** BindMedia：源节点媒体绑到目标节点（源 nodeId/mediaId 作命令参数——服务端 ACL/源配对校验+PG
- *  NodeArtifact CAS；expectedRev CAS 冲突 throw MediaRevConflictError〔F2 同门——粘贴档
- *  禁静默覆盖并发生成〕）。C3a-7：命令零 MediaBinding 读写——绑定经投影出现。 */
+/** D1t：槽位已被其他成员写入（409 SLOT_OCCUPIED——D2t 服务端分诊；本层类型化供 toast 分档）。 */
+export class SlotOccupiedError extends Error {
+  readonly status: number;
+  readonly errorCode: string;
+  readonly body: unknown;
+
+  constructor(message: string, info: { status: number; errorCode: string; body: unknown }) {
+    super(message);
+    this.name = 'SlotOccupiedError';
+    this.status = info.status;
+    this.errorCode = info.errorCode;
+    this.body = info.body;
+  }
+}
+
+/** D1t：同一 commandId 换源/换团队/换项目（409 BIND_COMMAND_MISMATCH——服务端幂等比对拒绝）。 */
+export class BindCommandMismatchError extends Error {
+  readonly status: number;
+  readonly errorCode: string;
+  readonly body: unknown;
+
+  constructor(message: string, info: { status: number; errorCode: string; body: unknown }) {
+    super(message);
+    this.name = 'BindCommandMismatchError';
+    this.status = info.status;
+    this.errorCode = info.errorCode;
+    this.body = info.body;
+  }
+}
+
+/** BindMedia：源节点媒体绑到目标节点（五字段命令体——sourceProjectId/commandId 幂等面；expectedRev
+ *  已随 B4 CAS 删除）。409 两档类型化：SLOT_OCCUPIED/BIND_COMMAND_MISMATCH 分档 throw；其余 409
+ *  原样上抛。C3a-7：命令零 MediaBinding 读写——绑定经投影出现（服务端新字段 D2t 前忽略——四步同分支）。 */
 export function bindMedia(projectId: string, command: import('@flowweb/shared').BindMediaCommand): Promise<BindingCommandResult> {
   return apiFetch<BindingCommandResult>(`/projects/${projectId}/collab/bindings`, {
     method: 'POST',
     body: JSON.stringify(command),
   }).catch((e: unknown) => {
     const err = e as { status?: number; errorCode?: string };
-    if (err?.status === 409 && err?.errorCode === 'ARTIFACT_REV_CONFLICT') {
-      throw new MediaRevConflictError('槽位已换代', { status: 409, errorCode: 'ARTIFACT_REV_CONFLICT', body: undefined });
+    if (err?.status === 409 && err?.errorCode === 'SLOT_OCCUPIED') {
+      throw new SlotOccupiedError('粘贴槽位已被其他成员写入', { status: 409, errorCode: 'SLOT_OCCUPIED', body: undefined });
+    }
+    if (err?.status === 409 && err?.errorCode === 'BIND_COMMAND_MISMATCH') {
+      throw new BindCommandMismatchError('同一 commandId 换源/换团队/换项目', { status: 409, errorCode: 'BIND_COMMAND_MISMATCH', body: undefined });
     }
     throw e;
   });

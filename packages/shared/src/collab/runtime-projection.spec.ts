@@ -225,10 +225,13 @@ describe('Y1c T5c 契约冻结：四读径契约（doc 无服务端字段后的�
     expect(FOUR_READ_PATHS.userExport).toContain('不作用户导出');
   });
   it('③复制/粘贴=typed BindMedia 命令：源 nodeId/mediaId 作命令参数（非 doc 字段；C3a-7：CloneBinding 命令删除）', () => {
-    // T25b：BindMedia+expectedRev（CAS 纪律——replaceMedia/clearMedia 同门 F2 论证登记）
-    const bind: BindMediaCommand = { type: 'BindMedia', sourceNodeId: 'n1', mediaId: 'm1', targetNodeId: 'n9', expectedRev: 0 };
+    // Y2 D1t（spec v2.13 D5 五字段）：expectedRev 随 B4 CAS 删除彻底退役——命令体=sourceProjectId/
+    // sourceNodeId/mediaId/targetNodeId/commandId（幂等范围=源媒体→目标节点；N 带媒体节点=N commandId）
+    const bind: BindMediaCommand = { type: 'BindMedia', sourceProjectId: 'p0', sourceNodeId: 'n1', mediaId: 'm1', targetNodeId: 'n9', commandId: 'cmd-1' };
     expect(bind.type).toBe('BindMedia');
-    expect(Object.keys(bind).sort()).toEqual(['expectedRev', 'mediaId', 'sourceNodeId', 'targetNodeId', 'type']);
+    expect(Object.keys(bind).sort()).toEqual(['commandId', 'mediaId', 'sourceNodeId', 'sourceProjectId', 'targetNodeId', 'type']);
+    // expectedRev 类型面彻底删（D1t 裁定——B4 已删 wire 校验，本批删字段与类型）
+    expect('expectedRev' in (bind as unknown as Record<string, unknown>)).toBe(false);
     expect(COPY_PASTE_COMMAND_CONTRACT.paramsNotDocFields).toContain('命令参数');
     expect(COPY_PASTE_COMMAND_CONTRACT.clearedIds).toContain('mediaId');
     expect(COPY_PASTE_COMMAND_CONTRACT.clearedIds).toContain('fileId');
@@ -236,6 +239,9 @@ describe('Y1c T5c 契约冻结：四读径契约（doc 无服务端字段后的�
     expect(COPY_PASTE_COMMAND_CONTRACT.cells).toContain('格位保留');
     expect(COPY_PASTE_COMMAND_CONTRACT.cells).toContain('媒体引用清空');
     expect(COPY_PASTE_COMMAND_CONTRACT.crossTeam).toContain('media ACL');
+    // D1t 文案同批：幂等范围（源媒体→目标节点；N 节点=N commandId 各自独立）
+    expect(COPY_PASTE_COMMAND_CONTRACT.idempotency).toContain('commandId');
+    expect(COPY_PASTE_COMMAND_CONTRACT.idempotency).toContain('N');
   });
   it('④video-work clone=服务端用 render model 复制（不读 doc 猜 fileId）', () => {
     expect(FOUR_READ_PATHS.videoWorkClone).toContain('render model');

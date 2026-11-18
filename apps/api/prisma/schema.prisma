@@ -343,6 +343,11 @@ model Media {
   // 对象幂等/hash 校验（stageInTx 落行：objectKey/sha256——v10.1 :102）
   objectKey             String?
   objectSha256          String?
+  // Y2 D1t（spec v2.13 §3 D5 第⑤条）：跨团队粘贴幂等元组三列——占坑先行 pending 行携带；全可空
+  // （普通行 NULL——PG 多 NULL 相容，唯一索引不互撞）；只服务幂等比对，不复用 projectId、非血缘。
+  bindCommandId        String?
+  bindSourceMediaId    String?
+  bindTargetProjectId  String?
 
   // 时间戳
   createdAt DateTime  @default(now()) @db.Timestamptz(3)
@@ -376,6 +381,7 @@ model Media {
   @@unique([bucket, key]) // 对象级幂等（v11）
   @@unique([teamId, clientUploadId]) // presign 幂等键（nullable 复合——PG NULL 不冲突）
   @@unique([sourceRegistrationKey]) // 非资金幂等（nullable）
+  @@unique([teamId, bindCommandId]) // Y2 D1t 粘贴幂等键（nullable 复合——PG NULL 不冲突；占坑先行分诊锚）
   @@index([userId])
   @@index([teamId])
   @@index([projectId])

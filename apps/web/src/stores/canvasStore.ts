@@ -44,7 +44,7 @@ import { calcGroupBounds, CELL_WIDTH, ASPECT_RATIO_MAP, calcDefaultGrid, calcSto
 // T17（plan v11.2 S5 片·G54）：placement/order 分配唯一入口——建点/副本/入组出组/整理全经
 // allocator（副本同层同 order 重复键+粘贴位置重叠红线）。
 import { allocateOrderAfter, createCopyOrderAllocator, nudgeCopiesUntilFree, fitOrderBlock } from '@/utils/canvas-allocator';
-import { bindMedia, MediaRevConflictError } from '@/api/collabApi';   // T25b 四读径③：副本媒体 typed 命令接线
+import { bindMedia, SlotOccupiedError, BindCommandMismatchError } from '@/api/collabApi';   // T25b 四读径③→Y2 D1t：副本媒体 typed 命令（五字段+409 两档类型化）
 import { isImageCompletedNode } from '@/utils/imageNodeGuards';
 import { resolveStoryboardConfig } from '@/utils/storyboardConfig';
 import { placeGrid } from '@/utils/groupGeometry';
@@ -550,11 +550,11 @@ export const chunkCopyPlan = (plan: CopyPlan): CopyPlan[] => {
   return chunks;
 };
 
-/** T25b 四读径③（plan :337）：复制/粘贴→副本媒体服务端 typed 绑定（BindMedia 命令——源
- *  nodeId/mediaId 作命令参数非 doc 字段）。doc 副本保留 fileId=既有裁决（Z11''-v14 消灭空图
- *  窗口——乐观 UI）；服务端 NodeArtifact/ArtifactProjection 权威面经 REST 建立（expectedRev=0 新槽
- *  INSERT）；MediaBinding 由 doc 帧级投影出现（C3a-7 起命令面零 binding 写）。fail-soft：跨团队拒/
- *  409/网络失败=toast 告知不阻断粘贴主链（副本 doc 引用保留）。
+/** T25b 四读径③ → Y2 D1t 重写（spec v2.13 §3 D5）：复制/粘贴→副本媒体服务端 typed 绑定（BindMedia
+ *  五字段命令体——sourceProjectId=当前项目〔同项目路径仍发命令，同团队三档 D3t 落地〕+每节点独立
+ *  commandId〔幂等范围=源媒体→目标节点，N 带媒体节点=N commandId 各自独立——一个失败不影响其余〕，
+ *  expectedRev 已随 B4 CAS 删除退役）。doc 副本槽剥离（B3 裁决 4）——副本 data 零媒体身份，绑定经
+ *  服务端命令+投影补。fail-soft：409 两档/网络失败=分档 toast 不阻断粘贴主链。
  *  只对「已落位副本」发命令（分块粘贴拒块不入集）。 */
 function rebindCopiedMedia(idMap: Map<string, string>): void {
   const pid = useCanvasStore.getState().projectId;
@@ -569,10 +569,16 @@ function rebindCopiedMedia(idMap: Map<string, string>): void {
   for (const [srcId, dstId] of idMap) {
     const mediaId = fileIdOf.get(srcId);
     if (mediaId === undefined) continue;   // 源不携媒体（文本/组等用户域节点零命令）
-    void bindMedia(pid, { type: 'BindMedia', sourceNodeId: srcId, mediaId, targetNodeId: dstId, expectedRev: 0 })
+    // D1t：每节点独立 commandId（crypto.randomUUID——幂等范围=源媒体→目标节点；一败不影响其余）
+    void bindMedia(pid, { type: 'BindMedia', sourceProjectId: pid, sourceNodeId: srcId, mediaId, targetNodeId: dstId, commandId: crypto.randomUUID() })
       .catch((e: unknown) => {
-        if (e instanceof MediaRevConflictError) {
-          message.info('副本媒体槽位已有更新，未重复绑定（可刷新后手动替换）');   // F2：禁静默复读换 rev 重提
+        // D5t: localPreview 表落地后按节点 id 清
+        if (e instanceof SlotOccupiedError) {
+          message.info('副本媒体槽位已被其他成员写入，未重复绑定（画面以对方为准）');
+          return;
+        }
+        if (e instanceof BindCommandMismatchError) {
+          message.warning('副本媒体未绑定：同一 commandId 已绑定其他源/项目——可刷新后重试粘贴');
           return;
         }
         // 收口 M-5：服务端拒绝域分档文案（404=源媒体软删/缺席；SOURCE_MEDIA_MISMATCH=源节点与

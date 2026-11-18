@@ -1955,6 +1955,9 @@ if (isMain()) {
       // 活引用保护面=Y2 B2a MediaBinding 投影臂——释放序 projectBindings→released=true）
       'GenerationIntent.authorMediaId': 'Y2 冻结作者槽快照（claim 捕获——非删除保护引用面，活引用=B2a 投影臂）',
       'ExecutionNodePlan.authorMediaId': 'Y2 plan 行同款冻结快照（B2 换真捕获——非删除保护引用面）',
+      // Y2 D1t（spec v2.13 §3 D5 第⑤条）：bindSourceMediaId=跨团队粘贴幂等元组列（幂等比对锚——
+      // 同 commandId 重试分诊 BIND_COMMAND_MISMATCH；非删除保护引用面，不复用 projectId、非血缘）
+      'Media.bindSourceMediaId': 'Y2 粘贴幂等元组（幂等比对锚非删除保护引用——spec v2.13 D5 新行字段）',
     };
     const registeredCols = new Set(entries.map((e) => `${e.table}.${e.column}`));
     for (const [model, cols] of schemaModels) {

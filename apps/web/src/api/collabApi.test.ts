@@ -6,6 +6,7 @@ import {
   shrink, exportFresh, vacuum, getMediaSlot, postMediaCommand,
   replaceNodeMedia, clearNodeMedia, MediaRevConflictError,
   bindMedia, fetchServerCanvas, importDraftEnvelope,
+  SlotOccupiedError, BindCommandMismatchError,
 } from './collabApi';
 
 const okEnvelope = (data: unknown) => ({ ok: true, json: async () => ({ code: 0, data, message: 'ok' }) });
@@ -155,26 +156,39 @@ describe('collabApi（T11 媒体命令）', () => {
 });
 
 // ══ T25b 四读径③：BindMedia typed 命令（复制/粘贴——shared 契约 typed body；C3a-7：CloneBinding 命令删除）══
+// Y2 D1t（spec v2.13 D5）：命令体五字段（sourceProjectId/commandId 入、expectedRev 删）+409 两档
+// （SLOT_OCCUPIED/BIND_COMMAND_MISMATCH——D2t 服务端受理后返回；本层只做类型化映射）。
 describe('collabApi（T25b 四读径③：BindMedia）', () => {
-  const err409 = () => ({
+  const err409 = (errorCode: string, message: string) => ({
     ok: false, status: 409, statusText: 'Conflict',
-    clone: () => ({ json: async () => ({ code: -1, message: '槽位已换代', errorCode: 'ARTIFACT_REV_CONFLICT' }) }),
-    json: async () => ({ code: -1, message: '槽位已换代', errorCode: 'ARTIFACT_REV_CONFLICT' }),
+    clone: () => ({ json: async () => ({ code: -1, message, errorCode }) }),
+    json: async () => ({ code: -1, message, errorCode }),
     headers: new Headers(),
   });
-  it('bindMedia：POST /api/projects/:pid/collab/bindings typed body（shared BindMediaCommand 原样）+409 类型化', async () => {
-    (global.fetch as any).mockResolvedValue(okEnvelope({ type: 'BindMedia', rev: 1, mediaId: 'm1' }));
-    const r = await bindMedia('p1', { type: 'BindMedia', sourceNodeId: 'n-src', mediaId: 'm1', targetNodeId: 'n-tgt', expectedRev: 0 });
+  it('bindMedia：POST /api/projects/:pid/collab/bindings typed body（shared BindMediaCommand 原样五字段）', async () => {
+    (global.fetch as any).mockResolvedValue(okEnvelope({ type: 'BindMedia', rev: 0, mediaId: 'm1' }));
+    const r = await bindMedia('p1', { type: 'BindMedia', sourceProjectId: 'p0', sourceNodeId: 'n-src', mediaId: 'm1', targetNodeId: 'n-tgt', commandId: 'cmd-1' });
     expect((global.fetch as any).mock.calls[0][0]).toBe('/api/projects/p1/collab/bindings');
     const init = (global.fetch as any).mock.calls[0][1];
     expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body)).toEqual({ type: 'BindMedia', sourceNodeId: 'n-src', mediaId: 'm1', targetNodeId: 'n-tgt', expectedRev: 0 });
-    expect(r).toEqual({ type: 'BindMedia', rev: 1, mediaId: 'm1' });
+    expect(JSON.parse(init.body)).toEqual({ type: 'BindMedia', sourceProjectId: 'p0', sourceNodeId: 'n-src', mediaId: 'm1', targetNodeId: 'n-tgt', commandId: 'cmd-1' });
+    expect(r).toEqual({ type: 'BindMedia', rev: 0, mediaId: 'm1' });
+  });
 
+  it('★D1t 409 两档类型化：SLOT_OCCUPIED/BIND_COMMAND_MISMATCH → throw SlotOccupiedError/BindCommandMismatchError（其余 409 原样上抛）', async () => {
     (global.fetch as any).mockReset();
-    (global.fetch as any).mockResolvedValueOnce(err409());
-    await expect(bindMedia('p1', { type: 'BindMedia', sourceNodeId: 'n-src', mediaId: 'm1', targetNodeId: 'n-tgt', expectedRev: 3 }))
-      .rejects.toBeInstanceOf(MediaRevConflictError);   // CAS 冲突类型化（粘贴档同 F2 纪律——用户裁定后重提）
+    (global.fetch as any).mockResolvedValueOnce(err409('SLOT_OCCUPIED', '槽位已被其他成员写入'));
+    await expect(bindMedia('p1', { type: 'BindMedia', sourceProjectId: 'p0', sourceNodeId: 'n-src', mediaId: 'm1', targetNodeId: 'n-tgt', commandId: 'cmd-1' }))
+      .rejects.toBeInstanceOf(SlotOccupiedError);
+    (global.fetch as any).mockReset();
+    (global.fetch as any).mockResolvedValueOnce(err409('BIND_COMMAND_MISMATCH', '同一 commandId 换源/换项目'));
+    await expect(bindMedia('p1', { type: 'BindMedia', sourceProjectId: 'p0', sourceNodeId: 'n-src', mediaId: 'm1', targetNodeId: 'n-tgt', commandId: 'cmd-1' }))
+      .rejects.toBeInstanceOf(BindCommandMismatchError);
+    // 其余 409（ARTIFACT_REV_CONFLICT 等）不吞不包装——原样上抛由调用方兜底档处理
+    (global.fetch as any).mockReset();
+    (global.fetch as any).mockResolvedValueOnce(err409('ARTIFACT_REV_CONFLICT', '槽位已换代'));
+    await expect(bindMedia('p1', { type: 'BindMedia', sourceProjectId: 'p0', sourceNodeId: 'n-src', mediaId: 'm1', targetNodeId: 'n-tgt', commandId: 'cmd-1' }))
+      .rejects.not.toBeInstanceOf(SlotOccupiedError);
   });
 
   it('★T25b 微批 C-1：fetchServerCanvas 指用户面端点 GET /projects/:pid/collab/canvas（真 wire 形态：{code:0,data} envelope 解包+非 2xx 透传 throw）+importDraftEnvelope deletionNodeIds 随 body', async () => {
