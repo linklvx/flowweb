@@ -23,7 +23,7 @@ import { getCollabTabId } from '@/collab/local-collab-cache';
 import { apiFetch } from '@/api/client';
 import isEqual from 'fast-deep-equal';
 import { message } from 'antd';
-import { useCanvasStore } from './canvasStore';
+import { useCanvasStore, clearLocalPreviewAll } from './canvasStore';
 import { useNodeStore, toAppNode, NODE_TYPES } from './nodeStore';
 // 循环依赖裁定允许：canvasUndo 顶层仅 import yjs + 纯常量/函数定义
 import { Origin, attachUndoManager, detachUndoManager, getUndoManager } from './canvasUndo';
@@ -1279,13 +1279,15 @@ export function checkProjectionInvariant(d: Y.Doc): boolean {
   if (st.edges.length !== edges.length) return false;
   const docEdges = new Set(edges.map((e) => `${e.id}\u0000${e.source}\u0000${e.target}`));
   if (st.edges.some((e: any) => !docEdges.has(`${e.id}\u0000${e.source}\u0000${e.target}`))) return false;
-  // ── conjunct ②：渲染列表≡projectCanvas(作者缓存,空覆盖)——手势活跃节点豁免（活值=覆盖层） ──
+  // ── conjunct ②：渲染列表≡projectCanvas(作者缓存,空覆盖)——手势活跃节点豁免（活值=覆盖层）──
+  // Y2 D5t：localPreview 面同数据源（cs 表）——渲染列表含在途预览节点时断言两侧同表恒等值；
+  // 表空即等价域原语义（EMPTY 同源零分叉）。
   const expected = projectCanvas({
     readModel: { records: st.nodes as unknown as RenderSourceNode[], edges: st.edges as unknown as RenderSourceEdge[] },
     runtime: useRuntimeFeedStore.getState().projection,
     mediaFacts: useNodeStore.getState().mediaFacts,
     gesture: EMPTY_RENDER_OVERLAYS.gesture,
-    localPreview: EMPTY_RENDER_OVERLAYS.localPreview,
+    localPreview: st.localPreview,
   });
   if (st.renderNodes.length !== expected.nodes.length) return false;
   const live = new Set<string>();
@@ -1364,9 +1366,11 @@ export function resolveDraggingIdsFromGesture(nodes: ReadonlyArray<{ id: string 
  *  流程=read→hydrate setState[作者缓存 abs verbatim+渲染列表同 set]→手势中止判定（B4'-2
  *  保留）→ns→尾断言（新形态单源 checkProjectionInvariant）。全程同步无 await/渲染分隔。 */
 /** Y2 A2b（D3 全量+身份复用）：渲染列表重算——doc 读模型经 projectCanvas（runtime 投影+
- *  ns mediaFacts 覆盖；gesture/localPreview 空表——手势活值经 onNodesChange applyNodeChanges
+ *  ns mediaFacts 覆盖；gesture 空表——手势活值经 onNodesChange applyNodeChanges
  *  直写 renderNodes=覆盖层，重算时手势活值节点保留旧对象）。与上一帧 renderNodes 逐字段比较：
- *  相等复用原对象、数组浅建——比较对象=上一帧最终渲染对象（含执行覆盖后的 cellNodes，值比较）。 */
+ *  相等复用原对象、数组浅建——比较对象=上一帧最终渲染对象（含执行覆盖后的 cellNodes，值比较）。
+ *  Y2 D5t：localPreview 接数据源=canvasStore 表（粘贴在途预览——只在解析为空时盖面，
+ *  纯覆盖层不进 doc；空表语义不变〔等价域〕——表空时与 EMPTY 同源）。 */
 export function recomputeRenderNodes(d: Y.Doc): RenderNode[] {
   const { nodes: records, edges } = readCanvasFromDoc(d);
   const csState = useCanvasStore.getState();
@@ -1376,7 +1380,7 @@ export function recomputeRenderNodes(d: Y.Doc): RenderNode[] {
     runtime: useRuntimeFeedStore.getState().projection,
     mediaFacts: useNodeStore.getState().mediaFacts,
     gesture: EMPTY_RENDER_OVERLAYS.gesture,
-    localPreview: EMPTY_RENDER_OVERLAYS.localPreview,
+    localPreview: csState.localPreview,
   });
   // 手势活值节点：保留旧对象（活值只在 renderNodes 上——doc 派生值是提交前旧值）
   const gestureLive = new Set<string>();
@@ -2011,6 +2015,8 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
   // Y0b-4 T5：doc-status 快照族同点复位（rev/over/五键/校准点/代际——上一会话配额态不跨会话）
   // Y0b-4 T11：quota 终态通道同点复位（同 wsAuthNotice 形态——上一会话 4404/4410 不跨会话）
   // Y0b-5 T4：localCacheReady/readyProbeHint 同点复位（会话态不跨会话——真实翻转/消费归 T8）
+  // Y2 D5t：localPreview 表同点复位（会话态 blob 覆盖层不跨会话——逐项 revoke 防泄漏）
+  clearLocalPreviewAll();
   useCanvasStore.getState().setHydration('pending');
   useCanvasStore.setState({
     collabReadOnly: true, localCollapsed: {}, wsAuthNotice: null, writeFrozen: false, collabEscapePending: false,
@@ -2490,6 +2496,8 @@ export async function destroyCollab(): Promise<void> {
   // Y0b-5 T5：本地缓存库 purge 不在此点——登出侧在 AuthProvider.logout（本函数无法区分登出/切
   // 项目，无差别 purge 会误删他标签在用库）；世代/terminal 族 purge 在 close handler 与
   // consumeGenerationJump（见 safeReload('generation')/NO_READ_ACCESS_PURGE_REASONS）。
+  // Y2 D5t：localPreview 表同点清（会话态 blob 覆盖层——切项目/登出整表 revoke 防泄漏）
+  clearLocalPreviewAll();
   useCanvasStore.setState({ collabReadOnly: true, localCollapsed: {}, wsAuthNotice: null, wsQuotaTerminal: null, writeFrozen: false, collabEscapePending: false, localCacheReady: false, readyProbeHint: null, canvasDiverged: false, canvasOversized: false, canvasDegraded: false, persistUnhealthy: false, syncLagOver60s: false, pendingBacklog: false });
   terminalSuppressed = false;
 }

@@ -12,7 +12,7 @@ import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
 import { uploadSplitBlobs } from '@/utils/splitUploadService';
-import { getMediaUrl } from '@/api/mediaApi';
+import { getMediaUrl, mediaContentUrl } from '@/api/mediaApi';
 import { deleteProjectByNode } from '@/api/videoProjectApi';
 import { ensureParentOrder } from '@/utils/nodeOrder';
 import { canEdit, canEditCommand, type EditableCommandName } from './syncStatus';
@@ -229,6 +229,14 @@ export interface CanvasState {
    *  消费点=GroupNode（resizer 守卫+折叠卡）/CanvasView（GroupToolbar）。
    *  子 hidden 派生消费面扩展（reconcile 读 localCollapsed）归 O0c。 */
   localCollapsed: Record<string, boolean>;
+  /** Y2 D5t（spec §6 D5 ①/§8）：localPreview 表——节点 id→blob URL（跨团队粘贴在 CopyObject
+   *  完成前的画面即时预览）。纯本地 UI 覆盖层：唯一读点=projectCanvas localPreview 参数（只在
+   *  resolvePrimaryMediaId 解析为空时盖面）；不进作者缓存/diff/undo/doc（store 独立字段非 data 键
+   *  ——captureStoreProjection 差分结构性不含）；写入=复制时自本会话字节建 blob（fetch
+   *  /api/media/:id/content，同团队不建〔无拷贝即无预览需求——画面经 mediaId 直达〕）；清除=命令
+   *  终态（成功/失败/槽=他 id）按节点清+必 revokeObjectURL（blob 泄漏红线），会话边界全表清。
+   *  会话态——initCollab/destroyCollab 复位；不进 history/localStorage 快照。 */
+  localPreview: Map<string, string>;
   /** WS 侧唯一鉴权载体（批2-1 立字段；reason 五档 CollabAuthReason 落 shared 后收紧类型——批3 接入） */
   wsAuthNotice: { reason: string; terminal: boolean } | null;
   /** Y0b-4 T11：配额/代际终态独立通道（4404 doc-over-quota/4410 doc-vacuuming·doc-generation-stale
@@ -550,12 +558,81 @@ export const chunkCopyPlan = (plan: CopyPlan): CopyPlan[] => {
   return chunks;
 };
 
+/** Y2 D5t（spec §6 D5 ①）：localPreview 表按节点清——必 revokeObjectURL（blob 泄漏红线——v5 钉死）。
+ *  命令终态（成功/失败/槽=他 id）与节点删除/会话边界共用本清面；幂等（无表项=no-op）。
+ *  清后渲染列表重算（previewUrl 覆盖键随表消——projectCanvas 唯一读点，无第二写者）。 */
+function clearLocalPreviewFor(nodeIds: Iterable<string>): void {
+  const s = useCanvasStore.getState();
+  const preview = s.localPreview;
+  if (preview.size === 0) return;
+  const ids = typeof nodeIds === 'string' ? [nodeIds] : [...nodeIds];
+  const next = new Map(preview);
+  let removed = false;
+  for (const id of ids) {
+    const url = next.get(id);
+    if (url === undefined) continue;
+    next.delete(id);
+    removed = true;
+    URL.revokeObjectURL(url);   // 红线：离开表必 revoke（防 blob 泄漏）
+  }
+  if (!removed) return;
+  const rd = resolveDoc();
+  if (rd) useCanvasStore.setState({ localPreview: next, renderNodes: recomputeRenderNodes(rd) });
+  else useCanvasStore.setState({ localPreview: next });
+}
+
+/** D5t：bindMedia 终态登记（每节点一次）——buildLocalPreview 竞态守卫（命令先回清面后，迟到的
+ *  blob 不回填）。粘贴新 commandId 新节点天然不撞旧登记；表项清面幂等。 */
+const bindMediaSettled = new Set<string>();
+
+/** Y2 D5t：localPreview 表整表清（会话边界/全表复位档——canvasCollabRuntime initCollab/
+ *  destroyCollab 会话边界消费）——逐项 revokeObjectURL。 */
+export function clearLocalPreviewAll(): void {
+  bindMediaSettled.clear();
+  const preview = useCanvasStore.getState().localPreview;
+  if (preview.size === 0) return;
+  for (const url of preview.values()) URL.revokeObjectURL(url);
+  useCanvasStore.setState({ localPreview: new Map() });
+}
+
+/** Y2 D5t（spec §6 D5 ①）：复制时自本会话字节建 blob——fetch /api/media/:id/content →Blob→
+ *  URL.createObjectURL →localPreview 表落（目标节点 id→blob URL）。跨团队粘贴在 CopyObject 完成
+ *  前画面即时预览；尽力而为预览层：抓取失败（网络/权限/软删）零表项零阻断——绑定命令照发、
+ *  服务端槽写经 Yjs 回流后画面补真图。同团队档不建〔无拷贝即无预览需求——画面经 mediaId 直达，
+ *  本表只在解析为空时盖面、同团队槽=源 id 解析即非空〕。
+ *  渲染列表同 set（A2b 契约——勿新开第二写者）：表写后经 recomputeRenderNodes 重算渲染节点
+ *  （previewUrl 覆盖键只在 projectCanvas 单一读点产生）。
+ *  命令终态竞态：bindMedia 先于字节抓取返回（快网慢字节）⇒清面已跑——写表前核对本命令未终态，
+ *  已终态即弃置新 blob（revoke 防孤儿——预览使命已结束，真图由解析槽/Yjs 回流承担）。 */
+function buildLocalPreview(dstId: string, mediaId: string): void {
+  void (async () => {
+    try {
+      const res = await fetch(mediaContentUrl(mediaId));
+      if (!res.ok) return;   // 降级：零表项（预览非阻断面）
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      // 写入时目标节点可能已被删除（异步窗）——写后校验在场才落表，否则立即 revoke 防孤儿
+      const exists = useCanvasStore.getState().nodes.some((n) => n.id === dstId);
+      if (!exists) { URL.revokeObjectURL(url); return; }
+      // 命令已终态（成功/失败/槽占——清面已跑）⇒ 预览窗口关闭：不回填（回填=永不清孤儿）
+      const settled = bindMediaSettled.has(dstId);
+      if (settled) { URL.revokeObjectURL(url); return; }
+      useCanvasStore.setState((s) => ({ localPreview: new Map(s.localPreview).set(dstId, url) }));
+      // 渲染列表重算：previewUrl 经 projectCanvas 覆盖键叠进渲染节点（唯一读点——表不落 data）
+      const rd = resolveDoc();
+      if (rd) useCanvasStore.setState({ renderNodes: recomputeRenderNodes(rd) });
+    } catch { /* 降级：零表项（尽力而为预览层——主链已在 bindMedia 命令上） */ }
+  })();
+}
+
 /** T25b 四读径③ → Y2 D1t 重写（spec v2.13 §3 D5）：复制/粘贴→副本媒体服务端 typed 绑定（BindMedia
  *  五字段命令体——sourceProjectId=当前项目〔同项目路径仍发命令，同团队三档 D3t 落地〕+每节点独立
  *  commandId〔幂等范围=源媒体→目标节点，N 带媒体节点=N commandId 各自独立——一个失败不影响其余〕，
  *  expectedRev 已随 B4 CAS 删除退役）。doc 副本槽剥离（B3 裁决 4）——副本 data 零媒体身份，绑定经
  *  服务端命令+投影补。fail-soft：409 两档/网络失败=分档 toast 不阻断粘贴主链。
- *  只对「已落位副本」发命令（分块粘贴拒块不入集）。 */
+ *  只对「已落位副本」发命令（分块粘贴拒块不入集）。
+ *  Y2 D5t：跨团队在途预览——副本节点先落 localPreview 表（本会话字节建 blob）；命令终态各档
+ *  （成功/失败/槽=他 id）按节点清+revoke；同团队档不建表（服务端直返原 id、解析即非空）。 */
 function rebindCopiedMedia(idMap: Map<string, string>): void {
   const pid = useCanvasStore.getState().projectId;
   if (!pid || idMap.size === 0) return;
@@ -569,10 +646,21 @@ function rebindCopiedMedia(idMap: Map<string, string>): void {
   for (const [srcId, dstId] of idMap) {
     const mediaId = fileIdOf.get(srcId);
     if (mediaId === undefined) continue;   // 源不携媒体（文本/组等用户域节点零命令）
+    // D5t：在途预览先行（异步尽力而为——不阻断命令链；同团队不建由服务端三档语义天然覆盖：
+    // 同团队返原 id 时解析槽非空、表不参与画面）
+    bindMediaSettled.delete(dstId);
+    buildLocalPreview(dstId, mediaId);
     // D1t：每节点独立 commandId（crypto.randomUUID——幂等范围=源媒体→目标节点；一败不影响其余）
     void bindMedia(pid, { type: 'BindMedia', sourceProjectId: pid, sourceNodeId: srcId, mediaId, targetNodeId: dstId, commandId: crypto.randomUUID() })
+      .then(() => {
+        // D5t：成功档=命令终态清（服务端写槽经 Yjs 回流解析非空自然盖面——预览功成身退）
+        bindMediaSettled.add(dstId);
+        clearLocalPreviewFor([dstId]);
+      })
       .catch((e: unknown) => {
-        // D5t: localPreview 表落地后按节点 id 清
+        // D5t：失败/槽占档按节点清（挂点注释 D1t 留位——表落地接线）
+        bindMediaSettled.add(dstId);
+        clearLocalPreviewFor([dstId]);
         if (e instanceof SlotOccupiedError) {
           message.info('副本媒体槽位已被其他成员写入，未重复绑定（画面以对方为准）');
           return;
@@ -934,6 +1022,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   readyProbeHint: null,
   collabReadOnly: true,
   localCollapsed: {},
+  localPreview: new Map<string, string>(),
   wsAuthNotice: null,
   wsQuotaTerminal: null,
   dragSession: null,
