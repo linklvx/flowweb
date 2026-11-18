@@ -47,7 +47,8 @@ const STORE_PATH = path.join(WEB_ROOT, 'stores/canvasStore.ts');
 const VIEW_PATH = path.join(WEB_ROOT, 'pages/canvas/components/CanvasView.tsx');
 const GROUPDROP_PATH = path.join(WEB_ROOT, 'utils/groupDrop.ts');
 
-const csNode = (id: string) => useCanvasStore.getState().nodes.find((n: any) => n.id === id) as any;
+// Y2 A3（坐标域终裁）：手势活值/帧断言域=渲染列表（cs=作者缓存恒≡doc）——原 csNode 断言域整体换轨
+const csNode = (id: string) => useCanvasStore.getState().renderNodes.find((n: any) => n.id === id) as any;
 const session = () => useCanvasStore.getState().dragSession;
 
 const SB_CONFIG = { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: true, stitchResolution: '2K' };
@@ -270,8 +271,10 @@ describe("B5'-2 守卫仍生效（预检/折叠展开留原函数体单层）", 
     begin(['img1']);
     frame('img1', 100, 450);        // abs=(100,450)：仅 sb1 帧(0..642,400..580)交叠
     release();
-    expect(csNode('img1').parentId).toBe('sb1');
-    expect(csNode('img1').position).toEqual({ x: 0, y: 0 });       // 分镜子构造默认
+    // Y2 A3：分镜子不在渲染列表——构造默认断言读作者缓存
+    const csRead = (id: string) => useCanvasStore.getState().nodes.find((n: any) => n.id === id) as any;
+    expect(csRead('img1').parentId).toBe('sb1');
+    expect(csRead('img1').position).toEqual({ x: 0, y: 0 });       // 分镜子构造默认
     expect(nodeMap(d, 'img1').get('parentId')).toBe('sb1');
     expect(nodeMap(d, 'img1').get('position')).toBeUndefined();    // 剥键（分镜子无 position）
     // T17（Z17''）：格位真源=子 slot——img1 落首空槽 1（doc 组 data 恒无 cells；plain number 载荷）

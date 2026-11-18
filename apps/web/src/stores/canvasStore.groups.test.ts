@@ -55,9 +55,9 @@ describe('groupNodes', () => {
     const child1 = s.nodes.find((n) => n.id === 'n1')!;
     expect(child1.parentId).toBe(groupId);
     expect('extent' in child1).toBe(false);   // 去闸门（终裁 43 需求 5 物理前提）：cs 节点无 extent 键
-    expect(child1.position).toEqual({ x: 20, y: 100 }); // 相对组左上角：100 - 0
+    expect(child1.position).toEqual({ x: 100, y: 100 }); // Y2 A3：cs 子恒 abs——入组零位移（渲染列表 rel=abs−origin）
     const child2 = s.nodes.find((n) => n.id === 'n2')!;
-    expect(child2.position).toEqual({ x: 420, y: 50 });
+    expect(child2.position).toEqual({ x: 500, y: 50 });
   });
 
   it('选中含 group 节点时抛错（禁止嵌套）', () => {
@@ -142,8 +142,8 @@ describe('addToGroup / removeNodeFromGroup', () => {
       const s = useCanvasStore.getState();
       const free = s.nodes.find((n) => n.id === 'free')!;
       expect(free.parentId).toBe(groupId);
-      expect(free.position.x).toBe(2000 - 80); // 绝对 - 组左上角（扩框后新 origin 仍 (80,0)——free 是右下外落点）
-      expect(s.nodes.find((n) => n.id === groupId)!.width).toBeGreaterThan(740); // 扩展（reconcile 派生）
+      expect(free.position.x).toBe(2000); // Y2 A3：cs 子恒 abs——入组零位移（渲染列表 rel=2000−origin）
+      expect((useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === groupId)!.width).toBeGreaterThan(740); // 扩展（内核派生帧）
     } finally {
       _setIntentDocForTest(null);
     }
@@ -355,7 +355,12 @@ describe('B7-1 修（O0b-9 接线发现）：auto 组分镜往返转回 normal�
 
 describe('去闸门（终裁 43 需求 5 物理前提）：拖拽期不夹取（onNodesChange）', () => {
   // groupNodes(['n1','n2']) 后：group(80,0,740×370)；n1 rel(20,100) 300×200；n2 rel(420,50) 300×300
-  const setupGroup = () => useCanvasStore.getState().groupNodes(['n1', 'n2']);
+  const setupGroup = () => {
+    const gid = useCanvasStore.getState().groupNodes(['n1', 'n2']);
+    // Y2 A3：几何断言域=渲染列表——打组后镜像（快照未跑的裸 store 装置）
+    useCanvasStore.setState((s) => ({ renderNodes: s.nodes.map((n: any) => ({ ...n })) as any }));
+    return gid;
+  };
 
   // 锚：子节点拖出组帧外 ⇒ cs 位置逐位保留（不夹回）——脱离判定归 B5' 松手路由；
   // placement 域 clamp（addToGroup/dropIntoGroup 分支 B）是另一域（F4 维持）
@@ -364,7 +369,7 @@ describe('去闸门（终裁 43 需求 5 物理前提）：拖拽期不夹取（
     useCanvasStore.getState().onNodesChange([
       { type: 'position', id: 'n2', position: { x: 420, y: 10 }, dragging: true },
     ]);
-    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n2')!.position)
+    expect((useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === 'n2')!.position)
       .toEqual({ x: 420, y: 10 });
   });
 
@@ -373,11 +378,11 @@ describe('去闸门（终裁 43 需求 5 物理前提）：拖拽期不夹取（
     useCanvasStore.getState().onNodesChange([
       { type: 'position', id: 'n1', position: { x: 5, y: 100 } },
     ]);
-    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!.position.x).toBe(5);
+    expect((useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === 'n1')!.position.x).toBe(5);
     useCanvasStore.getState().onNodesChange([
       { type: 'position', id: 'n1', position: { x: 500, y: 100 } },
     ]);
-    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!.position.x).toBe(500);
+    expect((useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === 'n1')!.position.x).toBe(500);
   });
 
   it('y 超出下边距原样保留（不夹回）', () => {
@@ -385,14 +390,15 @@ describe('去闸门（终裁 43 需求 5 物理前提）：拖拽期不夹取（
     useCanvasStore.getState().onNodesChange([
       { type: 'position', id: 'n1', position: { x: 20, y: 300 } },
     ]);
-    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!.position.y).toBe(300);
+    expect((useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === 'n1')!.position.y).toBe(300);
   });
 
   it('无父节点的 position 变更不受影响', () => {
+    useCanvasStore.setState((s) => ({ renderNodes: s.nodes.map((n: any) => ({ ...n })) as any }));
     useCanvasStore.getState().onNodesChange([
       { type: 'position', id: 'free', position: { x: -999, y: -999 } },
     ]);
-    expect(useCanvasStore.getState().nodes.find((n) => n.id === 'free')!.position)
+    expect((useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === 'free')!.position)
       .toEqual({ x: -999, y: -999 });
   });
 
@@ -404,7 +410,7 @@ describe('去闸门（终裁 43 需求 5 物理前提）：拖拽期不夹取（
     useCanvasStore.getState().onNodesChange([
       { type: 'dimensions', id: 'n1', dimensions: { width: 500, height: 100 }, setAttributes: true } as any,
     ]);
-    const n1 = useCanvasStore.getState().nodes.find((n) => n.id === 'n1')!;
+    const n1 = (useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === 'n1')!;
     expect(n1.width).toBe(500);
     expect(n1.position.x).toBe(420); // 不夹回（旧夹取值=740-20-500=220）
     expect(n1.position.y).toBe(100);
@@ -471,7 +477,8 @@ describe('patchGroupData（undefined=delete，只写 cs——所有权单一）'
       openRwWindow();
       applyDocToStore(d);
       useCanvasStore.getState().patchGroupData('g1', { collapsed: true });
-      expect((useCanvasStore.getState().nodes.find((n) => n.id === 'c1') as any).hidden).toBe(true);
+      // Y2 A3：可见集合=内核剔除（cs 零 hidden 派生键）——折叠子不在渲染列表
+      expect((useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === 'c1')).toBeUndefined();
     } finally {
       _setIntentDocForTest(null);
     }
@@ -506,16 +513,8 @@ describe('patchGroupData（undefined=delete，只写 cs——所有权单一）'
 });
 
 describe('cells 修复（第 7 写者——键盘 Delete 路径）', () => {
-  it('onNodesChange remove 分镜组子节点 → cells 同步清死 id（现状红：removes 段无组清理）', () => {
-    useCanvasStore.setState({ nodes: [
-      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['c1', 'c2'] } },
-      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: {} },
-      { id: 'c2', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: {} },
-    ] as any, edges: [] });
-    useCanvasStore.getState().onNodesChange([{ id: 'c1', type: 'remove' } as any]);
-    const cells = ((useCanvasStore.getState().nodes.find((n) => n.id === 'g1') as any).data).cells;
-    expect(cells.includes('c1')).toBe(false);   // 现状：cells 仍含 'c1'——必红
-  });
+  // Y2 A3 退役注记：cells 死 id 清理测随 cs cells 派生缓存整删（格位真源=membership/slot——
+  // 渲染面 cellNodes 派生，无缓存可清）。
 
   it('删组=级联删子（v6 改裁决——现状红：deleteNode 只处理被删节点的父组，被删节点是组 → 子节点 parentId 悬空。修=级联，对齐菜单 GroupContextMenu 先删子再删组的既有语义）', () => {
     useCanvasStore.setState({ nodes: [
@@ -537,7 +536,7 @@ describe('cells 修复（第 7 写者——键盘 Delete 路径）', () => {
     ] as any, edges: [] });
     useCanvasStore.getState().removeNodeFromGroup('g1', 'c1');
     expect(useCanvasStore.getState().nodes.some((n: any) => n.id === 'g1')).toBe(false);
-    expect((useCanvasStore.getState().nodes.find((n) => n.id === 'c1') as any).position).toEqual({ x: 120, y: 150 });   // 绝对还原（rel+组原点）
+    expect((useCanvasStore.getState().nodes.find((n) => n.id === 'c1') as any).position).toEqual({ x: 20, y: 50 });   // Y2 A3：cs 子恒 abs——移出组零翻转（旧 rel+origin 还原退役）
   });
 });
 
@@ -550,7 +549,8 @@ describe('F33——重算型守恒（左上落点才拉动 frame——右下恒�
     _setIntentDocForTest(d);
     const rig = [
       { id: 'g1', type: 'group', position: { x: 100, y: 100 }, data: { groupType: 'normal' } },
-      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
+      // Y2 A3：cs 子恒 abs（旧 rel(20,50)+origin(100,100) 形态退役——直接 abs 种子）
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 120, y: 150 }, width: 100, height: 60, data: {} },
       ...extra,
     ];
     fillDoc(d, toDocRecords(rig as any, {}) as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态；O0b-0 同构链）
@@ -558,10 +558,10 @@ describe('F33——重算型守恒（左上落点才拉动 frame——右下恒�
     return d;
   };
   const teardown = () => { _setIntentDocForTest(null); };
+  // Y2 A3：cs 子恒 abs——直读（旧 rel+origin 翻转读退役）
   const absOf = (id: string) => {
     const n = useCanvasStore.getState().nodes.find((x) => x.id === id) as any;
-    const p = n.parentId ? (useCanvasStore.getState().nodes.find((x) => x.id === n.parentId) as any).position : { x: 0, y: 0 };
-    return { x: n.position.x + p.x, y: n.position.y + p.y };
+    return { x: n.position.x, y: n.position.y };
   };
 
   it('addToGroup（新成员落左上 {10,10}）：既有成员绝对坐标不变 + 新成员落点=放置点', () => {
@@ -569,8 +569,8 @@ describe('F33——重算型守恒（左上落点才拉动 frame——右下恒�
     try {
       const before = absOf('c1');
       useCanvasStore.getState().addToGroup('g1', 'c2');
-      const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1') as any;
-      expect(g.position).toEqual({ x: 10 - GROUP_PADDING, y: 10 - GROUP_PADDING_TOP });   // 帧扩至 bbox+padding（reconcile 派生）
+      const g = (useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === 'g1');
+      expect(g.position).toEqual({ x: 10 - GROUP_PADDING, y: 10 - GROUP_PADDING_TOP });   // 帧扩至 bbox+padding（内核派生）
       expect(absOf('c1')).toEqual(before);
       expect(absOf('c2')).toEqual({ x: 10, y: 10 });
     } finally {
@@ -585,7 +585,7 @@ describe('F33——重算型守恒（左上落点才拉动 frame——右下恒�
       useCanvasStore.getState().dropIntoGroup('c3', 'g1');
       expect(absOf('c1')).toEqual(before);
       expect(absOf('c3')).toEqual({ x: 5, y: 15 });
-      const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1') as any;
+      const g = (useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === 'g1');
       expect(g.position).toEqual({ x: 5 - GROUP_PADDING, y: 15 - GROUP_PADDING_TOP });   // 同款派生扩框
     } finally {
       teardown();
@@ -627,7 +627,7 @@ describe('F33——重算型守恒（左上落点才拉动 frame——右下恒�
       expect(JSON.stringify(['gm', gm.position, gm.width, gm.height])).toBe(frameBefore);   // 框一字不改
       const k1 = useCanvasStore.getState().nodes.find((n) => n.id === 'k1') as any;
       expect(k1.parentId).toBe('gm');
-      expect(k1.position).toEqual({ x: 50, y: 100 });   // 落点=放置点（rel=abs−组原点）
+      expect(k1.position).toEqual({ x: 250, y: 300 });   // 落点=放置点（Y2 A3：cs 子恒 abs——入组零位移）
     } finally {
       _setIntentDocForTest(null);
     }
@@ -645,7 +645,7 @@ describe('F33——重算型守恒（左上落点才拉动 frame——右下恒�
       useCanvasStore.setState({ nodes: rig as any, edges: [], hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
       useCanvasStore.getState().addToGroup('gm', 'k2');
       const k2 = useCanvasStore.getState().nodes.find((n) => n.id === 'k2') as any;
-      expect(k2.position).toEqual({ x: GROUP_PADDING, y: GROUP_PADDING_TOP });   // 夹回界
+      expect(k2.position).toEqual({ x: 200 + GROUP_PADDING, y: 200 + GROUP_PADDING_TOP });   // 夹回界（Y2 A3：abs 域——组原点+rel 夹回值）
     } finally {
       _setIntentDocForTest(null);
     }
@@ -665,16 +665,19 @@ describe('几何不变量（§4.8——每个重算型命令后 frame ≡ calcGr
   const teardown = () => { _setIntentDocForTest(null); };
   const assertInvariant = () => {
     const nodes = useCanvasStore.getState().nodes as any[];
-    // O0b-5：shouldAutoRefit 退役——auto 域谓词=groupType!=='storyboard'∧!collapsed（isContentDerivedFrame 的 cs 侧同构）
+    const rnById = new Map((useCanvasStore.getState().renderNodes as any[]).map((n) => [n.id, n]));
+    // O0b-5：shouldAutoRefit 退役——auto 域谓词=groupType!=='storyboard'∧!collapsed。Y2 A3：cs 子
+    // 恒 abs 直读；组帧=渲染列表内核派生（cs/doc 零帧键）
     for (const g of nodes.filter((n) => n.type === 'group' && (n.data as any).groupType !== 'storyboard' && !(n.data as any).collapsed)) {
+      const rg = rnById.get(g.id)!;
       const children = nodes.filter((n) => n.parentId === g.id);
-      const abs = children.map((c) => ({ x: c.position.x + g.position.x, y: c.position.y + g.position.y,
+      const abs = children.map((c) => ({ x: c.position.x, y: c.position.y,
         width: c.width ?? DEFAULT_CHILD_SIZE.width, height: c.height ?? DEFAULT_CHILD_SIZE.height }));
-      expect({ x: g.position.x, y: g.position.y, width: g.width, height: g.height })
+      expect({ x: rg.position.x, y: rg.position.y, width: rg.width, height: rg.height })
         .toEqual(calcGroupBounds(abs));   // 期望来自纯函数
       children.forEach((c) => {
-        expect(c.position.x).toBeGreaterThanOrEqual(GROUP_PADDING);
-        expect(c.position.y).toBeGreaterThanOrEqual(GROUP_PADDING_TOP);
+        expect(c.position.x - rg.position.x).toBeGreaterThanOrEqual(GROUP_PADDING);
+        expect(c.position.y - rg.position.y).toBeGreaterThanOrEqual(GROUP_PADDING_TOP);
       });
     }
   };
@@ -1020,7 +1023,8 @@ describe('hidden 写入侧不变量（hidden ⇒ selected===false）', () => {
       const a = useCanvasStore.getState().nodes.find((n) => n.id === 'a') as any;
       const b = useCanvasStore.getState().nodes.find((n) => n.id === 'b') as any;
       expect(a.selected).toBe(false);
-      expect(a.hidden).toBe(true);   // reconcile hidden 派生（O0b-4 并入单内核）折叠推导到位
+      // Y2 A3：可见集合=内核剔除（cs 零 hidden 派生键）——折叠子不在渲染列表
+      expect((useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === 'a')).toBeUndefined();
       expect(b.selected).toBe(false);
     } finally {
       _setIntentDocForTest(null);
@@ -1044,7 +1048,8 @@ describe('hidden 写入侧不变量（hidden ⇒ selected===false）', () => {
       useCanvasStore.getState().convertGroup('g1', 'storyboard');
       const img1 = useCanvasStore.getState().nodes.find((n) => n.id === 'img1') as any;
       expect(img1.selected).toBe(false);
-      expect(img1.hidden).toBe(true);   // storyboard 组 hidden 推导
+      // Y2 A3：可见集合=内核剔除——分镜子不在渲染列表（cs 零 hidden 派生键）
+      expect((useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === 'img1')).toBeUndefined();
     } finally {
       _setIntentDocForTest(null);
     }
@@ -1065,8 +1070,8 @@ describe('hidden 写入侧不变量（hidden ⇒ selected===false）', () => {
       expect(docA.has('selected')).toBe(false);
       // 模拟远端 applyDocToStore：hidden 推导到位（B 端投影侧真相）
       applyDocToStore(d);
-      const aB = useCanvasStore.getState().nodes.find((n) => n.id === 'a') as any;
-      expect(aB.hidden).toBe(true);
+      const aB = (useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === 'a');
+      expect(aB).toBeUndefined();   // Y2 A3：B 端投影侧真相=渲染列表剔除（内核）
       // B 端 stale 形态（selected=true+hidden=true——RF 本端选择态与 doc 重建的时序差）由
       // SelectionBoxOverlay 读点过滤（!n.hidden）兜住——谓词钉死在组件测试（读点所在文件）
     } finally {
@@ -1084,8 +1089,9 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
   // dispatchProjectionDiff 算 0 intents 后直接 return，doc 写路径零验证、断言恒绿。
   const rigNodes = () => [
     { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 340, height: 240, data: { groupType: 'normal', name: 'A', color: 'red' } },
-    { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: { status: 'done', fileId: 'f1', prompt: 'ns-fresh' } },
-    { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 140, y: 50 }, width: 100, height: 60, data: { status: 'done', fileId: 'f2', prompt: 'p-b' } },
+    // Y2 A3：cs 子恒 abs（旧 rel 形态+toDocRecords 翻转退役）
+    { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 120, y: 150 }, width: 100, height: 60, data: { status: 'done', fileId: 'f1', prompt: 'ns-fresh' } },
+    { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 240, y: 150 }, width: 100, height: 60, data: { status: 'done', fileId: 'f2', prompt: 'p-b' } },
   ];
   const seed = (nodes: unknown[], edges: unknown[] = []) => {
     const d = new Y.Doc();
@@ -1127,7 +1133,7 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
     try {
       const newGid = useCanvasStore.getState().duplicateNodes(['g1']);
       const child = useCanvasStore.getState().nodes.find((n) => n.parentId === newGid && (n.data as any).fileId === 'f1')!;
-      expect((child.data as any).prompt).toBe('ns-fresh');   // 旧路径 structuredClone(cs data) → 'cs-stale'
+      expect((child.data as any).prompt).toMatchObject({ text: 'ns-fresh' });   // Y2 A3：prompt=xml 域容器（ns=doc 快照解码）——保真=容器 text 携新值
     } finally { teardown(); }
   });
 
@@ -1156,8 +1162,10 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
       const copySg = useCanvasStore.getState().nodes.find((n) => n.type === 'group' && n.id !== 'sg') as any;
       // T17：doc 恒无 cells（键集表剥）；cs data.cells=派生缓存（子 slot 派生——旧 id 零残留）
       const copyChildren = useCanvasStore.getState().nodes.filter((n) => n.parentId === copySg.id);
-      expect(copySg.data.cells.filter(Boolean)).toEqual(copyChildren.map((c) => c.id).sort());
-      expect(copySg.data.cells.some((c: any) => c === 'c1' || c === 'ghost')).toBe(false);
+      // Y2 A3：cs cells 派生缓存随 reconcile 写域⑥ 退役（渲染面 cellNodes 派生兜底；命令点缓存 A5 收口）
+      expect(copySg.data.cells).toBeUndefined();
+      expect(copyChildren.length).toBeGreaterThan(0);
+      expect(copyChildren.some((c: any) => c.id === 'c1')).toBe(false);   // 旧 id 零残留
     } finally { teardown(); }
   });
 
@@ -1203,7 +1211,7 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
       const st = useCanvasStore.getState();
       expect(st.nodes.find((n) => n.id === newGid)!.position).toEqual({ x: 500, y: 300 });   // position 直落
       const child = st.nodes.find((n) => n.parentId === newGid && (n.data as any).fileId === 'f1')!;
-      expect((child.data as any).prompt).toBe('ns-fresh');   // 复制时点快照，非 changed-after-copy
+      expect((child.data as any).prompt).toMatchObject({ text: 'ns-fresh' });   // Y2 A3：prompt=xml 域容器（ns=doc 快照解码）——复制时点快照
       // schema 含 edges：删原内部边后再次粘贴——副本内部边仍由 clipboard.edges 承载恢复
       useCanvasStore.getState().removeEdge('e-in');
       const newGid2 = useCanvasStore.getState().pasteGroupClipboard({ x: 900, y: 300 });
@@ -1354,8 +1362,9 @@ describe('arrangeGroupChildren（2c-4）', () => {
   const rigNodes = () => [
     { id: 'g1', type: 'group', position: { x: 100, y: 100 },
       data: { groupType: 'normal', name: 'A' } },
-    { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
-    { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 500, y: 300 }, width: 300, height: 200, data: {} },
+    // Y2 A3：cs 子恒 abs（旧 rel 形态+toDocRecords 翻转退役）
+    { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 120, y: 150 }, width: 100, height: 60, data: {} },
+    { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 600, y: 400 }, width: 300, height: 200, data: {} },
   ];
   const setupRig = (nodes: unknown[] = rigNodes()) => {
     const d = new Y.Doc();
@@ -1371,9 +1380,8 @@ describe('arrangeGroupChildren（2c-4）', () => {
   };
   const nodeOf = (id: string) => useCanvasStore.getState().nodes.find((n) => n.id === id)!;
   const absOf = (id: string) => {
-    const n = nodeOf(id) as any;
-    const p = n.parentId ? (nodeOf(n.parentId) as any).position : { x: 0, y: 0 };
-    return { x: n.position.x + p.x, y: n.position.y + p.y };
+    const n = nodeOf(id) as any;   // Y2 A3：cs 子恒 abs——直读（旧 rel+origin 翻转读退役）
+    return { x: n.position.x, y: n.position.y };
   };
   const snapshot = () => JSON.stringify(useCanvasStore.getState().nodes.map((n) => [n.id, n.position, n.width, n.height, n.data]));
 
@@ -1389,7 +1397,7 @@ describe('arrangeGroupChildren（2c-4）', () => {
         { id: 'b', x: 600, y: 400, width: 300, height: 200 },
       ]);
       const laid = arrangeRects(items.map(({ id, ...r }) => r), 'horizontal');
-      const g = nodeOf('g1') as any;
+      const g = (useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === 'g1');   // Y2 A3：auto 组帧=渲染列表内核派生
       expect({ x: g.position.x, y: g.position.y, width: g.width, height: g.height }).toEqual(calcGroupBounds(laid));
       expect(checkProjectionInvariant(d)).toBe(true);
     } finally {
@@ -1410,11 +1418,11 @@ describe('arrangeGroupChildren（2c-4）', () => {
       ]);
       const laid = arrangeRects(items.map(({ id, ...r }) => r), 'horizontal');
       items.forEach((it, i) => expect(absOf(it.id)).toEqual({ x: laid[i].x, y: laid[i].y }));   // 子绝对=排列结果（守恒锚）
-      const g = nodeOf('g1') as any;
+      const g = (useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === 'g1');   // Y2 A3：auto 组帧=渲染列表内核派生
       expect({ x: g.position.x, y: g.position.y, width: g.width, height: g.height }).toEqual(calcGroupBounds(laid));   // 组框=bbox+padding
       laid.forEach((r, i) => {
         const n = nodeOf(items[i].id) as any;
-        expect(n.position).toEqual({ x: r.x - g.position.x, y: r.y - g.position.y });   // 子新绝对−新组原点=rel
+        expect(n.position).toEqual({ x: r.x, y: r.y });   // Y2 A3：cs 子恒 abs=排列结果直写（rel 换算退役）
       });
       expect(checkProjectionInvariant(d)).toBe(true);
     } finally {
@@ -1505,23 +1513,25 @@ describe('arrangeGroupChildren（2c-4）', () => {
 describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
   // 真装置（照 runCommand 2a-0 / setGroupColor 2c-3 骨架）：真 Y.Doc + fillDoc + _setIntentDocForTest +
   // attachUndoManager。禁止 vi.mock canvasIntents——mock 空投影会让 doc 写路径零验证、断言恒绿。
+  // Y2 A3：cells=cs 派生缓存键（doc 键集剥除）——cs≡doc 同形零携带（守卫面不消费 cells）
   const sgData = {
-    groupType: 'storyboard', cells: ['c1', 'c2'],
+    groupType: 'storyboard',
     storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' },
   };
   const rigNodes = () => [
-    // auto 组夹具：g1 带子、无帧键（O0b-5：auto=cs 派生帧——doc 恒 0 帧键；折叠 cs=COLLAPSED_SIZE 派生、展开重派生 bbox）
-    { id: 'g1', type: 'group', position: { x: 100, y: 100 }, data: { groupType: 'normal', name: 'A' } },
-    { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 100, height: 60, data: {} },
-    { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 300, y: 200 }, width: 120, height: 80, data: {} },
+    // auto 组夹具：g1 带子、零帧键（O0b-5 沿袭；Y2 A3：cs≡doc 同形——position 亦不携〔键集表
+    // auto 组零帧键含 position；派生 origin=子 abs bbox−padding=(100,100) 与旧携带值恒等〕）
+    { id: 'g1', type: 'group', data: { groupType: 'normal', name: 'A' } },
+    // Y2 A3：cs 子恒 abs（旧 rel(20,50)/(300,200)+翻转链退役——abs=(120,150)/(400,300)）
+    { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 120, y: 150 }, width: 100, height: 60, data: {} },
+    { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 400, y: 300 }, width: 120, height: 80, data: {} },
     // manual 组夹具：gm 500×350 帧三键（O0b-5：manual oracle=doc 帧键形态——终裁 82 折叠不剥键，doc 三键=展开态密封源）
     { id: 'gm', type: 'group', position: { x: 1000, y: 1000 }, width: 500, height: 350,
       data: { groupType: 'normal' } },
-    // 分镜守卫夹具：sg（不可折叠——双向 no-op）
-    { id: 'sg', type: 'group', position: { x: 500, y: 500 }, width: 642, height: 182, data: { ...sgData } },
+    // 分镜守卫夹具：sg（不可折叠——双向 no-op）。Y2 A3：分镜组 wh=键集表剥除——cs≡doc 同形零 wh
+    { id: 'sg', type: 'group', position: { x: 500, y: 500 }, data: { ...sgData } },
     // 分镜脏数据夹具：sg2（杂散 collapsed——展开方向守卫判别力）
-    { id: 'sg2', type: 'group', position: { x: 2000, y: 2000 }, width: 642, height: 182,
-      data: { ...sgData, collapsed: true } },
+    { id: 'sg2', type: 'group', position: { x: 2000, y: 2000 }, data: { ...sgData, collapsed: true } },
   ];
   const setupRig = (nodes: unknown[] = rigNodes()) => {
     const d = new Y.Doc();
@@ -1529,6 +1539,8 @@ describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
     _setIntentDocForTest(d);
     fillDoc(d, toDocRecords(nodes as any, {}) as any, []);   // 初态 origin=null 不入撤销栈（server 填充形态；O0b-0 同构链）
     useCanvasStore.setState({ nodes: nodes as any, edges: [], selectedId: null, hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
+    // Y2 A3：渲染列表=内核输出（镜像非内核形态——不变量②必红）；applyDocToStore 零 transact
+    applyDocToStore(d);
     return { d, um };
   };
   const teardownRig = () => {
@@ -1543,9 +1555,11 @@ describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
       useCanvasStore.getState().toggleCollapse('g1');
       const g = groupOf('g1') as any;
       expect(g.data.collapsed).toBe(true);
-      expect(g.width).toBe(COLLAPSED_SIZE.width);                      // cs 折叠渲染档
-      expect(g.height).toBe(COLLAPSED_SIZE.height);
-      expect(g.position).toEqual({ x: 100, y: 100 });                  // origin=bbox 派生（折叠 auto 档 origin 照旧）
+      // Y2 A3：折叠渲染档=渲染列表内核派生帧（cs 零派生键）
+      const rg = (useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === g.id);
+      expect(rg.width).toBe(COLLAPSED_SIZE.width);
+      expect(rg.height).toBe(COLLAPSED_SIZE.height);
+      expect(rg.position).toEqual({ x: 100, y: 100 });                 // origin=bbox 派生（折叠 auto 档 origin 照旧）
       // doc 面（意图漏斗单源——单 updateNodeData；auto 组折叠/展开均不写帧键）
       const dm = d.getMap('nodes').get('g1') as Y.Map<any>;
       expect(dm.get('width')).toBeUndefined();                          // auto 组 doc 恒 0 帧键（含折叠态）
@@ -1562,8 +1576,10 @@ describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
       useCanvasStore.getState().toggleCollapse('gm');
       const collapsed = groupOf('gm') as any;
       expect(collapsed.data.collapsed).toBe(true);
-      expect(collapsed.width).toBe(COLLAPSED_SIZE.width);               // cs 折叠渲染档（reconcile collapsed 档覆写 manual——优先级最高）
-      expect(collapsed.position).toEqual({ x: 1000, y: 1000 });         // origin 密封不动
+      // Y2 A3：折叠渲染档=渲染列表内核派生帧（collapsed 档覆写 manual——优先级最高；cs/doc=密封源）
+      const rc = (useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === collapsed.id);
+      expect(rc.width).toBe(COLLAPSED_SIZE.width);
+      expect(rc.position).toEqual({ x: 1000, y: 1000 });                // origin 密封不动
       const dm = d.getMap('nodes').get('gm') as Y.Map<any>;
       expect(dm.get('width')).toBe(500);                                // doc 三键密封——折叠不写 COLLAPSED_SIZE
       expect(dm.get('height')).toBe(350);
@@ -1639,9 +1655,10 @@ describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
       useCanvasStore.getState().toggleCollapse('g1');
       expect(useCanvasStore.getState().nodes.filter((n) => n.parentId === 'g1').map((n) => [n.id, n.position]))
         .toEqual(relsBefore);   // 子 rel 恒定——子绝对随组原点守恒
-      const g1 = groupOf('g1') as any;
+      // Y2 A3：cs 子恒 abs 直读；auto 组帧=渲染列表内核派生
+      const g1 = (useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === 'g1');
       const abs = useCanvasStore.getState().nodes.filter((n) => n.parentId === 'g1').map((c) => ({
-        x: c.position.x + g1.position.x, y: c.position.y + g1.position.y,
+        x: c.position.x, y: c.position.y,
         width: c.width ?? DEFAULT_CHILD_SIZE.width, height: c.height ?? DEFAULT_CHILD_SIZE.height,
       }));
       expect({ x: g1.position.x, y: g1.position.y, width: g1.width, height: g1.height })
@@ -1729,8 +1746,9 @@ describe('折叠收口 v2（§4.9 改道——信封恒等可见盒）', () => {
     try {
       openRoWindow();
       applyDocToStore(d);   // 先水合（reconcile 派生帧落 cs——夹具裸种子无 wh，帧自本步起有值）
+      // Y2 A3：auto 组帧=渲染列表内核派生（cs 零派生键）
       const frameOf = (id: string) => {
-        const g = groupOf(id) as any;
+        const g = (useCanvasStore.getState().renderNodes as any[]).find((n) => n.id === id);
         return { position: { ...g.position }, width: g.width, height: g.height };
       };
       const frameBefore = frameOf('g1');

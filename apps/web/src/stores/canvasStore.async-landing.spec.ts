@@ -9,6 +9,7 @@ import { message } from 'antd';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import { _setIntentDocForTest } from './canvasIntents';
+import { fillDoc } from '@/collab/ydocBuilder';
 
 /** 会话电平：默认 idle+readonly（无会话）/ pending+rw（未水合窗口）/ ready+rw（编辑者） */
 const noSession = () =>
@@ -70,7 +71,9 @@ describe('批2-3 R20：生成回调异步落地 canEdit 门（addChildNode/addCh
     readWriteSession();
     // O0b-2 exists 收口：dispatch 恒成功⇒投影恒 append（append 回退分支删除）——canEdit 真=完整
     // 漏斗可用，测试装置补 doc（生产 rw 会话 doc 恒在；doc 缺席=canEdit 假语义域，上方用例覆盖）
-    _setIntentDocForTest(new Y.Doc());
+    const d = new Y.Doc();
+    _setIntentDocForTest(d);
+    fillDoc(d, [{ id: 'src1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any], []);   // Y2 A3：doc 同步播种（漏斗尾快照以 doc 收口——直播 cs 不播会被刷没）
     const ret = useCanvasStore.getState().addChildNode('src1', { fileId: 'f1', status: 'done' });
     expect(typeof ret).toBe('string');
     expect(useCanvasStore.getState().nodes.find((n: any) => n.id === ret)).toBeDefined();

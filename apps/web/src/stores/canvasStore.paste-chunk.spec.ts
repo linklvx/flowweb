@@ -17,6 +17,7 @@ import { useCanvasStore, chunkCopyPlan, chunkIntentsOf } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 import * as runtime from './canvasCollabRuntime';
 import { getDoc } from './canvasCollabRuntime';
+import { fillDoc } from '@/collab/ydocBuilder';
 import { getUndoManager } from './canvasUndo';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 
@@ -69,6 +70,8 @@ function seedGroup(childrenCount: number, contentBytesEach: number) {
   }
   useCanvasStore.setState({ nodes: csNodes, edges: [], selectedId: null } as any);
   useNodeStore.setState({ nodes: nsNodes } as any);
+  // Y2 A3：cs=作者缓存≡doc——原件同步播 doc（旧「原件仅 cs」前提随统一快照退役；undo 面=撤副本留原件）
+  if (getDoc()) fillDoc(getDoc()!, csNodes, []);
 }
 
 beforeEach(() => {
@@ -99,13 +102,13 @@ describe('Y0b-4 T10：分块粘贴（Q-J——chunkCopyPlan 形态）', () => {
     const s = useCanvasStore.getState();
     expect(s.nodes).toHaveLength(202);                        // 101 原件 + 101 副本全量落位
     const d = getDoc()!;
-    expect(d.getMap('nodes').size).toBe(101);                 // 副本全量落 doc（原件为播种态从未入 doc）
+    expect(d.getMap('nodes').size).toBe(202);                 // Y2 A3：原件播种入 doc+副本全量落 doc（cs≡doc 前提）
     expect(frames.length).toBeGreaterThanOrEqual(3);          // 非单 transact（探针③形态——分块落 wire）
     expect(Math.max(...frames)).toBeLessThanOrEqual(262_144); // 每块过 seam（服务端 tx 门 256KB）
     expect(frames.reduce((a, b) => a + b, 0)).toBeGreaterThan(900_000);   // 1MB 内容实质上 wire
     expect(getUndoManager()!.undoStack.length).toBe(1);       // captureTimeout 窗合并=1 undo 项
     getUndoManager()!.undo();                                 // 撤销一步整撤全部分块
-    expect(d.getMap('nodes').size).toBe(0);
+    expect(d.getMap('nodes').size).toBe(101);                 // Y2 A3：撤副本留原件（原件在案 doc）
   });
 
   it('中途预算耗尽：已贴块保留+剩余丢弃+diag+toast（块=原子不半块回滚——doc/store 对已贴块一致）', async () => {
@@ -119,7 +122,7 @@ describe('Y0b-4 T10：分块粘贴（Q-J——chunkCopyPlan 形态）', () => {
     const pasted = s.nodes.length - 101;
     expect(pasted).toBeGreaterThan(0);                        // 已贴块保留
     expect(pasted).toBeLessThan(101);                         // 剩余丢弃
-    expect(getDoc()!.getMap('nodes').size).toBe(pasted);      // 已贴块 doc/store 一致（逐块 diff 收口）
+    expect(getDoc()!.getMap('nodes').size).toBe(101 + pasted);   // Y2 A3：已贴块 doc/store 一致（原件 101 在案+副本逐块 diff 收口）
     const rejects = getRecentCollabDiag().filter((e) => e.type === 'write_reject');
     expect(rejects.length).toBeGreaterThanOrEqual(1);
     expect(rejects[rejects.length - 1]!.detail).toMatchObject({ reason: 'doc-over-budget' });

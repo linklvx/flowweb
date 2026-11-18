@@ -75,9 +75,8 @@ export * from './canvas/media-fact';
 // collectMediaIds 聚合——C3a-1 收口）——api binding-reconcile 惰性 reconcile/GC 引用图与
 // web pendingFacts/fileId 到达判定共用（DocLike 结构入参，fillDoc 同款零 yjs 纪律）。
 export * from './canvas/media-refs';
-// C0-2（Spec B）：geometryWriterRegistry=纯常量零依赖（写者类别+归类账本）——
-// geometryTrap 写者上下文校验与 B7-1 census 引用源。assertions/C0-1 类型骨架 stub 出口仍归 O0a。
-export * from './canvas/geometryWriterRegistry';
+// Y2 A3 退役注记：geometryWriterRegistry（写者类别+归类账本——GEOMETRY_WRITER_CATEGORIES/
+// withGeometryWriter 消费面）随 geometryTrap 仲裁体系整删（web 侧生产消费已归零）。
 export * from './canvas/geometry';
 // T17（plan v11.2 S5 片·spec Z12''/Z4''-v14/Z17''）：序域三新单源出口——单一有界 order 键域
 // （自实现分数索引，禁第三方库）+placement 复合单键判别（DOC_NODE_KEYS 契约表/deriveStoryboardCells）

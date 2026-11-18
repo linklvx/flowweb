@@ -172,6 +172,8 @@ describe('CanvasView 交互 props 契约（spec §3/§8.1）', () => {
       { id: 'a', type: 'imageGen', position: { x: 100, y: 100 }, width: 200, height: 100, selected: true, data: {} },
       { id: 'b', type: 'imageGen', position: { x: 200, y: 300 }, width: 200, height: 100, selected: true, data: {} },
     ] as any);
+    // Y2 A3：几何/选区断言域=渲染列表——种子镜像（handle 菜单 plusZones 消费面）
+    useCanvasStore.setState((s) => ({ renderNodes: s.nodes.map((n: any) => ({ ...n })) as any }));
     openRwWindow(); // canEdit 真（hydration ready+非 readOnly）
     act(() => { useCanvasStore.setState({ viewport: { x: 0, y: 0, zoom: 1 } }); });
     const p = renderCapture();

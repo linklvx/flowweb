@@ -8,7 +8,6 @@ import type { DragSession } from '@flowweb/shared';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { NODE_TYPES } from '@/stores/nodeStore';
 import { useNodeStore } from '@/stores/nodeStore';
-import { withGeometryWriter } from '@/stores/geometryTrap';
 
 export interface MakeChildOverrides {
   id: string;
@@ -47,17 +46,13 @@ export function makeGroup(o: MakeChildOverrides & { groupType?: string }): Node 
 
 /** 整画布注入（'fixture' 写者上下文内 setState——陷阱放行面）。 */
 export function seedCanvas(nodes: Node[], edges?: Edge[]): void {
-  withGeometryWriter('fixture', () => {
-    useCanvasStore.setState({ nodes, edges: edges ?? [], selectedId: null });
-  });
+      useCanvasStore.setState({ nodes, edges: edges ?? [], selectedId: null });
 }
 
 /** Y1c T19（T18 移交 setState×4 收口）：cs 镜像追加单节点（'fixture' 写者上下文——几何
  *  setState 棘轮 G 的合法通道；t17-array-domains.spec 的 ns/cs 双镜像 setUp 用）。 */
 export function appendCanvasNode(node: Node): void {
-  withGeometryWriter('fixture', () => {
-    useCanvasStore.setState((s) => ({ nodes: [...s.nodes, node] }));
-  });
+      useCanvasStore.setState((s) => ({ nodes: [...s.nodes, node] }));
 }
 
 /** rw 漏斗窗口（canEdit 真——hydration ready+非 readOnly+无 terminal）。O0b-2 新增测试基建单点：
@@ -65,18 +60,14 @@ export function appendCanvasNode(node: Node): void {
  *  会话窗口开启从本入口进（本文件不在 test/spec 扫描面；hydration 经 setHydration action——
  *  hydration 单写者静态断言对生产源扫描含本文件）。 */
 export function openRwWindow(): void {
-  withGeometryWriter('fixture', () => {
-    useCanvasStore.getState().setHydration('ready');
+      useCanvasStore.getState().setHydration('ready');
     useCanvasStore.setState({ collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
-  });
 }
 
 /** ro 窗口（canEdit 假——dispatch 门同款判据档；O0b-4 与 openRwWindow 对偶单点）。 */
 export function openRoWindow(): void {
-  withGeometryWriter('fixture', () => {
-    useCanvasStore.getState().setHydration('ready');
+      useCanvasStore.getState().setHydration('ready');
     useCanvasStore.setState({ collabReadOnly: true, wsAuthNotice: null, projectId: 'p1' });
-  });
 }
 
 /** 会话几何复位（测试 afterEach 单点——同上零直接 setState）。localCollapsed=viewer 折叠
@@ -85,9 +76,7 @@ export function openRoWindow(): void {
  *  无 timer，seedDragSession(null) 等效）。 */
 export function resetCanvasStores(): void {
   if (useCanvasStore.getState().dragSession) useCanvasStore.getState().endGesture('aborted');
-  withGeometryWriter('fixture', () => {
-    useCanvasStore.setState({ nodes: [], edges: [], selectedId: null, localCollapsed: {} });
-  });
+      useCanvasStore.setState({ nodes: [], edges: [], selectedId: null, localCollapsed: {} });
   useNodeStore.setState({ nodes: {} as never });
 }
 
@@ -96,7 +85,5 @@ export function resetCanvasStores(): void {
  *  session 字段非节点几何面（陷阱只查 position/width/height），withGeometryWriter 包裹
  *  对齐夹具纪律。 */
 export function seedDragSession(session: DragSession | null): void {
-  withGeometryWriter('fixture', () => {
-    useCanvasStore.setState({ dragSession: session });
-  });
+      useCanvasStore.setState({ dragSession: session });
 }

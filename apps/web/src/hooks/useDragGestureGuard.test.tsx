@@ -21,6 +21,10 @@ import { act, renderHook } from '@testing-library/react';
 import { useDragGestureGuard } from './useDragGestureGuard';
 import { useCanvasStore, DRAG_STALE_MS } from '@/stores/canvasStore';
 import { seedCanvas, resetCanvasStores } from '@/test/fixtures/canvas';
+import { _setIntentDocForTest } from '@/stores/canvasIntents';
+import { applyDocToStore } from '@/stores/canvasCollabRuntime';
+import { fillDoc } from '@/collab/ydocBuilder';
+import * as Y from 'yjs';
 
 const session = () => useCanvasStore.getState().dragSession;
 const begin = (ids: string[], pointerId: number | null) =>
@@ -40,14 +44,22 @@ const fireTouch = (touches: number, type: 'touchmove' | 'touchcancel' = 'touchmo
   return ev;
 };
 
+// Y2 A3：手势活值唯一宿主=渲染列表（cs=作者缓存恒≡doc——seedCanvas 直写 cs 退役）
 const dragFrame = (id: string, pos: { x: number; y: number }) => {
-  seedCanvas(useCanvasStore.getState().nodes.map((n: any) => (
-    n.id === id ? { ...n, position: { ...pos } } : n
-  )));
+  useCanvasStore.setState((s) => ({
+    renderNodes: s.renderNodes.map((n: any) => (
+      n.id === id ? { ...n, position: { ...pos } } : n
+    )) as any,
+  }));
 };
 
 beforeEach(() => {
   seedCanvas([{ id: 't1', type: 'textInput', position: { x: 700, y: 0 }, data: {} } as any]);
+  // Y2 A3：doc 同步播种+真水合（回滚=渲染列表重算 doc 派生值——无 doc 收尾零重算；invariant 需 cs≡doc）
+  const d = new Y.Doc();
+  fillDoc(d, [{ id: 't1', type: 'textInput', position: { x: 700, y: 0 }, data: {} } as any], []);
+  _setIntentDocForTest(d);
+  applyDocToStore(d);
 });
 
 afterEach(() => {
@@ -96,8 +108,8 @@ describe("B4'-1 常驻监听（[] 依赖——终裁 37①）", () => {
     dragFrame('t1', { x: 800, y: 10 });
     firePointer('pointermove', { pointerId: 1, buttons: 0 });
     expect(session()).toBeNull();                                  // 自愈收尾
-    const t1 = useCanvasStore.getState().nodes.find((n: any) => n.id === 't1') as any;
-    expect(t1.position).toEqual({ x: 700, y: 0 });                 // healed 同构收尾含回滚（spec §3.2.6）
+    // Y2 A3：回滚=渲染列表重算 doc 派生值（healed 同构收尾含回滚——spec §3.2.6）
+    expect((useCanvasStore.getState().renderNodes as any[]).find((n: any) => n.id === 't1')!.position).toEqual({ x: 700, y: 0 });
   });
 
   it('pointermove[buttons!==0] ⇒ noteDragActivity（lastActivityAt 刷新+watchdog 重挂）', () => {
@@ -128,8 +140,8 @@ describe("B4'-1 常驻监听（[] 依赖——终裁 37①）", () => {
     dragFrame('t1', { x: 800, y: 10 });
     unmount();
     expect(session()).toBeNull();                                       // 会话不残留
-    expect(useCanvasStore.getState().nodes.find((n: any) => n.id === 't1')!.position)
-      .toEqual({ x: 700, y: 0 });                                       // abort 族回滚 baseline
+    expect((useCanvasStore.getState().renderNodes as any[]).find((n: any) => n.id === 't1')!.position)
+      .toEqual({ x: 700, y: 0 });                                       // abort 族回滚 baseline（Y2 A3：渲染列表域）
   });
 });
 

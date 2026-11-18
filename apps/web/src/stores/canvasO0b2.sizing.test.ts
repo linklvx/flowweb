@@ -28,9 +28,9 @@ import { readFileSync, existsSync } from 'fs';
 import * as path from 'path';
 import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
-import { applyDocToStore, reconcileGroupGeometry, readGroupFrameModes } from './canvasCollabRuntime';
+import { applyDocToStore } from './canvasCollabRuntime';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
-import { calcStoryboardSize, normalizeSize, type StoredNodeRecord } from '@flowweb/shared';
+import { calcStoryboardSize, normalizeSize, frameMode, type StoredNodeRecord } from '@flowweb/shared';
 import {
   _setIntentDocForTest, dispatchCanvasIntent, captureStoreProjection, dispatchProjectionDiff,
   reportNodeSize,
@@ -170,8 +170,8 @@ describe('O0b-2 (i) 命令体显式值：分镜落子/生成结果入组（hidde
     applyDocToStore(d);
     _setIntentDocForTest(d);
     useCanvasStore.getState().addImageToStoryboardCell('sb', 0, 'file-x');
-    // T17：格位真源=子 slot——槽 0 成员=cs 派生缓存首格（doc 组 data 恒无 cells）
-    const cellId = (csNode('sb').data as any).cells[0] as string;
+    // T17→Y2 A3：格位真源=子 slot（cells 派生缓存退役）——槽 0 成员=组内携 slot===0 者
+    const cellId = (useCanvasStore.getState().nodes.find((n: any) => n.parentId === 'sb' && n.data?.slot === 0) as any)?.id as string;
     const cell = docRecord(d, cellId);
     expect(cell?.width).toBe(320);   // 命令体显式值（经差分 after 快照——分镜子 wh 自由面）
     expect(cell?.height).toBe(180);
@@ -409,27 +409,27 @@ describe('O0b-5 质评收口 C-1：auto 组 dimensions-only resize 提交——p
     return d;
   }
 
-  it('右/下柄批（无 position change）：doc 落三键∧frameMode=manual∧后续 reconcile 不回弹（2 键部分帧即红）', () => {
+  it('右/下柄批（无 position change）：doc 落三键∧frameMode=manual∧帧不回弹（2 键部分帧即红）', () => {
     openRwWindow();
     const d = setupAutoGroupDoc();
-    // bbox: x∈[300,700] y∈[100,200] ⇒ 派生帧=(280,50,440,170)（applyDocToStore 尾 reconcile）
-    expect(csNode('ga').position).toEqual({ x: 280, y: 50 });
+    // bbox: x∈[300,700] y∈[100,200] ⇒ 派生帧=(280,50,440,170)（Y2 A3：渲染列表=内核派生域）
+    const rnNode = (id: string) => useCanvasStore.getState().renderNodes.find((n: any) => n.id === id) as any;
+    expect(rnNode('ga').position).toEqual({ x: 280, y: 50 });
     // RF 右/下柄方向：同批只有 dimensions（setAttributes:true）——无 position 变更
     useCanvasStore.getState().onNodesChange([
       { id: 'ga', type: 'dimensions', dimensions: { width: 800, height: 600 }, setAttributes: true } as any,
     ]);
     // (a) doc 组记录三键齐（2 键部分帧形态即红——auto 组携带帧键违 invariant 形态）
     const rec = docRecord(d, 'ga');
-    expect(rec?.position).toEqual({ x: 280, y: 50 });   // 回填值=手势末 cs 帧 origin（reconcile 派生）
+    expect(rec?.position).toEqual({ x: 280, y: 50 });   // 回填值=渲染列表组帧 origin（内核派生——Y2 A3）
     expect(rec?.width).toBe(800);
     expect(rec?.height).toBe(600);
-    // (c) 帧模式 auto→manual（resize=manuallyResized 删除后唯一密封转换通道）
-    expect(readGroupFrameModes(d).get('ga')).toBe('manual');
-    // (b) 下一次漏斗尾 reconcile('doc')：manual 密封源不动——帧不回弹到 bbox 派生值（440×170）
-    reconcileGroupGeometry(d, 'doc');
-    expect(csNode('ga').width).toBe(800);
-    expect(csNode('ga').height).toBe(600);
-    expect(csNode('ga').position).toEqual({ x: 280, y: 50 });
+    // (c) 帧模式 auto→manual（resize=manuallyResized 删除后唯一密封转换通道——doc 键直判）
+    expect(frameMode({ data: rec!.data, storedFrame: { position: rec!.position, width: rec!.width, height: rec!.height } })).toBe('manual');
+    // (b) 帧不回弹：manual 密封源——内核以 doc 帧键为 storedFrame（440×170 bbox 派生值不复活）
+    expect(rnNode('ga').width).toBe(800);
+    expect(rnNode('ga').height).toBe(600);
+    expect(rnNode('ga').position).toEqual({ x: 280, y: 50 });
   });
 });
 
@@ -462,79 +462,11 @@ describe('O0b-2 连带面：removeNodeFromGroup 分镜分支 placementBesideGrou
     // cs 派生缓存=空宫格（长度恰=capacity 4——resize 后 2x2）
     expect(docRecord(d, 'c1')?.data.slot).toBeUndefined();
     expect(docRecord(d, 'sb')?.data.cells).toBeUndefined();
-    expect((csNode('sb').data as any).cells).toEqual([null, null, null, null]);
+    expect((csNode('sb').data as any).cells).toBeUndefined();   // Y2 A3：cs cells 派生缓存退役（格位真源=子 slot）
   });
 });
 
 // ══════════ 台账 (a)(b)：写域① auto 展开档 wh 接管+键集 doc-oracle 化+applyGroupFrame 零泄漏 ══════════
-
-describe('O0b-2 台账(a)(b)：reconcile 写域① auto 档写 wh 全三字段∧差分面 auto 帧键零泄漏（applyGroupFrame 收口）', () => {
-  function setupAutoGroupDoc(): Y.Doc {
-    const d = new Y.Doc();
-    const records: StoredNodeRecord[] = [
-      { id: 'g', type: 'group', data: { groupType: 'normal' } },
-      { id: 'a', type: 'imageGen', parentId: 'g', position: { x: 300, y: 100 }, width: 200, height: 100, data: {} },
-      { id: 'b', type: 'imageGen', parentId: 'g', position: { x: 550, y: 100 }, width: 150, height: 80, data: {} },
-    ];
-    fillDoc(d, records, []);
-    applyDocToStore(d);
-    _setIntentDocForTest(d);
-    return d;
-  }
-
-  it('接管锚：cs auto 组 wh 被 seedCanvas 破坏后 reconcile(doc) 重写=deriveGroupFrame 派生值（wh 不再留现状链）', () => {
-    openRwWindow();
-    const d = setupAutoGroupDoc();
-    seedCanvas(useCanvasStore.getState().nodes.map((nd: any) => (
-      nd.id === 'g' ? { ...nd, width: 1, height: 1 } : nd
-    )));
-    reconcileGroupGeometry(d, 'doc');
-    const expected = { x: 300 - 20, y: 100 - 50, width: 400 + 200 + 20, height: 100 + 50 + 20 };
-    // bbox: x∈[300,700] y∈[100,200] ⇒ frame=(280,50,440,170)
-    expect(csNode('g').width).toBe(440);
-    expect(csNode('g').height).toBe(170);
-    expect(csNode('g').position).toEqual({ x: 280, y: 50 });
-    void expected;
-  });
-
-  it('零泄漏锚：applyGroupFrame 写 cs 帧后差分落 doc⇒doc auto 组仍 0 帧键（oracle 化收口——现状链泄漏面封死）', () => {
-    openRwWindow();
-    const d = setupAutoGroupDoc();
-    // 命令：入组（触发 applyGroupFrame 守恒 refit 写 cs 帧三键）→差分
-    seedCanvas([...useCanvasStore.getState().nodes,
-      makeChild({ id: 'top', type: 'textInput', position: { x: 0, y: 0 }, data: {} })]);
-    useNodeStore.setState({ nodes: { ...useNodeStore.getState().nodes, top: { id: 'top', type: 'textInput', data: {} } } as any });
-    useCanvasStore.getState().addToGroup('g', 'top');
-    const g = docRecord(d, 'g');
-    expect(g?.position).toBeUndefined();   // doc auto 组 0 帧键（position 不落）
-    expect(g?.width).toBeUndefined();
-    expect(g?.height).toBeUndefined();
-  });
-});
-
-// ══════════ 台账 (c)：reconcile 'doc' 源 crec 缺失子——排除该子（维度混用结构修法）══════════
-
-describe('O0b-2 台账(c)：reconcile(doc) cs 有子而 doc 无记录⇒该子排除出帧 bbox（不掺 cs 活值——缺键排除）', () => {
-  it('doc 只有组无子记录⇒帧=空 auto 组档 COLLAPSED_SIZE@fallbackOrigin（子活值不掺算术）', () => {
-    openRwWindow();
-    const d = new Y.Doc();
-    const records: StoredNodeRecord[] = [
-      { id: 'g', type: 'group', data: { groupType: 'normal' } },
-    ];
-    fillDoc(d, records, []);
-    // cs 有组+幽灵子（doc 无记录——结构不可达窗口的防御面）
-    seedCanvas([
-      makeGroup({ id: 'g', position: { x: 100, y: 100 } }),
-      makeChild({ id: 'ghost', parentId: 'g', position: { x: 9999, y: 9999 }, width: 500, height: 400 }),
-    ]);
-    reconcileGroupGeometry(d, 'doc');
-    const g = csNode('g');
-    expect(g.width).toBe(220);   // 空 auto 组档 COLLAPSED_SIZE（ghost 的 9999 活值未掺 bbox）
-    expect(g.height).toBe(160);
-  });
-});
-
-// ══════════ 连带面 census（符号级/形态级静态断言——删除类红相载体）══════════
 
 describe('O0b-2 census：customSize 并入 envelope+contain-fit 单源+复制三档链形态', () => {
   /** 非注释行扫描（census 计数形态——注释自文档化提及相关符号名不算命中）。 */
@@ -620,80 +552,5 @@ describe('O0b-2 census：customSize 并入 envelope+contain-fit 单源+复制三
 // cs 帧键由漏斗尾 reconcile('doc') 同 tick 补齐（写域①②③④）；absToCsPosition 过渡换算随删
 //（projectCanvasNodes O0b-2 前瞻注释兑现）。分镜子节点构造恒带 position:{x:0,y:0} 结构默认。
 
-describe('O0b-2 Step3/4 投影删：dispatch 几何 intent⇒投影后 cs 由 reconcile 同 tick 补齐', () => {
-  function setupDoc(): Y.Doc {
-    const d = new Y.Doc();
-    _setIntentDocForTest(d);
-    return d;
-  }
-
-  it('moveNode intent⇒doc position 更新∧cs position 同 tick≡doc.abs（reconcile 写域②——投影 moveNode case 已删）', () => {
-    openRwWindow();
-    const d = setupDoc();
-    dispatchCanvasIntent({ type: 'addNode', node: { id: 'n1', type: 'textInput', position: { x: 10, y: 0 }, data: {} } }, Origin.LocalUser);
-    dispatchCanvasIntent({ type: 'moveNode', id: 'n1', position: { x: 99, y: 88 } }, Origin.LocalUser);
-    const m = d.getMap('nodes').get('n1') as Y.Map<any>;
-    expect((m.get('position') as Y.Map<any>).toJSON()).toEqual({ x: 99, y: 88 });   // doc 面更新
-    expect(csNode('n1').position).toEqual({ x: 99, y: 88 });                        // cs 同 tick 补齐
-  });
-
-  it('envelope{width,height} intent⇒投影后 cs 帧键零缺口（reconcile 写域③同 tick 补齐）', () => {
-    openRwWindow();
-    const d = setupDoc();
-    dispatchCanvasIntent({ type: 'addNode', node: { id: 'n2', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } }, Origin.LocalUser);
-    dispatchCanvasIntent({ type: 'updateNodeEnvelope', id: 'n2', patch: { width: 777, height: 555 } }, Origin.LocalUser);
-    expect(docRecord(d, 'n2')?.width).toBe(777);
-    expect(csNode('n2').width).toBe(777);     // reconcile 同 tick（写域③ doc→cs 直拷）
-    expect(csNode('n2').height).toBe(555);
-  });
-
-  it('addNode 分镜子⇒cs position={0,0} 结构默认∧组子 cs rel=doc.abs−帧 origin（reconcile 写域②④）', () => {
-    openRwWindow();
-    const d = setupDoc();
-    dispatchCanvasIntent([
-      { type: 'addNode', node: { id: 'sb', type: 'group', position: { x: 100, y: 50 }, data: { groupType: 'storyboard', cells: [], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: true, stitchResolution: '2K' } } } },
-      { type: 'addNode', node: { id: 'sc', type: 'imageGen', parentId: 'sb', width: 320, height: 180, data: {} } },
-      { type: 'addNode', node: { id: 'gs', type: 'group', data: { groupType: 'normal' } } },
-      { type: 'addNode', node: { id: 'gc', type: 'textInput', parentId: 'gs', position: { x: 300, y: 300 }, data: {} } },
-    ], Origin.LocalUser);
-    expect(csNode('sc').position).toEqual({ x: 0, y: 0 });       // 分镜子结构默认（写域④）
-    // 普通组子：cs rel=doc.abs−帧 origin（写域②——reconcile 同 tick 补齐，非投影直写）
-    const gAbs = docRecord(d, 'gs')?.position;
-    expect(csNode('gc').position.x + (csNode('gs').position.x ?? gAbs?.x)).toBe(300);
-  });
-});
-
-describe('O0b-2 Step3/4 census：canvasIntents 投影面几何直写清零', () => {
-  const codeLines = (rel: string): string[] =>
-    readSrc(rel).split('\n').filter((raw) => {
-      const line = raw.trim();
-      return !(line.startsWith('//') || line.startsWith('*') || line.startsWith('/*'));
-    });
-
-  it('absToCsPosition 符号不存在（过渡换算随删——projectCanvasNodes O0b-2 前瞻注释兑现）', () => {
-    expect(codeLines('apps/web/src/stores/canvasIntents.ts').some((l) => l.includes('absToCsPosition'))).toBe(false);
-  });
-
-  it('projectIntentToStore 无 moveNode case（投影域 0——moveNode 构造点=提交/差分域）', () => {
-    const src = readSrc('apps/web/src/stores/canvasIntents.ts');
-    const fnIdx = src.indexOf('export function projectIntentToStore');
-    expect(fnIdx).toBeGreaterThanOrEqual(0);
-    const nextExport = src.indexOf('export ', fnIdx + 10);
-    const body = src.slice(fnIdx, nextExport === -1 ? undefined : nextExport);
-    expect(body.includes("case 'moveNode'")).toBe(false);
-  });
-
-  it('addNode 投影构造恒 {0,0} 结构默认∧updateNodeEnvelope 投影只写 type/parentId（卡二）', () => {
-    const src = readSrc('apps/web/src/stores/canvasIntents.ts');
-    const fnIdx = src.indexOf('export function projectIntentToStore');
-    const nextExport = src.indexOf('export ', fnIdx + 10);
-    const body = src.slice(fnIdx, nextExport === -1 ? undefined : nextExport);
-    expect(body.includes('absToCsPosition')).toBe(false);
-    expect(body.includes('position: { x: 0, y: 0 }')).toBe(true);   // 结构默认行在场
-    // envelope case 不投影 width/height（几何键——reconcile 写域③ 单写者）
-    const envIdx = body.indexOf("case 'updateNodeEnvelope'");
-    const envBody = body.slice(envIdx, body.indexOf('case ', envIdx + 10) === -1 ? undefined : body.indexOf('case ', envIdx + 10));
-    expect(envBody.includes('width')).toBe(false);
-    expect(envBody.includes('height')).toBe(false);
-  });
-});
+// Y2 A3 退役注记：reconcile 写域① 台账/缺键排除/投影删几何直写四 describes 随 reconcile 整删
+//（cs 帧派生域=渲染列表内核；投影面几何直写已随漏斗尾统一快照退役）。

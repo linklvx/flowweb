@@ -22,17 +22,15 @@ import { setDocPosition, stripDerivedKeys, toReadModel, normalizeSize,
 import { fillDoc, type PlainEdge } from '@/collab/ydocBuilder';
 import { projectCanvasNodes, stripEphemeralDataKeys } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
-import { useNodeStore, toAppNode, applyDataPatchToStores, NODE_TYPES } from './nodeStore';
+import { useNodeStore, NODE_TYPES } from './nodeStore';
 import { canEdit, canEditCommand, type EditableCommandName } from './syncStatus';
 import { Origin } from './canvasUndo';
-// doc 句柄取 runtime getDoc()——action 层不持 doc 引用（会话生命周期归 runtime 单源）；
-// O0b-1 挂点：漏斗尾 reconcile（source:'doc'）+dispatchProjectionDiff 首行 reconcile（source:'cs'
-// ——全仓唯一）同源导入（循环依赖裁定同 getDoc——顶层 import 声明，调用体运行时才执行）。
-// B7-1（O0b-7 投影写体 + O0b-4 transact 边界断言）追加同裁定：withGeometryWriter/
-// assertReconcileSingleWriterWindow 顶层仅 import 声明，调用体运行时才执行。
-import { getDoc, measureLocalDocNow, reconcileGroupGeometry, readGroupFrameModes, assertReconcileSingleWriterWindow, recomputeRenderNodes, refreshNodeStoreFromDoc } from './canvasCollabRuntime';
+// doc 句柄取 runtime getDoc()——action 层不持 doc 引用（会话生命周期归 runtime 单源）。
+// Y2 A3 退役：reconcile 挂点（漏斗尾 'doc'/diff 首行 'cs'）+withGeometryWriter/
+// assertReconcileSingleWriterWindow 随 reconcile 仲裁体系整删；projectCanvasNodes 翻转消费面
+// 随差分桥恒 abs 直出归零（stripEphemeralDataKeys 仍为漏斗入口共用剥键单源）。
+import { getDoc, measureLocalDocNow, recomputeRenderNodes, applyUnifiedDocSnapshot, readGroupFrameModes } from './canvasCollabRuntime';
 import { recordCollabDiag } from '@/utils/collabDiagnostics';
-import { withGeometryWriter } from './geometryTrap';
 
 /** Y1a T11（spec Z11''①）：客户端更新路径禁写键集（Set 包装 shared 单源——禁手抄键表）：{fileId,result}
  *  =服务端权威域（SERVER_WRITABLE_DATA_KEYS=deliverArtifact/replaceMedia/clearMedia 三 op 专写）。
@@ -307,86 +305,9 @@ export function reportNodeSize(id: string, width: number, height: number): void 
   );
 }
 
-/** store 投影回填（doc 为真相、store 为投影；写形状对齐 storeProjection 读取面：
- *  结构+组 data 取 cs，普通节点 data 取 ns）。undefined=删键约定在此兑现（遍历原始 patch：
- *  清洗式滤除只防"新增 undefined 键"，不删已有键——删键语义必须显式 delete）。
- *  ⚠️ 只做直写、不反调换芯 store action——dispatch→action→dispatch 递归在此断链
- *  （action 层的写入体保留，与本投影双写同值幂等——组 2 删旧路径后本投影是唯一 store 写者）。
- *  O0b-2 投影层几何键全删（plan Step 3/4）：①addNode 只写 id/type/parentId/data——position 恒
- *  {0,0} 结构默认（RF 必需——reconcile 写域② 同 tick 从 doc.abs 直拷补齐）、wh 删（写域③ 补齐；
- *  doc 侧仍写——applyIntentToDoc addNode 经 fillDoc 落 position/wh）；②moveNode case 整删（投影域 0
- *  ——moveNode 构造点=提交/差分域，卡二）；③updateNodeEnvelope 只投影 type/parentId（几何键=
- *  reconcile 写域③ 单写者）；absToCsPosition 过渡换算随删（O0b-0 前瞻注释兑现）。 */
-export function projectIntentToStore(intent: CanvasIntent): void {
-  switch (intent.type) {
-    case 'addNode': {
-      const n = intent.node;
-      useNodeStore.getState().addNode(toAppNode(n));
-      // cs upsert：已存在（同 id 重放）跳过——防 append 叠重复
-      if (!useCanvasStore.getState().nodes.some((x: any) => x.id === n.id)) {
-        // O0b-7：投影回填 append=投影写体（registry projectIntentToStore/addNode 条目 projection-default）
-        withGeometryWriter('projection-default', () => {
-          useCanvasStore.setState((s) => ({
-            nodes: [...s.nodes, {
-              id: n.id,
-              type: n.type,
-              position: { x: 0, y: 0 },   // 结构默认（O0b-2——几何由漏斗尾 reconcile 同 tick 补齐）
-              ...(n.parentId != null ? { parentId: n.parentId } : {}),
-              data: stripEphemeralDataKeys(n.data ?? {}), // cs 持久面禁入 ephemeral（口径 13）
-            } as any],
-          }));
-        });
-      }
-      break;
-    }
-    case 'updateNodeData':
-      // 复用 nodeStore 写入体（含删键约定 + CANVAS_BRIDGE_KEYS 桥——fileId/status 等同步 cs 镜像）
-      applyDataPatchToStores(intent.id, intent.patch);
-      break;
-    case 'deleteNode': {
-      useCanvasStore.setState((s) => ({
-        nodes: s.nodes.filter((n: any) => n.id !== intent.id),
-        edges: s.edges.filter((e: any) => e.source !== intent.id && e.target !== intent.id),
-      }));
-      useNodeStore.setState((s) => {
-        const nodes = { ...s.nodes };
-        delete nodes[intent.id];
-        return { nodes };
-      });
-      break;
-    }
-    case 'updateNodeEnvelope': {
-      useCanvasStore.setState((s) => ({
-        nodes: s.nodes.map((n: any) => {
-          if (n.id !== intent.id) return n;
-          const next = { ...n };
-          for (const [k, v] of Object.entries(intent.patch)) {
-            if (k !== 'type' && k !== 'parentId') continue;  // O0b-2：几何键不投影（reconcile 写域③）
-            if (v === undefined) delete next[k]; else (next as any)[k] = v;
-          }
-          return next;
-        }),
-      }));
-      break;
-    }
-    case 'upsertEdge':
-      useCanvasStore.setState((s) => {
-        const exists = s.edges.some((e: any) => e.id === intent.edge.id);
-        return {
-          edges: exists
-            ? s.edges.map((e: any) => (e.id === intent.edge.id
-              ? { ...e, source: intent.edge.source, target: intent.edge.target }
-              : e))
-            : [...s.edges, { id: intent.edge.id, source: intent.edge.source, target: intent.edge.target }],
-        };
-      });
-      break;
-    case 'deleteEdge':
-      useCanvasStore.setState((s) => ({ edges: s.edges.filter((e: any) => e.id !== intent.id) }));
-      break;
-  }
-}
-
+// Y2 A3 退役注记：projectIntentToStore（per-intent store 投影回填——addNode 结构默认/桥键 cs 镜像/
+// deleteNode 预删/edges 直写）随漏斗尾统一快照（applyUnifiedDocSnapshot——cs+renderNodes 同 set）
+// 退役：doc=权威，快照单点写鲜两份数据+ns；rejectedKeys 剥除面收敛进 doc 同拒同落语义（applyIntentToDoc）。
 /** 漏斗 dispatch 入口（门 C 判据②）：VIEWER 硬门从 bindBridge 订阅层（写已进 store 才拦 doc）
  * 前移到 action 入口——canEdit 假（readOnly/terminal/非 ready）时 doc+store 双零写、
  * 无"先改后回弹"（单点同构；action 层 UX 面 toast 由各 action 自留）。
@@ -403,20 +324,6 @@ function denyEditCommandDiag(command: EditableCommandName): void {
   if (now - last < EDIT_COMMAND_DENY_THROTTLE_MS) return;
   denyDiagAt.set(command, now);
   recordCollabDiag('write_reject', { via: 'canEditCommand', command });
-}
-
-/** 投影侧 intent 修正（收口 A〔Q-I-1〕）：doc 拒的域键从投影 patch 剥除、addNode 用补缺省后
- *  记录——doc 与 store 同拒同落（doc ≡ store；被拒键不因投影落 ns 造成「面板显示新值/reload
- *  静默消失」半落）。 */
-function projectionIntentOf(intent: CanvasIntent, outcome: IntentApplyOutcome | undefined): CanvasIntent {
-  if (!outcome) return intent;
-  if (intent.type === 'updateNodeData' && outcome.rejectedKeys.size > 0) {
-    const patch: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(intent.patch)) if (!outcome.rejectedKeys.has(k)) patch[k] = v;
-    return { ...intent, patch };
-  }
-  if (intent.type === 'addNode' && outcome.node) return { ...intent, node: outcome.node };
-  return intent;
 }
 
 /** patch 剥除被拒域键（applyNodeDataPatch 直写面消费——与投影同尺；全拒=空 patch no-op）。 */
@@ -455,16 +362,12 @@ export function dispatchCanvasIntent(intent: CanvasIntent | CanvasIntent[], orig
   d.transact(() => {
     for (const i of seq) outcomes.push(applyIntentToDoc(d, i));
   }, origin);
-  for (let k = 0; k < seq.length; k += 1) projectIntentToStore(projectionIntentOf(seq[k], outcomes[k]));
-  reconcileGroupGeometry(d, 'doc');
-  // B7-1（O0b-4 接线）：transact 边界字段级一写者断言（reconcileWriteLedger 窗口收口+reset——
-  // 窗口=本次 dispatch 全链[diff 首行 reconcile('cs') 携前序命令体写]至漏斗尾 reconcile 后）
-  assertReconcileSingleWriterWindow();
-  // Y2 A2b（D2+裁决 3 v4）：漏斗尾渲染列表立即重填+ns 同快照刷新——本地作者事务后 renderNodes/
-  //  nodeStore 同步跟随 doc（身份复用见 recomputeRenderNodes/refreshNodeStoreFromDoc；早退分支
-  //  零写不触发=零 doc 写零渲染/ns 变更；三桥退役后 ns 本地刷新唯一通道=本快照）。
-  useCanvasStore.setState({ renderNodes: recomputeRenderNodes(d) });
-  if (compositeStagingDepth === 0) refreshNodeStoreFromDoc(d);   // 复合暂存窗内暂缓——复合尾统一刷新
+  // Y2 A3（裁决 3 v4+坐标域终裁）：per-intent 投影回填（projectIntentToStore 循环）退役——漏斗尾
+  // 统一快照同一次 setState 写鲜作者缓存+渲染列表（D3「两份数据同 set」——本地作者事务 cs
+  // setState 恰 1）；ns 由同一同步函数用 doc 快照更新（不计入 cs 写计数——v2.11 口径）。复合暂存
+  // 窗内统一快照同样暂缓（命令中间态 cs 写不被清——convertGroup 暂存面同族缺口），窗尾统一刷新。
+  // reconcile 尾挂/单写者窗口断言随 reconcile 仲裁体系退役（census 归零锚=geometry.test）。
+  if (compositeStagingDepth === 0) applyUnifiedDocSnapshot(d);
   return outcomes;
 }
 
@@ -525,9 +428,7 @@ export function dispatchFixtureSizeIntents(
   if (intents.length > 0) dispatchCanvasIntent(intents, Origin.Geometry);
 }
 
-/** 键集判定 doc-oracle 表（O0b-2 台账 a——applyKeySetTable doc-oracle 化的 web 取数点）：
- *  薄委托 canvasCollabRuntime.readGroupFrameModes（差分/invariant 两侧共一源——禁双实现）。
- *  无 doc（会话外/测试裸 store）⇒undefined=applyKeySetTable 回落 record 形态判定。 */
+/** 键集判定 doc-oracle 表（O0b-2 台账 a——Y2 A3 复位：翻转退役后消费面=差分快照键集剥键）。 */
 function readGroupFrameModesFromDoc(): ReadonlyMap<string, FrameMode> | undefined {
   const d = resolveDoc();
   return d ? readGroupFrameModes(d) : undefined;
@@ -551,8 +452,8 @@ export function readGroupStoredFrameFromDoc(groupId: string): {
 /** 复合 action 起点捕获投影快照（dispatchProjectionDiff 的 before 侧）。 */
 /** Y2 A2b（裁决 3 v4 配套——复合暂存窗）：captureStoreProjection→dispatchProjectionDiff 括号内
  *  ns 是差分暂存面（convertGroup/resizeStoryboardGrid 等先暂存 slot 写、命令尾差分翻译落 doc）。
- *  窗内漏斗尾 ns 快照暂缓（快照=doc 真值会清未落 doc 的暂存写=分镜格位丢失）；复合尾
- *  （depth 归零）统一刷新。中途 dispatch 直发段照旧（renderNodes 重填不受影响——只渲染）。 */
+ *  窗内漏斗尾统一快照暂缓（快照=doc 真值会清未落 doc 的暂存写=分镜格位丢失——Y2 A3 起 cs 同窗
+ *  暂缓：命令中间态 cs 写同样会被清）；复合尾（depth 归零）统一刷新（cs+renderNodes+ns）。 */
 let compositeStagingDepth = 0;
 /** 泄漏窗自动收口：复合命令恒同步（capture→diff 同 tick）——微任务边界窗必已闭合；早退路径
  *  （canEdit 拒后 return 不经 diff）在此归零+补刷新，泄漏不可能跨 tick 存活。 */
@@ -565,23 +466,28 @@ function scheduleStagingReset(): void {
     if (compositeStagingDepth > 0) {
       compositeStagingDepth = 0;
       const rd = resolveDoc();
-      if (rd) refreshNodeStoreFromDoc(rd);
+      if (rd) applyUnifiedDocSnapshot(rd);
     }
   });
+}
+
+/** 快照本体（零窗计——after 侧专用：diff 的 after 取数不得续窗，否则复合尾 finally 永不归零、
+ *  统一刷新滞留微任务〔Y2 A3 勘误：spec D2「立刻重填渲染列表」=同步收口〕）。 */
+function storeProjectionSnapshot(): StoreProjectionSnapshot {
+  const cs = useCanvasStore.getState();
+  const ns = useNodeStore.getState();
+  // Y2 A3（坐标域终裁）：cs=作者缓存恒 abs——projectCanvasNodes 复位消费（F42 data 分型+键集表
+  // 剥键+doc-oracle 帧模式三职能原样；toDocRecords 翻转体已退役——恒 abs 透传）。
+  return {
+    nodes: projectCanvasNodes(cs.nodes as any, ns.nodes as any, readGroupFrameModesFromDoc()),
+    edges: cs.edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
+  };
 }
 
 export function captureStoreProjection(): StoreProjectionSnapshot {
   compositeStagingDepth += 1;
   scheduleStagingReset();
-  const cs = useCanvasStore.getState();
-  const ns = useNodeStore.getState();
-  return {
-    // O0b-2 台账 a：差分快照出口键集判定吃 doc-oracle——cs auto 组携派生帧三键（reconcile 写域①
-    // 接管后恒有）不再被 record 形态误判 manual，auto 帧键零泄漏进 doc（帧 cs 写面已归
-    //  reconcile 写域① 派生——deriveGroupFrame 单源，O0b-5 收口）
-    nodes: projectCanvasNodes(cs.nodes as any, ns.nodes as any, readGroupFrameModesFromDoc()),
-    edges: cs.edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target })),
-  };
+  return storeProjectionSnapshot();
 }
 
 /** before/after 差分 → intent 序列。删除半边=before 有 after 无的显式成员差
@@ -682,17 +588,15 @@ function diffProjectionToIntents(before: StoreProjectionSnapshot, after: StorePr
  *  before/after 差分翻译为 intent 序列经 dispatch 单 transact 落 doc（旧 bindBridge 全量同步
  *  的增量翻译形态）。canEdit 假（readOnly/回弹窗口）时 dispatch 门拦截=doc 零写（语义同旧）；
  *  嵌套 action 各自 dispatch 幂等（applyIntentToDoc 逐键同值 no-op）。
- *  O0b-1 挂点②（diff 首行——全仓唯一 source:'cs'）：命令几何已落 cs、doc 未更新——cs 活值反推
- *  abs 归一（auto 组帧从 cs 子 abs 重派生/manual/storyboard 用 cs 活值帧；写域②③④直拷跳过防吞
- *  命令写），此后差分快照才不丢命令几何。无 doc（会话外）跳过——oracle 缺席无从判定帧模式。 */
+ *  Y2 A3：diff 首行 reconcile('cs')（cs 活值反推 abs 归一）随坐标域终裁退役——cs=作者缓存恒
+ *  abs，命令体直接写 abs（clamp 等 rel 域数学先算 rel 再翻回），差分双侧同域直比零归一需求。 */
 export function dispatchProjectionDiff(before: StoreProjectionSnapshot, origin: string): void {
   try {
   const rd = resolveDoc();
-  if (rd) reconcileGroupGeometry(rd, 'cs');
   // Y2 A2b（D2）：cs 域几何回流即时反映进渲染列表——零 intent 早退路径（diff 空批 return）
   // 也覆盖；intents 非空时漏斗尾会再重算一次（身份复用下第二次为幂等低成本）。
   if (rd) useCanvasStore.setState({ renderNodes: recomputeRenderNodes(rd) });
-  const intents = diffProjectionToIntents(before, captureStoreProjection());
+  const intents = diffProjectionToIntents(before, storeProjectionSnapshot());   // after 侧零窗计——复合尾同步归零收口
   if (intents.length === 0) return;
   dispatchCanvasIntent(intents, origin);
   // M-1（O0a-1 质评）挂点覆盖面注：直发路径（dispatchCanvasIntent）靠
@@ -714,7 +618,9 @@ export function dispatchProjectionDiff(before: StoreProjectionSnapshot, origin: 
     compositeStagingDepth = Math.max(0, compositeStagingDepth - 1);
     if (compositeStagingDepth === 0) {
       const rd2 = resolveDoc();
-      if (rd2) refreshNodeStoreFromDoc(rd2);   // 复合尾统一刷新（含暂存 slot 已随差分落 doc 后的真值）
+      // Y2 A3：复合尾统一刷新=cs+renderNodes+ns 全量（窗内暂缓的漏斗尾快照在此补——命令中间
+      // 态 cs 写已被差分翻译落 doc，快照=doc 真值收口）
+      if (rd2) applyUnifiedDocSnapshot(rd2);
     }
   }
 }

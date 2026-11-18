@@ -10,7 +10,7 @@
 //   格子内容未变时组节点必须复用上一帧对象（含原 cellNodes 引用）。
 // - 写计数口径（v2.11 钉死）：一次本地作者事务 useCanvasStore.setState 恰 1 次；
 //   nodeStore.nodes 由同一 toReadModel(doc) 快照在同一同步函数更新，不计入。
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { RenderSourceNode, RenderSourceEdge } from '@flowweb/shared';
 
 /** 确定性 ≥200 节点夹具：10 个组（auto×5+manual×3+storyboard×1+collapsed×1）+每组成员子+顶层散节点。
@@ -89,7 +89,29 @@ export function buildIncrementFixture(): {
 }
 
 describe('Y2 D3 增量：写计数（一次本地作者事务 cs setState 恰 1 次）', () => {
-  it.skip('单键编辑——useCanvasStore.setState 恰 1 次（nodeStore 同快照同函数更新不计入；现状 cs 写 2 次+ns 写 2 次必红——A2b 落位）', () => {});
+  // A3 Step1④ 实化（先红）：「恰 1 次」的语义保护对象=同一次 set 写鲜作者缓存+渲染列表
+  //（spec D3——本地作者事务同步投影，两份数据同 set）。现状 renderNodes 单写+cs 不跟随（stale）
+  //——红在 cs 断言；Step2 漏斗尾统一快照（cs+renderNodes 同 set）转绿且计数仍恰 1。
+  it('单键编辑——useCanvasStore.setState 恰 1 次∧同 set 写鲜作者缓存+渲染列表（nodeStore 同快照同函数更新不计入；现状 cs 不跟随必红——A3 Step2 统一快照转绿）', () => {
+    const d = buildFixtureDoc();
+    openRw(d);
+    applyDocToStore(d);
+    const spy = vi.spyOn(useCanvasStore, 'setState');
+    const outcomes = dispatchCanvasIntent(
+      { type: 'updateNodeData', id: 'top-5', patch: { mediaName: 'written-once' } } as unknown as CanvasIntent,
+      Origin.LocalUser,
+    );
+    const calls = spy.mock.calls.length;
+    spy.mockRestore();
+    expect(outcomes.length).toBe(1);
+    expect([...outcomes[0].rejectedKeys]).toEqual([]);
+    expect(calls).toBe(1);   // 恰 1 次——统一快照后拆成双写即红
+    const st = useCanvasStore.getState();
+    const csFive = st.nodes.find((n: any) => n.id === 'top-5');
+    expect((csFive?.data as Record<string, unknown>)?.mediaName).toBe('written-once');     // 作者缓存同 set 跟随
+    const rnFive = st.renderNodes.find((n: any) => n.id === 'top-5');
+    expect((rnFive?.data as Record<string, unknown>)?.mediaName).toBe('written-once');     // 渲染列表同 set 跟随
+  }, 20000);
   // Ruling（A2b-3）：onRemote 闭包在 initCollab 会话内（无测试缝）——行为测试需 provider 桩
   // 会话装置；本批以源码锚重写（telemetry/invariant 双 spec 已锁 fireRemoteApply 接线+双定时器
   // 形态）+A6 出口复核行为面承接；skip 保留占位（新缝=新 bypass 面，成本/收益不划算）。

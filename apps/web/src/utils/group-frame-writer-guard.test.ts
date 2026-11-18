@@ -43,7 +43,9 @@ describe('组几何写点门禁（R1b/§4.8 v11——tripwire ≠ proof：行为
   // reconcile 派生（跃迁表 arrange 行——命令体直写面=position，帧三键经漏斗尾/差分首行 reconcile 单写）
   // **执行形态注记（Inner 化批）**：块扫描消费者随 refitGroupGeometry 符号消亡已退役——ALLOW_FN
   // 是注册表+终态锚形态（名义强制）；实际牙齿=符号 census（refit 族/COLLAPSED_SIZE）+行为锚。
-  const ALLOW_FN = new Set(['reconcileGroupGeometry']);
+  // Y2 A3：reconcile 退役——组帧唯一合法写者消失（帧=deriveGroupFrame 内核单源、cs 组帧键零写），
+  // 白名单清空；实现符号应从 canvasCollabRuntime 消失（终态锚翻转——先红）。
+  const ALLOW_FN = new Set<string>();
   // 函数声明行形态 "  name: (…) => {"（store 工厂两空格缩进）——块从声明行到下一个声明行
   const declRe = /^  ([a-zA-Z]+):/;
 
@@ -51,10 +53,10 @@ describe('组几何写点门禁（R1b/§4.8 v11——tripwire ≠ proof：行为
     expect(readFileSync(FILE, 'utf8')).not.toMatch(/refitGroupBounds/);
   });
 
-  it('ALLOW_FN 终态锚（Inner 化批重算）：组帧唯一写者 reconcileGroupGeometry 在册且实现驻 canvasCollabRuntime', () => {
-    expect([...ALLOW_FN]).toEqual(['reconcileGroupGeometry']);
+  it('Y2 A3 终态锚：白名单空+reconcileGroupGeometry 符号从 canvasCollabRuntime 消失（退役——先红）', () => {
+    expect([...ALLOW_FN]).toEqual([]);
     const rt = readFileSync(path.join(REPO_ROOT, 'apps/web/src/stores/canvasCollabRuntime.ts'), 'utf8');
-    expect(rt).toMatch(/export function reconcileGroupGeometry\(/);
+    expect(rt).not.toMatch(/export function reconcileGroupGeometry\(/);
   });
 
   it('去闸门（终裁 43）：canvasStore 生产代码零 extent 写点（cs 节点不存在 extent 键；nodeOrder 恢复期补全已随 O0d 删，此处守 canvasStore 面）', () => {

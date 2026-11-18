@@ -273,10 +273,10 @@ describe('nodeStore (AppNode nested structure)', () => {
       expect(nsData.images).toEqual([]);
       expect(JSON.stringify(nsData.images ?? [])).not.toContain('rejected-item');
       expect(nsData.status).toBe('done');
-      // cs 镜像：status 桥（值=effective）+images 不桥（被拒键半落第三入口闭合）
+      // cs=作者缓存≡doc（Y2 A3：镜像退役）：status 落 doc；images=Y.Array 容器解码（空 []）
       const csNode = useCanvasStore.getState().nodes.find((n: any) => n.id === 'mi1')!;
       expect((csNode.data as any).status).toBe('done');
-      expect((csNode.data as any).images).toBeUndefined();
+      expect((csNode.data as any).images).toEqual([]);
     } finally {
       _setIntentDocForTest(null);
     }
@@ -1455,11 +1455,11 @@ describe('nodeStore → canvasStore 桥接（图片身份字段，Bug D/E 响应
     expect((cn.data as any).referenceImage).toBe('f1');
   });
 
-  it('updateConfig 白名单字段（fileId/status）桥接到 canvasStore', () => {
+  it('updateConfig 白名单字段——cs 桥镜像退役（Y2 A3：cs=作者缓存恒 doc 面，doc 缺席零写零镜像）', () => {
     useNodeStore.getState().updateConfig('b1', { fileId: 'fx', status: 'done' } as any);
     const cn = useCanvasStore.getState().nodes.find((n) => n.id === 'b1')!;
-    expect((cn.data as any).fileId).toBe('fx');
-    expect((cn.data as any).status).toBe('done');
+    expect((cn.data as any).fileId).toBeUndefined();   // fileId=CLIENT_FORBIDDEN——doc 不落即 cs 不落
+    expect((cn.data as any).status).toBe('done');      // status=作者键——doc 落⇒cs=作者缓存跟随（非桥直写）
   });
 
   it('updateConfig 非白名单字段不触发 canvasStore setState（防高频重渲染）', () => {

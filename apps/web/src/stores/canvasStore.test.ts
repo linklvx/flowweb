@@ -8,6 +8,10 @@ import { deleteProjectByNode } from '@/api/videoProjectApi';
 
 vi.mock('@/api/videoProjectApi', () => ({ deleteProjectByNode: vi.fn().mockResolvedValue(undefined) }));
 
+
+/** Y2 A3：几何批断言域=渲染列表（cs 不吞几何批）——无 doc 测试装渲染列表镜像。 */
+const mirrorRenderNodes = () => useCanvasStore.setState((s) => ({ renderNodes: s.nodes.map((n: any) => ({ ...n })) as any }));
+
 describe('canvasStore', () => {
   beforeEach(() => {
     useCanvasStore.setState({ nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, selectedId: null, projectId: null, hydration: 'idle', collabReadOnly: true, wsAuthNotice: null });
@@ -167,9 +171,11 @@ describe('canvasStore', () => {
   it('should handle onNodesChange for position update', () => {
     const { addNode, onNodesChange } = useCanvasStore.getState();
     const nodeId = addNode('text', { x: 100, y: 200 });
+    mirrorRenderNodes();
 
     onNodesChange([{ type: 'position', id: nodeId, position: { x: 300, y: 400 } }]);
-    const node = useCanvasStore.getState().nodes.find(n => n.id === nodeId);
+    // Y2 A3：几何批落渲染列表（cs=作者缓存——无 doc 会话外零几何写）
+    const node = useCanvasStore.getState().renderNodes.find(n => n.id === nodeId);
     expect(node).toBeDefined();
     expect(node!.position).toEqual({ x: 300, y: 400 });
   });
@@ -251,13 +257,14 @@ describe('canvasStore', () => {
   it('onNodesChange should apply dimensions changes with setAttributes', () => {
     const { addNode, onNodesChange } = useCanvasStore.getState();
     const nodeId = addNode('text', { x: 0, y: 0 });
+    mirrorRenderNodes();
     onNodesChange([{
       type: 'dimensions',
       id: nodeId,
       dimensions: { width: 400, height: 300 },
       setAttributes: true,
     } as any]);
-    const node = useCanvasStore.getState().nodes.find(n => n.id === nodeId)!;
+    const node = useCanvasStore.getState().renderNodes.find(n => n.id === nodeId)!;
     expect(node.width).toBe(400);
     expect(node.height).toBe(300);
   });
@@ -424,10 +431,11 @@ describe('canvasStore', () => {
   it('onNodesChange position 结束（dragging:false）更新节点位置', async () => {
     const id = useCanvasStore.getState().addNode('video', { x: 10, y: 20 });
     useCanvasStore.setState({ projectId: 'pid-pos' });
+    mirrorRenderNodes();
     useCanvasStore.getState().onNodesChange([
       { id, type: 'position', position: { x: 300, y: 400 }, dragging: false } as any,
     ]);
-    expect(useCanvasStore.getState().nodes.find((n) => n.id === id)!.position).toEqual({ x: 300, y: 400 });
+    expect(useCanvasStore.getState().renderNodes.find((n) => n.id === id)!.position).toEqual({ x: 300, y: 400 });
   });
 
   it('onNodesChange position 拖动中（dragging:true）无立即 DB 写入（结束由统一 runtime 保存）', () => {
@@ -453,10 +461,11 @@ describe('canvasStore', () => {
   it('onNodesChange position 结束且 projectId 为 null 时不报错', async () => {
     const id = useCanvasStore.getState().addNode('video', { x: 10, y: 20 });
     useCanvasStore.setState({ projectId: null });
+    mirrorRenderNodes();
     useCanvasStore.getState().onNodesChange([
       { id, type: 'position', position: { x: 300, y: 400 }, dragging: false } as any,
     ]);
-    expect(useCanvasStore.getState().nodes.find((n) => n.id === id)!.position).toEqual({ x: 300, y: 400 });
+    expect(useCanvasStore.getState().renderNodes.find((n) => n.id === id)!.position).toEqual({ x: 300, y: 400 });
   });
 
   it('onNodesChange dimensions(setAttributes) 不立即 PUT——经订阅判脏走自动保存', async () => {

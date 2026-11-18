@@ -42,12 +42,15 @@ afterEach(() => {
   _setIntentDocForTest(null);
 });
 
+
+/** Y2 A3：帧断言域=渲染列表（storyboard 组 wh=内核派生——cs 零帧键〔doc 键集表剥除〕）。 */
+const rnNode = (id: string) => useCanvasStore.getState().renderNodes.find((n: any) => n.id === id) as any;
+
 describe('updateStoryboardConfig', () => {
   it('切换比例 → 组尺寸重算', () => {
     const gid = useCanvasStore.getState().mergeStoryboard(['a', 'b', 'c', 'd']);
     useCanvasStore.getState().updateStoryboardConfig(gid, { aspectRatio: '1:1' });
-    const g = useCanvasStore.getState().nodes.find((n) => n.id === gid)!;
-    expect(g.height).toBeCloseTo(2 * 320 + 2); // 1:1 → 单格 320 高
+    expect(rnNode(gid).height).toBeCloseTo(2 * 320 + 2); // 1:1 → 单格 320 高（渲染列表=内核派生帧）
   });
 
   it('showIndex 切换', () => {
@@ -64,11 +67,12 @@ describe('resizeStoryboardGrid（减格溢出）', () => {
     useCanvasStore.getState().resizeStoryboardGrid(gid, 1, 2);
     const s = useCanvasStore.getState();
     const g = s.nodes.find((n) => n.id === gid)!;
-    expect(g.data.cells).toEqual(['a', 'b']); // 读序前 2（T17 层 (order,id)——无键档 id 序）
+    expect(g.data.cells).toBeUndefined();   // Y2 A3：cs cells 派生缓存退役（写域⑥ 收口——渲染面 cellNodes 派生；格位真源=子 slot）
     const overflowed = s.nodes.find((n) => n.id === 'c')!;
     expect(overflowed.parentId).toBeUndefined();
-    expect(overflowed.position.x).toBeGreaterThan(before.position.x + (before.width ?? 0)); // 组右侧
-    expect(overflowed.hidden).toBe(false);
+    // Y2 A3：组宽=渲染列表派生帧（cs 零 wh）；可见性=渲染列表在场（cs 无 hidden 派生键）
+    expect(overflowed.position.x).toBeGreaterThan(before.position.x + calcStoryboardSize(2, 2, '16:9').width); // 组右侧
+    expect(useCanvasStore.getState().renderNodes.find((n: any) => n.id === 'c')).toBeTruthy();
     // P0-新1 回归：溢出节点必须存活（而非被删除），nodeStore 双写一致
     expect(s.nodes.find((n) => n.id === 'd')).toBeTruthy();
     expect(useNodeStore.getState().nodes['b']).toBeTruthy();
@@ -88,7 +92,7 @@ describe('resizeStoryboardGrid（减格溢出）', () => {
     useCanvasStore.getState().resizeStoryboardGrid(gid, 2, 2);
     const g = useCanvasStore.getState().nodes.find((n) => n.id === gid)!;
     // T17：派生 cells 长度恰=新 capacity（2x2=4——旧成员槽不动，空位 null 由渲染器显示）
-    expect(g.data.cells).toEqual(['a', 'b', null, null]);
+    expect(g.data.cells).toBeUndefined();   // Y2 A3：cs cells 派生缓存退役（写域⑥ 收口——渲染面 cellNodes 派生；格位真源=子 slot）
     expect((g.data as any).storyboard!.gridRows).toBe(2);
   });
 });
@@ -97,13 +101,14 @@ describe('resizeStoryboardGrid（减格溢出）', () => {
 // 命令体直接写组框（配置型——mergeStoryboard/convertGroup→storyboard/resizeStoryboardGrid）保留，
 // 断言面：①cs 帧 wh ≡ calcStoryboardSize 本命令实参逐位（配置单源——非手写第二实现）；
 // ②doc 侧组记录零 wh 键（storyboard 尺寸=config 权威，键集表剥 wh——帧意图不落 doc）。
-describe('O0b-5 配置型命令体前写（cs 帧≡calcStoryboardSize 逐位+doc 零 wh）', () => {
+describe('O0b-5→Y2 A3：配置型命令帧=渲染列表内核派生≡calcStoryboardSize 逐位+cs/doc 组零 wh 键', () => {
   it('mergeStoryboard：cs 帧 ≡ calcStoryboardSize(calcDefaultGrid, 16:9) 逐位∧doc 组记录无 width/height 键', () => {
     const gid = useCanvasStore.getState().mergeStoryboard(['a', 'b', 'c', 'd']);
     const size = calcStoryboardSize(2, 2, '16:9');   // 4 图 → calcDefaultGrid(4)={2,2}（命令体同源实参）
-    const g = useCanvasStore.getState().nodes.find((n) => n.id === gid)! as any;
+    const g = rnNode(gid);
     expect(g.width).toBe(size.width);
     expect(g.height).toBe(size.height);
+    expect((useCanvasStore.getState().nodes.find((n) => n.id === gid) as any).width).toBeUndefined();   // cs 零帧键（作者缓存≡doc）
     const dm = doc.getMap('nodes').get(gid) as any;
     expect(dm.get('width')).toBeUndefined();   // doc 零帧意图（storyboard 组 wh 恒剥——config 权威）
     expect(dm.get('height')).toBeUndefined();
@@ -113,9 +118,10 @@ describe('O0b-5 配置型命令体前写（cs 帧≡calcStoryboardSize 逐位+do
     const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
     useCanvasStore.getState().convertGroup(gid, 'storyboard');
     const size = calcStoryboardSize(1, 2, '16:9');   // 2 图 → calcDefaultGrid(2)={1,2}
-    const g = useCanvasStore.getState().nodes.find((n) => n.id === gid)! as any;
+    const g = rnNode(gid);
     expect(g.width).toBe(size.width);
     expect(g.height).toBe(size.height);
+    expect((useCanvasStore.getState().nodes.find((n) => n.id === gid) as any).width).toBeUndefined();   // cs 零帧键（作者缓存≡doc）
     const dm = doc.getMap('nodes').get(gid) as any;
     expect(dm.get('width')).toBeUndefined();
     expect(dm.get('height')).toBeUndefined();
@@ -125,9 +131,10 @@ describe('O0b-5 配置型命令体前写（cs 帧≡calcStoryboardSize 逐位+do
     const gid = useCanvasStore.getState().mergeStoryboard(['a', 'b', 'c', 'd']);
     useCanvasStore.getState().resizeStoryboardGrid(gid, 1, 2);
     const size = calcStoryboardSize(1, 2, '16:9');
-    const g = useCanvasStore.getState().nodes.find((n) => n.id === gid)! as any;
+    const g = rnNode(gid);
     expect(g.width).toBe(size.width);
     expect(g.height).toBe(size.height);
+    expect((useCanvasStore.getState().nodes.find((n) => n.id === gid) as any).width).toBeUndefined();   // cs 零帧键（作者缓存≡doc）
     const dm = doc.getMap('nodes').get(gid) as any;
     expect(dm.get('width')).toBeUndefined();
     expect(dm.get('height')).toBeUndefined();
@@ -141,7 +148,7 @@ describe('clearStoryboard', () => {
     const s = useCanvasStore.getState();
     expect(s.nodes.find((n) => n.id === gid)).toBeTruthy();
     // T17：派生 cells=全空宫格（长度恰=capacity 4——旧 cells:[] 形态随派生域消亡）
-    expect(s.nodes.find((n) => n.id === gid)!.data.cells).toEqual([null, null, null, null]);
+    expect(s.nodes.find((n) => n.id === gid)!.data.cells).toBeUndefined();   // Y2 A3：cs cells 派生缓存退役（写域⑥ 收口——渲染面 cellNodes 派生；格位真源=子 slot）
     expect(s.nodes.find((n) => n.id === 'a')).toBeUndefined();
   });
 });
@@ -152,14 +159,18 @@ const cloneGroupNode = (id: string, cells: (string | null)[] = ['img1', null]) =
   data: { groupType: 'storyboard', cells }, // 无 storyboard（旧克隆产物）
 });
 
+/** Y2 A3：克隆族夹具 doc 同步播种（cs=作者缓存≡doc——快照会以 doc 真值收口，装置直播 cs 不播
+ *  doc 时首笔 dispatch 后夹具被刷没）。与文件级 beforeEach 的 a-d 播种叠加（doc 每测新建）。 */
+const syncDocFromSeed = (nodes: unknown[]) => fillDoc(doc, nodes as never, []);
+
 describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+ NaN 双点全维断言（⑥⑦）', () => {
   beforeEach(() => {
-    useCanvasStore.setState({
-      nodes: [
-        cloneGroupNode('g1'),
-        { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: {} },
-      ] as any, edges: [],
-    });
+    const seeded = [
+      cloneGroupNode('g1'),
+      { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: {} },
+    ];
+    useCanvasStore.setState({ nodes: seeded as any, edges: [] });
+    syncDocFromSeed(seeded);
   });
 
   it('ungroup：无 storyboard 不抛', () => {
@@ -168,6 +179,7 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
 
   it('convertGroup(g1, normal)：无 storyboard 且无 cells 不抛（:1212 resolver + :1219 守卫双覆盖）', () => {
     useCanvasStore.setState({ nodes: [{ ...cloneGroupNode('g1'), data: { groupType: 'storyboard' } }] as any, edges: [] });
+    syncDocFromSeed([{ ...cloneGroupNode('g1'), data: { groupType: 'storyboard' } }] as any);
     expect(() => useCanvasStore.getState().convertGroup('g1', 'normal')).not.toThrow();
   });
 
@@ -176,6 +188,10 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, parentId: undefined, data: { groupType: 'storyboard' } }, // 无 storyboard 且无 cells
       { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: {} },
     ] as any, edges: [] });
+    syncDocFromSeed([
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, parentId: undefined, data: { groupType: 'storyboard' } }, // 无 storyboard 且无 cells
+      { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: {} },
+    ] as any);
     expect(() => useCanvasStore.getState().convertGroup('g1', 'normal')).not.toThrow();
     const img = useCanvasStore.getState().nodes.find((n) => n.id === 'img1') as any;
     expect(img).toBeDefined();   // 子节点未被删除（守卫跳过网格重排，节点保持）
@@ -187,6 +203,7 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
     // 两向判别力：gridCols 误算为 2 → row=0 → y=0 红；cfg 未接 resolver（undefined）→ TypeError 红。
     // Task 18：convertGroup 后守恒 refit，rel 归位 padding——网格行计算改钉绝对坐标（rel+组原点，守恒不变）。
     useCanvasStore.setState({ nodes: [cloneGroupNode('g1', [null, 'img1']), { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: {} }] as any, edges: [] });
+    syncDocFromSeed([cloneGroupNode('g1', [null, 'img1']), { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: {} }] as any);
     useCanvasStore.getState().convertGroup('g1', 'normal');
     const img = useCanvasStore.getState().nodes.find((n) => n.id === 'img1') as any;
     expect(img).toBeDefined();
@@ -202,10 +219,15 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
       { ...cloneGroupNode('g1'), data: { groupType: 'storyboard', cells: ['img1'], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: false, stitchResolution: '2K' } } },
       { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: {} },
     ] as any, edges: [] });
+    syncDocFromSeed([
+      { ...cloneGroupNode('g1'), data: { groupType: 'storyboard', cells: ['img1'], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: false, stitchResolution: '2K' } } },
+      { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: {} },
+    ] as any);
     useCanvasStore.getState().updateStoryboardConfig('g1', { aspectRatio: '9:16' });
+    // Y2 A3：组帧=渲染列表内核派生（cs/doc 零 wh 键）——NaN 面守卫域随迁
+    expect(Number.isFinite(rnNode('g1').width)).toBe(true);
+    expect(Number.isFinite(rnNode('g1').height)).toBe(true);
     const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!;
-    expect(Number.isFinite(g.width)).toBe(true);
-    expect(Number.isFinite(g.height)).toBe(true);
     expect((ASPECT_RATIOS as readonly string[])).toContain((g.data as any).storyboard.aspectRatio);
     expect(Number.isInteger((g.data as any).storyboard.gridRows)).toBe(true);
   });
@@ -215,6 +237,10 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
       { ...cloneGroupNode('g1'), data: { groupType: 'storyboard', cells: ['img1'], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: false, stitchResolution: '2K' } } },
       { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: {} },
     ] as any, edges: [] });
+    syncDocFromSeed([
+      { ...cloneGroupNode('g1'), data: { groupType: 'storyboard', cells: ['img1'], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: false, stitchResolution: '2K' } } },
+      { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: {} },
+    ] as any);
     useCanvasStore.getState().updateStoryboardConfig('g1', { gridRows: Number.NaN } as any);
     const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!;
     expect(Number.isFinite((g.data as any).storyboard.gridRows)).toBe(true);
@@ -223,8 +249,9 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
 
   it('resizeStoryboardGrid：同上全维（NaN 面⑦；v3 简化——rows/cols 为受控数值，单层归一即可）', () => {
     useCanvasStore.getState().resizeStoryboardGrid('g1', 2, 2);
+    // Y2 A3：组帧=渲染列表内核派生（cs/doc 零 wh 键）——NaN 面守卫域随迁；config 键仍读 cs（doc 作者面）
+    expect(Number.isFinite(rnNode('g1').width)).toBe(true);
     const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!;
-    expect(Number.isFinite(g.width)).toBe(true);
     expect((ASPECT_RATIOS as readonly string[])).toContain((g.data as any).storyboard.aspectRatio);
     expect(Number.isInteger((g.data as any).storyboard.gridCols)).toBe(true);
   });
@@ -232,14 +259,24 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
   it('resizeStoryboardGrid 缩格不变量：真溢出夹具——img2 被移出组（parentId undefined）而非删除（:1330 注释语义的行为面，v4 修正夹具）', () => {
     // v4：cells 两槽均为真实节点（v3 的 [img1, null] 溢出的是 null 槽——img1 本在 keep 内测不到移出）
     // v5：cells 直接进 setState 夹具（不再 mutate store 节点对象——绕过 setState 改状态是坏习惯示范）
-    useCanvasStore.setState({ nodes: [
-      cloneGroupNode('g1', ['img1', 'img2']),
-      { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', width: 100, height: 60, data: {} },
+    // Y2 A3：cs cells 派生缓存退役——真溢出夹具携 slot 真源（1x2 组减格 1x1——img2 无格可归）
+    const overflowRig = (g: unknown, c1: unknown, c2: unknown, slot2: number | undefined) => [
+      g,
+      { ...(c1 as any), data: { ...(c1 as any).data, slot: 0 } },
+      { ...(c2 as any), data: slot2 === undefined ? (c2 as any).data : { ...(c2 as any).data, slot: slot2 } },
+    ];
+    const gNode = { ...cloneGroupNode('g1'), data: { groupType: 'storyboard',
+      storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' } } };
+    const cNode = (id: string) => ({ id, type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', width: 100, height: 60, data: {} });
+    useCanvasStore.setState({ nodes: overflowRig(gNode, cNode('img1'), cNode('img2'), 1) as any, edges: [] });
+    syncDocFromSeed([
+      gNode,
+      { ...cNode('img1'), data: { ...cNode('img1').data, slot: 0 } },
       { id: 'img2', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', width: 100, height: 60, data: {} },
-    ] as any, edges: [] });
+    ] as any);
     useCanvasStore.getState().resizeStoryboardGrid('g1', 1, 1); // 容量 1，img2 溢出
     const g = useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!;
-    expect(((g.data as any).cells as unknown[]).length).toBeLessThanOrEqual(1);
+    expect((g.data as any).cells).toBeUndefined();   // Y2 A3：cs cells 派生缓存退役（写域⑥ 收口——渲染面 cellNodes 派生；格位真源=子 slot）
     const img2 = useCanvasStore.getState().nodes.find((n) => n.id === 'img2') as any;
     expect(img2).toBeDefined();               // 未被删除
     expect(img2.parentId).toBeUndefined();    // 被移出组（顶层化）
@@ -250,6 +287,10 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: [null, 'img1'] } },
       { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', width: 500, height: 400, data: {} },
     ] as any, edges: [] });
+    syncDocFromSeed([
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: [null, 'img1'] } },
+      { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', width: 500, height: 400, data: {} },
+    ] as any);
     useCanvasStore.getState().ungroup('g1');
     const img = useCanvasStore.getState().nodes.find((n) => n.id === 'img1') as any;
     expect(img.width).toBe(500);
@@ -263,6 +304,11 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
       { id: 'wide', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', width: 500, height: 300, data: {} },
       { id: 'img2', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', width: 320, height: 180, data: {} },
     ] as any, edges: [] });
+    syncDocFromSeed([
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 800, height: 600, data: { groupType: 'storyboard', cells: ['wide', 'img2'], storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 1, showIndex: false, stitchResolution: '2K' } } },
+      { id: 'wide', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', width: 500, height: 300, data: {} },
+      { id: 'img2', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', width: 320, height: 180, data: {} },
+    ] as any);
     useCanvasStore.getState().convertGroup('g1', 'normal');
     const st = useCanvasStore.getState().nodes as any[];
     const wide = st.find((n) => n.id === 'wide');

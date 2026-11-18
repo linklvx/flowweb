@@ -1,5 +1,4 @@
 import { initCollab, destroyCollab, safeReload, type CollabSessionMeta } from '@/stores/canvasCollabRuntime';
-import { bootstrapGeometryTrap } from '@/stores/geometryTrap';
 import { attachSpecbPerfProbe } from '@/stores/specbPerfProbe';
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router';
@@ -124,10 +123,8 @@ export function CanvasPage() {
   useEffect(() => {
     let cancelled = false;
     setLoadError(null);
-    // B7-1（O0b-8 接线）：会话入口 bootstrap geometryTrap——DEV 抛模式进入点（写者上下文已随
-    // O0b-6/7/9 逐函数接线完毕；vitest/prod 自守卫——见 geometryTrap.bootstrapGeometryTrap）
-    bootstrapGeometryTrap();
-    // 每轮开局归零：清上一轮 cancelled 遗留的悬停态（三保险之一——批2-1 四态：idle=无会话）
+    // Y2 A3 退役注记：geometryTrap bootstrap（O0b-8 接线）随 withGeometryWriter 仲裁体系整删
+    //（cs=作者缓存 doc 读模型直写——几何写者域消解）。每轮开局归零沿袭（三保险之一——批2-1 四态：idle=无会话）
     useCanvasStore.getState().setHydration('idle');
 
     // 项目切换/新建前同步清空模块级 store 残留，否则残留会骗过下方 DB 空守卫（Bug 3）

@@ -29,7 +29,8 @@ import { type StoredNodeRecord } from '@flowweb/shared';
 import { _setIntentDocForTest } from './canvasIntents';
 import { seedCanvas, openRwWindow, openRoWindow, resetCanvasStores } from '@/test/fixtures/canvas';
 
-const csNode = (id: string) => useCanvasStore.getState().nodes.find((n: any) => n.id === id) as any;
+// Y2 A3（坐标域终裁）：手势活值唯一宿主=渲染列表（rel 域）——原 csNode 断言域整体换轨
+const csNode = (id: string) => useCanvasStore.getState().renderNodes.find((n: any) => n.id === id) as any;
 const session = () => useCanvasStore.getState().dragSession;
 
 const SB_CONFIG = { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: true, stitchResolution: '2K' };
@@ -478,10 +479,12 @@ describe("B4'-2 分镜子 position 批按条目丢弃（识别按父组 groupTyp
     const d = buildDoc();
     _setIntentDocForTest(d);
     applyDocToStore(d);
-    expect(csNode('s1').position).toEqual({ x: 0, y: 0 });
+    // Y2 A3：分镜子不在渲染列表——{0,0} 构造默认断言读作者缓存
+    const csRead = (id: string) => useCanvasStore.getState().nodes.find((n: any) => n.id === id) as any;
+    expect(csRead('s1').position).toEqual({ x: 0, y: 0 });
     const wc = docWriteCounter(d);
     frame('s1', 50, 50, false);
-    expect(csNode('s1').position).toEqual({ x: 0, y: 0 });       // 数据层丢弃——不可移
+    expect(csRead('s1').position).toEqual({ x: 0, y: 0 });       // 数据层丢弃——不可移
     expect(wc.count()).toBe(0);
     expect(warnSpy).not.toHaveBeenCalled();                      // 丢弃后批内无 position——不触门判据②
     wc.stop();
@@ -497,8 +500,9 @@ describe("B4'-2 分镜子 position 批按条目丢弃（识别按父组 groupTyp
       { type: 'position', id: 's1', position: { x: 50, y: 50 }, dragging: true } as any,
       { type: 'position', id: 't1', position: { x: 750, y: 5 }, dragging: true } as any,
     ]);
-    expect(csNode('s1').position).toEqual({ x: 0, y: 0 });       // 分镜子丢弃
-    expect(csNode('t1').position).toEqual({ x: 750, y: 5 });     // 普通条目照常落 cs
+    const csRead2 = (id: string) => useCanvasStore.getState().nodes.find((n: any) => n.id === id) as any;
+    expect(csRead2('s1').position).toEqual({ x: 0, y: 0 });      // 分镜子丢弃（作者缓存面——不在渲染列表）
+    expect(csNode('t1').position).toEqual({ x: 750, y: 5 });     // 普通条目照常落渲染列表
   });
 });
 
@@ -508,9 +512,11 @@ describe("B4'-2 baseline 时点+hidden 双向+cs 键集", () => {
     const d = buildDoc();
     _setIntentDocForTest(d);
     applyDocToStore(d);
-    seedCanvas(useCanvasStore.getState().nodes.map((n: any) => (
-      n.id === 't1' ? { ...n, position: { x: 710, y: 2 } } : n   // begin 前位移（模拟上一命令尾）
-    )));
+    useCanvasStore.setState((s) => ({   // Y2 A3：几何活值域=渲染列表（begin 前位移——模拟上一命令尾）
+      renderNodes: s.renderNodes.map((n: any) => (
+        n.id === 't1' ? { ...n, position: { x: 710, y: 2 } } : n
+      )) as any,
+    }));
     begin(['t1']);
     expect(session()!.baseline.get('t1')).toMatchObject({ x: 710, y: 2 });
     frame('t1', 800, 10);
@@ -527,11 +533,12 @@ describe("B4'-2 baseline 时点+hidden 双向+cs 键集", () => {
     frame('c1', 45, 60);
     remoteMutate(d, (B) => { (B.getMap('nodes').get('g1') as Y.Map<any>).get('data').set('collapsed', true); });
     applyDocToStore(d);
-    expect(csNode('c1').hidden).toBe(true);                      // 折叠⇒即时 hidden
-    expect(csNode('c1').position).toEqual({ x: 45, y: 60 });     // 几何仍保护
+    // Y2 A3：可见集合=内核剔除（cs 零 hidden 派生键）——折叠⇒被拖子暂离渲染列表（活值保留以在场为界）
+    expect(csNode('c1')).toBeUndefined();
+    expect((useCanvasStore.getState().nodes.find((n: any) => n.id === 'c1') as any).position).toEqual({ x: 120, y: 80 });   // 作者缓存≡doc（几何真值）
     remoteMutate(d, (B) => { (B.getMap('nodes').get('g1') as Y.Map<any>).get('data').set('collapsed', false); });
     applyDocToStore(d);
-    expect(csNode('c1').hidden).toBeFalsy();                     // 展开⇒即时恢复
+    expect(csNode('c1')).toBeTruthy();                           // 展开⇒回渲染列表（活值对象保留）
   });
 
   it('cs 无 draggable/extent 键（手势全程+resize 会话全程）', () => {
@@ -589,8 +596,10 @@ describe("B4'-2 拖动中远端改被拖节点 parentId ⇒ 放弃保护按 doc 
       c1.set('position', new Y.Map([['x', 145], ['y', 110]]));   // 顶层 abs=手势视觉位
     });
     applyDocToStore(d);
-    expect(csNode('c1').parentId ?? null).toBeNull();            // 顶层化取 doc 最新值
-    expect(csNode('c1').position).toEqual({ x: 145, y: 110 });   // doc 基准 abs（旧保护回写会落 45,60=跳组原点）
+    // Y2 A3：保护序退役——cs≡doc 天然成立（作者缓存面直读）
+    const csRead3 = (id: string) => useCanvasStore.getState().nodes.find((n: any) => n.id === id) as any;
+    expect(csRead3('c1').parentId ?? null).toBeNull();           // 顶层化取 doc 最新值
+    expect(csRead3('c1').position).toEqual({ x: 145, y: 110 });  // doc 基准 abs（保护回写面已消亡——无跳组原点路径）
     expect(useCanvasStore.getState().nodes.some((n: any) => n.id === 'g1')).toBe(false);
   });
 });

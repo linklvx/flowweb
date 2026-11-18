@@ -16,7 +16,9 @@ describe('deleteNode 组清理', () => {
     const gid = useCanvasStore.getState().mergeStoryboard(['a', 'b', 'c']);
     useCanvasStore.getState().deleteNode('a');
     const g = useCanvasStore.getState().nodes.find((n) => n.id === gid)!;
-    expect(g.data.cells).not.toContain('a');
+    // Y2 A3：cs cells 派生缓存退役——删子判据=membership 真源（成员消失；组保留）
+    expect(useCanvasStore.getState().nodes.some((n: any) => n.id === 'a' && n.parentId === gid)).toBe(false);
+    expect((g.data as any).cells).toBeUndefined();
     expect(useCanvasStore.getState().nodes.find((n) => n.id === gid)).toBeTruthy();
   });
 

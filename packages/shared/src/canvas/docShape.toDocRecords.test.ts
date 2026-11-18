@@ -89,14 +89,14 @@ describe('toDocRecords：顶层节点 abs 原样（O0b-0 翻转后顶层恒等�
 // 语义（plan O0b-0 Step 2①）：子节点输出 abs=cs.rel+组帧 origin（组帧 origin 取 cs 组 position
 // 现值）；顶层节点原样（本就是绝对位）；分镜子无 position（剥键已有）；auto 组无帧三键（剥键已有
 // ——applyKeySetTable 不变，本批只改 position 空间语义）。
-describe('O0b-0 写侧翻转：子输出 abs=cs.rel+组帧 origin（origin 取 cs 组 position 现值）', () => {
+describe('Y2 A3 恒 abs 透传（O0b-0 翻转退役——cs=作者缓存恒 abs，全仓无 rel 生产者）', () => {
   it('manual 组+子：组 abs 原样，子 abs=rel+组 position 逐位（浮点无噪声——整数夹具）', () => {
     const out = toDocRecords([
       csNode({ id: 'g1', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal' } }),
       csNode({ id: 'c1', parentId: 'g1', position: { x: 10, y: 20 }, width: 100, height: 60, data: {} }),
     ], {});
-    expect(out.find((n) => n.id === 'g1')!.position).toEqual({ x: 100, y: 50 }); // 组原样（翻转只作用于子面）
-    expect(out.find((n) => n.id === 'c1')!.position).toEqual({ x: 110, y: 70 }); // 10+100 / 20+50
+    expect(out.find((n) => n.id === 'g1')!.position).toEqual({ x: 100, y: 50 });
+    expect(out.find((n) => n.id === 'c1')!.position).toEqual({ x: 10, y: 20 });   // Y2 A3：abs 原样透传（翻转退役）
   });
 
   it('auto 组（0 帧键）+子：子 abs=rel+cs 组 position 现值（origin 消费在翻转层、剥键在键集层——正交）；组仍 0 帧键', () => {
@@ -105,7 +105,7 @@ describe('O0b-0 写侧翻转：子输出 abs=cs.rel+组帧 origin（origin 取 c
       csNode({ id: 'c2', parentId: 'g2', position: { x: 5, y: 5 }, width: 200, height: 100, data: {} }),
     ], {});
     expect(out.find((n) => n.id === 'g2')!.position).toBeUndefined(); // 键集表剥（不变）
-    expect(out.find((n) => n.id === 'c2')!.position).toEqual({ x: 35, y: 45 }); // 5+30 / 5+40
+    expect(out.find((n) => n.id === 'c2')!.position).toEqual({ x: 5, y: 5 });   // Y2 A3：abs 原样透传（翻转退役）
   });
 
   it('分镜子：剥 position（剥键优先——翻转可见面为零）；storyboard 组 position 留（origin 面）', () => {
@@ -136,7 +136,7 @@ describe('O0b-0 写侧翻转：子输出 abs=cs.rel+组帧 origin（origin 取 c
     fillDoc(doc, out, []);
     const back = readRecordsFromMaps(doc).nodes;
     expect(back).toEqual(out); // doc 读回=toDocRecords 出口逐位（abs 空间）
-    expect(back.find((n) => n.id === 'c1')!.position).toEqual({ x: 110, y: 70 });
+    expect(back.find((n) => n.id === 'c1')!.position).toEqual({ x: 10, y: 20 });   // Y2 A3：abs 逐位恒等（翻转退役）
   });
 });
 

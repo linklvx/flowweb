@@ -166,9 +166,9 @@ describe('恢复链重开逐位不变（Task 18 沿革——S1 停写后结构�
       .toEqual({ id: 'g1', position: { x: 0.1, y: 0.1 }, width: 140, height: 130 });
     expect({ id: c1.id, parentId: c1.parentId, width: c1.width, height: c1.height })
       .toEqual({ id: 'c1', parentId: 'g1', width: 100, height: 60 });
-    // 守恒锚：cs rel+origin ≡ doc.abs（20,50）——reconcile 不搬子
-    expect(c1.position.x + g1.position.x).toBeCloseTo(20, 12);
-    expect(c1.position.y + g1.position.y).toBeCloseTo(50, 12);
+    // Y2 A3：cs 子恒 abs——与 doc.abs（20,50）逐位直等（旧 rel+origin 翻转读退役）
+    expect(c1.position.x).toBeCloseTo(20, 12);
+    expect(c1.position.y).toBeCloseTo(50, 12);
     // doc 无回写（S1 停写——结构性零 diff 回写通道）
     const m = d.getMap('nodes').get('g1') as any;
     expect(m.get('position').get('x')).toBe(0.1);

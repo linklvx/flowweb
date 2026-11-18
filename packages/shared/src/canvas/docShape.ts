@@ -62,7 +62,9 @@ export const CANVAS_DOC_SCHEMA_VERSION = 3;
  *  canvasIntents.spec 守卫）。
  *  CANVAS_BRIDGE_KEYS=ns→cs 桥白名单（低频图片身份字段同步 canvasStore——防高频 updateConfig
  *  路径引发全画布重渲染）。 */
-export const EPHEMERAL_DATA_KEYS = new Set(['editMode', 'transformMode']);
+// Y2 A3：mediaUrl 收编——零生产读者（StoryboardCell/useStitchTask 注记「不再写入」）+presigned
+// URL 禁持久（F37——旧守面=桥白名单仅护 cs 镜像，doc 面一直漏；A3 统一快照暴露后收口为 doc 剥键）。
+export const EPHEMERAL_DATA_KEYS = new Set(['editMode', 'transformMode', 'mediaUrl']);
 export const CANVAS_BRIDGE_KEYS = new Set(['fileId', 'referenceImage', 'status', 'images']);
 
 /** Y0c T10（Z6/Z119）：服务端写事务 origin 跨端单源——api withDoc 最外层 doc.transact 第二参
@@ -318,31 +320,19 @@ export interface MinimalCSNode {
  *  双源合并（F42：组 data 取 cs[所有权单一]；普通节点取 ns、ns 缺席回落 cs[恢复窗口]）
  *  → 键集表内剥键（applyKeySetTable——与 stripAuthorState 同表同谓词，方向不同：本函数=
  *  web 投影差分出口，stripAuthorState=api 种子入口）。输出已满足字段×模式键集表。
- *  O0b-0 格式批：**rel→abs 翻转切（本函数体=唯一翻转点，无 space 参数）**——子节点输出
- *  abs=cs.rel+组帧 origin（组帧 origin 取 cs 组 position 现值——含 auto 组：origin 消费在翻转层、
- *  键集剥在 applyKeySetTable，两者正交）；顶层节点原样（本就是绝对位）；分镜子翻转后仍被剥
- *  position（剥键优先，翻转可见面为零）；无父上下文的孤儿 parentId 原样输出（无 origin 可加，
- *  禁 undefined/NaN 发射）。type 缺省回落 videoGen（旧投影同口径）。ephemeral 键
- * （editMode/transformMode）=web 口径 13 键集（EPHEMERAL_DATA_KEYS——本文件单源）——由 web
- *  包装层 projectCanvasNodes 剥除（doc 持久面另有漏斗入口剥键双保险）。 */
+ *  O0b-0 格式批曾设 rel→abs 翻转切（本函数体=唯一翻转点）；**Y2 A3 坐标域终裁退役**——
+ *  cs=作者缓存恒 abs（doc 读模型直写），全仓无 rel 生产者（rel 域唯一宿主=渲染列表〔内核
+ *  输出〕，不经本出口）——翻转体整删，position 原样透传。分镜子 position 仍被剥（剥键优先）；
+ *  孤儿 parentId 原样输出。type 缺省回落 videoGen（旧投影同口径）。ephemeral 键
+ * （editMode/transformMode/mediaUrl）=web 口径 13 键集（EPHEMERAL_DATA_KEYS——本文件单源）——
+ *  由 web 包装层 projectCanvasNodes 剥除（doc 持久面另有漏斗入口剥键双保险）。 */
 export function toDocRecords(
   csNodes: readonly MinimalCSNode[],
   nsNodes: Record<string, { data?: Record<string, unknown> }>,
   groupFrameModes?: ReadonlyMap<string, FrameMode>,
 ): StoredNodeRecord[] {
-  // 组帧 origin 表：cs 组 position 现值（一次预扫——子翻转只查表，不做遍历内推算）
-  const origins = new Map<string, { x: number; y: number }>();
-  for (const nd of csNodes) {
-    if (nd.type === 'group') origins.set(nd.id, nd.position);
-  }
   const merged: StoredNodeRecord[] = csNodes.map((nd) => {
-    let position = nd.position;
-    if (nd.parentId != null && nd.position != null) {
-      const origin = origins.get(nd.parentId);
-      if (origin) {
-        position = { x: nd.position.x + origin.x, y: nd.position.y + origin.y }; // rel→abs 翻转
-      }
-    }
+    const position = nd.position;
     return {
       id: nd.id,
       type: nd.type || 'videoGen',

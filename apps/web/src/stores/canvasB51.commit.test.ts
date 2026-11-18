@@ -41,7 +41,8 @@ function findRepoRoot(start: string): string {
 }
 const STORE_PATH = path.join(findRepoRoot(process.cwd()), 'apps/web/src/stores/canvasStore.ts');
 
-const csNode = (id: string) => useCanvasStore.getState().nodes.find((n: any) => n.id === id) as any;
+// Y2 A3（坐标域终裁）：手势活值/帧断言域=渲染列表（cs=作者缓存恒≡doc）——原 csNode 断言域整体换轨
+const csNode = (id: string) => useCanvasStore.getState().renderNodes.find((n: any) => n.id === id) as any;
 const session = () => useCanvasStore.getState().dragSession;
 
 const SB_CONFIG = { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: true, stitchResolution: '2K' };

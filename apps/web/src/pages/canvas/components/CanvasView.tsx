@@ -100,8 +100,9 @@ function CanvasViewComponent(_props: Props) {
   const [minimapOpen, setMinimapOpen] = useState(false);
   const [snapEnabled, setSnapEnabled] = useState(false);
   const [groupContextMenu, setGroupContextMenu] = useState<{ groupId: string; x: number; y: number } | null>(null);
-  // Y2 A2b（D2 双轨）：React Flow 消费渲染列表（projectCanvas 输出）；nodes=作者缓存轨道
-  //（绝对坐标域逻辑——拖放判定 absoluteRectsOf/组选择——继续读缓存，A3 reconcile 退役后翻 abs 读模型）
+  // Y2 A2b（D2 双轨）→Y2 A3 收敛：React Flow+几何面（拖放判定 absoluteRectsOf/加号锚框/handle
+  // 菜单）读渲染列表（rel 域——父链累加数学原样成立）；nodes=作者缓存轨道（abs 读模型）承数据/
+  // 会籍/组选择（selected 经 onNodesChange 结构批双写在场）
   const renderNodes = useCanvasStore((s) => s.renderNodes);
   const nodes = useCanvasStore((s) => s.nodes);
   const edges = useCanvasStore((s) => s.edges);
@@ -344,7 +345,9 @@ function CanvasViewComponent(_props: Props) {
     const p = clientPoint(event);
     const flowPoint = screenToFlowPosition(p);
     const csState = useCanvasStore.getState();
-    const nodes = csState.nodes;
+    // Y2 A3（坐标域终裁）：handle 菜单几何面=渲染列表（rel 域——absoluteRectsOf/addOutputFrameFlow
+    // 父链累加口径原样成立+内核派生组 wh 在场；作者缓存=abs 读模型直读会双重翻转）
+    const nodes = csState.renderNodes as unknown as typeof csState.nodes;
     const node = nodes.find((n) => n.id === dragStart.nodeId);
     // isLocked 命令式消费点（原"双定义第二处"，spec §3）：selectIsLocked 单源取当前快照——
     // 与订阅式同口径（编辑中或 transform 调整中），喂 decideHandleMenu——
@@ -352,12 +355,12 @@ function CanvasViewComponent(_props: Props) {
     const isLockedNow = selectIsLocked(useNodeStore.getState());
     // B6-2（Spec B 撞车①c）：+号命中区（流坐标）——与 AddOutputHandle 渲染同源
     // （resolveAddOutputTarget 单源：canEdit/marquee/折叠/分镜全口径）；源 handle 拖线落+号 ⇒ 零菜单。
-    const plusTarget = resolveAddOutputTarget(csState.nodes, {
+    const plusTarget = resolveAddOutputTarget(nodes, {
       marqueeSelecting: csState.marqueeSelecting,
       canEdit: canEdit(csState),
       localCollapsed: csState.localCollapsed,
     });
-    const plusFrame = plusTarget ? addOutputFrameFlow(csState.nodes, plusTarget) : null;
+    const plusFrame = plusTarget ? addOutputFrameFlow(nodes, plusTarget) : null;
     const plusZones = plusFrame ? [addOutputHitZoneFlow(plusFrame, csState.viewport.zoom)] : [];
 
     const decision = decideHandleMenu({

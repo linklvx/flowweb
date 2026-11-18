@@ -364,6 +364,20 @@
       "symbol": "packages/shared/src/canvas/resolvePrimaryMediaId.ts",
       "reason": "Y2 B2a 将创建的文件（批内前瞻引用）",
       "expires_at": "2027-02-15"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
+      "line": 85,
+      "symbol": "apps/web/src/stores/geometryTrap.ts",
+      "reason": "Y2 A3 reconcile 退役批删除的文件——plan 文件表历史记录性提及（行级锚）",
+      "expires_at": "2027-02-15"
+    },
+    {
+      "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
+      "line": 85,
+      "symbol": "packages/shared/src/canvas/geometryWriterRegistry.ts",
+      "reason": "Y2 A3 reconcile 退役批删除的文件——plan 文件表历史记录性提及（行级锚）",
+      "expires_at": "2027-02-15"
     }
   ]
 }

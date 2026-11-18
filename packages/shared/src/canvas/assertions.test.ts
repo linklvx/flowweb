@@ -456,14 +456,14 @@ describe('reportShapeViolation（O0d prod 侧集中上报：每报必计数+同 
 describe('O0b 接线挂点（C0-2 只落骨架，行为接线归各分片）', () => {
   // repo root 定位（shared 包 cwd=packages/shared——web 侧 canvasCollabRuntime 相对路径两 级上溯）
   const REPO_ROOT = path.resolve(process.cwd(), '../..');
-  it('O0b-2 接线：applyDocToStore 尾挂 assertDocAbsMatchesCsRel + assertStoryboardMembership（写侧 membership，prod 转 id 去重 log）', () => {
-    // census：web 侧 applyDocToStore 尾两断言接线行在场（行为面=所有 applyDocToStore 消费用例
-    // 恒过+违例构造档——分镜子 parentId∉cells→DEV throw；prod 转 id 去重 log 接缝在 catch 段）
+  it('Y2 A3 接线（O0b-2 换芯）：applyDocToStore 尾挂 checkProjectionInvariant 单源（新形态）+assertStoryboardMembership（写侧 membership）', () => {
+    // census：web 侧 applyDocToStore 尾断言接线行在场（Y2 A3：旧形 assertDocAbsMatchesCsRel 随 cs 翻
+    // abs 语义反转退役——新形态=checkProjectionInvariant 谓词单源；行为面=web 全量消费用例恒过）
     const runtime = readFileSync(
       path.join(REPO_ROOT, 'apps/web/src/stores/canvasCollabRuntime.ts'), 'utf8',
     );
-    expect(runtime).toContain('assertDocAbsMatchesCsRel(');
-    expect(runtime).toContain('assertStoryboardMembership(');
+    expect(runtime).toContain('!checkProjectionInvariant(d)');
+    expect(runtime).toContain('assertStoryboardMembership(nodes)');
     expect(runtime).toContain('reportShapeViolation(');   // O0d 收编：prod 去重 log 接缝（计数+采样日志单源）
   });
   // O0b-3（2026-10-03）已转实：census 断言 web 侧挂点行在场（行为面=断言族本文件逐条用例恒过
@@ -477,22 +477,8 @@ describe('O0b 接线挂点（C0-2 只落骨架，行为接线归各分片）', (
     expect(intents).toContain('assertNoCsDerivedKeysInData(');
     expect(intents).toContain('assertNoDunderKeysInGroupData(');
   });
-  it('O0b-4 接线（B7-1 转实）：GeometryWriteLedger 内建 reconcile 计数——字段级一写者断言进 transact 边界（漏斗尾）', () => {
-    // census：reconcile 写点登记+漏斗尾（dispatchCanvasIntent 尾=transact 边界）断言窗口接线行在场。
-    // 辖域注记：三键全覆盖无 data.wh 豁免（GeometryField 无豁免面——AI 键已随终裁 49④ 删）；
-    // 账本只记 reconcile 实际写（跨写者链[结构命令 placement 写+reconcile rebase/addNode 结构默认
-    // +同 tick 补齐]在同窗口按设计即多写者——运行时越权写者牙齿=geometryTrap 写者上下文，两机制分立）。
-    const runtime = readFileSync(
-      path.join(REPO_ROOT, 'apps/web/src/stores/canvasCollabRuntime.ts'), 'utf8',
-    );
-    expect(runtime).toContain('export const reconcileWriteLedger = new GeometryWriteLedger()');
-    expect(runtime).toContain('recordReconcileWrite(');   // Pass 2 写点登记
-    expect(runtime).toContain('assertReconcileSingleWriterWindow');   // 边界断言（导出+漏斗尾消费）
-    const intents = readFileSync(
-      path.join(REPO_ROOT, 'apps/web/src/stores/canvasIntents.ts'), 'utf8',
-    );
-    expect(intents).toContain('assertReconcileSingleWriterWindow();');   // 漏斗尾（transact 边界）消费点
-  });
+  // Y2 A3 退役注记：O0b-4 接线 census（reconcileWriteLedger/recordReconcileWrite/漏斗尾窗口断言）
+  // 随 reconcile 仲裁体系整删（源码锚失效；形态沿革见 git 历史）。
   it('O0b-5 接线（B7-1 转实）：assertAllPositionsFinite 挂 assertInvariant 收口点（checkProjectionInvariant 首）', () => {
     // census：invariant 收口点接线行在场（非有限坐标=不变量破坏→如实 false；行为锚=web 侧
     // canvasCollabRuntime.invariant.spec"NaN position⇒false"变异实验档）。

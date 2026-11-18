@@ -93,20 +93,21 @@ describe('批2-2 第二层：applyNodeDataPatch（ns 内容写收口 wrapper）'
   it('③rw 等价现 setState 行为：merge 保留既有键 + 白名单键（fileId/status）桥接 cs', () => {
     readWriteSession();
     useNodeStore.getState().applyNodeDataPatch('n1', { fileId: 'f-1', status: 'done' });
-    // Y2 A2b：fileId=服务端权威域（CLIENT_FORBIDDEN_ON_UPDATE）——doc 禁写不落 ⇒ ns=doc 快照无此键；本地镜像归 cs 桥
+    // Y2 A2b：fileId=服务端权威域（CLIENT_FORBIDDEN_ON_UPDATE）——doc 禁写不落 ⇒ ns=doc 快照无此键
+    // Y2 A3：cs 桥镜像退役——cs=作者缓存恒 doc 面（fileId 禁写即不落 cs；B3 拆桥终态语义）
     expect(nsData().fileId).toBeUndefined();
     expect(nsData().status).toBe('done');
     expect(nsData().model).toBe('m0');                      // 既有键保留（等价 {...data, ...patch}）
-    expect((csNode().data as any).fileId).toBe('f-1');      // 桥白名单键
+    expect((csNode().data as any).fileId).toBeUndefined();  // 不镜像（doc 无此键——作者缓存≡doc）
     expect((csNode().data as any).status).toBe('done');
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it('③rw 非白名单键不桥接 cs（防高频重渲染——桥白名单语义不变）', () => {
+  it('③rw 非白名单键——cs=doc 投影面全键跟随（Y2 A3：桥白名单语义随镜像退役消解）', () => {
     readWriteSession();
     useNodeStore.getState().applyNodeDataPatch('n1', { model: 'm9' });
     expect(nsData().model).toBe('m9');
-    expect((csNode().data as any).model).toBeUndefined();   // model 不在 CANVAS_BRIDGE_KEYS
+    expect((csNode().data as any).model).toBe('m9');        // doc 作者键⇒cs=作者缓存跟随（非桥直写）
   });
 
   it('③rw mediaUrl 不桥接 cs（R2b-6 写入面清零——F37：presigned URL 不得经桥镜像持久化）', () => {

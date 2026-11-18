@@ -347,8 +347,9 @@ describe('批4b-1：首批换芯接线锚（store action→intent 漏斗实贯�
     const cfg = resolveStoryboardConfig({ storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2 } } as any);
     const size = calcStoryboardSize(cfg.gridRows, cfg.gridCols, cfg.aspectRatio);
     const g = useCanvasStore.getState().nodes.find((n: any) => n.id === gid) as any;
-    expect(g.width).toBe(size.width);    // cs 帧=calcStoryboardSize 单源（非手写派生第二实现）
-    expect(g.height).toBe(size.height);
+    // Y2 A3：分镜组帧=渲染列表内核派生（cs/doc 零 wh 键）——calcStoryboardSize 单源经内核
+    expect((useCanvasStore.getState().renderNodes as any[]).find((n: any) => n.id === gid)!.width).toBe(size.width);
+    expect((useCanvasStore.getState().renderNodes as any[]).find((n: any) => n.id === gid)!.height).toBe(size.height);
     const dm = doc.getMap('nodes').get(gid) as Y.Map<any>;
     expect(((dm.get('data') as Y.Map<any>).get('storyboard') as any).gridRows).toBe(2);   // data.storyboard 落 doc
     expect(txCount).toBe(1);             // 单 transact（applyGroupFrameRect+patchGroupData 双 dispatch 退役）
@@ -423,13 +424,13 @@ describe('批4b-2：复合信封写点换芯锚（组族——doc 联动+不变�
     const n1b = useCanvasStore.getState().addNode('text', { x: 100, y: 100 });
     const gid = useCanvasStore.getState().groupNodes([n1, n1b]);
     const n2 = useCanvasStore.getState().addNode('text', { x: 300, y: 300 });
-    const widthBefore = (useCanvasStore.getState().nodes.find((n: any) => n.id === gid) as any).width;
+    const widthBefore = (useCanvasStore.getState().renderNodes as any[]).find((n: any) => n.id === gid)!.width;   // Y2 A3：基线亦读渲染列表（cs auto 组零 wh）
     useCanvasStore.getState().addToGroup(gid, n2);
     expect((doc.getMap('nodes').get(n2) as Y.Map<any>).get('parentId')).toBe(gid);
     expect((doc.getMap('nodes').get(n2) as Y.Map<any>).get('extent')).toBeUndefined(); // extent 不入投影——doc 无此键
     const g = doc.getMap('nodes').get(gid) as Y.Map<any>;
     expect(g.get('width')).toBeUndefined();   // O0b-5：auto 组 doc 恒 0 帧键（帧=cs 派生——扩框证据在 cs 面）
-    expect((useCanvasStore.getState().nodes.find((n: any) => n.id === gid) as any).width).toBeGreaterThan(widthBefore); // cs 组框随新成员扩
+    expect((useCanvasStore.getState().renderNodes as any[]).find((n: any) => n.id === gid)!.width).toBeGreaterThan(widthBefore); // Y2 A3：组框=渲染列表内核派生（cs 零帧键）
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 
@@ -822,7 +823,9 @@ describe('O0a-3：差分零几何意图（auto 组只改 data）', () => {
     // O0b-2 写域① 接管（台账 a）：cs 组对象可被漏斗尾 reconcile 重建（wh=派生值接管——空 auto 组
     // COLLAPSED_SIZE 档），对象身份不再是不变量——零几何意图的观察面收敛到 origin 值+doc 侧键集。
     void gBefore;
-    expect(useCanvasStore.getState().nodes[0].position).toEqual({ x: 10, y: 20 });
+    // Y2 A3：cs=作者缓存≡doc——auto 组 position 零帧键（构造默认 {0,0} 材料化；origin 值观察面
+    // 移渲染列表〔空组 COLLAPSED_SIZE 档——派生域〕；零几何意图判据=doc 侧键集三断言）
+    expect(useCanvasStore.getState().nodes[0].position).toEqual({ x: 0, y: 0 });
     // doc 几何不变：auto 组 doc 无 position 键（键集表形态）∧无 wh 键写入
     expect(m.has('position')).toBe(false);
     expect(m.has('width')).toBe(false);

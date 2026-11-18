@@ -28,11 +28,10 @@ describe('addImageToStoryboardCell', () => {
     useCanvasStore.getState().addImageToStoryboardCell(gid, 3, 'f-new');
     const s = useCanvasStore.getState();
     const g = s.nodes.find((n) => n.id === gid)!;
-    const cells = g.data.cells as (string | null)[];
-    expect(cells![3]).toBeTruthy();
-    const cell3 = s.nodes.find((n) => n.id === cells![3])!;
-    expect(cell3.parentId).toBe(gid);
-    expect((cell3.data as any).fileId).toBe('f-new');
+    // Y2 A3：cs cells 派生缓存退役（写域⑥）——成员判据改 slot/membership
+    const cell3 = s.nodes.find((n: any) => n.parentId === gid && (n.data as any).slot === 3);
+    expect(cell3).toBeTruthy();
+    expect((cell3!.data as any).fileId).toBe('f-new');
   });
 
   it('槽位建图节点 data 不含 mediaUrl 键（R2b-6 写入面清零——F37 presigned URL 不得持久化）', () => {
@@ -40,10 +39,10 @@ describe('addImageToStoryboardCell', () => {
     useCanvasStore.getState().resizeStoryboardGrid(gid, 2, 2);
     useCanvasStore.getState().addImageToStoryboardCell(gid, 3, 'f-new');
     const s = useCanvasStore.getState();
-    const cells = (s.nodes.find((n) => n.id === gid)!.data as any).cells as (string | null)[];
-    const csNode = s.nodes.find((n) => n.id === cells![3])!;
-    expect(JSON.stringify(csNode.data)).not.toContain('mediaUrl'); // cs 镜像不写
-    const nsNode = useNodeStore.getState().nodes[cells![3]!];
+    // Y2 A3：cs cells 派生缓存退役（写域⑥）——成员判据改 slot/membership
+    const cell3 = s.nodes.find((n: any) => n.parentId === gid && (n.data as any).slot === 3)!;
+    expect(JSON.stringify(cell3.data)).not.toContain('mediaUrl'); // 作者缓存面不写
+    const nsNode = useNodeStore.getState().nodes[cell3.id];
     expect(JSON.stringify(nsNode.data)).not.toContain('mediaUrl'); // ns 节点不写（双写第二笔）
   });
 });
@@ -55,9 +54,9 @@ describe('removeStoryboardCell（删单格：不收缩宫格，序号重排）',
     const s = useCanvasStore.getState();
     const g = s.nodes.find((n) => n.id === gid)!;
     // T17（Z17''）：派生 cells 长度恰=capacity(4)；紧凑=后续 slot 整值 -1（c:2→1、d:3→2）
-    expect(g.data.cells).toEqual(['a', 'c', 'd', null]);
+    expect(g.data.cells).toBeUndefined();   // Y2 A3：cs cells 派生缓存退役（写域⑥ 收口——渲染面 cellNodes 派生；格位真源=子 slot）
     // slot 域真源断言：doc 侧 c=1、d=2（整值前移）
-    expect(g.data.cells).toHaveLength(4);
+    expect(g.data.cells).toBeUndefined();   // Y2 A3：cs cells 派生缓存退役（写域⑥ 收口——渲染面 cellNodes 派生；格位真源=子 slot）
     expect(s.nodes.find((n) => n.id === 'b')).toBeUndefined();
     const storyboard = (g.data as any).storyboard;
     expect(storyboard.gridRows).toBe(2); // 不收缩
@@ -82,9 +81,10 @@ describe('dropImageIntoStoryboard（multiImageGen 展开拖入）', () => {
     expect(s.nodes.filter((n) => n.id === gid)).toHaveLength(1); // 组节点唯一（回归：曾因旧实例未排除而重复）
     expect(s.nodes.find((n) => n.id === 'multi')).toBeUndefined();
     const g = s.nodes.find((n) => n.id === gid)!;
-    const cells = g.data.cells as (string | null)[];
-    expect(cells.filter(Boolean)).toHaveLength(4); // a + b + m1 + m2 全入格
-    expect(cells.every((c) => c !== 'multi')).toBe(true);
+    // Y2 A3：cs cells 派生缓存退役——全入格判据=组内成员数（a+b+m1+m2）∧无 multi 残留
+    expect(s.nodes.filter((n: any) => n.parentId === gid)).toHaveLength(4);
+    expect(s.nodes.every((n: any) => n.id !== 'multi' || n.parentId !== gid)).toBe(true);
+    expect((g.data as any).cells).toBeUndefined();
     const expanded = s.nodes.filter((n) => (n.data as any).__fromMulti === 'multi');
     expect(expanded).toHaveLength(2);
     expect(expanded.every((n) => n.parentId === gid)).toBe(true);
@@ -149,7 +149,7 @@ describe('O0c-3 attachMember 分镜成员原语', () => {
     expect(z.parentId).toBe('sb');
     expect('extent' in z).toBe(false);                          // 去闸门（终裁 43）：cs 节点无 extent 键
     expect(z.position).toEqual({ x: 0, y: 0 });               // 分镜子坐标无意义（mergeStoryboard/addImageToStoryboardCell 同款归零）
-    expect((csNode('sb').data as any).cells).toEqual(['c1', 'z']);   // cs 派生缓存
+    expect((csNode('sb').data as any).cells).toBeUndefined();   // Y2 A3：cs cells 派生缓存退役（写域⑥ 收口——渲染面 cellNodes 派生；格位真源=子 slot）
     // doc 面（membership=内容真源）：parentId 落键；position 剥键（键集表"分镜子无 position"——
     // 顶层入格前带 position，剥键唯一载体=本 intent 的 position:undefined）；格位=子 slot（doc 无 cells）
     const dz = docNode(d, 'z');
@@ -203,7 +203,7 @@ describe('O0c-3 attachMember 分镜成员原语', () => {
     useCanvasStore.getState().dropImageIntoStoryboard('sb', 'z');
     const z = csNode('z');
     expect(z.parentId).toBe('sb');
-    expect((csNode('sb').data as any).cells).toEqual(['c1', 'z']);   // 入格成功（守卫后走 attachMember——拒绝则此断言红）
+    expect((csNode('sb').data as any).cells).toBeUndefined();   // Y2 A3：cs cells 派生缓存退役过渡（A5 全收）
   });
 
   it('T17 G55：cells 零残留落 doc——全命令族（attach/remove/clear/resize/addImage/removeCell）后 doc 组 data 恒无 cells ∧ slot 派生单源', () => {
@@ -217,11 +217,9 @@ describe('O0c-3 attachMember 分镜成员原语', () => {
     const sbData = docNode(d, 'sb').get('data') as Y.Map<any>;
     expect(sbData.get('cells')).toBeUndefined();
     expect(sbData.has('cells')).toBe(false);
-    // cs 面：派生缓存长度恰=capacity（2x2=4）——deriveStoryboardCells 单源
-    const csCells = (csNode('sb').data as any).cells as (string | null)[];
-    expect(csCells).toHaveLength(4);
-    expect(csCells.filter(Boolean)).toHaveLength(2);  // z（紧凑后槽 0）+新建槽 1
-    expect(csCells[0]).toBe('z');
+    // Y2 A3：cs 面 cells 派生缓存退役——格位真源=子 slot（z 紧凑后槽 0+新建槽 1）
+    expect((csNode('sb').data as any).cells).toBeUndefined();
+    expect(useNodeStore.getState().nodes['z']?.data as any).toMatchObject({ slot: 0 });
   });
 
   it('跨组拖入分镜：源组失去最后子 → 解组（addToGroup 善后语义随通道退役移入 caller——原语零善后是刻意分层）', () => {
@@ -233,7 +231,7 @@ describe('O0c-3 attachMember 分镜成员原语', () => {
     ]);
     useCanvasStore.getState().dropImageIntoStoryboard('sb', 'z');
     expect(csNode('z').parentId).toBe('sb');
-    expect((csNode('sb').data as any).cells).toEqual(['c1', 'z']);
+    expect((csNode('sb').data as any).cells).toBeUndefined();   // Y2 A3：cs cells 派生缓存退役过渡（A5 全收）
     expect(useCanvasStore.getState().nodes.some((n: any) => n.id === 'ng')).toBe(false);   // 空源组解组
   });
 });

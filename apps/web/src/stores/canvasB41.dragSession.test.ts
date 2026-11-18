@@ -26,13 +26,14 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 vi.mock('@hocuspocus/provider', () => ({ HocuspocusProvider: class MockProvider {} }));
 import * as Y from 'yjs';
 import { useCanvasStore, DRAG_STALE_MS } from './canvasStore';
-import { applyDocToStore, reconcileGroupGeometry, resolveGestureYield } from './canvasCollabRuntime';
+import { applyDocToStore } from './canvasCollabRuntime';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
 import { type StoredNodeRecord } from '@flowweb/shared';
 import { _setIntentDocForTest } from './canvasIntents';
 import { seedCanvas, openRwWindow, resetCanvasStores } from '@/test/fixtures/canvas';
 
-const csNode = (id: string) => useCanvasStore.getState().nodes.find((n: any) => n.id === id) as any;
+// Y2 A3（坐标域终裁）：手势活值唯一宿主=渲染列表（rel 域）——原 csNode 断言域整体换轨
+const csNode = (id: string) => useCanvasStore.getState().renderNodes.find((n: any) => n.id === id) as any;
 const session = () => useCanvasStore.getState().dragSession;
 
 /** 夹具：manual 组 g1(100,50,400×300)+双子（c1 rel 20,30 / c1b rel 100,40）+顶层 t1(700,0)。 */
@@ -63,12 +64,20 @@ const docPos = (d: Y.Doc, id: string) => {
   return p ? { x: p.get('x'), y: p.get('y') } : undefined;
 };
 
-/** 手势帧（RF position 批的 cs 活值——B4'-2 编排前的等价驱动；经 fixture 单点）。 */
+/** 手势帧（RF position 批的活值——Y2 A3 起唯一宿主=渲染列表〔onNodesChange 几何批只落
+ *  renderNodes 的等价驱动〕；cs=作者缓存手势期恒≡doc）。 */
 const dragFrame = (id: string, pos: { x: number; y: number }) => {
-  seedCanvas(useCanvasStore.getState().nodes.map((n: any) => (
-    n.id === id ? { ...n, position: { ...pos } } : n
-  )));
+  useCanvasStore.setState((s) => ({
+    renderNodes: s.renderNodes.map((n: any) => (
+      n.id === id ? { ...n, position: { ...pos } } : n
+    )) as any,
+  }));
 };
+
+/** 纯 store 夹具镜像渲染列表（无 doc 水合路径的装配测试用——rel 域值同 cs 种子）。 */
+const mirrorRenderNodes = () => useCanvasStore.setState((s) => ({
+  renderNodes: s.nodes.map((n: any) => ({ ...n })) as any,
+}));
 
 const begin = (ids: string[], pointerId: number | null) =>
   useCanvasStore.getState().beginDragGesture(ids.map((id) => ({ id })), pointerId);
@@ -90,6 +99,7 @@ describe("B4'-1 beginDragGesture 装配", () => {
       { id: 'c1b', type: 'imageGen', position: { x: 100, y: 40 }, parentId: 'g1', data: {} } as any,
       { id: 't1', type: 'textInput', position: { x: 700, y: 0 }, data: {} } as any,
     ]);
+    mirrorRenderNodes();   // Y2 A3：几何快照域=渲染列表
     begin(['c1', 't1'], 7);
     const s = session()!;
     expect([...s.draggingIds].sort()).toEqual(['c1', 't1']);          // 第三参全量（O0b-3 定案）
@@ -136,9 +146,7 @@ describe("B4'-1 beginResize 首行 discard", () => {
     expect(s.draggingIds.size).toBe(0);            // 旧 drag 残留清空
     expect(s.frozenFrames.size).toBe(0);
     expect([...s.activePointers]).toEqual([3]);
-    // 让位集合实证：g1[帧三字段]∪children(g1)={g1,c1,c1b}——无旧 drag 残留（终裁 31⑤）
-    const yieldIds = [...resolveGestureYield(s, useCanvasStore.getState().nodes as any[]).keys()].sort();
-    expect(yieldIds).toEqual(['c1', 'c1b', 'g1']);
+    // Y2 A3 退役：让位集合实证随保护序整删（cs 手势期恒≡doc——零让位面）
   });
 });
 
@@ -285,11 +293,12 @@ describe("B4'-1 endGesture 语义（终裁 66④）", () => {
     applyDocToStore(d);
     begin(['c1'], 1);
     dragFrame('c1', { x: 45, y: 60 });
-    remoteMutate(d, (B) => {                                  // 拖动中远端写被拖节点（不经 applyDocToStore——
-      nodeMap(B, 'c1').get('position').set('x', 200);         // 尾挂断言无让位豁免，见文件头纪律；锚面=收尾链
-      nodeMap(B, 'c1').get('position').set('y', 150);         // 自身：清 session 后 reconcile 直拷 doc）
+    remoteMutate(d, (B) => {                                  // 拖动中远端写被拖节点（Y2 A3：remote 写后
+      nodeMap(B, 'c1').get('position').set('x', 200);         // 经 onRemote applyDocToStore 进 store——cs=doc
+      nodeMap(B, 'c1').get('position').set('y', 150);         // 新值、renderNodes 手势活值节点保留旧对象）
     });
-    useCanvasStore.getState().endGesture('aborted');
+    applyDocToStore(d);
+    useCanvasStore.getState().endGesture('aborted');          // 收尾：清 session+重算渲染列表=doc 终态
     expect(csNode('c1').position).toEqual({ x: 100, y: 100 });  // =doc 远端 abs(200,150)−origin(100,50)——终态正确非 baseline(20,30)
   });
 
@@ -380,9 +389,11 @@ describe("B4'-1 O0b-3 行为锚补齐（真实生命周期——非骨架注入�
     _setIntentDocForTest(d);
     applyDocToStore(d);
     useCanvasStore.getState().beginResize('g1', 9);
-    seedCanvas(useCanvasStore.getState().nodes.map((n: any) => (
-      n.id === 'g1' ? { ...n, width: 500, height: 350 } : n     // resize 预览帧（手势内核写者面）
-    )));
+    useCanvasStore.setState((s) => ({                          // resize 预览帧（Y2 A3：活值唯一宿主=渲染列表）
+      renderNodes: s.renderNodes.map((n: any) => (
+        n.id === 'g1' ? { ...n, width: 500, height: 350 } : n
+      )) as any,
+    }));
     remoteMutate(d, (B) => {
       nodeMap(B, 'g1').set('width', 888);
       nodeMap(B, 'g1').set('height', 777);
@@ -396,18 +407,8 @@ describe("B4'-1 O0b-3 行为锚补齐（真实生命周期——非骨架注入�
     expect(csNode('c1').position).toEqual({ x: 20, y: 30 });    // children(resizeTargetId) 帧三字段保护
     expect(csNode('c1').width).toBe(100);
     expect(csNode('c1b').position).toEqual({ x: 100, y: 40 });
-    expect(csNode('t1').position).toEqual({ x: 999, y: 999 });  // 非让位控制组照常
-    // reconcile 路径子保护（远端改子 doc——让位硬规则终裁 66③）
-    remoteMutate(d, (B) => {
-      nodeMap(B, 'c1').get('position').set('x', 300);
-      nodeMap(B, 'c1').get('position').set('y', 300);
-      nodeMap(B, 'c1').set('width', 250);
-      nodeMap(B, 'c1').set('height', 250);
-    });
-    reconcileGroupGeometry(d, 'doc');
-    expect(csNode('c1').position).toEqual({ x: 20, y: 30 });    // position+wh 全保护（resize 分型）
-    expect(csNode('c1').width).toBe(100);
-    expect(csNode('c1').height).toBe(60);
+    expect(csNode('t1').position).toEqual({ x: 999, y: 999 });  // 非手势控制组照常（doc 派生值）
+    // Y2 A3 退役：reconcile 路径子保护断言随保护序整删（活值=渲染列表覆盖层，无 cs 保护面）
   });
 
   it('remove 谓词：远端删被拖节点 ⇒ endGesture("removed") 事后回滚（幸存被拖成员回 baseline）', () => {
