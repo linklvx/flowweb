@@ -297,28 +297,37 @@ export class MediaRegistrationService implements OnModuleInit, OnApplicationShut
    *  崩溃窗自愈：对象已删行未删 → 下轮重扫（幂等）；只扫 pendingExpiresAt 非空行
    *  （生成 processing 行无此列值，materialize 生命周期不进本扫）。
    *  Y1c T23：行删除与预留 RELEASED 同事务（deletePending 内原子——释放必与锚行离开 pending
-   *  同发；TTL 扫描窗内迟到 confirm 被 status='pending' CAS 拒 409=无 oversale 窗）。 */
+   *  同发；TTL 扫描窗内迟到 confirm 被 status='pending' CAS 拒 409=无 oversale 窗）。
+   *  Y2 D4t（spec v2.13 §3 D5 ④——C2 裁定）：删对象扩**去重三键**（key+thumbnailKey+objectKey
+   *  齐删——现只删 Media.key 一把则预留键泄漏；同对象共用键形态去重恰删一次；空键跳过）。 */
   async sweepExpiredPending(): Promise<number> {
     if (this.sweeping) return 0; // 上轮未竟跳轮（幂等由行级 status 守卫保证，跳轮无损）
     this.sweeping = true;
     try {
       const expired = await this.prisma.media.findMany({
         where: { status: 'pending', pendingExpiresAt: { lt: new Date() } },
-        select: { id: true, key: true },
+        select: { id: true, key: true, thumbnailKey: true, objectKey: true },
         take: SWEEP_PAGE,
       });
       let removed = 0;
       for (const m of expired) {
-        try {
-          await this.minio.delete(m.key);
-        } catch (e) {
-          const status = (e as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode
-            ?? (e as { name?: string }).name;
-          if (status !== 404 && status !== 'NoSuchKey') {
-            this.logger.warn(`pendingUploadSweep 对象删除失败（行保留待下轮）key=${m.key}: ${e}`);
-            continue;
+        // 去重三键（key+thumbnailKey+objectKey——Set 天然去重共用键形态；空键跳过）
+        const keys = new Set([m.key, m.thumbnailKey, m.objectKey].filter((k): k is string => k != null && k !== ''));
+        let allDeleted = true;
+        for (const k of keys) {
+          try {
+            await this.minio.delete(k);
+          } catch (e) {
+            const status = (e as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode
+              ?? (e as { name?: string }).name;
+            if (status !== 404 && status !== 'NoSuchKey') {
+              this.logger.warn(`pendingUploadSweep 对象删除失败（行保留待下轮）key=${k}: ${e}`);
+              allDeleted = false;
+              break;
+            }
           }
         }
+        if (!allDeleted) continue;   // 非容忍错误键在——行保留待下轮（幂等重扫）
         removed += await this.deletePending(m.id); // 守卫删 pending 行（与 mismatch/白名单拒清理同一语义）
       }
       return removed;

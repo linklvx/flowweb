@@ -21,15 +21,18 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabPersistenceService } from './collab-persistence.service';
 import { parseDocName, isValidDocName, admitDocNameForGeneration, canvasDocName, projectDocName } from './doc-name.util';
-import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, QUOTA_DEFAULTS, SERVER_TRANSACT_ORIGIN, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, toReadModel, type CollabAuthReasonCode, type CollabDocStatusPayload } from '@flowweb/shared';
+import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, QUOTA_DEFAULTS, SERVER_TRANSACT_ORIGIN, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, toReadModel, collectMediaRefsForNode, removeMediaRefsForNode, type CollabAuthReasonCode, type CollabDocStatusPayload, type MediaRef } from '@flowweb/shared';
 import { observeOrderPathologyOnLoad } from './collab-pathology';
 import { toDocLike } from './doc-like.util';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { captureCollabException } from '../../utils/sentry-scrub';
+import { PrismaService } from '../../prisma/prisma.service';   // Y2 D4t：装入重扫 Media 行读面（@Optional 尾参——gateway 自建传同实例）
 import type { HeapPressureSample } from './heap-pressure';
 import type { TryReleaseMotive, TryReleaseOutcome } from './collab-residency.service';
 import type { CollabConnection, FreezeReason } from './collab.gateway';   // W3a：type-only 零运行时边（无 design:paramtypes 环——偏离 67 循环前提对纯类型不成立；collab-conn.util 候选否因 census ⑤/backpressure 锚词面冲突，commit 披露）
 import { collabLoadRejectedTotal, collabHydrationDeferredTotal, collabVacuumAutotriggerStackedTotal, yjsDocStuckTotal, yjsDocLoadTotal, consumeDirectLoad, yjsLoadDuration, yjsLoadUnloadingWindowTotal, yjsDocHeapAmplification, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES, collabQuotaWritesDroppedTotal, collabQuotaFastpathTotal, collabQuotaTruthMeasuredTotal, collabQuotaTruthMeasureDuration, collabQuotaSoftThresholdTotal } from './store.metrics';
+import { admitMediaRef, projectBindings, type BindingSkipReason } from './media-binding-projector';   // Y2 D4t：装入重扫三段式（§3 D5 ⑦——admitMediaRef 三档谓词与 projectBindings 直调先例 binding-rebuild）
+import { mediaBindingSkipTotal } from './media-binding.metrics';   // Y2 D4t：重扫计数挂现有 skip 面（禁新造指标——spec §7 观测）
 
 /** Y0b-4 T3（Q-B）：真值测量冷却窗——窗口内最坏编码 CPU 占用 <5% 单核。定标=T0 探针⑦实测
  *  8MB doc 编码 p50=50ms/p95=80.6ms（本机；生产 2 核机 ×2-4）——2000ms 窗下 duty≈4%。
@@ -76,6 +79,14 @@ const AUTO_VACUUM_RESIDUE_RATIO = 0.6;
  *  全量重编=风暴，top-N 只读既有 Map）。 */
 export const TOPN_LOG_INTERVAL_MS = 5 * 60_000;
 export const TOPN_LOG_LIMIT = 10;
+
+/** Y2 D4t：装入重扫 skip 计数落地（media_binding_skip_total 现有面——与 projector skip 同 label
+ *  域单源；禁新造指标〔spec §7〕）。 */
+function recordSkipCounts(skip: Record<BindingSkipReason, number>): void {
+  for (const [reason, n] of Object.entries(skip) as [BindingSkipReason, number][]) {
+    if (n > 0) mediaBindingSkipTotal.inc({ reason }, n);
+  }
+}
 
 /** Y0b-4 T9a：Y.Map 递归深拷贝（exec/meta/未知 Map 根的真空重建——生产写者〔writeExecStatus/
  *  meta 族〕值为 JSON 直拷；嵌套 Y.Map 条目逐层重建）。 */
@@ -249,6 +260,10 @@ export class CollabDocRegistryService {
     @Inject(CollabPersistenceService) private readonly persistence: CollabPersistenceService,
     @Optional() @Inject(CollabPgBreakerService) pgBreaker?: CollabPgBreakerService,
     @Optional() quota?: Partial<QuotaConfig>,
+    // Y2 D4t（spec v2.13 §3 D5 ⑦）：装入重扫 Media 行读面（admit 三档判定用）——@Optional 尾参真可
+    // 选（pgBreaker/quota 先例同款——既有直构零改动）；gateway 自建路径必传 this.prisma 同实例
+    // （façade 装置同一性，B1/W3a 同款）；缺省 undefined=重扫 no-op（旧直构单测零触达）。
+    @Optional() @Inject(PrismaService) private readonly prisma?: PrismaService,
   ) {
     this.pgBreaker = pgBreaker ?? new CollabPgBreakerService();
     // Y0b-4 T2：配额四值构造期一次读入（env 默认+注入覆盖——默认值唯一定义点，防双源 P3）；
@@ -321,6 +336,74 @@ export class CollabDocRegistryService {
   onUpdateDelta(pid: string, bytes: number, origin: unknown): void {
     const delta = this.docDelta.get(pid);
     if (delta !== undefined && origin !== SERVER_TRANSACT_ORIGIN) this.docDelta.set(pid, delta + bytes);
+  }
+
+  /** Y2 D4t（spec v2.13 §3 D5 ⑦ 装入重扫三段式——翻禁前持久化历史帧+恢复导入旁路的兜底）：
+   *  ①活 doc 全词表同步收集候选（collectMediaRefsForNode 逐节点——与帧投影同一读面，不新造第二
+   *    套扫描）；②事务外 await 读 Media 行+admitMediaRef 谓词三档判定（missing/cross-team/
+   *    soft-deleted——写进 doc.transact 异步回调=第一次 await 后的删键掉出 SERVER_TRANSACT_ORIGIN、
+   *    maintenance 档不落库，故必须事务外先行）；③doc.transact 同步回调删键（候选已定零 await——
+   *    origin=SERVER_TRANSACT_ORIGIN ⇒ classifyDocUpdateOrigin 归 maintenance 档落库）；
+   *  ④返回后按写后全量快照 projectBindings（键已不在=空操作；delta 三态同款）。
+   *  幂等 no-op：候选全合法（admitted）或键已不在——零删键零投影零计数。
+   *  计数挂 media_binding_skip_total 现有 skip 面（spec §7 观测：不新造指标）。
+   *  admit 不判 status（pending 行照常 admitted——spec v2.3；读面=判定删哪些键，与 admit 语义
+   *  不冲突：三档删/历史合法键零动作）。
+   *  永不抛：装载面兜底性质——重扫失败不拒载（装载成功性归 hydrate 链；此面失败仅计数留痕下轮
+   *  装载再收敛，键的持久化执法归帧投影/导入链产生侧）。 */
+  private async rescanEnforcedMediaRefs(projectId: string, document: Document): Promise<void> {
+    if (this.prisma == null) return;   // 旧直构（prisma 尾参缺省）=no-op——单测装置面零触达
+    try {
+      // ① 同步收集：活 doc 全节点全词表（装载重放/spool 全量 apply 之后——与帧投影同一读面）
+      const nodes = document.getMap('nodes');
+      const candidates: MediaRef[] = [];
+      for (const [nodeId, entry] of nodes.entries()) {
+        candidates.push(...collectMediaRefsForNode(nodeId, entry));
+      }
+      if (candidates.length === 0) return;
+      // ② 事务外 await：读 Media 行（投影域 teamId=CanvasProject 行）+admit 三档判定
+      const teamId = (await this.prisma.canvasProject.findUnique({ where: { id: projectId }, select: { teamId: true } }))?.teamId;
+      if (teamId == null) return;   // 项目行缺（懒建档前装载）=无判定锚 no-op
+      const mediaRows = await this.prisma.media.findMany({
+        where: { id: { in: [...new Set(candidates.map((r) => r.mediaId))] } },
+        select: { id: true, teamId: true, deletionState: true, deletedAt: true },
+      });
+      const mediaById = new Map(mediaRows.map((m) => [m.id, m]));
+      // 逐引用判定——非法键（missing/cross-team/soft-deleted 三档）进删集；skip 计数挂现有面
+      const skip: Record<BindingSkipReason, number> = { missing: 0, 'cross-team': 0, 'soft-deleted': 0 };
+      const illegalByNode = new Map<string, Set<string>>();   // nodeId→该节点待删 mediaId 集（③同节点分组删）
+      for (const ref of candidates) {
+        const verdict = admitMediaRef(mediaById.get(ref.mediaId), teamId);
+        if (verdict === 'admitted') continue;
+        skip[verdict] += 1;
+        let ids = illegalByNode.get(ref.nodeId);
+        if (!ids) { ids = new Set<string>(); illegalByNode.set(ref.nodeId, ids); }
+        ids.add(ref.mediaId);
+      }
+      if (illegalByNode.size === 0) {
+        // 历史合法键零动作——skip 计数仍照记（三档判定面=计数唯一写点；全 admitted=零增量）
+        return;
+      }
+      // ③ 同步回调删键（候选已定零 await——SERVER_TRANSACT_ORIGIN 最外层事务=maintenance 档落库；
+      //    removeMediaRefsForNode 删域=collectMediaRefsForNode 同一扫描域〔shared 单源〕——同节点
+      //    存活槽不被误删由候选集限定承载；回调内 collectMediaRefsForNode 写后快照=④投影入参）
+      const afterSnapshot = document.transact(() => {
+        for (const [nodeId, ids] of illegalByNode) {
+          removeMediaRefsForNode(nodes.get(nodeId), ids);
+        }
+        // ④ 写后全量快照（与删键同事务回调内收集——禁另开读会话）
+        const snapshot = new Map<string, MediaRef[]>();
+        for (const [nodeId, entry] of nodes.entries()) snapshot.set(nodeId, collectMediaRefsForNode(nodeId, entry));
+        return snapshot;
+      }, SERVER_TRANSACT_ORIGIN);
+      // skip 计数挂现有面（media_binding_skip_total 现有 skip 面——spec §7 观测不新造指标）
+      recordSkipCounts(skip);
+      // ④ 返回后按写后快照直调 projectBindings（键已不在=空操作；MediaBinding 写经 projector 单写者）
+      await this.prisma.$transaction((tx) => projectBindings(tx, projectId, teamId, afterSnapshot), { timeout: 5_000, maxWait: 1_000 });
+    } catch (err) {
+      // 兜底面永不抛：装载不受重扫失败牵连（键留活 doc——下次装载/投影链收敛）
+      this.host.logger.warn(`装入重扫失败（装载不受影响——键下次装载再收敛）project=${projectId}: ${(err as Error).message}`);
+    }
   }
 
   /** spec 2.3：快照 + 增量按 (projectId, seq ASC) 重放。
@@ -520,6 +603,10 @@ export class CollabDocRegistryService {
       // Y0a-2：consumeStash 已退役——帧保留至 append 成功（confirm 恒在成功后，契约 12）
       this.pgBreaker.recordSuccess();   // Y0b-5 T16：装载成功=PG 健康样本（half-open 成功=探测成功→closed）
       yjsDocLoadTotal.inc({ trigger: consumeDirectLoad(projectId) ? 'direct' : 'ws' });   // Y0c T0（Z3）：物化装载单点（成功路径——拒绝早退不计；开窗标记消费=direct，否则 ws）
+      // Y2 D4t（spec v2.13 §3 D5 ⑦）：装入重扫三段式——翻禁前持久化历史帧+恢复导入旁路的兜底
+      // 执法（装载读面不跑 frame-deny——validateFrameDeny 仅 actor 准入/recovery-import 两消费面）。
+      // 挂成功尾（装载成功性归 hydrate 链；重扫永不抛——失败仅留痕下次装载收敛）。
+      await this.rescanEnforcedMediaRefs(projectId, document);
     } catch (err) {
       if ((err as { schemaRefusal?: boolean })?.schemaRefusal) throw err;
       if (err instanceof Error && (err as Error & { reason?: CollabAuthReasonCode }).reason) throw err;

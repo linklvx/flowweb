@@ -104,3 +104,35 @@ export function collectMediaIds(doc: DocLike): Set<string> {
   for (const r of collectMediaRefs(doc)) ids.add(r.mediaId);
   return ids;
 }
+
+/** Y2 D4t（spec v2.13 §3 D5 ⑦ 装入重扫）：单节点按 mediaId 集删引用键——**删域=collectMediaRefsForNode
+ *  同一扫描域**（SCALAR_REF_FIELDS 四 string 槽+LIST_REF_FIELDS 两列表槽；非引用键/data 外域零触碰
+ *  ——同节点其余存活槽不被误删的零误删保证由「先收集后删」候选集限定承载）。返回真删键数（零=该
+ *  节点 no-op）。调用方=DR rescanEnforcedMediaRefs（装载兜底执法腿）同步回调内——禁 await 形态由
+ *  调用方承载，本函数纯同步。 */
+export function removeMediaRefsForNode(entry: unknown, mediaIds: ReadonlySet<string>): number {
+  if (!isDocMap(entry)) return 0;
+  const data = entry.get('data');
+  if (!isDocMap(data)) return 0;
+  let removed = 0;
+  for (const field of SCALAR_REF_FIELDS) {
+    const v = data.get(field);
+    if (typeof v === 'string' && v !== '' && mediaIds.has(v)) {
+      data.delete(field);
+      removed += 1;
+    }
+  }
+  for (const field of LIST_REF_FIELDS) {
+    const list = refListOf(data.get(field));
+    if (list.length === 0) continue;
+    const keep = list.filter((item) => {
+      const id = refItemId(item);
+      return !(id != null && mediaIds.has(id));
+    });
+    if (keep.length !== list.length) {
+      data.set(field, keep);   // 写后列表=Y.Map 容器可迭代/read 侧双形态收敛兼容
+      removed += list.length - keep.length;
+    }
+  }
+  return removed;
+}

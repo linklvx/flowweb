@@ -103,6 +103,43 @@ const prepareParams = (over: Partial<PrepareUploadParams> = {}): PrepareUploadPa
     expect(await prisma.media.findUnique({ where: { id: m.id } })).toBeNull();
   });
 
+  // Y2 D4t（spec v2.13 §3 D5 ④——C2 裁定）：TTL 清扫删去重三键（key+thumbnailKey+objectKey 齐删
+  // +同对象共用键形态=dedupe 恰删一次+空键跳过；预留 RELEASED 随 deletePending 同事务落账）。
+  it('★TTL 清扫删去重三键：pending 行携三把独立键齐删+同对象共用键（thumbnailKey=key）恰删一次+空 thumbnailKey/objectKey 跳过——行删+预留 RELEASED', async () => {
+    const { reg, deletes } = makeReg();
+    // 行①：三把独立键（key/thumbnailKey/objectKey 互异）
+    const tri = await prisma.media.create({
+      data: {
+        userId: UID, teamId: TID, bucket: 'flowai', status: 'pending', type: 'uploaded',
+        key: `uploads/${UID}/tri-key.bin`, thumbnailKey: `uploads/${UID}/tri-thumb.png`, objectKey: `uploads/${UID}/tri-obj.bin`,
+        originalName: 'tri.bin', mimeType: 'image/png', size: 100n, pendingExpiresAt: new Date(Date.now() - 1000),
+      },
+    });
+    // 行②：同对象共用键（thumbnailKey=key 复制形态——D2t 拷贝档产物）+objectKey 空
+    const shared = await prisma.media.create({
+      data: {
+        userId: UID, teamId: TID, bucket: 'flowai', status: 'pending', type: 'uploaded',
+        key: `uploads/${UID}/shared.bin`, thumbnailKey: `uploads/${UID}/shared.bin`, objectKey: null,
+        originalName: 'shared.bin', mimeType: 'image/png', size: 100n, pendingExpiresAt: new Date(Date.now() - 1000),
+      },
+    });
+    // 行②配 ACTIVE 预留（RELEASED 落账断言锚——占坑形态同 D2t）
+    await prisma.storageReservation.create({ data: { teamId: TID, mediaId: shared.id, upperBoundBytes: 100n, state: 'ACTIVE' } });
+
+    const removed = await reg.sweepExpiredPending();
+    expect(removed).toBe(2);
+    // 三把独立键齐删（select 加 thumbnailKey/objectKey——C2 裁定「现只删 Media.key 一把」扩面）
+    expect(deletes).toContain(tri.key);
+    expect(deletes).toContain(tri.thumbnailKey);
+    expect(deletes).toContain(tri.objectKey);
+    // 同对象共用键恰删一次（去重——键值同串只删一遍）
+    expect(deletes.filter((k) => k === shared.key)).toHaveLength(1);
+    // 两行皆删+预留 RELEASED（deletePending 同事务）
+    expect(await prisma.media.findUnique({ where: { id: tri.id } })).toBeNull();
+    expect(await prisma.media.findUnique({ where: { id: shared.id } })).toBeNull();
+    expect((await prisma.storageReservation.findUnique({ where: { mediaId: shared.id } }))?.state).toBe('RELEASED');
+  });
+
   // C3a-7：bindInTx 两例（current-state 幂等/同槽换 media）随方法本体删除退役——MediaBinding 写面
   // 单写者化（projector/rebuild），命令面零直写由 collab-binding/collab-media/artifact-commit 三处
   // int 断言+scripts/check-media-binding-writers.mjs 静态门禁承载。

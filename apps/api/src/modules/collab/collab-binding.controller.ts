@@ -29,6 +29,14 @@
 //     留 pending 让探针重算）；完成 CAS 0 行→重读分诊：已 completed→返回原 id 不删对象/仍 pending→
 //     只重试完成不进失败清理；
 //   - 全程零 NodeArtifact/Projection 写（B4 后命令面零写维持——spec D5 ⑥：槽位唯一键行=生成 CAS 专属）。
+// Y2 D4t（spec v2.13 §3 D5 ⑦ 执法腿收窄核验）：**本文件执法腿三件已随 D3t 同款形态在位**——
+//   ①删键/写槽事务 origin=SERVER_TRANSACT_ORIGIN（slot-write.port withSession(write) 最外层 transact
+//     注入——residency 服务 Z6/Z119 单点）；②maintenance 档落库（classifyDocUpdateOrigin 归
+//     maintenance——doc_update_origin_total{origin='maintenance'}，无 server-direct 档旁路）；
+//   ③删后直调 projectBindings（delta=回调内快照——slotWriteAndFinish/bindSameTeam 共用
+//     projectNodeSnapshot）。**禁 DirectConnection 维持**（零新增——Z65 直连白名单 census ⑫ 面）；
+//   no-op 档天然成立：槽=他 id 档 doc 保持对方值零删键、槽=本行 id 崩溃续走补绑定——键已不在=
+//     快照照收投影幂等（delta 三态）。本 commit 零实现动作（保通锚=int 套件既有 21/21 维持）。
 import { Body, Controller, ForbiddenException, HttpStatus, Inject, NotFoundException, Param, Post, Req, ServiceUnavailableException } from '@nestjs/common';
 import type { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';

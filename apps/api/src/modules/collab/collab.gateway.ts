@@ -335,7 +335,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
     // Y0c T41（W3a/B2）：DocRegistry service——DI 单例或直构自建；自建路径必传 this.persistence/
     // this.pgBreaker 同实例（防熔断器脑裂+façade stubRepo 双写装置同一性前提，B1 同款）+quota
     // Partial 直通（env 解析单点=DR 构造器——gateway 桶容量读面经 activeQuota 单源，防双源 P3）。
-    this.docRegistry = docRegistry ?? new CollabDocRegistryService(repo, this.persistence, this.pgBreaker, quota);
+    // Y2 D4t：this.prisma 同实例随传（装入重扫 Media 行读面——B1/W3a 尾参先例同款）。
+    this.docRegistry = docRegistry ?? new CollabDocRegistryService(repo, this.persistence, this.pgBreaker, quota, this.prisma);
     // Y0c T41（W3b/B2）：SessionGuard service——DI 单例或直构自建；自建路径必传 sessionSvc/perm/
     // this.persistence/this.docRegistry/eventEmitter/this.pgBreaker 同实例（防熔断器脑裂+façade 装置同一性，
     // B1/W3a 同款；直构顺序 DR→SG——SG 构造器读 docRegistry.activeQuota 桶容量三值单源）。SG→DR 构造边
