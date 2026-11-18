@@ -16,6 +16,8 @@ import * as Y from 'yjs';
 import { CanvasDocUpdateRepository } from '../collab/canvas-doc-update.repository';
 import { BindingRebuildService } from '../collab/binding-rebuild.service';
 import { BindingReconcileService } from './binding-reconcile.service';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
+
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow, FIXTURE_TEAM, FIXTURE_USER } from '../../test-utils/db-fixtures';
 import { seedRow } from '../../test-utils/canvas-doc-row';
 
@@ -75,7 +77,7 @@ maybe('C3a-8：MediaBinding 只读漂移检测（真 PG——零 MediaBinding �
       prisma.canvasDoc.deleteMany({ where: { projectId: PID } }),
     ]);
     await prisma.canvasDoc.create({
-      data: { projectId: PID, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false },
+      data: { projectId: PID, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false },
     });
     // doc@pgSeq=10：含 node n1→M1（无帧级投影——lag 形态：mediaBindingSeq 留 0）
     await ensureLeaseFixture(prisma, repo);
@@ -84,7 +86,7 @@ maybe('C3a-8：MediaBinding 只读漂移检测（真 PG——零 MediaBinding �
     // 干净项目行（发现面扩全表断言用）
     await prisma.canvasDoc.deleteMany({ where: { projectId: PID_CLEAN } });
     await prisma.canvasDoc.create({
-      data: { projectId: PID_CLEAN, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false },
+      data: { projectId: PID_CLEAN, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false },
     });
   });
 

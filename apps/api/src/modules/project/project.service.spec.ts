@@ -348,12 +348,12 @@ describe('ProjectService', () => {
 
     it('Y0b-5 T5：世代可见通道随行——collabGeneration（CanvasDoc.generation）+collabSchemaVersion（=CANVAS_DOC_SCHEMA_VERSION 单源）+collabViewerUid（请求者 uid——四维缓存键 uid 维）', async () => {
       prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', name: 'T' });
-      prisma.canvasDoc.findUnique.mockResolvedValue({ generation: 7, schemaVersion: 3 });
+      prisma.canvasDoc.findUnique.mockResolvedValue({ generation: 7, schemaVersion: CANVAS_DOC_SCHEMA_VERSION });
 
       const result = await service.findById('p1', 'u9');
       expect(result.collabGeneration).toBe(7);
-      expect(result.collabSchemaVersion).toBe(3);   // T18：行值透传（=CANVAS_DOC_SCHEMA_VERSION）——IDB 缓存键 s 维与装载列门同源
-      expect(CANVAS_DOC_SCHEMA_VERSION).toBe(3);
+      expect(result.collabSchemaVersion).toBe(4);   // Y2 C1 版本 4：行值透传（=CANVAS_DOC_SCHEMA_VERSION）——IDB 缓存键 s 维与装载列门同源
+      expect(CANVAS_DOC_SCHEMA_VERSION).toBe(4);
       expect(result.collabViewerUid).toBe('u9');
       expect(prisma.canvasDoc.findUnique).toHaveBeenCalledWith({
         where: { projectId: 'p1' },

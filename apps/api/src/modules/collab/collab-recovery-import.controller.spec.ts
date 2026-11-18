@@ -1,6 +1,7 @@
 // apps/api/src/modules/collab/collab-recovery-import.controller.spec.ts
 // Y1c T25：recovery-import 端点接线单测——鉴权（assertEditor OWNER/EDITOR 门）/body 形状 400/
 // 8MiB 上限 413 fail-closed/服务透传（幂等键+conflictChoices）。服务行为归 int spec（真 PG）。
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CollabRecoveryImportController } from './collab-recovery-import.controller';
 import { CollabRecoveryImportService } from './collab-recovery-import.service';
@@ -11,7 +12,7 @@ const recovery = {
 } as unknown as CollabRecoveryImportService;
 const perm = { assertEditor: vi.fn(async () => undefined) } as unknown as ProjectPermissionService;
 const ctl = new CollabRecoveryImportController(recovery, perm);
-const ENV: any = { draftId: 'd1', projectId: 'p1', generation: 1, schemaVersion: 3, historyId: 'h', capturedAtMs: 1, tabId: 't', nodes: [], edges: [], meta: {}, hashes: { nodes: '0'.repeat(64), edges: '0'.repeat(64) } };
+const ENV: any = { draftId: 'd1', projectId: 'p1', generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, historyId: 'h', capturedAtMs: 1, tabId: 't', nodes: [], edges: [], meta: {}, hashes: { nodes: '0'.repeat(64), edges: '0'.repeat(64) } };
 const req = (uid?: string, len?: number) => ({ user: uid ? { id: uid } : undefined, headers: len !== undefined ? { 'content-length': String(len) } : {} }) as never;
 
 beforeEach(() => {

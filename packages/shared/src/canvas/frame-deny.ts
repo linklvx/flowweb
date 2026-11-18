@@ -216,10 +216,13 @@ export function validateFrameDeny(update: Uint8Array): FrameDenyVerdict {
     if (spec === undefined) {
       return { ok: false, code: CollabCloseCode.FRAME_MALFORMED, reason: `unknown-data-key:${type}.${keys[keys.length - 1]}` };
     }
-    // server-forbidden 键（fileId/result/status 族）：**登记≠现役执法**——D9 顺序：写者/读者保留至
-    // T32（客户端 copy/新建保留 fileId=v11 裁决③；writeExecStatus 族 until=T32）——键被矩阵收编
-    // （非 unknown-key 拒）但写入不禁；T32 删写者同批翻禁（plan T24 登记项）。
-    if (spec.yType === 'server-forbidden') continue;
+    // server-forbidden 键（fileId×4/status×4/trimTaskStatus/trimmedFileId/nodeStatus——doc-schema-v4
+    // 共 11 个 forbidden 条目）：**Y2 C1 翻禁执法**——D9「登记≠现役执法」过渡态收口（第②步客户端
+    // 固化写消除+写者改 mediaId 已同批落地；本步五处 continue→拒）——键被矩阵收编且写入即拒
+    // （forbidden-data-key=翻禁后唯一执法面，旧键帧 4411）。
+    if (spec.yType === 'server-forbidden') {
+      return { ok: false, code: CollabCloseCode.FRAME_MALFORMED, reason: `forbidden-data-key:${type}.${keys[2] ?? ''}` };
+    }
     switch (spec.yType) {
       case 'lww':
       case 'lww-array':
@@ -439,7 +442,7 @@ export function validateAppliedL2(doc: Y.Doc, events: readonly Y.YEvent<never>[]
         if (ch.action === 'delete') continue;
         const child = spec.children?.[k];
         if (child === undefined) return { ok: false, reason: `unknown-data-key:${type}.${path[2]}.${k}` };
-        if (child.yType === 'server-forbidden') continue;   // D9：登记≠执法（T32 翻禁）
+        if (child.yType === 'server-forbidden') return { ok: false, reason: `forbidden-data-key:${type}.${path[2]}.${k}` };   // Y2 C1 翻禁：现行矩阵死分支（全 forbidden 条目均为顶层 data 键、无 map children 条目）——同批一致翻转+防漂移（矩阵扩 forbidden children 条目即执法）
         const cur = (ev.target as unknown as { get?: (kk: string) => unknown })?.get?.(k);
         const cErr = dataValueShapeOk(type, k, child, cur);
         if (cErr !== undefined) return { ok: false, reason: cErr };
@@ -469,7 +472,7 @@ function xmlL2Touched(container: unknown, ev: Y.YEvent<never>, opts: L2Options):
 
 /** data 键值形状（L2 键级——lww 标量/lww-array 标量数组/容器 instanceof 匹配〔G17b〕）。 */
 function dataValueShapeOk(type: string, key: string, spec: DataKeySpec, cur: unknown): string | undefined {
-  if (spec.yType === 'server-forbidden') return undefined;   // D9：登记≠执法（T32 翻禁）
+  if (spec.yType === 'server-forbidden') return `forbidden-data-key:${type}.${key}`;   // Y2 C1 翻禁：登记≠执法收口（写者已随第②步消除——禁键写入即毒帧）
   switch (spec.yType) {
     case 'map': return cur instanceof Y.Map ? undefined : `container-replacement:${type}.${key}`;
     case 'array': return cur instanceof Y.Array ? undefined : `container-replacement:${type}.${key}`;
@@ -496,7 +499,7 @@ function validateNodeShape(nodeId: string, v: unknown): string | undefined {
   for (const k of data.keys()) {
     const spec = def.data[k];
     if (spec === undefined) return `unknown-data-key:${type}.${k}`;
-    if (spec.yType === 'server-forbidden') continue;   // D9：登记≠执法（写者至 T32——copy/新建 fileId 面）
+    if (spec.yType === 'server-forbidden') return `forbidden-data-key:${type}.${k}`;   // Y2 C1 翻禁：登记≠执法收口（写者已随第②步消除——禁键写入即毒帧）
     const cur = data.get(k);
     switch (spec.yType) {
       case 'map': if (!(cur instanceof Y.Map)) return `container-replacement:${type}.${k}`; break;
@@ -510,7 +513,7 @@ function validateNodeShape(nodeId: string, v: unknown): string | undefined {
       for (const [ck, cval] of (cur as Y.Map<unknown>).entries()) {
         const child = spec.children[ck];
         if (child === undefined) return `unknown-data-key:${type}.${k}.${ck}`;
-        if (child.yType === 'server-forbidden') continue;   // D9：登记≠执法（T32 翻禁）
+        if (child.yType === 'server-forbidden') return `forbidden-data-key:${type}.${k}.${ck}`;   // Y2 C1 翻禁：现行矩阵死分支（全 forbidden 条目均为顶层 data 键、无 map children 条目）——同批一致翻转+防漂移
         if ((child.yType === 'lww') && !isPrimitive(cval)) return `value-type:${type}.${k}.${ck}`;
       }
     }

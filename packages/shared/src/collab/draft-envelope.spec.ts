@@ -3,6 +3,7 @@
 // （B=用户裁定式）契约冻结的契约测试。先红（本文件 import 指向尚不存在模块）→绿。
 import { describe, expect, it } from 'vitest';
 import type { CanvasNodeSnapshot, CanvasEdgeSnapshot } from '../canvas/doc-codec';
+import { CANVAS_DOC_SCHEMA_VERSION } from '../canvas/docShape';   // Y2 C1：sv 布景常量化（翻禁批）
 import {
   DraftEnvelope, DRAFT_ENVELOPE_MAX_BYTES, DRAFT_IMPORT_CONTRACT,
   DraftScenario, resolveDraftScenario,
@@ -25,7 +26,7 @@ describe('Y1c T5c 契约冻结：DraftEnvelope 类型化导出清单（§4.5—�
       draftId: 'draft-1',
       projectId: 'p1',
       generation: 3,
-      schemaVersion: 3,
+      schemaVersion: CANVAS_DOC_SCHEMA_VERSION,
       historyId: 'hist-1',           // T25 修正 #9（确认点① 裁定 #9）：捕获纪元——跨纪元导入归 C 场景
       capturedAtMs: 1_727_000_000_000,
       tabId: 'tab-a',

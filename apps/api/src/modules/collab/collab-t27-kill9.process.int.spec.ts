@@ -15,6 +15,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
 import path from 'node:path';
 import { createCanvasDoc } from './canvas-doc.factory';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
 import { ensureProjectFixture, cleanupProjectFixture } from '../../test-utils/db-fixtures';
 
 // vitest cwd=apps/api（import.meta 在 spec tsconfig commonjs 下不可用——runtime-feed.t22-static 先例）
@@ -35,9 +36,9 @@ async function seedDoc(prisma: PrismaClient): Promise<void> {
   const state0 = Buffer.from(Y.encodeStateAsUpdate(doc));
   doc.destroy();
   await prisma.$executeRaw`INSERT INTO "CanvasDocSnapshot" ("projectId", generation, "snapshotRev", "stateSeq", state, "stateHash", "vacuumEpoch", "schemaVersion")
-    VALUES (${PID}::text, 0::int, 0::bigint, 0::bigint, ${state0}, ${createHash('sha256').update(state0).digest('hex')}::char(64), 0::int, 3::int) ON CONFLICT DO NOTHING`;
+    VALUES (${PID}::text, 0::int, 0::bigint, 0::bigint, ${state0}, ${createHash('sha256').update(state0).digest('hex')}::char(64), 0::int, ${CANVAS_DOC_SCHEMA_VERSION}::int) ON CONFLICT DO NOTHING`;
   await prisma.$executeRaw`INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt")
-    VALUES (${PID}::text, 0::int, 3::int, now()) ON CONFLICT DO NOTHING`;
+    VALUES (${PID}::text, 0::int, ${CANVAS_DOC_SCHEMA_VERSION}::int, now()) ON CONFLICT DO NOTHING`;
   for (const seq of [1n, 2n]) {
     const upd = Buffer.from(Y.encodeStateAsUpdate(createCanvasDoc()));
     await prisma.$executeRaw`INSERT INTO "CanvasDocUpdate" ("projectId", generation, seq, "firstWalSeq", "frameCount", "updateHash", update, "createdAt")

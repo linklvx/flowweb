@@ -30,6 +30,7 @@ import { makeSpoolDir } from '../../test-utils/spool-dir';
 // 双消费面共享单源；C3-0 评审 M-1/m-3 两端侧表豁免随迁落位——本文件夹具全为严格边界形态，豁免面
 // 加宽不影响绿）。
 import { assertAppendAuditThree } from '../../test-utils/append-audit';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
 
 const hasDb = !!process.env.DATABASE_URL;
 const maybe = hasDb ? describe : describe.skip;
@@ -42,9 +43,9 @@ const noopLogger = { log: () => {}, warn: () => {}, error: () => {}, debug: () =
 async function seedDocRow(prisma: PrismaClient, pid: string): Promise<void> {
   const state0 = Buffer.from(Y.encodeStateAsUpdate(createCanvasDoc()));
   await prisma.$executeRaw`INSERT INTO "CanvasDocSnapshot" ("projectId", generation, "snapshotRev", "stateSeq", state, "stateHash", "vacuumEpoch", "schemaVersion")
-    VALUES (${pid}::text, 1::int, 0::bigint, 0::bigint, ${state0}, ${createHash('sha256').update(state0).digest('hex')}::char(64), 0::int, 3::int) ON CONFLICT DO NOTHING`;
+    VALUES (${pid}::text, 1::int, 0::bigint, 0::bigint, ${state0}, ${createHash('sha256').update(state0).digest('hex')}::char(64), 0::int, ${CANVAS_DOC_SCHEMA_VERSION}::int) ON CONFLICT DO NOTHING`;
   await prisma.$executeRaw`INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt", "pgSeq", "walCheckpointSeq")
-    VALUES (${pid}::text, 1::int, 3::int, now(), 0::bigint, 0::bigint) ON CONFLICT DO NOTHING`;
+    VALUES (${pid}::text, 1::int, ${CANVAS_DOC_SCHEMA_VERSION}::int, now(), 0::bigint, 0::bigint) ON CONFLICT DO NOTHING`;
 }
 
 // ═══════════════ 红⓪-a：诊断夹具（预期绿——两形态零洞结论钉死）═══════════════
@@ -191,7 +192,7 @@ maybe('C3-0 红⓪-b T30b 吞行侧表+兼容核验（真 PG——侧表行落�
    *  （pgSeq=3）→ 断点夹后续新内容帧 seq 4 正常批（pgSeq=4）。返回帧族（重发对字节由调用方复用）。 */
   async function seedT30bState(): Promise<{ uA: Uint8Array; uB: Uint8Array; uC: Uint8Array; hashA: string }> {
     const f = mkFrames();
-    await prisma.canvasDoc.create({ data: { projectId: PID, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n } });
+    await prisma.canvasDoc.create({ data: { projectId: PID, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n } });
     const r1 = await repo.appendBatch(PID, [seedRow(f.uA, 1n)], { expectedPgSeq: 0n, newPgSeq: 1n, walCheckpointSeq: 1n });
     expect(r1).toEqual({ ok: true, rows: 1 });
     const r2 = await repo.appendBatch(PID, [seedRow(f.uB, 2n)], { expectedPgSeq: 1n, newPgSeq: 2n, walCheckpointSeq: 2n });
@@ -285,7 +286,7 @@ maybe('C3-0 红⓪-b T30b 吞行侧表+兼容核验（真 PG——侧表行落�
   // 判别式：sourceSeq==lastWalSeq 恰为 PK 幂等重放（真吞行必异 seq）。
   it('评审 I-2 红：PK 幂等重放（同 seq 同 hash 已落定帧重发）不落侧表自指行——恢复链 replayAll 口径零侧表行', async () => {
     const f = mkFrames();
-    await prisma.canvasDoc.create({ data: { projectId: PID, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n } });
+    await prisma.canvasDoc.create({ data: { projectId: PID, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n } });
     const r1 = await repo.appendBatch(PID, [seedRow(f.uA, 1n)], { expectedPgSeq: 0n, newPgSeq: 1n, walCheckpointSeq: 1n });
     expect(r1).toEqual({ ok: true, rows: 1 });
     expect(await prisma.canvasDocCoalesced.count({ where: { projectId: PID } })).toBe(0);   // 正常批零侧表

@@ -22,6 +22,8 @@ import * as Y from 'yjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CanvasDocUpdateRepository } from '../collab/canvas-doc-update.repository';
 import { OracleWorkerService } from '../collab/oracle-worker.service';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
+
 import type { DeletionBarrierPort } from '../collab/deletion-barrier.port';
 import { seedRow } from '../../test-utils/canvas-doc-row';
 import { ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
@@ -122,7 +124,7 @@ const IN_GRACE = new Date(Date.now() - 3600_000);              // grace 期内
     await prisma.teamMember.create({ data: { teamId: TID, userId: UID, role: 'OWNER' } });
     await prisma.canvasProject.create({ data: { id: PID, name: 'int-t16gc', userId: UID, teamId: TID } });
     // C3b-5：PG doc 建档（空帧）+水位+oracle 真扫——决策面 oracle 臂证人在位（消费面切换前提）
-    await prisma.canvasDoc.create({ data: { projectId: PID, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false } });
+    await prisma.canvasDoc.create({ data: { projectId: PID, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false } });
     doc = new Y.Doc();
     svc = new MediaGcService(prisma as unknown as PrismaService, makeMinioStub(), okBarrier());
     await ensureLeaseFixture(prisma, repo);   // appendBatch 契约 16：lease owner fail-closed

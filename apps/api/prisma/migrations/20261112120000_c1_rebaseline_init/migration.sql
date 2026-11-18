@@ -683,7 +683,7 @@ CREATE TABLE "TeamJoinRequest" (
 CREATE TABLE "CanvasDoc" (
     "projectId" TEXT NOT NULL,
     "generation" INTEGER NOT NULL DEFAULT 0,
-    "schemaVersion" INTEGER NOT NULL DEFAULT 3,
+    "schemaVersion" INTEGER NOT NULL DEFAULT 4,
     "updatedAt" TIMESTAMPTZ(3) NOT NULL,
     "vacuumEpoch" INTEGER NOT NULL DEFAULT 0,
     "currentSnapshotRev" BIGINT NOT NULL DEFAULT 0,

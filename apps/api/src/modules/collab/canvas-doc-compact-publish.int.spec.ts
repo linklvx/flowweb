@@ -9,6 +9,7 @@ import * as Y from 'yjs';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import { seedRow } from '../../test-utils/canvas-doc-row';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
 
 const hasDb = !!process.env.DATABASE_URL;
 const maybe = hasDb ? describe : describe.skip;
@@ -42,7 +43,7 @@ maybe('Y1c T11 compact 发布（真 PG）', () => {
    *  头行走 raw INSERT（T11 前后 schema 通吃——Prisma client 列校验在旧 client 上拒无 state 建行）。 */
   async function seedFrames(frames: Uint8Array[]) {
     await prisma.$executeRawUnsafe(
-      `INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt") VALUES ($1, 1, 3, now()) ON CONFLICT DO NOTHING`,
+      `INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt") VALUES ($1, 1, ${CANVAS_DOC_SCHEMA_VERSION}, now()) ON CONFLICT DO NOTHING`,
       PID,
     );
     let pg = 0n;
@@ -123,10 +124,10 @@ maybe('Y1c T11 compact 发布（真 PG）', () => {
     await repo.compact(PID);   // rev=2 → 当代保留 {1,2}
     // 旧代快照（模拟历史代残留——vacuum 换代前形态）
     await prisma.canvasDocSnapshot.create({
-      data: { projectId: PID, generation: 0, snapshotRev: 5n, stateSeq: 5n, state: Buffer.from([0, 0]), stateHash: createHash('sha256').update(Buffer.from([0, 0])).digest('hex'), vacuumEpoch: 0, schemaVersion: 3 },
+      data: { projectId: PID, generation: 0, snapshotRev: 5n, stateSeq: 5n, state: Buffer.from([0, 0]), stateHash: createHash('sha256').update(Buffer.from([0, 0])).digest('hex'), vacuumEpoch: 0, schemaVersion: CANVAS_DOC_SCHEMA_VERSION },
     });
     await prisma.canvasDocSnapshot.create({
-      data: { projectId: PID, generation: 0, snapshotRev: 9n, stateSeq: 9n, state: Buffer.from([0, 0]), stateHash: createHash('sha256').update(Buffer.from([0, 0])).digest('hex'), vacuumEpoch: 0, schemaVersion: 3 },
+      data: { projectId: PID, generation: 0, snapshotRev: 9n, stateSeq: 9n, state: Buffer.from([0, 0]), stateHash: createHash('sha256').update(Buffer.from([0, 0])).digest('hex'), vacuumEpoch: 0, schemaVersion: CANVAS_DOC_SCHEMA_VERSION },
     });
     const r3 = await repo.appendBatch(PID, [seedRow(frameOf('e3', 3), 3n)], { expectedPgSeq: 2n, newPgSeq: 3n, walCheckpointSeq: 3n });
     expect(r3.ok).toBe(true);
@@ -151,7 +152,7 @@ maybe('Y1c T11 compact 发布（真 PG）', () => {
     const state = Buffer.from(Y.encodeStateAsUpdate(temp));
     temp.destroy();
     await prisma.canvasDocSnapshot.create({
-      data: { projectId: PID, generation: 1, snapshotRev: pg, stateSeq: pg, state, stateHash: createHash('sha256').update(state).digest('hex'), vacuumEpoch: 0, schemaVersion: 3 },
+      data: { projectId: PID, generation: 1, snapshotRev: pg, stateSeq: pg, state, stateHash: createHash('sha256').update(state).digest('hex'), vacuumEpoch: 0, schemaVersion: CANVAS_DOC_SCHEMA_VERSION },
     });
     await prisma.canvasDoc.update({ where: { projectId: PID }, data: { currentSnapshotRev: pg, purgeBelowSeq: pg } });
     expect(await prisma.canvasDocUpdate.count({ where: { projectId: PID } })).toBe(2);   // kill 窗残留（红=无续跑载体即永久滞留）

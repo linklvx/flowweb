@@ -110,7 +110,7 @@ describe('fillDoc → readRecordsFromMaps round-trip 恒等（docShape 单源—
     const doc = new FakeDoc();
     fillDoc(doc, [], []);
     expect(doc.getMap('meta').get('schemaVersion')).toBeUndefined();
-    expect(CANVAS_DOC_SCHEMA_VERSION).toBe(3);
+    expect(CANVAS_DOC_SCHEMA_VERSION).toBe(4);   // Y2 C1 版本 4（翻禁执法+作者键 mediaId 域——与 CLIENT_PROTOCOL_VERSION 同 bump）
   });
 });
 

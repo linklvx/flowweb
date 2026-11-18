@@ -18,6 +18,8 @@ import { randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { OracleWorkerService } from './oracle-worker.service';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
+
 import { MediaReferenceService } from './media-reference.service';
 import { MEDIA_REFERRERS } from './media-referrer.registry';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow, FIXTURE_TEAM, FIXTURE_USER } from '../../test-utils/db-fixtures';
@@ -111,7 +113,7 @@ maybe('C3b-3：decision snapshot+isMediaReferenced+referrer registry', () => {
       await prisma.canvasDocUpdate.deleteMany({ where: { projectId: pid } });
       await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: pid } });
       await prisma.canvasDoc.deleteMany({ where: { projectId: pid } });
-      await prisma.canvasDoc.create({ data: { projectId: pid, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false } });
+      await prisma.canvasDoc.create({ data: { projectId: pid, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false } });
     }
     await prisma.videoWork.deleteMany({ where: { id: { in: WORK_IDS } } });
     await prisma.nodeArtifact.deleteMany({ where: { projectId: { in: ALL_PIDS } } });
@@ -268,7 +270,7 @@ maybe('C3b-3：decision snapshot+isMediaReferenced+referrer registry', () => {
     await prisma.canvasDoc.delete({ where: { projectId: PID_B2 } });
     snap = await svc.decideTeamReferenceSnapshot(FIXTURE_TEAM);
     expect(snap).toMatchObject({ outcome: 'bail-out', reason: 'doc-missing', projectId: PID_B2 });
-    await prisma.canvasDoc.create({ data: { projectId: PID_B2, generation: 1, schemaVersion: 3, pgSeq: seqOf[PID_B2], walCheckpointSeq: seqOf[PID_B2], mediaBindingSeq: seqOf[PID_B2], bindingsDirty: false } });
+    await prisma.canvasDoc.create({ data: { projectId: PID_B2, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: seqOf[PID_B2], walCheckpointSeq: seqOf[PID_B2], mediaBindingSeq: seqOf[PID_B2], bindingsDirty: false } });
     // 复原终态：verified
     expect(await svc.decideTeamReferenceSnapshot(FIXTURE_TEAM).then((r) => r.outcome)).toBe('verified');
   }, 120_000);

@@ -93,7 +93,7 @@ async function main() {
     create: {
       projectId: COLLAB_GATE.projectId, generation: 0, snapshotRev: 0n, stateSeq: 0n, state,
       stateHash: createHash('sha256').update(state).digest('hex'),
-      vacuumEpoch: 0, schemaVersion: 3,
+      vacuumEpoch: 0, schemaVersion: 4,   // Y2 C1 版本 4（翻禁执法+作者键 mediaId 域——与 @default(4) 同批）
     },
     update: {},
   });

@@ -466,7 +466,7 @@ function buildMaintenancePrisma() {
     $transaction: null as unknown,
     $queryRaw: vi.fn(async (...args: unknown[]) => {
       const sql = String(args[0]);
-      if (sql.includes('UPDATE "CanvasDoc"')) return [{ generation: 0, pgSeq: 0n, schemaVersion: 3 }];
+      if (sql.includes('UPDATE "CanvasDoc"')) return [{ generation: 0, pgSeq: 0n, schemaVersion: CANVAS_DOC_SCHEMA_VERSION }];
       if (sql.includes('COUNT(*)')) return [{ n: 0 }];
       return [];
     }),

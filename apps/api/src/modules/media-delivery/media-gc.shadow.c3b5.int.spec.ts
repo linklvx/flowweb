@@ -34,7 +34,7 @@ import { ErasureContextService, lockProject } from '../collab/project-lock';
 import { ProjectErasureRunPoller } from '../collab/project-erasure.poller';
 import { openProjectErasure } from '../collab/project-erasure';
 import { executePurgingDbStage } from '../collab/project-erasure.stages';
-import { collectMediaRefs } from '@flowweb/shared';
+import { collectMediaRefs, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化
 import { toDocLike } from '../collab/doc-like.util';
 import { scanUuidLeaves } from '../collab/oracle-worker.service';
 import { MediaReferenceService } from '../collab/media-reference.service';
@@ -128,7 +128,7 @@ maybe('C3b-5：消费面切换+shadow 对拍+回滚开关（真 PG）', () => {
   const purgeStrayCandidates = () => prisma.media.deleteMany({ where: { deletedAt: { lte: GRACE_OLD } } });
 
   const seedDoc = async (pid: string, frame: Uint8Array): Promise<void> => {
-    await prisma.canvasDoc.create({ data: { projectId: pid, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false } });
+    await prisma.canvasDoc.create({ data: { projectId: pid, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false } });
     await appendFrame(pid, frame);
     await expectOracleFresh(pid);
   };

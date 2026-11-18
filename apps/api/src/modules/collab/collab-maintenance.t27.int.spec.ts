@@ -24,7 +24,7 @@ import { CollabSpoolService } from './collab-spool.service';
 import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { toDocLike } from './doc-like.util';
-import { toReadModel, fillDoc, CollabCloseCode } from '@flowweb/shared';
+import { toReadModel, fillDoc, CollabCloseCode, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
 import { ExecutionRequestService } from '../execution/execution-request.service';
 import { ValidationService } from '../execution/validation.service';
 import { PricingResolverService } from '../execution/pricing-resolver.service';
@@ -54,9 +54,9 @@ async function seedDoc(prisma: PrismaClient, pid: string): Promise<void> {
   const state0 = Buffer.from(Y.encodeStateAsUpdate(doc));
   doc.destroy();
   await prisma.$executeRaw`INSERT INTO "CanvasDocSnapshot" ("projectId", generation, "snapshotRev", "stateSeq", state, "stateHash", "vacuumEpoch", "schemaVersion")
-    VALUES (${pid}::text, 0::int, 0::bigint, 0::bigint, ${state0}, ${createHash('sha256').update(state0).digest('hex')}::char(64), 0::int, 3::int) ON CONFLICT DO NOTHING`;
+    VALUES (${pid}::text, 0::int, 0::bigint, 0::bigint, ${state0}, ${createHash('sha256').update(state0).digest('hex')}::char(64), 0::int, ${CANVAS_DOC_SCHEMA_VERSION}::int) ON CONFLICT DO NOTHING`;
   await prisma.$executeRaw`INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt")
-    VALUES (${pid}::text, 0::int, 3::int, now()) ON CONFLICT DO NOTHING`;
+    VALUES (${pid}::text, 0::int, ${CANVAS_DOC_SCHEMA_VERSION}::int, now()) ON CONFLICT DO NOTHING`;
   for (const seq of [1n, 2n]) {
     const upd = Buffer.from(Y.encodeStateAsUpdate(createCanvasDoc()));
     await prisma.$executeRaw`INSERT INTO "CanvasDocUpdate" ("projectId", generation, seq, "firstWalSeq", "frameCount", "updateHash", update, "createdAt")
@@ -541,7 +541,7 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
     const snap0 = await prisma.canvasDocSnapshot.findUnique({ where: { projectId_generation_snapshotRev: { projectId: PID, generation: 0, snapshotRev: 0n } } });
     await prisma.canvasDocSnapshot.upsert({
       where: { projectId_generation_snapshotRev: { projectId: PID, generation: 1, snapshotRev: 0n } },
-      create: { projectId: PID, generation: 1, snapshotRev: 0n, stateSeq: 3n, state: snap0!.state, stateHash: snap0!.stateHash, vacuumEpoch: 1, schemaVersion: 3 },
+      create: { projectId: PID, generation: 1, snapshotRev: 0n, stateSeq: 3n, state: snap0!.state, stateHash: snap0!.stateHash, vacuumEpoch: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION },
       update: {},
     });
     await prisma.canvasDoc.update({ where: { projectId: PID }, data: { generation: 1, currentSnapshotRev: 0n, purgeBelowSeq: null } });

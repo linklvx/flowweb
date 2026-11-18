@@ -108,7 +108,7 @@ describe('CanvasDocUpdateRepository', () => {
         findUnique: vi.fn(async () => (st.snapshot ? { state: st.snapshot.state, stateSeq: st.snapshot.stateSeq } : null)),
       },
       canvasDoc: {
-        findUnique: vi.fn(async () => ({ schemaVersion: 3, vacuumEpoch: 0 })),
+        findUnique: vi.fn(async () => ({ schemaVersion: CANVAS_DOC_SCHEMA_VERSION, vacuumEpoch: 0 })),
       },
       $transaction: vi.fn((fn: (tx: unknown) => Promise<unknown>) => fn({
         $queryRaw: (s: string[], ...v: unknown[]) => respond(s, ...v),
@@ -686,7 +686,7 @@ describe('I1.2 vacuumReplace 锁内 generation 复核（expectedGeneration——
     };
     return { repo: new CanvasDocUpdateRepository(prisma as any), writes };
   }
-  const liveDocAt = (generation: number) => ({ generation, schemaVersion: 3, vacuumEpoch: 0, currentSnapshotRev: 0n });
+  const liveDocAt = (generation: number) => ({ generation, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, vacuumEpoch: 0, currentSnapshotRev: 0n });
 
   it('投影滞后于 DB（expected=1，锁内实读 generation=2——并发换代窗）⇒ aborted 档返回+DB 零变更（upsert/deleteMany 零调用；红=旧实现照常换代提交）', async () => {
     const { repo, writes } = buildVacuumSim(liveDocAt(2));

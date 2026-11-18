@@ -5,11 +5,11 @@
 // 形态：对现状写当场全绿（W2 语义钉住先例）——门序/边界值逐条钉死，判定核漂移即红。
 // 零 cast/零 gateway 实例（façade 门禁天然干净）；执法副作用（inc/readOnly/广播）不在本面——留壳语义见 service。
 import { describe, it, expect } from 'vitest';
-import { CollabAuthReason } from '@flowweb/shared';
+import { CollabAuthReason, CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
 import { decideAuthAdmission, decideSweepRecheck, decideClientOwnership, decideAwarenessStrip } from './collab-session-guard.service';
 
-/** 七门全过基线快照（csv='3'=CLIENT_PROTOCOL_VERSION 现值——T18 版本硬切 bump；shared collab-protocol 单源） */
-const PASS_CTX = { hasDoc: true, heapTripped: false, csv: '3', docNameValid: true, shuttingDown: false, leaseServing: true, breakerOpen: false };
+/** 七门全过基线快照（csv=String(CLIENT_PROTOCOL_VERSION) 现值——Y2 C1 版本硬切 bump 4；shared collab-protocol 单源） */
+const PASS_CTX = { hasDoc: true, heapTripped: false, csv: String(CLIENT_PROTOCOL_VERSION), docNameValid: true, shuttingDown: false, leaseServing: true, breakerOpen: false };
 
 describe('decideAuthAdmission（§3.1bis 门序钉死 heap→version→docName→draining→lease→breaker）', () => {
   it('七门全过 → proceed', () => {
@@ -24,8 +24,9 @@ describe('decideAuthAdmission（§3.1bis 门序钉死 heap→version→docName�
     expect(decideAuthAdmission({ ...PASS_CTX, csv: null })).toMatchObject({ proceed: false, reason: CollabAuthReason.CLIENT_VERSION_MISSING, source: 'version' });
     expect(decideAuthAdmission({ ...PASS_CTX, csv: 'abc' })).toMatchObject({ proceed: false, reason: CollabAuthReason.CLIENT_VERSION_INVALID, source: 'version' });
     expect(decideAuthAdmission({ ...PASS_CTX, csv: '1' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SCHEMA_OUTDATED, source: 'version' });
-    expect(decideAuthAdmission({ ...PASS_CTX, csv: '2' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SCHEMA_OUTDATED, source: 'version' });   // T18 真实旧客户端档（v2 存量 bundle）
-    expect(decideAuthAdmission({ ...PASS_CTX, csv: '4' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SERVER_OUTDATED, source: 'version' });
+    expect(decideAuthAdmission({ ...PASS_CTX, csv: '2' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SCHEMA_OUTDATED, source: 'version' });   // 历史档同拒
+    expect(decideAuthAdmission({ ...PASS_CTX, csv: '3' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SCHEMA_OUTDATED, source: 'version' });   // Y2 C1 真实旧客户端档（Y1c 存量 bundle）
+    expect(decideAuthAdmission({ ...PASS_CTX, csv: '5' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SERVER_OUTDATED, source: 'version' });
   });
   it('gate3 先于 gate4：docName 无效∧draining 并存 → invalid-doc-name（确定性拒绝零 DB，序漂移即红）', () => {
     expect(decideAuthAdmission({ ...PASS_CTX, docNameValid: false, shuttingDown: true }))

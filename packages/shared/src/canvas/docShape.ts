@@ -48,13 +48,15 @@ export interface DocEdgeRecord {
   target?: string;
 }
 
-/** doc schema 版本常量（T18 版本硬切 v2→v3）——**版本判据唯一承载=CanvasDoc.schemaVersion PG 列**
- * （schema.prisma `schemaVersion Int @default(3)`；装载判定=api loadDocument 读行值≠3 拒载）。
+/** doc schema 版本常量（Y2 C1 版本 4）——**版本判据唯一承载=CanvasDoc.schemaVersion PG 列**
+ * （schema.prisma `schemaVersion Int @default(4)`；装载判定=api loadDocument 读行值≠4 拒载）。
  *  沿革：O0a-1 常量随 fillDoc 上移 shared；O0b-0 格式批 1→2（rel→abs 翻转）；Y1b T2（Z9''-v14）
  *  版本移 PG 列承载——meta.schemaVersion 整链退役（客户端无从篡改）；T18（Y1c）双常量 bump=3
- *  （与 CLIENT_PROTOCOL_VERSION 同批——硬切非兼容层）。本常量消费面=PG 列门比对+世代缓存键
- * （web local-cache-key s 维经 REST collabSchemaVersion 行值透传）。 */
-export const CANVAS_DOC_SCHEMA_VERSION = 3;
+ *  （与 CLIENT_PROTOCOL_VERSION 同批——硬切非兼容层）；**Y2 C1（spec §4 第③步）bump 3→4**
+ *  =翻禁执法（server-forbidden 键写入即拒——frame-deny 五处收口）+作者键 mediaId 域（与
+ *  CLIENT_PROTOCOL_VERSION 同批）。本常量消费面=PG 列门比对+世代缓存键
+ *  （web local-cache-key s 维经 REST collabSchemaVersion 行值透传）。 */
+export const CANVAS_DOC_SCHEMA_VERSION = 4;
 
 /** Y0c T4（B12 键集收编）：canvas 数据键集 shared 单源——web 私有副本删除（键集零私有副本出口）。
  *  EPHEMERAL_DATA_KEYS=本地瞬态 UI 键（Spec B editMode 口径 13，v3.16 终裁 53）：editMode/transformMode

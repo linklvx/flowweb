@@ -23,8 +23,7 @@ const prisma = new PrismaClient();
 const MEDIA_ID = `it-c3a2-media-${Date.now()}`;
 
 const MIG_DIR = join(__dirname, '../../../prisma/migrations');
-
-(hasDb ? describe : describe.skip)('C3a-2：schema additive（真 PG）', () => {
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';(hasDb ? describe : describe.skip)('C3a-2：schema additive（真 PG）', () => {
   beforeAll(async () => {
     await ensureProjectFixture(prisma, PID, 'c3a2-schema');
     await prisma.media.create({
@@ -44,7 +43,7 @@ const MIG_DIR = join(__dirname, '../../../prisma/migrations');
   }, 20_000);
 
   it('① CanvasDoc 新列：新建行 schema 默认（mediaBindingSeq=0n ∧ bindingsDirty=false）+新 init 终态形态钉', async () => {
-    await prisma.canvasDoc.create({ data: { projectId: PID, generation: 0, schemaVersion: 3 } });
+    await prisma.canvasDoc.create({ data: { projectId: PID, generation: 0, schemaVersion: CANVAS_DOC_SCHEMA_VERSION } });
     const doc = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID } });
     expect(doc.mediaBindingSeq).toBe(0n);
     expect(doc.bindingsDirty).toBe(false); // schema 默认如实——C1 rebaseline 后无 ADD COLUMN 回填面（回填已在旧链接收）
@@ -106,5 +105,23 @@ const MIG_DIR = join(__dirname, '../../../prisma/migrations');
       WHERE conrelid = '"ProjectionBackfillState"'::regclass AND contype = 'f'`;
     expect(fks[0].n).toBe(0n); // 零外键——项目删除清行由 registry 批删承载，无 Cascade 耦合
     expect(PROJECT_COLUMN_MODELS).toContain('ProjectionBackfillState');
+  });
+
+  it('⑤ Y2 C1 @default 缺省插入落 4（schemaVersion 不写列——漏写该列的插入落 3、下轮装载被拒）', async () => {
+    await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
+    // 缺省插入（data 不含 schemaVersion 列——走 PG 表 DEFAULT）
+    await prisma.$executeRaw`INSERT INTO "CanvasDoc" ("projectId", generation, "updatedAt") VALUES (${PID}::text, 0::int, now())`;
+    const doc = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID }, select: { schemaVersion: true } });
+    expect(doc.schemaVersion).toBe(CANVAS_DOC_SCHEMA_VERSION);   // 修前红：@default(3) 落 3≠4
+    // init 形态钉同批：CREATE TABLE "CanvasDoc" 块的 schemaVersion DEFAULT 4
+    const sqlOf = (d: string) => readFileSync(join(MIG_DIR, d, 'migration.sql'), 'utf8');
+    const initDirs = readdirSync(MIG_DIR).filter((d) => /^\d+_/.test(d));
+    const creators = initDirs
+      .map((d) => ({ d, sql: sqlOf(d).replace(/--[^\n]*/g, '') }))
+      .filter(({ sql }) => /CREATE TABLE "CanvasDoc" \(/.test(sql));
+    for (const { d, sql } of creators) {
+      const block = sql.match(/CREATE TABLE "CanvasDoc" \(([\s\S]*?)\n\);/)?.[1] ?? '';
+      expect(block, `${d} CanvasDoc.schemaVersion DEFAULT 4`).toMatch(/"schemaVersion" INTEGER NOT NULL DEFAULT 4/);
+    }
   });
 });

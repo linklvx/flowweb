@@ -298,6 +298,46 @@
         }
       },
       {
+        "key": "ExecutionNodePlan.authorMediaId",
+        "def": {
+          "is_nullable": "YES",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "ExecutionNodePlan.authorSlotFrozen",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "boolean",
+          "column_default": null
+        }
+      },
+      {
+        "key": "GenerationIntent.authorMediaId",
+        "def": {
+          "is_nullable": "YES",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "GenerationIntent.authorSlotFrozen",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "boolean",
+          "column_default": null
+        }
+      },
+      {
+        "key": "GenerationIntent.authorSlotReleased",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "boolean",
+          "column_default": "false"
+        }
+      },
+      {
         "key": "Media.deletionReason",
         "def": {
           "is_nullable": "YES",
@@ -403,6 +443,12 @@
         "key": "DeletionBarrier_pkey",
         "def": {
           "indexdef": "CREATE UNIQUE INDEX \"DeletionBarrier_pkey\" ON public.\"DeletionBarrier\" USING btree (\"teamId\")"
+        }
+      },
+      {
+        "key": "GenerationIntent_release_pending_idx",
+        "def": {
+          "indexdef": "CREATE INDEX \"GenerationIntent_release_pending_idx\" ON public.\"GenerationIntent\" USING btree (\"completedAt\") WHERE ((status = 'SUCCEEDED'::\"IntentStatus\") AND \"authorSlotFrozen\" AND (NOT \"authorSlotReleased\") AND (kind = ANY (ARRAY['video'::text, 'image'::text, 'outpaint'::text, 'erase'::text, 'redraw'::text, 'lighting'::text])))"
         }
       },
       {
@@ -630,8 +676,69 @@
     ]
   },
   "changed": {
-    "columns": [],
-    "constraints": [],
+    "columns": [
+      {
+        "key": "CanvasDoc.schemaVersion",
+        "before": {
+          "is_nullable": "NO",
+          "data_type": "integer",
+          "column_default": "3"
+        },
+        "after": {
+          "is_nullable": "NO",
+          "data_type": "integer",
+          "column_default": "4"
+        }
+      },
+      {
+        "key": "MediaBinding.targetField",
+        "before": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": "'fileId'::text"
+        },
+        "after": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": "'mediaId'::text"
+        }
+      }
+    ],
+    "constraints": [
+      {
+        "key": "artifact_projection_target_field_domain",
+        "before": {
+          "contype": "c",
+          "def": "CHECK ((\"targetField\" = ANY (ARRAY['fileId'::text, 'result'::text])))"
+        },
+        "after": {
+          "contype": "c",
+          "def": "CHECK ((\"targetField\" = ANY (ARRAY['mediaId'::text, 'result'::text])))"
+        }
+      },
+      {
+        "key": "media_binding_target_field_domain",
+        "before": {
+          "contype": "c",
+          "def": "CHECK ((\"targetField\" = ANY (ARRAY['fileId'::text, 'referenceImage'::text, 'referenceVideo'::text, 'referenceAudio'::text, 'images'::text, 'allImages'::text, 'trimmedFileId'::text, 'videoFileId'::text, 'audioFileId'::text])))"
+        },
+        "after": {
+          "contype": "c",
+          "def": "CHECK ((\"targetField\" = ANY (ARRAY['mediaId'::text, 'referenceImage'::text, 'referenceVideo'::text, 'referenceAudio'::text, 'images'::text, 'allImages'::text])))"
+        }
+      },
+      {
+        "key": "node_artifact_target_field_domain",
+        "before": {
+          "contype": "c",
+          "def": "CHECK ((\"targetField\" = ANY (ARRAY['fileId'::text, 'result'::text])))"
+        },
+        "after": {
+          "contype": "c",
+          "def": "CHECK ((\"targetField\" = ANY (ARRAY['mediaId'::text, 'result'::text])))"
+        }
+      }
+    ],
     "indexes": [],
     "sequences": [],
     "enums": [],

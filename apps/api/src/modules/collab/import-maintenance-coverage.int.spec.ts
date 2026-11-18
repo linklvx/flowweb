@@ -24,7 +24,7 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { BindingRebuildService } from './binding-rebuild.service';
 import { ProjectionBackfillRunner } from './projection-backfill.runner';
 import { canvasDocName } from './doc-name.util';
-import { SERVER_TRANSACT_ORIGIN } from '@flowweb/shared';
+import { SERVER_TRANSACT_ORIGIN, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow, FIXTURE_TEAM, FIXTURE_USER } from '../../test-utils/db-fixtures';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 
@@ -137,7 +137,7 @@ type MaintSubmit = (projectId: string, payload: Uint8Array, opts?: { bindingUnco
   async function seedHead(pid: string): Promise<void> {
     await prisma.canvasDoc.deleteMany({ where: { projectId: pid } });
     await prisma.canvasDoc.create({
-      data: { projectId: pid, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false },
+      data: { projectId: pid, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false },
     });
   }
 

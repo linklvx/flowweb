@@ -2,6 +2,7 @@
 // 读取面必须三分「行存在/行缺失/值为零」——缺失=fail-closed 显式分支，禁 `?? 0` 兜底静默默认。
 // （卡文先红②：本 spec 先于 canvas-doc-head.ts 落地——红=模块缺失；绿=三态契约锁定。
 //  真 PG 行为面在 canvas-doc-genesis.int.spec.ts。）
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
 import { describe, it, expect, vi } from 'vitest';
 import {
   readCanvasDocHead,
@@ -12,7 +13,7 @@ import {
 } from './canvas-doc-head';
 
 const ZERO_HEAD = {
-  projectId: 'p1', generation: 0, schemaVersion: 3, vacuumEpoch: 0,
+  projectId: 'p1', generation: 0, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, vacuumEpoch: 0,
   currentSnapshotRev: 0n, walCheckpointSeq: 0n, pgSeq: 0n,
   purgeBelowSeq: null, maintenanceId: null,
 };

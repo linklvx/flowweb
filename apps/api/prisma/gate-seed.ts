@@ -5,7 +5,7 @@
 // 常量契约：apps/web/e2e/global-setup.ts（账号）与 apps/web/e2e/a0-0-env.spec.ts（projectId）引用同值。
 // O0b-0 格式批：buildGateCanvasState 经 shared docShape（fillDoc——O0a-2 裁定 load-bearing：
 // applyRecordToYMap 不写 data 键，种子走它会复现 F29 丢数据；禁自建 Y.Map 绕咽喉）。
-// T18：meta 戳删除（版本承载=CanvasDoc.schemaVersion PG 列——建行 @default(3)，doc 内容零版本键）。
+// T18：meta 戳删除（版本承载=CanvasDoc.schemaVersion PG 列——doc 内容零版本键）；Y2 C1：建行 @default(4)（版本 4=翻禁执法+作者键 mediaId 域）。
 // O0c-3：二进制构造抽 src/gate-canvas-state.ts 纯模块（零 prisma/auth 副作用——验收断言直解二进制）。
 // tsx 直跑消费 dist——片尾必须 pnpm --filter @flowweb/shared build（scripts/check-shared-dist.mjs 可校验）。
 import { createHash } from 'node:crypto';
@@ -60,7 +60,7 @@ async function main() {
     create: {
       projectId: GATE.projectId, generation: 0, snapshotRev: 0n, stateSeq: 0n, state,
       stateHash: createHash('sha256').update(state).digest('hex'),
-      vacuumEpoch: 0, schemaVersion: 3,
+      vacuumEpoch: 0, schemaVersion: 4,   // Y2 C1 版本 4（翻禁执法+作者键 mediaId 域——与 @default(4) 同批）
     },
     update: {},
   });

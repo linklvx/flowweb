@@ -16,7 +16,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as Y from 'yjs';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { formatLocalCacheKey } from '@flowweb/shared';
+import { formatLocalCacheKey, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化
 import { canvasDocName, admitDocNameForGeneration, projectDocName } from './doc-name.util';
 import { CollabSpoolService } from './collab-spool.service';
 import { spoolForTest } from '../../test-utils/erasure-fixtures';
@@ -68,7 +68,7 @@ describe('Y1c T12 红组①：v1.3 同 name 语义反例——换代后 generati
   });
 
   it('客户端缓存键五元随 generation 变（4410 discardLocalCache 之外的第二防线——键变=旧缓存不可达）', () => {
-    const base = { uid: 'u1', pid: 'p1', schemaVersion: 3, historyId: 'h1' };
+    const base = { uid: 'u1', pid: 'p1', schemaVersion: CANVAS_DOC_SCHEMA_VERSION, historyId: 'h1' };
     expect(formatLocalCacheKey({ ...base, generation: 0 }))
       .not.toBe(formatLocalCacheKey({ ...base, generation: 1 }));
     expect(formatLocalCacheKey({ ...base, generation: 1 }))
@@ -84,7 +84,7 @@ describe('Y1c T12 红组②+S2 目标链：装载面世代执法（auth 同谓�
     const { gateway } = buildGateway();
     const repo = gatewayFacade(gateway).repoRef() as unknown as MockRepo;
     // 服务端已换代 gen=2；客户端持旧 #g1 缓存重连
-    repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from([0, 0]), updates: [] as Buffer[], stateSeq: 0n, generation: 2, schemaVersion: 3, pgSeq: 5n });
+    repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from([0, 0]), updates: [] as Buffer[], stateSeq: 0n, generation: 2, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 5n });
     const stale = new Y.Doc();
     await expect(gateway.docRegistry.loadDocument({ document: stale, documentName: 'project:p1#g1', socketId: 's1' } as any))
       .rejects.toMatchObject({ reason: 'generation-stale' });
@@ -105,7 +105,7 @@ describe('Y1c T12 红组②+S2 目标链：装载面世代执法（auth 同谓�
   it('generation=0 真值播种（DR:403 缝）：装载后 docGeneration/generationOf 恒当代真值（0 也播种——非 truthy 门）', async () => {
     const { gateway, spool } = buildGateway();
     const repo = gatewayFacade(gateway).repoRef() as unknown as MockRepo;
-    repo.hydrateWithRecovery.mockResolvedValue({ state: null, updates: [] as Buffer[], stateSeq: 0n, generation: 0, schemaVersion: 3, pgSeq: 7n });
+    repo.hydrateWithRecovery.mockResolvedValue({ state: null, updates: [] as Buffer[], stateSeq: 0n, generation: 0, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 7n });
     const doc = new Y.Doc();
     await gateway.docRegistry.loadDocument({ document: doc, documentName: 'project:p1', socketId: 's0' } as any);
     expect(gateway.docRegistry.generationOf('p1')).toBe(0);   // 改前：undefined（`if (generation)` truthy 门——0 永不播种）
@@ -176,7 +176,7 @@ describe('Y1c T12 收口 C1：withSession fresh-open canonical 名=DB 真值（r
     // CanvasDoc 行 generation=1（DB 真值）；doc 未装载（进程重启后形态——docRegistry.docGeneration 无键）
     repo.readGeneration.mockResolvedValue(1);
     repo.readWatermark.mockResolvedValue({ pgSeq: 5n, walCheckpointSeq: 5n, generation: 1 });
-    repo.hydrateWithRecovery.mockResolvedValue({ state: seed, updates: [], stateSeq: 5n, generation: 1, schemaVersion: 3, pgSeq: 5n });
+    repo.hydrateWithRecovery.mockResolvedValue({ state: seed, updates: [], stateSeq: 5n, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 5n });
     const svc = new CollabDocumentService(gateway, repo as any);
     const residency = (svc as any).residency as CollabResidencyService;   // svc 惰性自建单例（residency spec 同款装置）
 

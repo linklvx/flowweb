@@ -20,7 +20,7 @@ import { ProjectPermissionService } from '../team/project-permission.service';
 import { NodeArtifactService } from '../artifact-core/node-artifact.service';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import { seedRow } from '../../test-utils/canvas-doc-row';
-import { collectMediaRefsForNode } from '@flowweb/shared';
+import { collectMediaRefsForNode, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化
 
 const hasDb = !!process.env.DATABASE_URL;
 const maybe = hasDb ? describe : describe.skip;
@@ -173,7 +173,7 @@ maybe('C3a-7：命令面读写两改——BindMedia 零 binding 写+粘贴帧投
     await ensureLeaseFixture(prisma, repo);
     // 帧路径布景：CanvasDoc 建档（干净水位 0）
     await prisma.canvasDoc.create({
-      data: { projectId: OTHER_PID, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false },
+      data: { projectId: OTHER_PID, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false },
     });
     // 客户端粘贴帧：actor 帧路径单源转换（touched node→collectMediaRefsForNode 终态——collab-project-actor 同款）
     const nodeId = 'pasted-node';

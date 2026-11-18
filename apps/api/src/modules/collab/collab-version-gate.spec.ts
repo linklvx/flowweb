@@ -147,7 +147,7 @@ describe('Y0b-3 T5 版本门（四档拒+双计数+DB 前短路）', () => {
 });
 
 describe('T18 版本硬切：CanvasDoc.schemaVersion PG 列门（Y1b T2——meta.schemaVersion 退役）', () => {
-  it('旧 doc（行 schemaVersion=2≠current 3）→ 拒载：throw 附 reason=schema-outdated+schemaRefusal 标记（客户端 handleVersionTerminal 一次 reload 通路）——doc meta 残留任何值不再参与判定', async () => {
+  it('旧 doc（行 schemaVersion=2≠current 4）→ 拒载：throw 附 reason=schema-outdated+schemaRefusal 标记（客户端 handleVersionTerminal 一次 reload 通路）——doc meta 残留任何值不再参与判定', async () => {
     const { gateway, repo } = buildGateway();
     const stale = new Y.Doc();   // doc 内容：满节点+旧 meta 残留（历史载荷——列门不解释）
     stale.getMap('meta').set('schemaVersion', 2);
@@ -167,16 +167,33 @@ describe('T18 版本硬切：CanvasDoc.schemaVersion PG 列门（Y1b T2——met
     expect(rejected.store.pendingStructs).toBeNull();
   });
 
-  it('行 schemaVersion=3（当前）→ 放行（doc meta 零键也放——doc 内容不再带版本）；行缺失（null，懒建档）→ 放行（首 store 建行 @default(3)）', async () => {
+  it('Y2 C1 翻禁批：行 schemaVersion=3（Y1c 旧档）→ 拒载（bump 4 后 3 即旧 doc——sv=3 拒载红测试）；行=4（当前）→ 放行；行缺失（null，懒建档）→ 放行（首 store 建行 @default(4)）', async () => {
+    // sv=3 拒载（Y2 C1 前红：3=current 放行——bump 后必拒）
+    {
+      const { gateway, repo } = buildGateway();
+      const legacy = new Y.Doc();   // Y1c 档 doc 内容（翻禁前建行）
+      legacy.getMap('nodes').set('n', new Y.Map());
+      repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(legacy)), updates: [], stateSeq: 0n, schemaVersion: 3 });
+      const refused = new Y.Doc();
+      const denial = await gateway.hooks.onLoadDocument({ document: refused, documentName: 'project:vg-sv3' } as any)
+        .then(() => { throw new Error('expected rejection'); }, (e: Error & { schemaRefusal?: boolean; reason?: string }) => e);
+      expect(denial.reason).toBe(CollabAuthReason.SCHEMA_OUTDATED);
+      expect(denial.schemaRefusal).toBe(true);
+      expect(denial.message).toMatch(/CanvasDoc\.schemaVersion=3/);
+      expect([...refused.getMap('nodes').keys()]).toHaveLength(0);   // 零重放残留（同 :150 档）
+    }
+    // sv=4 放行（doc meta 零键也放——doc 内容不再带版本）
     stubHeapMeasure({ heapUsed: 0.5e9, heapLimit: 1e9, rss: 100 * MiB });   // 前序 heap 桩残留复位（heap-gate.spec 同款——loadDocument 装载门 heap 闸前置）
     resetHeapPressure();
-    const { gateway, repo } = buildGateway();
-    const fresh = new Y.Doc();   // meta 零键——fillDoc 形态
-    fresh.getMap('nodes').set('n', new Y.Map());
-    repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(fresh)), updates: [], stateSeq: 0n, schemaVersion: 3 });
-    const cur = new Y.Doc();
-    await gateway.hooks.onLoadDocument({ document: cur, documentName: 'project:vg-cur' } as any);   // 不抛=放行（hook 返回 void——节点应用为证）
-    expect([...cur.getMap('nodes').keys()]).toEqual(['n']);
+    {
+      const { gateway, repo } = buildGateway();
+      const fresh = new Y.Doc();
+      fresh.getMap('nodes').set('n', new Y.Map());
+      repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(fresh)), updates: [], stateSeq: 0n, schemaVersion: 4 });
+      const cur = new Y.Doc();
+      await gateway.hooks.onLoadDocument({ document: cur, documentName: 'project:vg-cur' } as any);   // 不抛=放行（hook 返回 void——节点应用为证）
+      expect([...cur.getMap('nodes').keys()]).toEqual(['n']);
+    }
 
     const { gateway: g2, repo: r2 } = buildGateway();
     stubHeapMeasure({ heapUsed: 0.5e9, heapLimit: 1e9, rss: 100 * MiB });

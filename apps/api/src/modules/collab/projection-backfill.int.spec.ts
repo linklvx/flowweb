@@ -15,6 +15,8 @@ import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { BindingRebuildService } from './binding-rebuild.service';
 import { ProjectionBackfillRunner, BACKFILL_PROJECTS_PER_TICK, BACKFILL_BACKOFF_BASE_MS, BACKFILL_BAILOUT_RECHECK_MS } from './projection-backfill.runner';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
+
 import { createCanvasDoc } from './canvas-doc.factory';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow, FIXTURE_TEAM, FIXTURE_USER } from '../../test-utils/db-fixtures';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -95,7 +97,7 @@ maybe('C3a-8：ProjectionBackfillRunner（真 PG——恢复 replay 腿+100 项�
         prisma.canvasDoc.deleteMany({ where: { projectId: PID } }),
       ]);
       await prisma.canvasDoc.create({
-        data: { projectId: PID, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false },
+        data: { projectId: PID, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false },
       });
       // 崩溃形态：帧 1（加 M）只在 spool（未落 PG）——重启 scan 后 replayAll 重放
       const s1 = spoolForTest(dir);
@@ -146,7 +148,7 @@ maybe('C3a-8：ProjectionBackfillRunner（真 PG——恢复 replay 腿+100 项�
     // 100 候选项目（dirty=true——空 doc：rebuild 零 delta 直接 CAS 清 dirty）
     await prisma.canvasProject.createMany({ data: BF_PIDS.map((id) => ({ id, name: 'c3a8-bf', teamId: FIXTURE_TEAM })) });
     await prisma.canvasDoc.createMany({ data: BF_PIDS.map((projectId) => ({
-      projectId, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: true,
+      projectId, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: true,
     })) });
     let inFlight = 0, maxInFlight = 0;
     const spyRebuild = {
@@ -209,7 +211,7 @@ maybe('C3a-8：ProjectionBackfillRunner（真 PG——恢复 replay 腿+100 项�
         prisma.canvasDoc.deleteMany({ where: { projectId: PID_I2 } }),
       ]);
       await prisma.canvasDoc.create({
-        data: { projectId: PID_I2, generation: 1, schemaVersion: 3, pgSeq: 5n, walCheckpointSeq: 5n, mediaBindingSeq: 0n, bindingsDirty: true },
+        data: { projectId: PID_I2, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 5n, walCheckpointSeq: 5n, mediaBindingSeq: 0n, bindingsDirty: true },
       });
       await prisma.$executeRaw`UPDATE "CanvasProject" SET "lifecycleState" = 'DELETING' WHERE "id" = ${PID_I2}::text`;
       let rebuildCalls = 0;
@@ -245,7 +247,7 @@ maybe('C3a-8：ProjectionBackfillRunner（真 PG——恢复 replay 腿+100 项�
       prisma.canvasDoc.deleteMany({ where: { projectId: PID_BACKOFF } }),
     ]);
     await prisma.canvasDoc.create({
-      data: { projectId: PID_BACKOFF, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: true },
+      data: { projectId: PID_BACKOFF, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: true },
     });
     let fail = true;
     const fake = {
@@ -308,7 +310,7 @@ maybe('C3a-8：ProjectionBackfillRunner（真 PG——恢复 replay 腿+100 项�
         prisma.canvasDoc.deleteMany({ where: { projectId: PID_BOOT } }),
       ]);
       await prisma.canvasDoc.create({
-        data: { projectId: PID_BOOT, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: true },
+        data: { projectId: PID_BOOT, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: true },
       });
       const s1 = spoolForTest(dir);
       s1.setOwner('c3a8-boot-owner');

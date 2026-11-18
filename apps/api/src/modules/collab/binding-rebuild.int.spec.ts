@@ -18,7 +18,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient, type Prisma } from '@prisma/client';
 import * as Y from 'yjs';
-import { collectMediaRefs } from '@flowweb/shared';
+import { collectMediaRefs, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { BindingRebuildService, needsBindingRebuild } from './binding-rebuild.service';
 import { projectBindings } from './media-binding-projector';
@@ -64,7 +64,7 @@ async function resetDoc(prisma: PrismaClient, init: { pgSeq: bigint; mediaBindin
   ]);
   await prisma.canvasDoc.create({
     data: {
-      projectId: pid, generation: init.generation ?? 1, schemaVersion: 3,
+      projectId: pid, generation: init.generation ?? 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION,
       pgSeq: init.pgSeq, walCheckpointSeq: init.pgSeq,   // CHECK pgSeq<=walCheckpointSeq 守恒
       mediaBindingSeq: init.mediaBindingSeq, bindingsDirty: init.dirty,
     },
@@ -242,7 +242,7 @@ maybe('C3a-6：水位不变量闭环——rebuild CAS 四条件+loadForHydration
       await prisma.canvasDocSnapshot.create({ data: {
         projectId: PID_H, generation, snapshotRev: rev, stateSeq,
         state: Buffer.from(Y.encodeStateAsUpdate(d)), stateHash: `c3a6-${generation}-${rev}-${stateSeq}-`.padEnd(64, '0'),
-        vacuumEpoch: 0, schemaVersion: 3,
+        vacuumEpoch: 0, schemaVersion: CANVAS_DOC_SCHEMA_VERSION,
       } });
       if (generation !== 1) d.destroy();
     };

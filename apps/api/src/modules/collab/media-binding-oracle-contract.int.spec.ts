@@ -19,6 +19,8 @@ import { PrismaClient } from '@prisma/client';
 import * as Y from 'yjs';
 import { CollabProjectActorService, FrameEffectsCollector, type BindingDelta } from './collab-project-actor.service';
 import { CollabSpoolService } from './collab-spool.service';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
+
 import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { BindingRebuildService } from './binding-rebuild.service';
@@ -274,7 +276,7 @@ maybe('C3a-9：binding@mediaBindingSeq == oracle(doc@pgSeq) 独立对拍契约�
     await prisma.media.update({ where: { id: MEDIA.mdel }, data: { deletionState: 'DELETING', deletedAt: new Date() } });
     for (const pid of [PID, PID_LOOP, PID_DIRECT, PID_ACTOR_FAIL]) {
       await prisma.canvasDoc.create({
-        data: { projectId: pid, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false },
+        data: { projectId: pid, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false },
       });
     }
     await ensureLeaseFixture(prisma, repo);

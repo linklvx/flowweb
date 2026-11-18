@@ -1,4 +1,4 @@
-/** 两常量分离（spec §3.4）：CANVAS_DOC_SCHEMA_VERSION（docShape.ts=3——doc 结构，版本承载
+/** 两常量分离（spec §3.4）：CANVAS_DOC_SCHEMA_VERSION（docShape.ts=4——doc 结构，版本承载
  *  =CanvasDoc.schemaVersion PG 列）≠ CLIENT_PROTOCOL_VERSION（本文件——客户端代码/线路协议，
  *  URL ?csv= 所指）。两常量分属 shared 两文件——禁跨包 import（shared→apps 反向依赖=构建环，
  *  v3 S-2）；分离性由命名+注释表达，doc 版本核对归 REST collabSchemaVersion 行值透传。
@@ -7,8 +7,10 @@
  *  v3：PROTOCOL_COMPAT 矩阵删除（单键 satisfies 恒满足——"tsc 强制 bump"论证证伪，偏离 14 登记）；
  *  运行时=字面量精确比较；无区间协商（开发期禁兼容层，R 终裁）。
  *  T18 版本硬切（Y1c）：2→3 与 CANVAS_DOC_SCHEMA_VERSION 同批 bump（双常量=3）——旧 v2 bundle
- *  csv=2 → schema-outdated（reload 有效档，一次 reload 换新 bundle）。 */
-export const CLIENT_PROTOCOL_VERSION = 3 as const;
+ *  csv=2 → schema-outdated（reload 有效档，一次 reload 换新 bundle）。
+ *  Y2 C1 版本 4（spec §4 第③步）：3→4=翻禁执法（server-forbidden 键写入即拒）+作者键 mediaId 域
+ *  ——双常量同批 bump；旧 v3 bundle csv=3 → schema-outdated（一次 reload 换新 bundle）。 */
+export const CLIENT_PROTOCOL_VERSION = 4 as const;
 export type ClientProtocolVersion = typeof CLIENT_PROTOCOL_VERSION;
 
 export type VersionVerdict =

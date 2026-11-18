@@ -284,6 +284,37 @@ maybe('Y1c T25 recovery import REST 服务面（真 gateway+真 PG——唯一�
     expect(served.getMap('nodes').has('n-bad')).toBe(false);
   }, 30_000);
 
+  it('Y2 C1 翻禁：旧键草稿信封（imageGen data.fileId/status、videoGen data.trimTaskStatus）→ RECOVERY_IMPORT_CONTENT_REJECTED（commitDiff 同表 L1 翻禁执法——修前 forbidden 放行必红）', async () => {
+    // 旧键草稿形态：Y2 B3 前导出的信封（data 携 fileId/status——翻禁后 L1 :222 forbidden-data-key 拒）
+    const legacyDoc = rebuildCanvasDoc({
+      nodes: [
+        { id: 'n-legacy-file', type: 'imageGen', position: { x: 0, y: 0 }, data: { fileId: 'm-legacy' } },
+        { id: 'n-legacy-status', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done' } },
+        { id: 'n-legacy-trim', type: 'videoGen', position: { x: 0, y: 0 }, data: { trimTaskStatus: 'done', trimmedFileId: 'm-trim' } },
+      ],
+      edges: [],
+      meta: {},
+    });
+    const canvas = serializeCanvas(legacyDoc);
+    const env = {
+      draftId: 'draft-y2c1-legacy',
+      projectId: PID,
+      generation: 2,
+      schemaVersion: CANVAS_DOC_SCHEMA_VERSION,
+      historyId: 'hist-t25',
+      capturedAtMs: Date.now(),
+      tabId: 'tab-t25',
+      nodes: canvas.nodes,
+      edges: canvas.edges,
+      meta: {},
+      hashes: { nodes: sha(JSON.stringify(canvas.nodes)), edges: sha(JSON.stringify(canvas.edges)) },
+    };
+    await expect(svc.importEnvelope(PID, UID, env as never))
+      .rejects.toMatchObject({ status: 400, response: { code: 'RECOVERY_IMPORT_CONTENT_REJECTED', message: expect.stringContaining('forbidden-data-key') } });
+    const served = await reviveFromPg(PID);
+    expect(served.getMap('nodes').has('n-legacy-file')).toBe(false);   // 零落库（fail-closed——拒档零 apply）
+  }, 30_000);
+
   // ══════════ closeout 批（Controller T25 双评审裁定——同 describe 共享 beforeAll 装置）═══
   describe('T25 收口批（真 gateway+真 PG——HTTP 解析层/边冲突/生命周期洞）', () => {
   /** 真实 HTTP POST（真实解析层——undici fetch 面非直调）。 */

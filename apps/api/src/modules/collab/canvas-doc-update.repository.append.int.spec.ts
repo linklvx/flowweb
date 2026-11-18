@@ -5,6 +5,7 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow, LEASE_FIXTURE_OWNER } from '../../test-utils/db-fixtures';
 import { seedRow } from '../../test-utils/canvas-doc-row';
 import * as Y from 'yjs';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
 
 const hasDb = !!process.env.DATABASE_URL;
 const maybe = hasDb ? describe : describe.skip;
@@ -62,7 +63,7 @@ maybe('appendBatch（真 PG——Y1c T9 新表形态）', () => {
     await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
     await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
     await prisma.canvasDoc.create({
-      data: { projectId: PID, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n },
+      data: { projectId: PID, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n },
     });
     try {
       // 前任进程已落定：帧 walSeq=12（pgSeq 0→12）
@@ -115,7 +116,7 @@ maybe('appendBatch（真 PG——Y1c T9 新表形态）', () => {
     await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
     // 布景：CanvasDoc 行在（pgSeq=0——首帧前形态；generation=1 与 seedRow 默认一致）
     await prisma.canvasDoc.create({
-      data: { projectId: PID, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n },   // Y1c T11：零 doc 态列
+      data: { projectId: PID, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n },   // Y1c T11：零 doc 态列
     });
     // 租约易主（模拟丢失窗：repo 侧 owner 已绑 fixture owner，DB 行 owner=外来者）
     await prisma.$executeRawUnsafe(`UPDATE "CollabLease" SET owner = 'c1-intruder' WHERE scope = 'primary'`);

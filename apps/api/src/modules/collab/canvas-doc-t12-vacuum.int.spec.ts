@@ -26,6 +26,7 @@ import { createLeaseStub } from './test-utils/lease-stub';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';
 import { canvasDocName } from './doc-name.util';
 import { createCanvasDoc } from './canvas-doc.factory';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
 import { ensureProjectFixture, cleanupProjectFixture } from '../../test-utils/db-fixtures';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 
@@ -60,9 +61,9 @@ maybe('Y1c T12 vacuum 换代通道（真 PG）', () => {
     // 布景：gen0 头（快照 rev0 基线 0）+ 三行旧代增量（seq 1..3——insert-ratchet 形态直插）
     const state0 = Buffer.from([0, 0]);   // 空 update 合法种子
     await prisma.$executeRaw`INSERT INTO "CanvasDocSnapshot" ("projectId", generation, "snapshotRev", "stateSeq", state, "stateHash", "vacuumEpoch", "schemaVersion")
-      VALUES (${PID}::text, 0::int, 0::bigint, 0::bigint, ${state0}, ${createHash('sha256').update(state0).digest('hex')}::char(64), 0::int, 3::int) ON CONFLICT DO NOTHING`;
+      VALUES (${PID}::text, 0::int, 0::bigint, 0::bigint, ${state0}, ${createHash('sha256').update(state0).digest('hex')}::char(64), 0::int, ${CANVAS_DOC_SCHEMA_VERSION}::int) ON CONFLICT DO NOTHING`;
     await prisma.$executeRaw`INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt")
-      VALUES (${PID}::text, 0::int, 3::int, now()) ON CONFLICT DO NOTHING`;
+      VALUES (${PID}::text, 0::int, ${CANVAS_DOC_SCHEMA_VERSION}::int, now()) ON CONFLICT DO NOTHING`;
     for (let seq = 1n; seq <= 3n; seq++) {
       const upd = Buffer.from(Y.encodeStateAsUpdate(createCanvasDoc()));
       await prisma.$executeRaw`INSERT INTO "CanvasDocUpdate" ("projectId", generation, seq, "firstWalSeq", "frameCount", "updateHash", update, "createdAt")
@@ -71,7 +72,7 @@ maybe('Y1c T12 vacuum 换代通道（真 PG）', () => {
 
     // ⑥ vacuumReplace（T12 收口 I1.2 四参形态——expectedGeneration=④ 装载读行值 0：本布景 DB gen=0 对齐）
     const state = vacuumState();
-    const replaced = await repo.vacuumReplace(PID, state, 3, 0);
+    const replaced = await repo.vacuumReplace(PID, state, 3, 0);   // 第三参=expectedRowCount（三行布景——非 sv）
     if ('aborted' in replaced) throw new Error(`vacuumReplace 意外 aborted（I1.2 判别面）: ${JSON.stringify(replaced)}`);
     const { generation } = replaced;
     expect(generation).toBe(1);
@@ -110,13 +111,13 @@ maybe('Y1c T12 vacuum 换代通道（真 PG）', () => {
   });
 
   it('②schemaVersion⇒generation 启动断言（违反拒启）：downgrade 形态（sv>current）与未收口旧 schema 行（sv≠current∧gen=0）拒；正常行放行', async () => {
-    // ①正常行（本 PID 换代后 gen=1、sv=3=current）——放行（含 sv≠current∧gen>0 的换代收口形态）
+    // ①正常行（本 PID 换代后 gen=1、sv=4=current〔Y2 C1 bump〕）——放行（含 sv≠current∧gen>0 的换代收口形态）
     await expect(repo.assertSchemaGenerationDiscipline()).resolves.toBeUndefined();
-    // ②未收口旧 schema 行：sv=2（≠current）∧ gen=0 ⇒ 拒启
+    // ②未收口旧 schema 行：sv=2（≠current）∧ gen=0 ⇒ 拒启（Y2 C1 后 sv=3 同档——gen>0 换代行由 ① 收口形态覆盖）
     const pidBad = PID + '-bad';
     await ensureProjectFixture(prisma, pidBad);
     await prisma.$executeRaw`INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt")
-      VALUES (${pidBad}::text, 0::int, 2::int, now()) ON CONFLICT DO NOTHING`;
+      VALUES (${pidBad}::text, 0::int, 3::int, now()) ON CONFLICT DO NOTHING`;
     await expect(repo.assertSchemaGenerationDiscipline()).rejects.toMatchObject({ schemaGenerationViolation: true });
     await cleanupProjectFixture(prisma, pidBad);
     // ③downgrade 形态：sv=99（>current）即使 gen>0 ⇒ 拒启（新版数据不可由旧代码解释）
@@ -164,9 +165,9 @@ maybe('Y1c T12 复核残留 I1.2：era 定格 DB 真值化+expectedGeneration �
     const state = Buffer.from(Y.encodeStateAsUpdate(doc));
     doc.destroy();
     await prisma.$executeRaw`INSERT INTO "CanvasDocSnapshot" ("projectId", generation, "snapshotRev", "stateSeq", state, "stateHash", "vacuumEpoch", "schemaVersion")
-      VALUES (${PID_ERA}::text, ${generation}::int, 0::bigint, 0::bigint, ${state}, ${createHash('sha256').update(state).digest('hex')}::char(64), 0::int, 3::int)`;
+      VALUES (${PID_ERA}::text, ${generation}::int, 0::bigint, 0::bigint, ${state}, ${createHash('sha256').update(state).digest('hex')}::char(64), 0::int, ${CANVAS_DOC_SCHEMA_VERSION}::int)`;
     await prisma.$executeRaw`INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "currentSnapshotRev", "updatedAt")
-      VALUES (${PID_ERA}::text, ${generation}::int, 3::int, 0::bigint, now())`;
+      VALUES (${PID_ERA}::text, ${generation}::int, ${CANVAS_DOC_SCHEMA_VERSION}::int, 0::bigint, now())`;
   }
 
   /** 直构 gateway（真 PG repo——DR era 定格 DB 读单源）+shrink service（REST vacuum 调用面） */

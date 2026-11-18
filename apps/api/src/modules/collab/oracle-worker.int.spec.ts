@@ -20,6 +20,8 @@ import { randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { OracleWorkerService, ORACLE_SCAN_BUDGET_MS } from './oracle-worker.service';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
+
 import { oracleCoverageRatio, oracleScanAgeSeconds } from './oracle-worker.metrics';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow, FIXTURE_TEAM, FIXTURE_USER } from '../../test-utils/db-fixtures';
 import { seedRow } from '../../test-utils/canvas-doc-row';
@@ -115,7 +117,7 @@ maybe('C3b-2：PG oracle worker（候选无关+短事务+状态机+复用+bail-o
       await prisma.canvasDocUpdate.deleteMany({ where: { projectId: pid } });
       await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: pid } });
       await prisma.canvasDoc.deleteMany({ where: { projectId: pid } });
-      await prisma.canvasDoc.create({ data: { projectId: pid, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false } });
+      await prisma.canvasDoc.create({ data: { projectId: pid, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false } });
     }
     // 跨队媒体宿主 team（U.cross 行挂 OTHER_TEAM——JOIN teamId 滤除断言面；先建后挂 FK）
     await prisma.team.upsert({ where: { id: OTHER_TEAM }, update: {}, create: { id: OTHER_TEAM, name: 'c3b2-other-team', ownerId: FIXTURE_USER } });

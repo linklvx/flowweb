@@ -36,7 +36,7 @@ import { OracleWorkerService } from './oracle-worker.service';
 import { MediaReferenceService } from './media-reference.service';
 import { DeletionBarrierService } from './deletion-barrier.service';
 import { isDeletionBarrierSealed } from './deletion-barrier.seal';
-import { CollabCloseCode, DELETION_BARRIER_REASON } from '@flowweb/shared';
+import { CollabCloseCode, DELETION_BARRIER_REASON, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化
 import { CollabWriteController } from './collab-write.controller';
 import { CollabErasureRegistryService } from './collab-erasure-registry.service';
 import { CollabDocumentService } from './collab-document.service';
@@ -64,8 +64,9 @@ const rejectedTotal = async (): Promise<number> => {
   return (await m.get()).values[0]?.value ?? 0;
 };
 
-/** 唯一帧（actor 准入矩阵合法信封：type+position+data.fileId=UUID——C3a-9 putNode 同形；逐帧唯一
- *  fileId=去重/updateHash 不冲突〔同内容空帧会被 actor dedup 吞+repo 端 @@updateHash 幂等吞行〕）。 */
+/** 唯一帧（actor 准入矩阵合法信封：type+position+data.mediaId=UUID——C3a-9 putNode 同形；逐帧唯一
+ *  mediaId=去重/updateHash 不冲突〔同内容空帧会被 actor dedup 吞+repo 端 @@updateHash 幂等吞行〕。
+ *  Y2 C1 翻禁：data.fileId=server-forbidden 键写入即拒（4411 forbidden-data-key）——布景键随 B3 换 mediaId）。 */
 function uniqueFrame(fileId: string): Uint8Array {
   const doc = new Y.Doc();
   try {
@@ -75,7 +76,7 @@ function uniqueFrame(fileId: string): Uint8Array {
     pos.set('y', 0);
     node.set('type', 'imageGen');
     node.set('position', pos);
-    node.set('data', new Y.Map<unknown>([['fileId', fileId]]));
+    node.set('data', new Y.Map<unknown>([['mediaId', fileId]]));
     (doc.getMap('nodes') as Y.Map<unknown>).set(`n-${fileId.slice(0, 8)}`, node);
     return Y.encodeStateAsUpdate(doc);
   } finally { doc.destroy(); }
@@ -136,7 +137,7 @@ maybe('C3b-4a：DeletionBarrier 持久 fence+admission 三面', () => {
       await prisma.canvasDocUpdate.deleteMany({ where: { projectId: pid } });
       await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: pid } });
       await prisma.canvasDoc.deleteMany({ where: { projectId: pid } });
-      await prisma.canvasDoc.create({ data: { projectId: pid, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false } });
+      await prisma.canvasDoc.create({ data: { projectId: pid, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false } });
     }
     // 媒体行：race=①DELETING 最小面（deletionState 置位——DELETING 状态机全语义归 C3b-4）；free=零引用负控
     await prisma.media.create({ data: { id: M.race, userId: 'y0a-fixture-user', teamId: FIXTURE_TEAM, key: `c3b4a/${M.race}`, originalName: 'race.png', mimeType: 'image/png', size: 1n, type: 'uploaded', deletionState: 'DELETING' } });

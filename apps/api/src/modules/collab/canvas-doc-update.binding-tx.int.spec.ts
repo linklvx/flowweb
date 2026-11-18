@@ -12,6 +12,7 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow, FIXTURE_TEAM, FIXTURE_USER } from '../../test-utils/db-fixtures';
 import { seedRow } from '../../test-utils/canvas-doc-row';
 import * as Y from 'yjs';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
 
 const hasDb = !!process.env.DATABASE_URL;
 const maybe = hasDb ? describe : describe.skip;
@@ -73,7 +74,7 @@ async function resetDoc(
   await dropDocAndRows(prisma);
   await prisma.canvasDoc.create({
     data: {
-      projectId: PID, generation: init.generation ?? 1, schemaVersion: 3,
+      projectId: PID, generation: init.generation ?? 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION,
       pgSeq: init.pgSeq, walCheckpointSeq: init.pgSeq,   // CHECK pgSeq<=walCheckpointSeq 守恒
       mediaBindingSeq: init.mediaBindingSeq, bindingsDirty: init.dirty,
     },

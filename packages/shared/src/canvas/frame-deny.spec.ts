@@ -268,9 +268,105 @@ describe('Y2 B3：作者键 mediaId 入矩阵（imageGen/imageExtGen/videoGen/au
     }
   });
 
-  it('fileId 维持 forbidden（C1 翻禁执法前的过渡态——本 commit 只加键不翻禁）', () => {
+  it('fileId 维持 forbidden（矩阵条目不变——执法面翻禁=frame-deny 五处，本 spec 翻禁段承载）', () => {
     for (const t of MEDIA_TYPES) {
       expect(DOC_SCHEMA_V4[t]!.data.fileId!.yType).toBe('server-forbidden');
     }
   });
 });
+
+// ══════════ Y2 C1：五处翻禁执法——server-forbidden 键写入即拒（今天「登记≠执法」continue 放行必红）══════════
+// spec §4 第③步（三件同批：翻禁+双常量 4+@default(4)）：L1 :222 帧内创建链+L2 :472 既有节点 data.set
+// +:499 NODE_CREATED/根级 update 三处行为红测可达；:442/:513=map children 死分支（现行矩阵全
+// server-forbidden 键均为顶层 data 键、无 map children 条目）——同批一致翻转+防漂移注记，无行为红测。
+// 键族覆盖 fileId/status/trimTaskStatus/trimmedFileId/nodeStatus 全部五键（doc-schema-v4 forbidden
+// 条目 11 个——防只翻两键的窄实现，spec Review Focus 7）。
+describe('Y2 C1 翻禁：server-forbidden 键写入即拒（forbidden-data-key）', () => {
+  /** 独立含禁键构造器（帧内创建链——type 在本帧可解析，走 :222 面）。 */
+  function forbiddenFrame(type: string, key: string): Uint8Array {
+    return frameOf((d) => {
+      const node = new Y.Map();
+      const data = new Y.Map();
+      data.set(key, 'legacy-value');
+      node.set('type', type);
+      node.set('data', data);
+      node.set('position', new Y.Map());
+      d.getMap('nodes').set('n-forbid', node);
+    });
+  }
+
+  it('L1 :222 帧内创建节点 data 带禁键 → !ok reason 含 forbidden-data-key（今天 continue 放行=先红）', () => {
+    for (const [type, key] of [
+      ['imageGen', 'fileId'], ['imageGen', 'status'],
+      ['videoGen', 'fileId'], ['videoGen', 'status'],
+      ['videoGen', 'trimTaskStatus'], ['videoGen', 'trimmedFileId'],
+      ['multiImageGen', 'nodeStatus'],
+    ] as const) {
+      expect(validateFrameDeny(forbiddenFrame(type, key)), `${type}.${key}`)
+        .toMatchObject({ ok: false, reason: expect.stringContaining('forbidden-data-key') });
+    }
+  });
+
+  it('L1 :222 reason 形态=forbidden-data-key:<type>.<key>（verdict code=FRAME_MALFORMED）', () => {
+    expect(validateFrameDeny(forbiddenFrame('imageGen', 'fileId')))
+      .toMatchObject({ ok: false, code: 4411, reason: 'forbidden-data-key:imageGen.fileId' });
+  });
+
+  it('L2 :472 既有节点 data.set 禁键 → violation reason 含 forbidden-data-key（今天 dataValueShapeOk 放行=先红）', () => {
+    for (const [type, key] of [
+      ['imageGen', 'fileId'], ['imageGen', 'status'],
+      ['videoGen', 'trimTaskStatus'], ['videoGen', 'trimmedFileId'],
+      ['multiImageGen', 'nodeStatus'],
+    ] as const) {
+      const doc = new Y.Doc();
+      doc.getMap('nodes').set('n1', legalNode(type));
+      const events: Array<Y.YEvent<never>> = [];
+      doc.getMap('nodes').observeDeep((evs) => {
+        for (const e of evs) void e.changes.keys;   // handler 内物化（yjs after-handler 访问限制——生产 collector 同款）
+        (events as unknown[]).push(...evs);
+      });
+      doc.transact(() => {
+        ((doc.getMap('nodes').get('n1') as Y.Map<unknown>).get('data') as Y.Map<unknown>).set(key, 'legacy');
+      });
+      expect(validateAppliedL2(doc, events), `${type}.${key}`)
+        .toMatchObject({ ok: false, reason: expect.stringContaining('forbidden-data-key') });
+    }
+  });
+
+  it('L2 :499 NODE_CREATED 根级节点 data 带禁键 → violation reason 含 forbidden-data-key（今天 validateNodeShape 放行=先红）', () => {
+    for (const [type, key] of [
+      ['imageGen', 'fileId'], ['imageGen', 'status'],
+      ['videoGen', 'trimTaskStatus'], ['videoGen', 'trimmedFileId'],
+      ['multiImageGen', 'nodeStatus'],
+    ] as const) {
+      // 根级置入节点（NODE_CREATED 同形态——validateNodeShape 根级事件面）
+      const doc = new Y.Doc();
+      const events: Array<Y.YEvent<never>> = [];
+      doc.getMap('nodes').observeDeep((evs) => {
+        for (const e of evs) void e.changes.keys;
+        (events as unknown[]).push(...evs);
+      });
+      doc.transact(() => { doc.getMap('nodes').set('n-root', forbiddenNode(type, key)); });
+      expect(validateAppliedL2(doc, events), `${type}.${key}`)
+        .toMatchObject({ ok: false, reason: expect.stringContaining('forbidden-data-key') });
+    }
+  });
+
+  it('负控：合法载荷全放行维持（legalNode 不含禁键——翻禁后 8 类型负控仍绿）', () => {
+    const f = frameOf((d) => {
+      for (const type of Object.keys(DOC_SCHEMA_V4)) d.getMap('nodes').set(`n-${type}`, legalNode(type));
+    });
+    expect(validateFrameDeny(f)).toEqual({ ok: true });
+  });
+});
+
+/** 根级置入节点构造器（validateNodeShape 面——data 含禁键）。 */
+function forbiddenNode(type: string, key: string): Y.Map<unknown> {
+  const node = new Y.Map();
+  const data = new Y.Map();
+  data.set(key, 'legacy-value');
+  node.set('type', type);
+  node.set('data', data);
+  node.set('position', new Y.Map());
+  return node;
+}

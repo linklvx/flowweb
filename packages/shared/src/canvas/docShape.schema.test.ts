@@ -51,9 +51,9 @@ class FakeDoc implements DocLike {
   createXmlText = (): { insert(): void; setAttribute(): void } => ({ insert: () => {}, setAttribute: () => {} });
 }
 
-describe('CANVAS_DOC_SCHEMA_VERSION=3（T18 版本硬切——meta 门退役，版本承载=CanvasDoc.schemaVersion PG 列）', () => {
-  it('常量钉 3（与 CLIENT_PROTOCOL_VERSION 同 bump——双常量=3；行值≠3 由 api 装载列门拒）', () => {
-    expect(CANVAS_DOC_SCHEMA_VERSION).toBe(3);
+describe('CANVAS_DOC_SCHEMA_VERSION=4（Y2 C1 版本 4——meta 门退役，版本承载=CanvasDoc.schemaVersion PG 列）', () => {
+  it('常量钉 4（与 CLIENT_PROTOCOL_VERSION 同 bump——双常量=4；行值≠4 由 api 装载列门拒载）', () => {
+    expect(CANVAS_DOC_SCHEMA_VERSION).toBe(4);
   });
 });
 

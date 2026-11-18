@@ -67,7 +67,7 @@ maybe('C3a-8：recovery import 前置 dirty + 崩溃窗 rebuild 收敛（真 PG�
     await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: PID } });
     await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
     await prisma.canvasDoc.create({
-      data: { projectId: PID, generation: 1, schemaVersion: 3, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false },
+      data: { projectId: PID, generation: 1, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, pgSeq: 0n, walCheckpointSeq: 0n, mediaBindingSeq: 0n, bindingsDirty: false },
     });
     await ensureLeaseFixture(prisma, repo);
   });

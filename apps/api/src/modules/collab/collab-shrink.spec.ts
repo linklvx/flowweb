@@ -754,7 +754,7 @@ function buildMaintenancePrisma(opts: { inFlight?: () => number } = {}) {
     $transaction: null as unknown,
     $queryRaw: vi.fn(async (...args: unknown[]) => {
       const sql = String(args[0]);
-      if (sql.includes('UPDATE "CanvasDoc"')) return [{ generation: 0, pgSeq: 0n, schemaVersion: 3 }];
+      if (sql.includes('UPDATE "CanvasDoc"')) return [{ generation: 0, pgSeq: 0n, schemaVersion: CANVAS_DOC_SCHEMA_VERSION }];
       if (sql.includes('COUNT(*)')) return [{ n: opts.inFlight?.() ?? 0 }];
       return [];
     }),
@@ -801,7 +801,7 @@ function buildVacuumPrismaTx(rows: Array<{ id: string; seq: bigint }>) {
     canvasDocUpdate: { findMany: vi.fn(async () => rows), deleteMany: updateDeleteMany },
     // Y1c T11 快照权威：canvasDoc.findUnique=generation/schemaVersion/vacuumEpoch/currentSnapshotRev
     // （doc 态列已退役）；指针快照 stateSeq 经 canvasDocSnapshot.findUnique 读（零行基准）
-    canvasDoc: { findUnique: vi.fn(async () => ({ generation: 0, schemaVersion: 3, vacuumEpoch: 0, currentSnapshotRev: 0n })), upsert },
+    canvasDoc: { findUnique: vi.fn(async () => ({ generation: 0, schemaVersion: CANVAS_DOC_SCHEMA_VERSION, vacuumEpoch: 0, currentSnapshotRev: 0n })), upsert },
     canvasDocSnapshot: {
       findUnique: vi.fn(async () => ({ stateSeq: 0n })),
       upsert: snapUpsert,

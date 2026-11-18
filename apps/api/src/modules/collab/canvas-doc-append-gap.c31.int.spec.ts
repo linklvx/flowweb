@@ -16,7 +16,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { register } from 'prom-client';
-import { DOC_APPEND_GAP_AUDIT_JOB } from '@flowweb/shared';
+import { DOC_APPEND_GAP_AUDIT_JOB, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabAppendAuditWorker, APPEND_AUDIT_ADVISORY_KEY, APPEND_AUDIT_PROJECT_BATCH, PURGE_OBLIGATION_STALE_MS } from './collab-append-audit.worker';
 import { CanvasDocUpdateRepository, type AppendAuditViolation } from './canvas-doc-update.repository';
@@ -67,14 +67,14 @@ async function seedHead(pid: string, o: { pgSeq: bigint; generation?: number; cu
       data: {
         projectId: pid, generation, snapshotRev: rev, stateSeq: o.stateSeq,
         state: Buffer.from([1]), stateHash: createHash('sha256').update(`${pid}:${rev}`).digest('hex'),
-        vacuumEpoch: 0, schemaVersion: 3,
+        vacuumEpoch: 0, schemaVersion: CANVAS_DOC_SCHEMA_VERSION,
       },
     });
   }
   await prisma.canvasDoc.upsert({
     where: { projectId: pid },
     update: { generation, pgSeq: o.pgSeq, walCheckpointSeq: o.pgSeq, currentSnapshotRev: rev, purgeBelowSeq: o.purgeBelowSeq ?? null },
-    create: { projectId: pid, generation, pgSeq: o.pgSeq, walCheckpointSeq: o.pgSeq, currentSnapshotRev: rev, purgeBelowSeq: o.purgeBelowSeq ?? null, schemaVersion: 3 },
+    create: { projectId: pid, generation, pgSeq: o.pgSeq, walCheckpointSeq: o.pgSeq, currentSnapshotRev: rev, purgeBelowSeq: o.purgeBelowSeq ?? null, schemaVersion: CANVAS_DOC_SCHEMA_VERSION },
   });
 }
 

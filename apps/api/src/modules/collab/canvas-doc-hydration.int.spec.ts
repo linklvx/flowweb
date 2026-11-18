@@ -4,6 +4,7 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import * as Y from 'yjs';
 import { makeSeedSeq } from '../../test-utils/canvas-doc-row';
+import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
 
 /** Y1c T9：repo.append（nextval 单帧）退役——播种替身（单调 walSeq 单帧行，appendBatch 批行）。 */
 const seedAppend = makeSeedSeq();
@@ -29,7 +30,7 @@ maybe('loadForHydration（真 PG——Y1c T11 快照权威：装载=指针快照
   /** 播种+水位 CAS 首帧（compact 授权读需要 pgSeq>stateSeq——actor 单写者 wm 形态）。 */
   async function seedHeadAndCompact(firstFrame: Uint8Array) {
     await prisma.$executeRawUnsafe(
-      `INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt") VALUES ($1, 1, 3, now()) ON CONFLICT DO NOTHING`,
+      `INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt") VALUES ($1, 1, ${CANVAS_DOC_SCHEMA_VERSION}, now()) ON CONFLICT DO NOTHING`,
       PID,
     );
     const row = seedAppend(firstFrame);
@@ -169,7 +170,7 @@ maybe('装载×compact 隔离性质（结构锚——对破坏后代码红，如
   it('RR 事务装载中途并发 compact 提交：事务内行集不变（MVCC 快照一致性——装载=指针快照+尾在单 RR 事务，发布事务提交对装载快照不可见）', async () => {
     // 播种：首帧+水位+首快照；再 3 行增量尾（装载面）
     await prisma.$executeRawUnsafe(
-      `INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt") VALUES ($1, 1, 3, now()) ON CONFLICT DO NOTHING`,
+      `INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt") VALUES ($1, 1, ${CANVAS_DOC_SCHEMA_VERSION}, now()) ON CONFLICT DO NOTHING`,
       PID,
     );
     const base = new Y.Doc(); base.getMap('nodes').set('s', new Y.Map([['x', 0]]));
@@ -218,7 +219,7 @@ maybe('装载×compact 隔离性质（结构锚——对破坏后代码红，如
 
   it('装载进行中直调 compact：装载结果完整（可达性固化——锚 A4 回归防线，防未来 fire-and-forget）', async () => {
     await prisma.$executeRawUnsafe(
-      `INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt") VALUES ($1, 1, 3, now()) ON CONFLICT DO NOTHING`,
+      `INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt") VALUES ($1, 1, ${CANVAS_DOC_SCHEMA_VERSION}, now()) ON CONFLICT DO NOTHING`,
       PID,
     );
     const d = new Y.Doc(); d.getMap('nodes').set('z', new Y.Map([['x', 0]]));
