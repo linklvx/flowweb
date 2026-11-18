@@ -80,14 +80,9 @@ export class LightingController {
       // 命中=该代交付已作废 ⇒ emit done 不带 fileId+零释放；未命中=正常成功交付 ⇒ 带 fileId
       // +releaseAuthorSlot 幂等补释放（提交后崩溃窗=release 补上）。
       const voidKey = authorVoidProjectionKey(intent.id, intent.execSeq);
-      let voidRow: unknown = null;
-      try {
-        voidRow = await this.prisma.artifactProjection.findUnique({
-          where: { artifactId_artifactRev: { artifactId: voidKey, artifactRev: 0 } },
-        });
-      } catch {
-        voidRow = null;
-      }
+      const voidRow: unknown = await this.prisma.artifactProjection
+        .findUnique({ where: { artifactId_artifactRev: { artifactId: voidKey, artifactRev: 0 } } })
+        .catch(() => null);   // 查询失败=胜臂回放形态（作废键无行同判——fail-open 对齐 idempotentOutcome 先例）
       if (voidRow) {
         this.emitPort.emitNodeStatus(body.projectId, { nodeId: body.nodeId, status: 'done' });
       } else {

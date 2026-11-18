@@ -85,14 +85,9 @@ export class AiImageEditController {
       // ⇒ emit done 带 fileId+releaseAuthorSlot 幂等补释放（提交后崩溃窗=release 补上；释放幂等=
       // 宿主条件删键+置位）。idemKey 不含 userId=任何成员再点均触发本两档（裁决 13）。
       const voidKey = authorVoidProjectionKey(intent.id, intent.execSeq);
-      let voidRow: unknown = null;
-      try {
-        voidRow = await this.prisma.artifactProjection.findUnique({
-          where: { artifactId_artifactRev: { artifactId: voidKey, artifactRev: 0 } },
-        });
-      } catch {
-        voidRow = null;
-      }
+      const voidRow: unknown = await this.prisma.artifactProjection
+        .findUnique({ where: { artifactId_artifactRev: { artifactId: voidKey, artifactRev: 0 } } })
+        .catch(() => null);   // 查询失败=胜臂回放形态（作废键无行同判——fail-open 对齐 idempotentOutcome 先例）
       if (voidRow) {
         this.emitPort.emitNodeStatus(input.projectId, { nodeId: input.nodeId, status: 'done' });
       } else {

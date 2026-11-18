@@ -115,6 +115,18 @@ export const GEOMETRY_SETSTATE_TEST_ALLOWLIST = [
   // 直构——setState 是用例存在目的〔T9/T4/T11 同例外〕；两处登记与 geometryTrap.test.ts 锚③同批）。
   'src/pages/canvas/components/RecoveryPanel.test.tsx',
   'src/stores/canvasStore.t25b-binding.spec.ts',
+  // Y2 批末收口补登（2026-11-19——批末 verify full 暴露）：A 段七文件装置面 setState（A3/A4 手势
+  //   resize 装置=renderNodes 渲染列表活值〔Y2 A3 后几何活值唯一宿主——非作者缓存几何〕+A2 风格库
+  //   updateConfig 桥退役装置+A1 增量夹具 store 复位+TextInputNode 裸 doc 装置布景。A1~A4 commit 时
+  //   verify:fast 16 步不含 web-lint 步未暴露——与 T17/T18 漏登先例同型；几何装置无法走 seedCanvas
+  //   夹具（夹具只写作者缓存 nodes——renderNodes 活值构造是 Y2 新装置语义本体）。
+  'src/hooks/useDragGestureGuard.test.tsx',
+  'src/pages/canvas/components/nodes/TextInputNode.test.tsx',
+  'src/pages/canvas/components/style-library/StyleLibraryModal.test.tsx',
+  'src/pages/canvas/components/style-library/useStyleLibrary.test.ts',
+  'src/stores/canvasB41.dragSession.test.ts',
+  'src/stores/canvasB42.orchestration.test.ts',
+  'src/stores/projectCanvas.increment.test.ts',
 ];
 
 /** 棘轮基线（lint-gate 输出报数；锚测试 apps/web/src/stores/geometryTrap.test.ts 锚③同口径）。 */
@@ -169,7 +181,7 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   //   +2——diverged 档盘上导出分档+ss2 档对照注入，存量 allow-list 文件，store 注入是用例的
   //   存在目的〔同 T9/T4/T11 例外〕；+2 破线首次暴露 T8 时 t8.spec allow-list 漏列——上方位组
   //   同批补登，O0b-4「报数≤基线不进破线分支从未暴露」先例）→ 306 处 / 54 文件。
-  effective: { count: 333, files: 62 },   // T25b 收口 +2（t25.spec m4-1/b4-1 电平注入——geometryTrap 锚③ 333/62 同口径）   // T25b：+13 处/+2 文件（RecoveryPanel.test 2——B1 逐字段裁定面装置；canvasStore.t25b-binding.spec 1——四读径③ 粘贴→BindMedia 接线装置；SyncBanner.test 存量 +7——B3/B2 横幅分档注入；canvasCollabRuntime.t25.spec 存量 +3——M-R1 watchdog 电平/M-R4 装置/B1 信封载体断言——sanctioned 例外同模式，与 geometryTrap.test.ts 锚③ 331/62 同口径）   // Y1c T25：+1 处/+1 文件（canvasCollabRuntime.t25.spec.ts——resync-full/逃生口/4410 三分客户端接线用例 resetStore 装置复位——sanctioned 例外同模式）
+  effective: { count: 331, files: 68 },   // Y2 批末收口（2026-11-19）：A 段净移——A2/A3 退役族 spec 删（geometryTrap 全删+O0b3/geometryWriterRegistry 族删）与 A1~A4 七文件 sanctioned 装置新增相抵后实测 331 处/68 文件（上方 allow-list 组同批补登 7 文件）。漏网机理=A 段各 commit 仅 verify:fast（16 步不含 web-lint）——与 T17 落地 T18 暴露先例同型。破线判定双轴 count/files：count 331≤333 不破、files 68>62 破——本批以实测值重钉有效基线 331/68（只降不升轴维持）。前史（T25b→Y1c T25）：333/62——T25b 收口 +2（t25.spec m4-1/b4-1 电平注入）；T25b +13 处/+2 文件（RecoveryPanel.test 2/canvasStore.t25b-binding.spec 1/SyncBanner.test +7/t25.spec +3——sanctioned 例外同模式）；Y1c T25 +1 处/+1 文件（t25.spec resetStore 装置）。
 };
 // T18 补登（2026-10-22）：canvasG34.readonlyCommands.test.ts +3 处/1 新文件（T17 G34 只读门
 // census 表装置——readonly 面直构 store 状态，setState 是用例的存在目的；T17 落地漏登记

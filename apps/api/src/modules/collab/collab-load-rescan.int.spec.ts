@@ -70,7 +70,6 @@ maybe('Y2 D4t：装入重扫三段式——装载兜底删非法键（真 gatewa
   let gateway: CollabGateway;
   let residency: CollabResidencyService;
   let spoolDir = '';
-  let spoolCleanup: () => Promise<void> = async () => {};
 
   /** 装载驱动（生产读面同款）：withSession(read) → openDirectConnection → loadDocument。
    *  装载后 doc 常驻（residency 钉住）——直接在 conn.document 上断言写后终态。 */
@@ -130,7 +129,6 @@ maybe('Y2 D4t：装入重扫三段式——装载兜底删非法键（真 gatewa
     await prisma?.user.deleteMany({ where: { id: UID } }).catch(() => undefined);
     await restoreLeaseRow(prisma).catch(() => undefined);
     await prisma?.$disconnect().catch(() => undefined);
-    void spoolCleanup;
   }, 30_000);
 
   it('★主档：含对方团队 id 的持久化帧装载后——非法键从活 doc+持久化帧消失（origin=maintenance 删键帧落库）+绑定行与文档一致（skip 计数 cross-team 面）', async () => {

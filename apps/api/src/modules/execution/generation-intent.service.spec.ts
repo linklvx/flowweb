@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { HttpStatus } from '@nestjs/common';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import {
@@ -815,8 +817,6 @@ describe('Y2 B1 冻结两列（先红）', () => {
   });
 
   it('⑥ 防回归 grep 锚：无 result===rearm 事后补写分支 ∧ claim 路径零 doc 现场读（D8——readCanvas/Y.Doc/getMap 禁入本服务）', () => {
-    const { readFileSync } = require('node:fs');
-    const { join } = require('node:path');
     const src = readFileSync(join(__dirname, 'generation-intent.service.ts'), 'utf8');
     expect(src).not.toMatch(/result\s*===\s*['"]rearm['"]/);   // 禁事后补写（列只在 rearm updateMany/createMany 内联写）
     expect(src).not.toMatch(/readCanvas|Y\.Doc|getMap\(/);     // claim 禁现读（doc 读只存在于受理三入口/execute 存活过滤——他文件）

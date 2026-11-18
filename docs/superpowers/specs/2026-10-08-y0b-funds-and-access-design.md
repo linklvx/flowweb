@@ -993,6 +993,7 @@ Y0b-3 准入与版本（含 heap 闸+防放大三防线+Origin 403+空闲保活�
 - artifact_projection_orphan_refund_fail_total
 - artifact_projection_outcome_total
 - artifact_projection_pending_age_seconds
+- author_slot_release_exhausted_total
 - awareness_bytes
 - awareness_states
 - binding_delta_bytes
