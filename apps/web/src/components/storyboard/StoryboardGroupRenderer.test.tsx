@@ -13,15 +13,14 @@ vi.mock('@/hooks/useMediaUrl', () => ({
 }));
 
 const cells = [
-  { id: 'a', fileId: 'f1', status: 'done' },
-  { id: 'b', fileId: 'f2', status: 'done' },
+  { id: 'a', mediaId: 'f1', status: 'done' },
+  { id: 'b', mediaId: 'f2', status: 'done' },
 ];
 
 const props = (over: Record<string, unknown> = {}) => ({
   id: 'g1',
   data: {
     groupType: 'storyboard',
-    cells: ['a', 'b'],
     storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' as const },
     ...over,
   },
@@ -44,7 +43,7 @@ describe('StoryboardGroupRenderer', () => {
 
   it('loading 态宫格显示占位', () => {
     const customProps = props();
-    (customProps as any).cellNodes = [{ id: 'a', fileId: 'f1', status: 'loading' }, cells[1]];
+    (customProps as any).cellNodes = [{ id: 'a', mediaId: 'f1', status: 'loading' }, cells[1]];
     render(<StoryboardGroupRenderer {...(customProps as any)} />);
     expect(screen.getByText(/生成中/)).toBeTruthy();
   });
@@ -116,13 +115,13 @@ describe('StoryboardGroupRenderer', () => {
   });
 
   it('无 storyboard 的克隆体渲染不崩且按 1×1 默认网格（F2 消费点①）', () => {
-    const noStoryboardData = { groupType: 'storyboard', cells: [null] } as any;
+    const noStoryboardData = { groupType: 'storyboard' } as any;
     expect(() => render(<StoryboardGroupRenderer id="g1" data={noStoryboardData} cellNodes={[]} />)).not.toThrow();
   });
 });
 
 describe('StoryboardGroupRenderer（O0c-2 零 store 抽迁——两形态）', () => {
-  it('公开页取图通道：cellNodes 仅 thumbnailUrl（fileId 缺席）→ img src=thumbnailUrl 直用', () => {
+  it('公开页取图通道：cellNodes 仅 thumbnailUrl（mediaId 缺席）→ img src=thumbnailUrl 直用', () => {
     render(<StoryboardGroupRenderer {...(props() as any)} cellNodes={[{ id: 'a', thumbnailUrl: '/th/a.webp' }, { id: 'b', thumbnailUrl: '/th/b.webp' }]} />);
     const imgs = screen.getAllByRole('presentation').filter((el) => el.tagName === 'IMG');
     expect((imgs[0] as HTMLImageElement).getAttribute('src')).toBe('/th/a.webp');
@@ -153,9 +152,8 @@ describe('StoryboardGroupRenderer（O0c-2 零 store 抽迁——两形态）', (
   // 背景：T17/T18 起公开快照白名单剥组 data.cells（格位真源=子 slot——snapshot-filter WHITELIST
   // group 无 cells）；旧实现读 data.cells 恒 undefined ⇒ 3 格全空（specb-public e2e「宫格有图」
   // 0 img 实弹红——T17 后 gate-collab 均早夭于 S1 未及跑达，断链未被发现）。
-  // 修=cells 缺席时自 cellNodes 派生格位（deriveStoryboardCells 单源——主画布 store
-  // deriveStoryboardCellsPatch 同款：slot 真源+缺 slot 首空格自愈）；主画布通道 data.cells 在场
-  // （store cs 派生缓存）短路不派生。
+  // 修=自 cellNodes 派生格位（deriveStoryboardCells 单源——slot 真源+缺 slot 首空格自愈）；
+  // Y2 A5：cs cells 缓存退役后主画布/公开页同通道（data.cells 读点删除）。
   it('公开页形态（data.cells 缺席——公开快照白名单剥键）：cellNodes 按 slot 派生格位（T30b 红锚）', () => {
     render(<StoryboardGroupRenderer {...({
       id: 'g1',

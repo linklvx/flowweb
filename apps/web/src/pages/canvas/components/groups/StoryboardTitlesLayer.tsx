@@ -18,6 +18,13 @@ function StoryboardTitlesLayerComponent() {
   const groups = useCanvasStore((s) => s.nodes.filter(
     (n) => n.type === NODE_TYPES.GROUP && (n.data as GroupNodeData).groupType === 'storyboard',
   ), shallowArrEq);
+  // Y2 A5：cs cells 缓存退役——空槽计数改渲染节点 data.cellNodes（projectCanvas 内核 slot 派生）。
+  // shallowArrEq 重活性随迁：内核身份复用 ⇒ 组渲染节点对象身份变更 ⇔ membership/slot 变更，
+  // 无关 store 更新（计数不变）零重渲。
+  const sbRenderNodes = useCanvasStore((s) => s.renderNodes.filter(
+    (n) => n.type === NODE_TYPES.GROUP && (n.data as GroupNodeData).groupType === 'storyboard',
+  ), shallowArrEq);
+  const countById = new Map(sbRenderNodes.map((g) => [g.id, ((g.data as any).cellNodes ?? []).length]));
 
   return (
     <div
@@ -29,7 +36,7 @@ function StoryboardTitlesLayerComponent() {
         // nameCustom 语义（§4.4）：改名走用户名（2d-6 renameGroup 置位），否则智能标题（空槽不计）
         const title = data.nameCustom
           ? (data.name ?? '')
-          : `分镜组 ${((data.cells as (string | null)[] | undefined) ?? []).filter(Boolean).length} 个节点`;   // cs 派生缓存（T18 顺修②：cells 出 shape 后显式窄化）
+          : `分镜组 ${countById.get(g.id) ?? 0} 个节点`;
         return (
           <div
             key={g.id}

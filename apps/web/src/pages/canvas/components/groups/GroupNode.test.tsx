@@ -57,58 +57,54 @@ vi.mock('@xyflow/react', async (orig) => ({
 }));
 
 describe('GroupNode（StoryboardGroupRendererCellNodes 映射）', () => {
-  it('cellNodes fileId 归一化：无 fileId 有 referenceImage（上传图）→ fileId 取 referenceImage（格子有图）', () => {
+  // Y2 A5：cellNodes 列表=渲染节点 data 携带（projectCanvas 内核——id+slot）；cs 节点仅补
+  // mediaId/status（byId 直查）。mock nodes=cs 作者缓存面。
+  it('cellNodes mediaId 归一化：无 fileId 有 referenceImage（上传图）→ mediaId 取 referenceImage（格子有图）', () => {
     setMockNodes([
-      {
-        id: 'g1', type: 'group', position: { x: 0, y: 0 },
-        data: { groupType: 'storyboard', cells: ['c1', 'c2'] },
-      },
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard' } },
       { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'idle', referenceImage: 'ref-1' } },
       { id: 'c2', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'gen-2' } },
     ]);
-    render(<GroupNode id="g1" data={{ groupType: 'storyboard', cells: ['c1', 'c2'] }} selected={false} {...{} as any} />);
+    render(<GroupNode id="g1" data={{ groupType: 'storyboard', cellNodes: [{ id: 'c1' }, { id: 'c2' }] }} selected={false} {...{} as any} />);
     const cellNodes = JSON.parse(screen.getByTestId('renderer').getAttribute('data-cellnodes')!);
     expect(cellNodes).toEqual([
-      { id: 'c1', fileId: 'ref-1', status: 'idle' }, // url 键已删（R2b-7 读点清零）
-      { id: 'c2', fileId: 'gen-2', status: 'done' }, // url 键已删（R2b-7 读点清零）
+      { id: 'c1', mediaId: 'ref-1', status: 'idle' }, // url 键已删（R2b-7 读点清零）
+      { id: 'c2', mediaId: 'gen-2', status: 'done' }, // url 键已删（R2b-7 读点清零）
     ]);
   });
 
   it('R2b-7 读点清零：节点 data 含遗留 mediaUrl 键 → cellNodes 不透传 url（陈旧 URL 不进读路径）', () => {
     setMockNodes([
-      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['c1'] } },
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard' } },
       { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'gen-1', mediaUrl: 'http://stale/presigned' } },
     ]);
-    render(<GroupNode id="g1" data={{ groupType: 'storyboard', cells: ['c1'] }} selected={false} {...{} as any} />);
+    render(<GroupNode id="g1" data={{ groupType: 'storyboard', cellNodes: [{ id: 'c1' }] }} selected={false} {...{} as any} />);
     const cellNodes = JSON.parse(screen.getByTestId('renderer').getAttribute('data-cellnodes')!);
-    expect(cellNodes).toEqual([{ id: 'c1', fileId: 'gen-1', status: 'done' }]); // 无 url 键
+    expect(cellNodes).toEqual([{ id: 'c1', mediaId: 'gen-1', status: 'done' }]); // 无 url 键
     expect(JSON.stringify(cellNodes)).not.toContain('stale');
   });
 
-  it('O0c-3 分镜移出：cells 残留 id 但 parentId 已解（移出后未清槽脏态）→ cellNodes 不渲染该节点', () => {
-    // 移出双通道=membership[parentId]+槽序[cells]——谓词须双满足（仅 cells.includes 会渲染已移出节点）
+  it('membership=cellNodes 单通道：已移出子（cs 仍在但不在渲染节点 cellNodes）→ 不进分镜宫格', () => {
+    // Y2 A5：格位/成员真源=内核 cellNodes（parentId 派生）；cs byId 只补媒体身份不扩员
     setMockNodes([
-      {
-        id: 'g1', type: 'group', position: { x: 0, y: 0 },
-        data: { groupType: 'storyboard', cells: ['c1', 'c2'] },
-      },
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard' } },
       { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'a' } },
       { id: 'c2', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'b' } },
     ]);
-    render(<GroupNode id="g1" data={{ groupType: 'storyboard', cells: ['c1', 'c2'] }} selected={false} {...{} as any} />);
+    render(<GroupNode id="g1" data={{ groupType: 'storyboard', cellNodes: [{ id: 'c1' }] }} selected={false} {...{} as any} />);
     const cellNodes = JSON.parse(screen.getByTestId('renderer').getAttribute('data-cellnodes')!);
-    expect(cellNodes).toEqual([{ id: 'c1', fileId: 'a', status: 'done' }]);
+    expect(cellNodes).toEqual([{ id: 'c1', mediaId: 'a', status: 'done' }]);
   });
 
   it('批1-6 合并视图：data.status=loading 但 exec 投影 done → cellNodes status=done（读点换源）', () => {
     setMockNodes([
-      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard', cells: ['c1'] } },
+      { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard' } },
       { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'loading' } },
     ]);
     useNodeStore.setState({ execStatus: new Map([['c1', { status: 'done' }]]) });
-    render(<GroupNode id="g1" data={{ groupType: 'storyboard', cells: ['c1'] }} selected={false} {...{} as any} />);
+    render(<GroupNode id="g1" data={{ groupType: 'storyboard', cellNodes: [{ id: 'c1' }] }} selected={false} {...{} as any} />);
     const cellNodes = JSON.parse(screen.getByTestId('renderer').getAttribute('data-cellnodes')!);
-    expect(cellNodes).toEqual([{ id: 'c1', status: 'done' }]); // fileId: undefined 序列化丢失
+    expect(cellNodes).toEqual([{ id: 'c1', status: 'done' }]); // mediaId: undefined 序列化丢失
     useNodeStore.setState({ execStatus: new Map() });
   });
 });
@@ -133,7 +129,7 @@ describe('GroupNode（普通组 NodeResizer）', () => {
     render(
       <GroupNode
         id="g1"
-        data={{ groupType: 'storyboard', cells: [], storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: true, stitchResolution: '2K' } }}
+        data={{ groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: true, stitchResolution: '2K' } }}
         selected={true}
         {...{} as any}
       />,

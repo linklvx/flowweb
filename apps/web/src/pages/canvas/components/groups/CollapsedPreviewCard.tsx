@@ -11,7 +11,7 @@ import { COLLAPSED_SIZE } from '@/utils/groupLayout';
 import { resolveGroupColor } from '@/utils/groupColor';
 import { GROUP_BOX } from './selectionTokens';
 
-export interface CollapsedPreviewCell { nodeId: string; fileId?: string }
+export interface CollapsedPreviewCell { nodeId: string; mediaId?: string }
 
 interface Props {
   name: string;
@@ -48,10 +48,10 @@ function TileIconPlaceholder() {
   );
 }
 
-function CollapsedTile({ fileId }: { fileId?: string }) {
-  // 取图同 StoryboardCell（P0-2）：URL 一律经 useMediaUrl(fileId) 现取+缓存自愈，JSON 响应不能直接作 src
-  const { url, onError } = useMediaUrl(fileId ?? null);
-  if (!fileId || !url) return <TileIconPlaceholder />;
+function CollapsedTile({ mediaId }: { mediaId?: string }) {
+  // 取图同 StoryboardCell（P0-2）：URL 一律经 useMediaUrl(mediaId) 现取+缓存自愈，JSON 响应不能直接作 src
+  const { url, onError } = useMediaUrl(mediaId ?? null);
+  if (!mediaId || !url) return <TileIconPlaceholder />;
   return (
     <img
       data-testid="collapsed-tile-img"
@@ -69,13 +69,13 @@ function CollapsedPreviewCardComponent({ name, color, selected = false, cells, t
   // 2d-4 两段渲染相位：false=phase1 占位；batch settle（或无可预取 fileId）后 true → phase2 挂 tile
   const [tilesReady, setTilesReady] = useState(false);
 
-  // 批量预取单飞：未覆盖（cache/pending 双查）的 fileId 集一次 batch；registerInFlight 每格开位共享同一 promise；
+  // 批量预取单飞：未覆盖（cache/pending 双查）的 mediaId 集一次 batch；registerInFlight 每格开位共享同一 promise；
   // settle 后统一 ready——成功路径 tile 读命中缓存（总请求仍 1 次），失败路径 pending 已清逐格单取。
   useEffect(() => {
-    const targets = shown.filter((c): c is CollapsedPreviewCell & { fileId: string } =>
-      !!c.fileId && !getCachedUrl(c.fileId) && !hasPendingMediaUrl(c.fileId));
+    const targets = shown.filter((c): c is CollapsedPreviewCell & { mediaId: string } =>
+      !!c.mediaId && !getCachedUrl(c.mediaId) && !hasPendingMediaUrl(c.mediaId));
     if (targets.length === 0) { setTilesReady(true); return; }
-    const ids = targets.map((c) => c.fileId);
+    const ids = targets.map((c) => c.mediaId);
     const batchPromise = batchGetMediaRewritten(ids, teamId ?? undefined);
     for (const id of ids) {
       registerInFlight(id, batchPromise.then((rows) => {
@@ -120,7 +120,7 @@ function CollapsedPreviewCardComponent({ name, color, selected = false, cells, t
             data-testid="collapsed-tile"
             style={{ overflow: 'hidden', background: 'var(--canvas-controls-bg)' }}
           >
-            {tilesReady ? <CollapsedTile fileId={c.fileId} /> : <TileIconPlaceholder />}
+            {tilesReady ? <CollapsedTile mediaId={c.mediaId} /> : <TileIconPlaceholder />}
           </div>
         ))}
       </div>

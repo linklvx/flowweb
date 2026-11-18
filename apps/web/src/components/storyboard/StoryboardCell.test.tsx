@@ -29,13 +29,13 @@ describe('StoryboardCell（R2b-7 mediaUrl 读点清零）', () => {
   beforeEach(() => { onResolvedError.mockClear(); });
 
   it('info 含陈旧 url（遗留持久化 mediaUrl）→ 不短路，img src 一律来自 useMediaUrl 解析', () => {
-    const info = { id: 'c1', fileId: 'f1', url: 'http://stale/presigned' } as CellNodeInfo;
+    const info = { id: 'c1', mediaId: 'f1', url: 'http://stale/presigned' } as CellNodeInfo;
     render(<StoryboardCell {...(baseProps(info) as any)} />);
     expect(getImg().getAttribute('src')).toBe('/flowai/f1');
   });
 
   it('onError 恒直通 hook 自愈（不再因 info.url 存在而摘除）', () => {
-    const info = { id: 'c1', fileId: 'f1', url: 'http://stale/presigned' } as CellNodeInfo;
+    const info = { id: 'c1', mediaId: 'f1', url: 'http://stale/presigned' } as CellNodeInfo;
     render(<StoryboardCell {...(baseProps(info) as any)} />);
     expect(onResolvedError).not.toHaveBeenCalled();
     fireEvent.error(getImg());
@@ -43,12 +43,12 @@ describe('StoryboardCell（R2b-7 mediaUrl 读点清零）', () => {
   });
 
   it('无 url 键（R2b-6 后新常态）→ img src 照常来自 useMediaUrl', () => {
-    const info: CellNodeInfo = { id: 'c1', fileId: 'f2' };
+    const info: CellNodeInfo = { id: 'c1', mediaId: 'f2' };
     render(<StoryboardCell {...(baseProps(info) as any)} />);
     expect(getImg().getAttribute('src')).toBe('/flowai/f2');
   });
 
-  it('公开页通道（O0c-2）：fileId 缺席（公开 payload 泄漏红线剥除）→ img src=thumbnailUrl 直用', () => {
+  it('公开页通道（O0c-2）：mediaId 缺席（公开 payload 泄漏红线剥除）→ img src=thumbnailUrl 直用', () => {
     const info: CellNodeInfo = { id: 'c1', thumbnailUrl: '/th/c1.webp' };
     render(<StoryboardCell {...(baseProps(info) as any)} />);
     expect(getImg().getAttribute('src')).toBe('/th/c1.webp');

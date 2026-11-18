@@ -1,7 +1,8 @@
 import { memo, useState, useCallback, useRef } from 'react';
 import { message } from 'antd';
 import type { StitchResolution } from '@/types/group';
-import { useCanvasStore } from '@/stores/canvasStore';
+import { useCanvasStore, computeStoryboardCellsPatch } from '@/stores/canvasStore';
+import { useNodeStore } from '@/stores/nodeStore';
 import { useStitchTask } from '@/hooks/useStitchTask';
 import { hasStoryboardConfig, resolveStoryboardConfig } from '@/utils/storyboardConfig';
 
@@ -64,13 +65,15 @@ function StitchButtonComponent({
 
     const nodes = useCanvasStore.getState().nodes;
     const groupNode = nodes.find((n) => n.id === groupId);
-    if (!groupNode?.data.cells) {
+    if (!groupNode) {
       message.error('分镜组数据缺失');
       return;
     }
 
-    // 收集 cells 对应节点的图片身份（fileId || referenceImage，上传图无 fileId；跳过空位）
-    const fileIds = (groupNode.data.cells as (string | null)[])
+    // Y2 A5：cells 缓存退役——槽序读侧现算（computeStoryboardCellsPatch：slot 真源；拼接主槽判定收敛归 B3）。
+    // 收集各槽节点的图片身份（fileId || referenceImage，上传图无 fileId；跳过空位）
+    const cells = computeStoryboardCellsPatch(nodes, useNodeStore.getState().nodes, groupId)[0]?.cells ?? [];
+    const fileIds = cells
       .map((cellId) => {
         if (!cellId) return null;
         const node = nodes.find((n) => n.id === cellId);

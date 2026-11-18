@@ -1,7 +1,8 @@
 // apps/web/src/stores/runtimeStore.ts
 // Y1c T22（G5——spec v5.4 §6.4/§7 客户端半链）：Runtime Store——feed 投影唯一客户端宿主。
-// doc.exec 停读（execStatusView 数据源切换本模块投影）+artifact mediaId overlay（CanvasRenderModel
-// 合成=read model ⊕ projection——composeRenderModel shared 单源）。
+// doc.exec 停读（execStatusView 数据源切换本模块投影）+artifact mediaId overlay（B 步消费面
+// 归 CanvasRenderModel 合成=read model ⊕ projection——composeRenderModel shared 单源；Y2 A5 删
+// composeRenderFromNodeStore 零调用死径）。
 //
 // 单 reducer（spec §7）：hint>cursor→GET after=cursor limit≤200 升序应用+(projectId,feedSeq) 去重
 // +缺口重取（I-7 收口：缺口→全量快照——越洞应用=永久丢事件）+cursor<minRetainedSeq→全量
@@ -14,9 +15,9 @@
 // （「到达序」无关紧要，cursor 有序）。
 import { create } from 'zustand';
 import {
-  composeRenderModel, mergeRuntimeProjection, resolveRuntimeStoreFreshness,
+  mergeRuntimeProjection, resolveRuntimeStoreFreshness,
   RUNTIME_STORE_TTL_MS,
-  type CanvasRenderModel, type RuntimeProjection, type RuntimeProjectionUpdate,
+  type RuntimeProjection, type RuntimeProjectionUpdate,
 } from '@flowweb/shared';
 import type { RuntimeEventWireRow } from './runtimeFeedTypes';
 import { useNodeStore } from './nodeStore';
@@ -222,18 +223,6 @@ export function runtimeFreshness(): 'fresh' | 'stale' | 'unknown' {
     feedReachable: s.cursor !== null,
     nowMs: Date.now(),
   });
-}
-
-/** CanvasRenderModel 合成（read model ⊕ projection——渲染层专用；墓碑剔除+overlay）。 */
-export function composeRenderFromNodeStore(): CanvasRenderModel | null {
-  const s = useRuntimeFeedStore.getState();
-  if (!s.projection) return null;
-  const ns = useNodeStore.getState();
-  const readModel = {
-    nodes: Object.values(ns.nodes).map((n) => ({ ...n, data: { ...(n.data as unknown as Record<string, unknown>) } })) as unknown as CanvasRenderModel['nodes'],
-    edges: [],
-  };
-  return composeRenderModel(readModel as never, s.projection);
 }
 
 // ── IDB 持久化（{projectId,generation,feedSeq,pgSeq,projection,fetchedAt}——TTL 7 天）────

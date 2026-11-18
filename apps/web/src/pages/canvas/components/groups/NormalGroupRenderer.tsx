@@ -24,7 +24,8 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
     for (let i = 0; i < s.nodes.length; i++) if (s.nodes[i].parentId === groupId) count++;
     return count;
   });
-  // 折叠卡 cells：子节点 → { nodeId, fileId }（fileId 取 data.fileId||referenceImage——GroupNode.tsx:55 先例）；
+  // 折叠卡 cells：子节点 → { nodeId, mediaId }（mediaId 取 data.fileId||referenceImage——GroupNode 同款；
+  // Y2 A5 随 CellNodeInfo→mediaId 改名对齐媒体身份域）；
   // 展开态恒返回 EMPTY_CELLS（不逐 store 变更造新数组）
   const collapsed = data.collapsed === true;
   const cells = useCanvasStore((s) => {
@@ -34,7 +35,7 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
       const n = s.nodes[i];
       if (n.parentId !== groupId) continue;
       const d = n.data as { fileId?: unknown; referenceImage?: unknown } | undefined;
-      out.push({ nodeId: n.id, fileId: (d?.fileId || d?.referenceImage) as string | undefined });
+      out.push({ nodeId: n.id, mediaId: (d?.fileId || d?.referenceImage) as string | undefined });
     }
     return out;
   });

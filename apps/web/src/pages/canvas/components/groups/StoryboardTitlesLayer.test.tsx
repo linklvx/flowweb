@@ -8,42 +8,50 @@ const h = vi.hoisted(() => ({
   vp: { x: 0, y: 0, zoom: 1 },
   vpCalls: 0,
 }));
-const cs = vi.hoisted(() => ({ nodes: [] as any[] }));
+const cs = vi.hoisted(() => ({ nodes: [] as any[], renderNodes: [] as any[] }));
 
 vi.mock('@xyflow/react', () => ({
   useViewport: () => { h.vpCalls += 1; return h.vp; },
 }));
 vi.mock('@/stores/canvasStore', () => ({
-  useCanvasStore: (sel: any) => sel({ nodes: cs.nodes }),
+  useCanvasStore: (sel: any) => sel({ nodes: cs.nodes, renderNodes: cs.renderNodes }),
 }));
 
 import { StoryboardTitlesLayer } from './StoryboardTitlesLayer';
 
+// Y2 A5：cs cells 缓存退役——计数源=渲染节点 data.cellNodes（内核 slot 派生载荷，成员计数）
 const sbGroup = (id: string, x: number, y: number, data: Record<string, unknown> = {}) => ({
-  id, type: 'group', position: { x, y }, data: { groupType: 'storyboard', cells: ['a', 'b'], ...data },
+  id, type: 'group', position: { x, y }, data: { groupType: 'storyboard', ...data },
+});
+const sbRender = (id: string, memberCount: number) => ({
+  id, type: 'group', data: { groupType: 'storyboard', cellNodes: Array.from({ length: memberCount }, (_, i) => ({ id: `m-${id}-${i}` })) },
 });
 
 beforeEach(() => {
   h.vp = { x: 0, y: 0, zoom: 1 };
   h.vpCalls = 0;
   cs.nodes = [];
+  cs.renderNodes = [];
 });
 
 describe('StoryboardTitlesLayer', () => {
-  it('自动名：nameCustom 缺省 → 「分镜组 N 个节点」，N=cells.filter(Boolean).length（null/undefined 槽位不计）', () => {
-    cs.nodes = [sbGroup('g1', 100, 200, { cells: ['a', null, 'b', undefined, 'c'] })];
+  it('自动名：nameCustom 缺省 → 「分镜组 N 个节点」，N=渲染节点 data.cellNodes 成员数（空槽不进载荷）', () => {
+    cs.nodes = [sbGroup('g1', 100, 200)];
+    cs.renderNodes = [sbRender('g1', 3)];
     render(<StoryboardTitlesLayer />);
     expect(screen.getByText('分镜组 3 个节点')).toBeTruthy();
   });
 
   it('自定义名：nameCustom=true → 显示 data.name（2d-6 renameGroup 置位后的消费面）', () => {
     cs.nodes = [sbGroup('g1', 0, 0, { name: '我的分镜', nameCustom: true })];
+    cs.renderNodes = [sbRender('g1', 2)];
     render(<StoryboardTitlesLayer />);
     expect(screen.getByText('我的分镜')).toBeTruthy();
   });
 
   it('单例共享层：N 组渲染 N 标题但仅 1 次 useViewport 订阅（Layer 实例数=1——非每组一订阅）', () => {
     cs.nodes = [sbGroup('g1', 0, 0), sbGroup('g2', 300, 0), sbGroup('g3', 600, 0)];
+    cs.renderNodes = [sbRender('g1', 2), sbRender('g2', 2), sbRender('g3', 2)];
     render(<StoryboardTitlesLayer />);
     expect(screen.getAllByTestId('storyboard-title')).toHaveLength(3);
     expect(h.vpCalls).toBe(1);
@@ -52,6 +60,7 @@ describe('StoryboardTitlesLayer', () => {
   it('标题带公式：top = frame.top·zoom + vp.y − 12，left = frame.left·zoom + vp.x（SelectionBoxOverlay flow→screen 同式）', () => {
     h.vp = { x: 10, y: 20, zoom: 2 };
     cs.nodes = [sbGroup('g1', 100, 200)];
+    cs.renderNodes = [sbRender('g1', 2)];
     render(<StoryboardTitlesLayer />);
     const title = screen.getByTestId('storyboard-title') as HTMLElement;
     expect(title.style.top).toBe('408px'); // 200*2 + 20 − 12（标题带锚，translateY(-100%) 后行高 20 占 [top−20, top]）
@@ -62,6 +71,7 @@ describe('StoryboardTitlesLayer', () => {
   it('恒 13px 不随 zoom 缩放 + 限宽省略（maxWidth 240/ellipsis/nowrap）+ 弱化色 token', () => {
     h.vp = { x: 0, y: 0, zoom: 3 };
     cs.nodes = [sbGroup('g1', 0, 0)];
+    cs.renderNodes = [sbRender('g1', 2)];
     render(<StoryboardTitlesLayer />);
     const title = screen.getByTestId('storyboard-title') as HTMLElement;
     expect(title.style.fontSize).toBe('13px'); // zoom=3 仍 13px 屏幕常量
@@ -74,6 +84,7 @@ describe('StoryboardTitlesLayer', () => {
 
   it('pointer-events 约定：Layer 容器与标题文本均 none（标题不可点；SelectionBoxOverlay box none 先例）', () => {
     cs.nodes = [sbGroup('g1', 0, 0)];
+    cs.renderNodes = [sbRender('g1', 2)];
     render(<StoryboardTitlesLayer />);
     const layer = screen.getByTestId('storyboard-titles-layer');
     const title = screen.getByTestId('storyboard-title') as HTMLElement;
@@ -86,6 +97,10 @@ describe('StoryboardTitlesLayer', () => {
       sbGroup('g1', 0, 0),
       { id: 'n1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'normal', name: '普通组' } },
       { id: 'n2', type: 'imageGen', position: { x: 0, y: 0 }, data: {} },
+    ];
+    cs.renderNodes = [
+      sbRender('g1', 2),
+      { id: 'n1', type: 'group', data: { groupType: 'normal' } },
     ];
     render(<StoryboardTitlesLayer />);
     expect(screen.getAllByTestId('storyboard-title')).toHaveLength(1);

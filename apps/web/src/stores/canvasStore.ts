@@ -89,11 +89,10 @@ export function resolveNodeData(node: Node, nsNodes: Record<string, AppNode>): R
   return ns.data as unknown as Record<string, unknown>;
 }
 
-/** ★T17 登记收口（T19）：cs cells 派生缓存双写者共享核心——命令点 syncStoryboardCells（写槽后
- *  定点）与 canvasCollabRuntime 写域⑥（doc 侧 slot 权威——水合/远端 reconcile）统一通道：
- *  slot 取数（ns 真源）+deriveStoryboardCells 派生+同值判定单源于此，两写者只差提交面
- *  （patchGroupDataInner vs 批量 setState）。返回有变更的分镜组 {groupId, cells}（空=全组同值零写）。
- *  onlyGroupId（质评 Minor#4）：命令点定点档提前过滤（免全组派生计算）；缺省=全组（reconcile 面）。 */
+/** ★Y2 A5：cells 读侧现算单源——cs cells 派生缓存全链退役后，槽序消费面（ungroupInner placeGrid/
+ *  StitchButton 拼接收集/删除善后）经此从 slot 真源（ns 子 data.slot）现算 (string|null)[] 宫格序；
+ *  渲染面格位另走渲染节点 data.cellNodes（projectCanvas 内核同源 deriveStoryboardCells）。
+ *  onlyGroupId：定点档提前过滤（免全组派生计算）；缺省=全组。 */
 export function computeStoryboardCellsPatch(
   csNodes: readonly { id: string; parentId?: string | null; type?: string; data?: unknown }[],
   nsNodes: Readonly<Record<string, { data?: unknown }>>,
@@ -117,15 +116,11 @@ export function computeStoryboardCellsPatch(
     const list = childrenByParent.get(nd.parentId);
     if (list) list.push(rec); else childrenByParent.set(nd.parentId, [rec]);
   }
-  const patch: Array<{ groupId: string; cells: (string | null)[] }> = [];
-  for (const g of sbGroups) {
+  return sbGroups.map((g) => {
     const cfg = resolveStoryboardConfig((g.data ?? {}) as Record<string, unknown>);
     const { cells } = deriveStoryboardCells(childrenByParent.get(g.id) ?? [], cfg.gridRows * cfg.gridCols);
-    const cur = (g.data as Record<string, unknown> | undefined)?.cells as (string | null)[] | undefined;
-    if (JSON.stringify(cur ?? null) === JSON.stringify(cells)) continue;   // 同值零写（幂等）
-    patch.push({ groupId: g.id, cells });
-  }
-  return patch;
+    return { groupId: g.id, cells };
+  });
 }
 
 /** videoEdit 节点删除时级联删 VideoProject（fire-and-forget；失败 console.error 留痕——deleteNode 与 onNodesChange removes 两条路径共用） */
@@ -2343,7 +2338,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         return n ? { width: n.width ?? CELL_WIDTH, height: n.height ?? cellH } : { width: CELL_WIDTH, height: cellH };
       };
       // F38：解散保留子自身尺寸——只重排 position（placeGrid v5 槽位语义：null/悬空按基准占格不塌陷）
-      const pos = placeGrid(gd.cells ?? [], cfg.gridCols, CELL_WIDTH, cellH, sizeOf);
+      // Y2 A5：cells 读侧现算（computeStoryboardCellsPatch——slot 真源；cs cells 缓存退役）
+      const cells = computeStoryboardCellsPatch(s.nodes, useNodeStore.getState().nodes, groupId)[0]?.cells ?? [];
+      const pos = placeGrid(cells, cfg.gridCols, CELL_WIDTH, cellH, sizeOf);
       // O0b-9：解散重排=结构命令写点（storyboard 分支 placeGrid）。Y2 A3：placeGrid 产出=组相对
       // 格位（rel）——写 cs 补组原点翻 abs（分镜子 cs 材料 {0,0} 无格位信息，格位唯一真源=cells）
       set((st) => ({
@@ -2934,9 +2931,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         return n ? { width: n.width ?? cellW, height: n.height ?? cellH } : { width: cellW, height: cellH };
       };
       // F38：转换保留子自身尺寸——只重排 position（placeGrid v5 槽位语义：null/悬空按基准占格不塌陷）
-      // Y2 A3：cs cells 派生缓存退役——格位从子 slot 现算（StoryboardGroupRenderer cellsOf fallback 同源）
+      // Y2 A3：cs cells 派生缓存退役——格位从子 slot 现算（StoryboardGroupRenderer cellsOf 同源）
       const groupChildren = s.nodes.filter((n) => n.parentId === groupId);
-      const cellsList = gd.cells ?? deriveStoryboardCells(
+      const cellsList = deriveStoryboardCells(
         groupChildren.map((n: any) => ({ id: n.id, data: (n.data ?? {}) as Record<string, unknown> })), cfg.gridRows * cfg.gridCols,
       ).cells;
       const pos = placeGrid(cellsList, cfg.gridCols, cellW, cellH, sizeOf);
@@ -3146,22 +3143,15 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       return;
     }
     const s = get();
-    // T17（Z17''）：成员=parentId 派生（membership 真源）——cells 读侧派生兼容（旧档缓存）；
-    // 成员删即格位随删（slot 键随节点死）；组 data cells 键删（cs 缓存清场——doc 恒无 cells）
-    const group = s.nodes.find((n) => n.id === groupId);
-    const gd0 = group?.data as any;
+    // T17（Z17''）+Y2 A5：成员=parentId 派生（membership 真源；cs cells 缓存退役——删全体成员，
+    // 格位随节点死）。批4b-2：差分快照→成员删（级联边删）经 dispatchProjectionDiff 落 doc
     const memberIds = s.nodes.filter((n) => n.parentId === groupId).map((n) => n.id);
-    const cellIds = Array.isArray(gd0?.cells)
-      ? (gd0.cells as (string | null)[]).filter((c): c is string => c != null && memberIds.includes(c))
-      : memberIds;
-    // 批4b-2 换芯：差分快照→成员删（级联边删）经 dispatchProjectionDiff 落 doc
     const before = captureStoreProjection();
     set((st) => ({
-      nodes: st.nodes.filter((n) => !(cellIds.includes(n.id) && n.parentId === groupId)),
-      edges: st.edges.filter((e) => !cellIds.includes(e.source) && !cellIds.includes(e.target)),
+      nodes: st.nodes.filter((n) => !(memberIds.includes(n.id) && n.parentId === groupId)),
+      edges: st.edges.filter((e) => !memberIds.includes(e.source) && !memberIds.includes(e.target)),
     }));
-    get().patchGroupData(groupId, { cells: undefined });   // Y2 A3：存量缓存键清场（新链路零写入）
-    cellIds.forEach((id: string) => useNodeStore.getState().deleteNode(id));
+    memberIds.forEach((id: string) => useNodeStore.getState().deleteNode(id));
     dispatchProjectionDiff(before, Origin.LocalUser);
   },
 

@@ -3,12 +3,12 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { CollapsedPreviewCard, calcCollapsedGrid } from './CollapsedPreviewCard';
 
-// P0-2 同款（StoryboardGroupRenderer.test.tsx:7 先例）：mock useMediaUrl——fileId → 预签名 URL 解析；
+// P0-2 同款（StoryboardGroupRenderer.test.tsx:7 先例）：mock useMediaUrl——mediaId → 预签名 URL 解析；
 // 'pending' 前缀模拟「URL 未解析（loading/error）」→ 占位分支
 vi.mock('@/hooks/useMediaUrl', () => ({
-  useMediaUrl: (fileId: string | null) => ({
-    url: fileId && !fileId.startsWith('pending') ? `/flowai/${fileId}` : null,
-    loading: !!fileId?.startsWith('pending'),
+  useMediaUrl: (mediaId: string | null) => ({
+    url: mediaId && !mediaId.startsWith('pending') ? `/flowai/${mediaId}` : null,
+    loading: !!mediaId?.startsWith('pending'),
     error: null,
     onError: () => {},
   }),
@@ -19,7 +19,7 @@ vi.mock('@/api/client', () => ({
   apiFetch: vi.fn().mockResolvedValue([]),
 }));
 
-const cell = (id: string, fileId?: string) => ({ nodeId: id, fileId });
+const cell = (id: string, mediaId?: string) => ({ nodeId: id, mediaId });
 
 describe('CollapsedPreviewCard 结构（§4.5）', () => {
   it('宫格 padding 6/gap 4/圆角 6 + summaryRow「3 个节点」（N=cells 总数非显示数）+ 根 div 显式尺寸=COLLAPSED_SIZE 220×160（2d-1 不变量载体）', () => {
@@ -61,7 +61,7 @@ describe('calcCollapsedGrid（列数纯函数——1-2 按数量/3-4→2 列/5+�
 });
 
 describe('CollapsedPreviewCard tile 取图', () => {
-  it('fileId → useMediaUrl 解析 url 挂 img src；无 fileId → 图标占位（其它节点类型同款占位）', async () => {
+  it('mediaId → useMediaUrl 解析 url 挂 img src；无 mediaId → 图标占位（其它节点类型同款占位）', async () => {
     render(<CollapsedPreviewCard name="组" cells={[cell('a', 'f1'), cell('b')]} />);
     // 2d-4 两段渲染：img 在 batch settle → phase2 挂 tile 后出现
     const img = await screen.findByTestId('collapsed-tile-img') as HTMLImageElement;

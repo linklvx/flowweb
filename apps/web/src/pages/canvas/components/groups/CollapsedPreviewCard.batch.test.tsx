@@ -13,7 +13,7 @@ vi.mock('@/api/client', () => ({
   apiFetch: vi.fn(),
 }));
 
-const cell = (id: string, fileId?: string) => ({ nodeId: id, fileId });
+const cell = (id: string, mediaId?: string) => ({ nodeId: id, mediaId });
 const SIX_CELLS = ['f1', 'f2', 'f3', 'f4', 'f5', 'f6'].map((f, i) => cell(`n${i}`, f));
 
 const batchRow = (id: string) => ({

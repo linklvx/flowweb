@@ -197,13 +197,16 @@ describe('克隆体上 storyboard store 命令不崩（F2 消费点③④⑤）+
     expect(img).toBeDefined();   // 子节点未被删除（守卫跳过网格重排，节点保持）
   });
 
-  it('convertGroup(g1, normal)：有 cells 时子节点按 resolver 提供的网格重排（守 resolver 输出口径，v5 判别力修正；Task 18 守恒 refit——行列计算钉在绝对坐标）', () => {
+  it('convertGroup(g1, normal)：子节点按 resolver 提供的网格重排（守 resolver 输出口径，v5 判别力修正；Task 18 守恒 refit——行列计算钉在绝对坐标）', () => {
     // v5：img1 放第二槽——idx=0 时 col 恒 0、x 恒 0，原 isFinite(x) 断言恒真零判别力；
     // idx=1 + resolver 默认 gridCols=1 → row=1 → y = 1*(Math.round(320/(16/9)) + CONVERT_GAP) = 1*(180+40) = 220。
     // 两向判别力：gridCols 误算为 2 → row=0 → y=0 红；cfg 未接 resolver（undefined）→ TypeError 红。
     // Task 18：convertGroup 后守恒 refit，rel 归位 padding——网格行计算改钉绝对坐标（rel+组原点，守恒不变）。
-    useCanvasStore.setState({ nodes: [cloneGroupNode('g1', [null, 'img1']), { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: {} }] as any, edges: [] });
-    syncDocFromSeed([cloneGroupNode('g1', [null, 'img1']), { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: {} }] as any);
+    // Y2 A5：cs cells 缓存退役——槽序真源=子 data.slot（第二槽夹具随迁；组 data 零 cells）。
+    // 判别力保形：2x1 宫格（gridCols=1）slot1 → row1 → y=1*(180+40)=220（gridCols 误算 2 → row0 → 0 红）。
+    const g2x1 = { ...cloneGroupNode('g1'), data: { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 2, gridCols: 1, showIndex: false, stitchResolution: '2K' } } };
+    useCanvasStore.setState({ nodes: [g2x1, { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: { slot: 1 } }] as any, edges: [] });
+    syncDocFromSeed([g2x1, { id: 'img1', type: 'imageGen', position: { x: 0, y: 0 }, parentId: 'g1', data: { slot: 1 } }] as any);
     useCanvasStore.getState().convertGroup('g1', 'normal');
     const img = useCanvasStore.getState().nodes.find((n) => n.id === 'img1') as any;
     expect(img).toBeDefined();

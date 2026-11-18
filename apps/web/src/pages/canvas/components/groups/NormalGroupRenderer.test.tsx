@@ -124,7 +124,7 @@ describe('NormalGroupRenderer 展开态', () => {
 });
 
 describe('NormalGroupRenderer 折叠态', () => {
-  it('折叠分支渲染 CollapsedPreviewCard（2d-3 内容替换）：title/aria/摘要接线 + 子节点 fileId 映射（data.fileId||referenceImage——GroupNode.tsx:55 先例）', async () => {
+  it('折叠分支渲染 CollapsedPreviewCard（2d-3 内容替换）：title/aria/摘要接线 + 子节点 mediaId 映射（data.fileId||referenceImage——GroupNode 同款；Y2 A5 随 CellNodeInfo→mediaId）', async () => {
     mockStore.nodes = [
       { id: 'c1', parentId: 'g1', data: { fileId: 'f1' } },
       { id: 'c2', parentId: 'g1', data: { referenceImage: 'ref2' } },

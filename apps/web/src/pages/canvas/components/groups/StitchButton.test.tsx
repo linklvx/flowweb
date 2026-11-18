@@ -17,7 +17,9 @@ vi.mock('@/hooks/useStitchTask', () => ({
   useStitchTask: () => ({ start: getMockStart() }),
 }));
 
-vi.mock('@/stores/canvasStore', () => ({
+// Y2 A5：computeStoryboardCellsPatch 用真品（纯读侧派生——slot 真源现算）；useCanvasStore 仍 mock
+vi.mock('@/stores/canvasStore', async (orig) => ({
+  ...(await orig<typeof import('@/stores/canvasStore')>()),
   useCanvasStore: Object.assign(
     vi.fn((selector?: any) => {
       const state = { projectId: 'p1', nodes: getMockNodes() };
@@ -64,18 +66,19 @@ describe('StitchButton', () => {
     });
   });
 
-  it('fileIds 收集归一化：cells 节点无 fileId 有 referenceImage（上传图）时收集 referenceImage', async () => {
+  it('fileIds 收集归一化：槽位节点无 fileId 有 referenceImage（上传图）时收集 referenceImage', async () => {
+    // Y2 A5：cells 缓存退役——槽序读侧现算（membership=parentId；无 slot 首空格自愈按序）
     setMockNodes([
       {
         id: 'g1', type: 'group', position: { x: 0, y: 0 },
         data: {
-          groupType: 'storyboard', cells: ['c1', 'c2', 'c3'],
+          groupType: 'storyboard',
           storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 3, showIndex: false },
         },
       },
-      { id: 'c1', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'gen-1' } },
-      { id: 'c2', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'idle', referenceImage: 'ref-2' } },
-      { id: 'c3', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'idle' } }, // 空位节点
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'gen-1' } },
+      { id: 'c2', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'idle', referenceImage: 'ref-2' } },
+      { id: 'c3', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'idle' } }, // 空位节点
     ]);
     render(<StitchButton groupId="g1" resolution="2K" onResolutionChange={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /拼接/ }));
@@ -90,8 +93,8 @@ describe('StitchButton', () => {
   it('无 storyboard 的组：点击拼接提示"分镜配置缺失"不发请求（F2 消费点⑧；v5 夹具对齐守卫顺序）', async () => {
     setMockNodes([
       { id: 'g1', type: 'group', position: { x: 0, y: 0 },
-        data: { groupType: 'storyboard', cells: ['c1'] } },              // 无 storyboard
-      { id: 'c1', type: 'imageGen', position: { x: 0, y: 0 }, data: { fileId: 'f1' } },  // 过 :81-84 fileIds 空守卫
+        data: { groupType: 'storyboard' } },                              // 无 storyboard
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { fileId: 'f1' } },  // 过 fileIds 空守卫
     ]);
     render(<StitchButton groupId="g1" resolution="2K" onResolutionChange={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /拼接/ }));

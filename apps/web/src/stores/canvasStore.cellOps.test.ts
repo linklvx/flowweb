@@ -7,6 +7,8 @@ import { applyDocToStore } from './canvasCollabRuntime';
 import { _setIntentDocForTest } from './canvasIntents';
 import { validatePlacementData } from '@flowweb/shared';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
+import { readFileSync } from 'fs';
+import * as path from 'path';
 import { type StoredNodeRecord } from '@flowweb/shared';
 import { openRwWindow, resetCanvasStores } from '@/test/fixtures/canvas';
 import type { Node } from '@xyflow/react';
@@ -233,5 +235,68 @@ describe('O0c-3 attachMember 分镜成员原语', () => {
     expect(csNode('z').parentId).toBe('sb');
     expect((csNode('sb').data as any).cells).toBeUndefined();   // Y2 A3：cs cells 派生缓存退役过渡（A5 全收）
     expect(useCanvasStore.getState().nodes.some((n: any) => n.id === 'ng')).toBe(false);   // 空源组解组
+  });
+});
+
+// ══════════ Y2 A5（分镜只走 cellNodes）：渲染零 store 扫描锚+cells 缓存退役回归锚+占格保通锚 ══════════
+describe('Y2 A5 分镜渲染通道（D2——cellNodes 单通道）', () => {
+  // 装置同 O0c-3（生产同构链）：openRwWindow→fillDoc（doc 恒无 cells——格位真源=子 slot）→
+  // applyDocToStore 水合。不手写 cs cells（旧 F38 夹具形态=生产不可达态：cs 由 doc 水合，
+  // 而 doc 写路径键集表恒剥 cells——cs 水合态恒无 cells）。
+  const sbRecord = (): StoredNodeRecord =>
+    ({ id: 'sb', type: 'group', position: { x: 100, y: 50 }, data: {
+      groupType: 'storyboard',
+      storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: true, stitchResolution: '2K' },
+    } });
+  const cellRecord = (id: string, slot?: number): StoredNodeRecord =>
+    ({ id, type: 'imageGen', parentId: 'sb', width: 320, height: 180,
+       data: { status: 'done', fileId: `f-${id}`, ...(slot != null ? { slot } : {}) } });
+  const hydrate = (records: readonly StoredNodeRecord[]): Y.Doc => {
+    openRwWindow();
+    const d = new Y.Doc();
+    fillDoc(d, records, []);
+    applyDocToStore(d);
+    _setIntentDocForTest(d);
+    return d;
+  };
+  const csNode = (id: string) => useCanvasStore.getState().nodes.find((n: any) => n.id === id) as any;
+  afterEach(() => { _setIntentDocForTest(null); resetCanvasStores(); });
+
+  it('① 分镜渲染通道零 parentId 扫描（StoryboardGroupRendererCellNodes 函数体——cellNodes=渲染节点 data 携带）——现状必红', () => {
+    const src = readFileSync(path.join(process.cwd(), 'src/pages/canvas/components/groups/GroupNode.tsx'), 'utf8');
+    // 锚域=分镜渲染组件函数体（普通组 Resizer 的子包围盒 parentId 读=合法 cs 几何消费，不在退役面）
+    const fnSrc = src.slice(src.indexOf('function StoryboardGroupRendererCellNodes'), src.indexOf('export const GroupNode'));
+    expect(fnSrc).not.toMatch(/parentId\s*===/);   // 现拼扫描退役（改消费渲染节点 data.cellNodes）
+  });
+
+  it('② cells 缓存退役回归锚（A3 写域⑥已收口）：远端写分镜 config 水合后 cs 镜像零 cells 键', () => {
+    const d = hydrate([sbRecord(), cellRecord('c1', 0)]);
+    // 远端事务（合法写面：storyboard config——同码对端经键集表恒剥 cells，doc 恒无 cells）
+    const B = new Y.Doc();
+    Y.applyUpdate(B, Y.encodeStateAsUpdate(d));
+    ((B.getMap('nodes').get('sb') as any).get('data') as Y.Map<any>)
+      .set('storyboard', { aspectRatio: '16:9', gridRows: 2, gridCols: 2, showIndex: true, stitchResolution: '2K' });
+    Y.applyUpdate(d, Y.encodeStateAsUpdate(B), 'network');
+    applyDocToStore(d);
+    const sb = csNode('sb');
+    expect((sb.data as any).storyboard.gridRows).toBe(2);   // 远端变更落 cs（证非陈旧断言）
+    expect((sb.data as any).cells).toBeUndefined();         // 水合零派生写（deriveStoryboardCellsCache 退役面）
+  });
+
+  it('③ 水合后 ungroup 占格保通：子按 slot 格位散开+组原点翻 abs——读侧现算回归锚（现状必红）', () => {
+    const d = hydrate([sbRecord(), cellRecord('c1', 0), cellRecord('c2', 1)]);
+    useCanvasStore.getState().ungroup('sb');
+    const c1 = csNode('c1');
+    const c2 = csNode('c2');
+    expect(c1.parentId).toBeUndefined();
+    expect(c2.parentId).toBeUndefined();
+    expect(csNode('sb')).toBeUndefined();   // 组删
+    // 槽位散开（placeGrid v5：16:9 基准 320×180、CONVERT_GAP=40——slot0 rel(0,0) slot1 rel(360,0)）
+    // +组原点 {100,50} 翻 abs。水合态 cs 无 cells（A3 退役）——placeGrid 输入须由 slot 现算
+    // （A5 Step2 读侧 computeStoryboardCellsPatch），缓存时代/读侧现算同语义。
+    expect(c1.position).toEqual({ x: 100, y: 50 });
+    expect(c2.position).toEqual({ x: 460, y: 50 });
+    const dc2 = d.getMap('nodes').get('c2') as Y.Map<any>;
+    expect((dc2.toJSON() as any).position).toEqual({ x: 460, y: 50 });   // doc 面=真源（diff 落写；position=Y.Map 容器）
   });
 });

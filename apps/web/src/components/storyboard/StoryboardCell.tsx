@@ -1,13 +1,14 @@
 // apps/web/src/components/storyboard/StoryboardCell.tsx
 // O0c-2（Spec B）：随 StoryboardGroupRenderer 自 canvas 页目录抽迁（spec v3.12：抽取组件落点=
 // components/storyboard/——防 videos→canvas 深层依赖架空"零 store 依赖"红线）。
-// CellNodeInfo 双通道（O0c-1/O0c-2）：主画布通道 fileId（经 useMediaUrl 现取 content 路径）/公开页通道
-// thumbnailUrl（deriveRenderCanvas cellNodes 载荷）——组件入参同形，两通道字段同构。
-// T30b：+slot（公开页格位派生通道——公开白名单剥组 data.cells 后格位真源=子 slot）。
+// CellNodeInfo 双通道（O0c-1/O0c-2）：主画布通道 mediaId（经 useMediaUrl 现取 content 路径；Y2 A5
+// 随 cellNodes 覆盖落地由 fileId 改名——对齐媒体身份域）/公开页通道 thumbnailUrl
+// （deriveRenderCanvas cellNodes 载荷）——组件入参同形，两通道字段同构。
+// T30b：+slot（公开页格位派生通道——格位真源=子 slot）。
 import { memo } from 'react';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 
-export interface CellNodeInfo { id: string; fileId?: string; status?: string; thumbnailUrl?: string; slot?: number }
+export interface CellNodeInfo { id: string; mediaId?: string; status?: string; thumbnailUrl?: string; slot?: number }
 
 interface Props {
   index: number;
@@ -24,8 +25,8 @@ function StoryboardCellComponent(p: Props) {
   // /api/media/:fileId/content 直接作 img src，无预签名/无 /flowai 改写）；data.mediaUrl 不再写入/
   // 读取（R2b-6 写入面清零、R2b-7 读点清零——遗留持久化 URL 一律无视），URL 一律经
   // useMediaUrl(fileId) 现取+缓存自愈。
-  // 公开页通道（O0c-2）：fileId 缺席（公开 payload 泄漏红线剥除）→ thumbnailUrl 直用（无解析层）。
-  const { url: resolvedUrl, onError: onResolvedError } = useMediaUrl(p.info?.fileId ?? null);
+  // 公开页通道（O0c-2）：mediaId 缺席（公开 payload 泄漏红线剥除）→ thumbnailUrl 直用（无解析层）。
+  const { url: resolvedUrl, onError: onResolvedError } = useMediaUrl(p.info?.mediaId ?? null);
   const imgSrc = resolvedUrl ?? p.info?.thumbnailUrl;
   // 100% 填充 1fr 轨道：固定像素会被轨道 auto-min 下限撑破容器（grid 溢出组边框）
   const style: React.CSSProperties = {

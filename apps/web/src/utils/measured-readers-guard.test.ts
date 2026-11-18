@@ -61,7 +61,7 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     //（interface +9/初始值 +3）+rebindCopiedMedia helper +31——13 行整体 +40 漂移（集合不变）
     // C3a-8 批：HEAD=a953e55a（C3a-7 收口）在 canvasStore:561 附近注释段净 +1 行未同步本表
     //（本卡零 web 改动——机械行号同步，集合不变；隔离复跑绿）
-    'stores/canvasStore.ts': [1138, 1139, 1145, 1146, 1209, 1210, 1288, 1289, 1295, 1296, 1455, 1977, 1978],   // Y2 A3 reconcile 退役批：±行漂移机械同步（集合语义不变——readGroupStoredFrameFromDoc 复位/cs cells 退役等增删行所致）
+    'stores/canvasStore.ts': [1133, 1134, 1140, 1141, 1204, 1205, 1283, 1284, 1290, 1291, 1450, 1972, 1973],   // Y2 A5：±行漂移机械同步（集合语义不变——computeStoryboardCellsPatch 读侧单源化/clearStoryboard 旧档回退删净等增删行所致）
     'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
     'utils/handleMenu.ts': [53, 54],  // Y1c T1：注释+import 插入 +4 漂移
     'pages/canvas/video-editor/export/product-node.ts': [16],  // Y1c T1：import 插入 +1 漂移
