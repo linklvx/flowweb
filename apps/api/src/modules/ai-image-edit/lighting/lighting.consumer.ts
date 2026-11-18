@@ -12,6 +12,7 @@ import { GenerationIntentService } from '../../execution/generation-intent.servi
 import { SafeRemoteFetchService } from '../../media/safe-remote-fetch.service';
 import { ArtifactCommitService, FundsInvariantError } from '../../artifact-core/artifact-commit.service';
 import { countExecProjectionFailure } from '../../execution/exec.metrics';
+import { AuthorSlotReleaseError } from '../../collab/author-slot.service';
 import type { ExecutionTicket } from '../../execution/execution.types';
 
 const LightingTaskStatus = {
@@ -151,6 +152,17 @@ export class LightingConsumer {
         throw new Error('AI relighting returned no result URL');
       }
 
+      // ── Y2 B2d（裁决 13）：call 前读槽——frozen=false 或现场≠冻结值（含清空）=整次交付作废
+      //    （authorVoid 传入 finalize 作废臂）；读槽失败（行仍 RUNNING）=本轮跳过零外呼零核销。 ──
+      let authorVoid = false;
+      try {
+        const slot = await this.collabDoc.readAuthorSlot(projectId!, intentRowId!);
+        authorVoid = !slot.frozen || slot.liveMediaId !== slot.authorMediaId;
+      } catch (e) {
+        this.logger.warn(`[author-slot] 意图 ${intentLogId} 读槽失败（本轮跳过）: ${(e as Error)?.message ?? e}`);
+        return { status: 'skipped', reason: 'AUTHOR_SLOT_READ_FAILED' };
+      }
+
       // 6-8.5 T10 产物落地+资金核销改道 ArtifactCommit 同步链（与 image 生成腿/编辑三 kind 同构）：
       //     stage durable→SafeRemoteFetch 下载→sha/sniff→MinIO content-addressed 上传→finalize 单事务
       //     （NodeArtifact CAS〔claimCapture expectedRev〕+intent CAS+settleInTx+Media 提升/binding/投影）。
@@ -166,6 +178,7 @@ export class LightingConsumer {
         intentRowId: intentRowId!, execSeq: execSeq!, expectedRev: ticket!.expectedRev,
         sourceUrl: result.url, taskId,
         originalNameBase: `lighting-${nodeId}`,   // 质评收口 Minor#7：扩展名 sniff 终判分档
+        authorVoid,
       });
       if (committed.outcome === 'intent-stale') {
         this.logger.warn(`[artifact-commit] 意图 ${intentLogId} finalize intent-stale（行终态/换代）——跳过产物写入（外呼产物留作物证）`);
@@ -173,6 +186,17 @@ export class LightingConsumer {
       }
       const mediaId = committed.mediaId!;
       const committedKey = committed.key!;
+
+      // ── Y2 B2d（v2.10 新鲜出口）：仅 committed∧非 void → 释放；release 先于 emit+SUCCESS 回填
+      //    （失败上抛 processor 重排——禁 task 置 SUCCESS 假完成）；经端口进程内直调成功即置位。 ──
+      const deliverMedia = committed.outcome === 'committed' && !authorVoid;
+      if (deliverMedia) {
+        try {
+          await this.collabDoc.releaseAuthorSlot(projectId!, intentRowId!);
+        } catch (e) {
+          throw new AuthorSlotReleaseError(intentRowId!, e);   // 专型上抛——processor moveToDelayed 有上限重排
+        }
+      }
 
       // 9. Update LightingTask（T10：结果 URL 经 content-addressed key presign——committedKey）
       const presignedResultUrl = await this.minio.generatePresignedGetUrl(committedKey, 3600);
@@ -189,16 +213,20 @@ export class LightingConsumer {
       // 10. T15 收口：doc 交付写移除——fileId 归 ArtifactProjection 投影 poller（finalize 已落 pending
       //     行；worker 通道 writeNodeData 已 403——旧 Z44 nodeAlive 守卫/typed 悬留计数面随直写退役，
       //     node 删除观察=poller apply 存在性守卫〔orphaned〕）。socket 仅进度通知（即时 UX）。
+      //     Y2 B2d emit 收窄：仅 committed∧非 void 携 fileId/resultUrl（作废/未释放面不投递产物引用）。
       this.emitPort.emitNodeStatus(projectId || '', {
         nodeId,
         status: 'lighting-result',
-        fileId: mediaId,
-        resultUrl: presignedResultUrl,
+        ...(deliverMedia ? { fileId: mediaId, resultUrl: presignedResultUrl } : {}),
       } as any);
 
       this.logger.log(`Lighting complete: task ${taskId}, media ${mediaId}`);
-      return { status: 'completed', fileId: mediaId };
+      return { status: 'completed', fileId: deliverMedia ? mediaId : undefined };
     } catch (error: any) {
+      // Y2 B2d（裁决 14）：释放失败专型首位 re-throw——禁进失败链（行已 SUCCEEDED：void_ 代际
+      // 已核销 0 命中、置 LightingTask FAILED=假失败；失败链其余动作全不适用）。上抛 processor
+      // 首位识别 → moveToDelayed 有上限重排+入口补释放臂承接。
+      if (error instanceof AuthorSlotReleaseError) throw error;
       this.logger.error(`Lighting failed: ${error.message}`, error.stack);
 
       // T9 旧代 fence：行已换代（takeover/rearm 新代接管）——旧 job 失败静默退役：零退款零任务置败

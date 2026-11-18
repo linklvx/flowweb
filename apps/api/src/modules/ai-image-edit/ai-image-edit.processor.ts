@@ -1,5 +1,5 @@
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
-import { Job } from 'bullmq';
+import { Job, DelayedError } from 'bullmq';
 import { Inject, Logger } from '@nestjs/common';
 import * as Sentry from '@sentry/nestjs';
 import { MinioService } from '../minio/minio.service';
@@ -10,12 +10,26 @@ import { TeamCreditService } from '../team/team-credit.service';
 import { CollabWritePort } from '../collab/collab-write.port';
 import { GenerationIntentService } from '../execution/generation-intent.service';
 import { intentDuplicateAttemptTotal } from '../execution/intent-reconcile.metrics';
-import { countExecProjectionFailure } from '../execution/exec.metrics';
+import { countExecProjectionFailure, authorSlotReleaseExhaustedTotal } from '../execution/exec.metrics';
 import { AI_IMAGE_EDIT_QUEUE_NAME } from './ai-image-edit.constants';
 import { LightingConsumer, type LightingJobData } from './lighting/lighting.consumer';
 import { SafeRemoteFetchService } from '../media/safe-remote-fetch.service';
 import { ArtifactCommitService, FundsInvariantError } from '../artifact-core/artifact-commit.service';
+import { AuthorSlotReleaseError } from '../collab/author-slot.service';
 import type { ExecutionTicket } from '../execution/execution.types';
+
+/** Y2 B2d（裁决 14）：释放失败重排间隔——1s/5s/15s 三档（第 4 次耗尽交对账补释放臂）。 */
+const RELEASE_RETRY_DELAYS_MS = [1_000, 5_000, 15_000] as const;
+
+/** Y2 B2d（裁决 13）：AI 编辑链释放封装——非 2xx/瞬态耗尽/投影失败一律包 AuthorSlotReleaseError
+ *  （catch 首位 re-throw 识别 → moveToDelayed 有上限重排）；lighting 经 consumer 同构上抛。 */
+async function releaseAuthorSlotOrThrow(collabDoc: CollabWritePort, projectId: string, intentRowId: string): Promise<void> {
+  try {
+    await collabDoc.releaseAuthorSlot(projectId, intentRowId);
+  } catch (e) {
+    throw new AuthorSlotReleaseError(intentRowId, e);
+  }
+}
 
 export interface AiImageEditJobData {
   taskType: 'outpaint' | 'erase' | 'redraw' | 'lighting';
@@ -35,6 +49,8 @@ export interface AiImageEditJobData {
    *  catch 旧代静默退役）。 */
   intentRowId?: string;
   ticket?: ExecutionTicket;
+  /** Y2 B2d（裁决 14）：释放失败有上限重排计数（1s/5s/15s 三档——耗尽 completed+对账补释放臂接管）。 */
+  releaseAttempts?: number;
 }
 
 /** Y0b-2 T1（Z110 终裁）：maxStalledCount 保持 1——安全链=stall→BullMQ 同 jobId 重排→claim② 可重入→
@@ -78,6 +94,21 @@ export class AiImageEditProcessor extends WorkerHost {
     const execSeq = ticket ? BigInt(ticket.execSeq) : undefined;
     const intentLogId = intentRowId ?? 'unknown';
     this.logger.log(`Processing ${taskType} for node ${nodeId}`);
+
+    // ── Y2 B2d 入口补释放臂（编辑链无 claim 回放臂——重排 job 再入的唯一补释放面）：释放失败
+    //    moveToDelayed 重排后 job 再入，行已 SUCCEEDED∧冻结∧未释放 ⇒ reserve 门 0 命中早退，须在此
+    //    直达补释放（幂等：released 置位后谓词不中）。释放失败同帧重抛=同 releaseAttempts 计数续排。 ──
+    if (intentRowId && (job.data as { releaseAttempts?: number }).releaseAttempts !== undefined) {
+      const row = await this.prisma.generationIntent.findUnique({
+        where: { id: intentRowId },
+        select: { status: true, execSeq: true, authorSlotFrozen: true, authorSlotReleased: true },
+      }).catch(() => null);
+      if (row && row.status === 'SUCCEEDED' && row.execSeq === execSeq && row.authorSlotFrozen && !row.authorSlotReleased) {
+        await releaseAuthorSlotOrThrow(this.collabDoc, projectId, intentRowId);
+        this.logger.warn(`[author-slot] 意图 ${intentLogId} 重排再入补释放完成（releaseAttempts=${(job.data as { releaseAttempts?: number }).releaseAttempts}）`);
+        return { status: 'completed' };
+      }
+    }
 
     try {
       // 1. Resolve project team（Media 归属与积分同源）；缺失即 failed 不回落个人团队
@@ -181,6 +212,18 @@ export class AiImageEditProcessor extends WorkerHost {
           throw new Error(`Unknown taskType: ${taskType}`);
       }
 
+      // ── Y2 B2d（裁决 13——v2.3 现场槽≠冻结值判定）：call 前读槽——frozen=false（无作者键）或
+      //    现场≠冻结值（含清空）=整次交付作废（authorVoid 传入 finalize 作废臂）；两边皆空=相等走
+      //    胜臂。读槽失败（行仍 RUNNING）=本轮跳过零外呼零核销（次轮再试——不烧失败链）。 ──
+      let authorVoid = false;
+      try {
+        const slot = await this.collabDoc.readAuthorSlot(projectId, intentRowId);
+        authorVoid = !slot.frozen || slot.liveMediaId !== slot.authorMediaId;
+      } catch (e) {
+        this.logger.warn(`[author-slot] 意图 ${intentLogId} 读槽失败（本轮跳过）: ${(e as Error)?.message ?? e}`);
+        return { status: 'skipped', reason: 'AUTHOR_SLOT_READ_FAILED' };
+      }
+
       // 7-9.5 T10 产物落地+资金核销改道 ArtifactCommit 同步链（与 image 生成腿同构）：stage durable→
       //     SafeRemoteFetch 下载→sha/sniff→MinIO content-addressed 上传→finalize 单事务
       //     （NodeArtifact CAS〔claimCapture expectedRev〕+intent CAS+settleInTx+Media 提升/binding/投影）。
@@ -191,6 +234,7 @@ export class AiImageEditProcessor extends WorkerHost {
         intentRowId, execSeq, expectedRev: ticket!.expectedRev,
         sourceUrl: result.url,
         originalNameBase: `ai-edited-${nodeId}`,   // 质评收口 Minor#7：扩展名 sniff 终判分档
+        authorVoid,
       });
       if (committed.outcome === 'intent-stale') {
         this.logger.warn(`[artifact-commit] 意图 ${intentLogId} finalize intent-stale（行终态/换代）——跳过产物写入（外呼产物留作证）`);
@@ -198,20 +242,52 @@ export class AiImageEditProcessor extends WorkerHost {
       }
       const mediaId = committed.mediaId!;
 
+      // ── Y2 B2d（v2.10 新鲜出口）：仅 committed∧非 void → 释放（superseded/intent-stale 不释放
+      //    ——作者键保留）；release 先于 emit（失败上抛本层重排——禁 emit 假 done）。释放幂等=宿主
+      //    条件删键+置位（author-slot.service 顺序钉死）；成功即 authorSlotReleased=true。 ──
+      if (committed.outcome === 'committed' && !authorVoid) {
+        await releaseAuthorSlotOrThrow(this.collabDoc, projectId, intentRowId);
+      }
+
       // 10. T15 收口：doc 交付写移除——fileId 归 ArtifactProjection 投影 poller（finalize 已落 pending
       //     行；worker 通道 writeNodeData 已 403——旧 Z44 nodeAlive 守卫/typed 悬留计数面随直写退役，
       //     node 删除观察=poller apply 存在性守卫〔orphaned〕）。socket 仅进度通知（即时 UX）。
       //     O0b-2（终裁 59⑤）：AI data.{width,height} 键整删——AI 只写 fileId（尺寸由 web 内容事件
       //     路径决定——load/换图 contain-fit）。
+      //     Y2 B2d emit 收窄：仅 committed∧非 void 携 fileId（作废/未释放面不投递产物引用）。
       this.emitPort.emitNodeStatus(projectId, {
         nodeId,
         status: 'edit-result',
-        fileId: mediaId,
+        ...(committed.outcome === 'committed' && !authorVoid ? { fileId: mediaId } : {}),
       });
 
       this.logger.log(`Edit complete: ${mediaId}`);
-      return { status: 'completed', fileId: mediaId };
+      return { status: 'completed', fileId: committed.outcome === 'committed' && !authorVoid ? mediaId : undefined };
     } catch (error: any) {
+      // Y2 B2d（裁决 14）：释放失败专型首位识别——有上限重排（B2c execution.processor 同构）：
+      // moveToDelayed 不耗 attempts（Lua skipAttempt 不自增），releaseAttempts 独立计数 1s/5s/15s；
+      // <3 次=读-改-写 job.data **await 后** moveToDelayed+DelayedError（不 ack）+入口补释放臂承接
+      // 再入；≥3 次=completed（正常 return）+计数——对账补释放臂接管（不擅杀 job）。先于 FundsInvariant
+      // /代际 fence 判定（行已 SUCCEEDED——fail/void 代际 CAS 均 0 命中，失败链结构不可达）。
+      if (error instanceof AuthorSlotReleaseError && intentRowId) {
+        const n = ((job.data as { releaseAttempts?: number }).releaseAttempts ?? 0) + 1;
+        if (n <= 3) {
+          await job.updateData({ ...job.data, releaseAttempts: n }).catch(() => {});
+          this.logger.warn(JSON.stringify({ event: 'edit_job_release_delayed', jobId: job.id, projectId, releaseAttempts: n }));
+          try {
+            await job.moveToDelayed(Date.now() + (RELEASE_RETRY_DELAYS_MS[n - 1] ?? 15_000), job.token!);
+            throw new DelayedError('author slot release failed——moveToDelayed 重排补释放（Y2 B2d）');
+          } catch (moveErr) {
+            if (moveErr instanceof DelayedError) throw moveErr;   // moveToDelayed 成功——重排续跑
+          }
+          // moveToDelayed 失败（锁失守等）退回 ack——交对账补释放臂
+          authorSlotReleaseExhaustedTotal.inc();
+          return { status: 'completed' };
+        }
+        authorSlotReleaseExhaustedTotal.inc();
+        this.logger.error(JSON.stringify({ event: 'edit_job_release_exhausted', jobId: job.id, projectId, releaseAttempts: n }));
+        return { status: 'completed' };
+      }
       this.logger.error(`Edit failed: ${error.message}`, error.stack);
 
       // T9 旧代 fence：行已换代（takeover/rearm nextval 新代接管）——旧 job 失败静默退役：

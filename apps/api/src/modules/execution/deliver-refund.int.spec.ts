@@ -378,7 +378,13 @@ const agePastGrace = async (id: string) =>
     };
     const gateway: any = { emitNodeStatus: vi.fn() };
     const apiCaller: any = { callRelighting: vi.fn(async () => ({ url: 'https://ai/relit.png' })) };
-    const collabDoc: any = { writeNodeData: vi.fn(async () => ({ kind: 'business', written: true })), writeExecStatus: vi.fn(async () => {}) };
+    // Y2 B2d：读槽/释放面 stub（claim 占位 frozen:false——读槽胜臂恒 live=author=null 走 committed 释放）
+    const collabDoc: any = {
+      writeNodeData: vi.fn(async () => ({ kind: 'business', written: true })),
+      writeExecStatus: vi.fn(async () => {}),
+      readAuthorSlot: vi.fn(async () => ({ nodeId, kind: 'lighting', frozen: true, authorMediaId: null, liveMediaId: null })),
+      releaseAuthorSlot: vi.fn(async () => ({ released: true, deletedSlot: false, bindingStats: { upserted: 0, deleted: 0, noop: 0 } })),
+    };
     const { artifactCommit } = makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc);   // T10：lighting 全链 finalize（真资金链）
     const consumer = new LightingConsumer(
       prisma as unknown as PrismaService, minio, gateway, apiCaller,

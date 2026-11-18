@@ -93,6 +93,6 @@ import { REDIS_CLIENT, createManagedRedis } from '../../common/redis/managed-red
   // Y0c T25：拆分后 exports 扩三——VideoTrimService/VideoSeparateService（ExecutionHttpModule 的两
   // controller 消费）+ BullModule（队列 token 再导出——ExecutionController @InjectQueue(EXECUTION_QUEUE)
   // 解析面，ai-download.module exports:[BullModule] 同款先例）。
-  exports: [ExecutionService, ExecutionRequestService, ExecutionGateway, EmitPort, ApiCallerService, PricingResolverService, GenerationIntentService, VideoTrimService, VideoSeparateService, BullModule],   // Y1c T21：+ExecutionRequestService（Http 半 controller 注入面）
+  exports: [ExecutionService, ExecutionRequestService, ExecutionGateway, EmitPort, ApiCallerService, PricingResolverService, GenerationIntentService, VideoTrimService, VideoSeparateService, TopologyService, BullModule],   // Y1c T21：+ExecutionRequestService（Http 半 controller 注入面）// Y2 B2d 补漏：B2c 给 ExecutionController 加 TopologyService 注入时漏 exports——di-smoke（hasDb 档）红
 })
 export class ExecutionCoreModule {}

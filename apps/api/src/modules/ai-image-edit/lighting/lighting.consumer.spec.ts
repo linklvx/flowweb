@@ -55,6 +55,9 @@ describe('LightingConsumer', () => {
     collabDoc = { // T13 typed outcome：business 档（transient/permanent=悬留档）——交付判据改判别式
       writeNodeData: vi.fn().mockResolvedValue({ kind: 'business', written: true }),
       writeExecStatus: vi.fn().mockResolvedValue(undefined),   // F1 资金硬门：FUNDS_INVARIANT_VIOLATION error 投影写面（worker 侧唯一持久用户面）
+      // Y2 B2d：完成点读槽/释放消费面（stub——默认胜臂：frozen=true 现场=冻结值）
+      readAuthorSlot: vi.fn().mockResolvedValue({ nodeId: 'n1', kind: 'lighting', frozen: true, authorMediaId: 'm-author', liveMediaId: 'm-author' }),
+      releaseAuthorSlot: vi.fn().mockResolvedValue({ released: true, deletedSlot: true, bindingStats: { upserted: 0, deleted: 0, noop: 1 } }),
     };
     intentService = {
       complete: vi.fn().mockResolvedValue(1),
@@ -283,6 +286,82 @@ describe('LightingConsumer', () => {
       expect(emitMock).toHaveBeenCalledWith('proj-1', expect.objectContaining({
         nodeId: 'n1', status: 'lighting-failed',
       }));
+    });
+  });
+
+  // ══════════ Y2 B2d（裁决 13/14/16）：打光链接入作者槽链——完成点读槽→authorVoid 传参→
+  //    仅 committed 释放→emit 收窄→释放失败上抛 processor 重排（spec v2.10 e/k 条打光腿）══════════
+  describe('Y2 B2d：作者槽链（读槽三段+释放+emit 收窄）', () => {
+    const intent = { intentRowId: 'row-9', ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 } };
+
+    it('胜臂：现场=冻结值 → commitImage 携 authorVoid:false → committed → release → SUCCESS 回填+emit 携 fileId', async () => {
+      mockDownloadResult();
+      const r = await consumer.handleLightingJob(makeJob('proj-1', intent), {});
+      expect(collabDoc.readAuthorSlot).toHaveBeenCalledWith('proj-1', 'row-9');
+      expect(artifactCommit.commitImage).toHaveBeenCalledWith(expect.objectContaining({ authorVoid: false }));
+      expect(collabDoc.releaseAuthorSlot).toHaveBeenCalledWith('proj-1', 'row-9');
+      expect(prisma.lightingTask.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'success', resultMediaId: 'media-1' }) }));
+      expect(emitMock).toHaveBeenCalledWith('proj-1', expect.objectContaining({ status: 'lighting-result', fileId: 'media-1' }));
+      expect(r.status).toBe('completed');
+    });
+
+    it('用户已换图（现场≠冻结值）→ authorVoid:true 传入 + 零释放 + emit 不携 fileId/resultUrl', async () => {
+      collabDoc.readAuthorSlot.mockResolvedValueOnce({ nodeId: 'n1', kind: 'lighting', frozen: true, authorMediaId: 'm-author', liveMediaId: 'm-user-new' });
+      mockDownloadResult();
+      const r = await consumer.handleLightingJob(makeJob('proj-1', intent), {});
+      expect(artifactCommit.commitImage).toHaveBeenCalledWith(expect.objectContaining({ authorVoid: true }));
+      expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();   // 作废臂不删用户槽键
+      expect(emitMock).toHaveBeenCalledWith('proj-1', expect.objectContaining({ status: 'lighting-result' }));
+      expect(emitMock).not.toHaveBeenCalledWith('proj-1', expect.objectContaining({ status: 'lighting-result', fileId: expect.anything() }));
+      expect(r.status).toBe('completed');
+    });
+
+    it('读槽失败（行仍 RUNNING）→ 本轮跳过零核销（外呼已花是既定事实——次轮重试不烧失败链）', async () => {
+      collabDoc.readAuthorSlot.mockRejectedValueOnce(new Error('collab 503'));
+      const r = await consumer.handleLightingJob(makeJob('proj-1', intent), {});
+      expect(r.status).toBe('skipped');
+      expect(r.reason).toBe('AUTHOR_SLOT_READ_FAILED');
+      expect(artifactCommit.commitImage).not.toHaveBeenCalled();   // 零核销零交付（行仍 RUNNING——次轮再试）
+      expect(teamCredit.void_).not.toHaveBeenCalled();
+      expect(prisma.lightingTask.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'failed' }) }),
+      );
+    });
+
+    it('emit 收窄：superseded → 零释放 + SUCCESS 回填不带 resultMediaId 语义不变（产物已核销入素材库）+ emit 无 fileId', async () => {
+      artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'superseded', mediaId: 'media-x', key: 'generated/key' });
+      mockDownloadResult();
+      const r = await consumer.handleLightingJob(makeJob('proj-1', intent), {});
+      expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();   // 仅 committed 才释放
+      expect(emitMock).not.toHaveBeenCalledWith('proj-1', expect.objectContaining({ status: 'lighting-result', fileId: expect.anything() }));
+      expect(r.status).toBe('completed');
+    });
+
+    it('intent-stale → 零释放零 emit fileId（旧代产物不投递）', async () => {
+      artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'intent-stale' });
+      mockDownloadResult();
+      const r = await consumer.handleLightingJob(makeJob('proj-1', intent), {});
+      expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();
+      expect(emitMock).not.toHaveBeenCalledWith('proj-1', expect.objectContaining({ status: 'lighting-result', fileId: expect.anything() }));
+      expect(r.status).toBe('completed');
+    });
+
+    it('fail 路径（外呼失败）→ 零释放（无 committed=天然零释放）', async () => {
+      apiCaller.callRelighting.mockRejectedValueOnce(new Error('relight down'));
+      mockDownloadResult();
+      await expect(consumer.handleLightingJob(makeJob('proj-1', intent), {})).rejects.toThrow('relight down');
+      expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();
+    });
+
+    it('释放失败（AuthorSlotReleaseError 上抛）→ processor 重排识别（本层不吞不降级——B2c execution 链同构）', async () => {
+      collabDoc.releaseAuthorSlot.mockRejectedValueOnce(new Error('collab write port permanent: 500'));
+      mockDownloadResult();
+      await expect(consumer.handleLightingJob(makeJob('proj-1', intent), {}))
+        .rejects.toThrow('AUTHOR_SLOT_RELEASE_FAILED');
+      // 释放失败禁走失败链（不 void_/不置 LightingTask FAILED——行已 SUCCEEDED）
+      expect(teamCredit.void_).not.toHaveBeenCalled();
+      const failedUpdates = prisma.lightingTask.update.mock.calls.filter((c: any[]) => (c[0] as any)?.data?.status === 'failed');
+      expect(failedUpdates).toHaveLength(0);
     });
   });
 });

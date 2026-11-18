@@ -10,6 +10,9 @@ import * as Y from 'yjs';
 import { CollabDocumentService } from '../../collab/collab-document.service';
 import { WorkerPresenceService } from '../../worker-presence/worker-presence.service';
 import { QUEUE_NAMES } from '../../../config/queue.constants';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { EmitPort } from '../../gateway/emit.port';
+import { AuthorSlotService } from '../../collab/author-slot.service';
 
 // T7：SV 支配门夹具——客户端/服务端同 doc ⇒ 支配成立
 const svDoc = new Y.Doc();
@@ -24,6 +27,10 @@ describe('LightingController', () => {
   let collabSvc: { readServerSV: ReturnType<typeof vi.fn>; readCanvas: ReturnType<typeof vi.fn> };
   let intentSvc: any;
   let presence: { assertAdmittable: ReturnType<typeof vi.fn> };
+  // Y2 B2d：受理回放两档依赖（!created → 作废键等值查+补释放+emit）
+  let prismaMock: { artifactProjection: { findUnique: ReturnType<typeof vi.fn> } };
+  let emitMock: ReturnType<typeof vi.fn>;
+  let authorSlotMock: { releaseAuthorSlot: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     service = {
@@ -51,6 +58,10 @@ describe('LightingController', () => {
     };
     // Y0c T29-II（Z148②）：worker 准入门依赖（默认放行——单进程拓扑常态，裁决①）
     presence = { assertAdmittable: vi.fn().mockResolvedValue(undefined) };
+    // Y2 B2d：回放两档依赖（默认=作废键未命中即正常档；各用例 mockResolvedValueOnce 覆写）
+    prismaMock = { artifactProjection: { findUnique: vi.fn().mockResolvedValue(null) } };
+    emitMock = vi.fn();
+    authorSlotMock = { releaseAuthorSlot: vi.fn().mockResolvedValue({ released: true, deletedSlot: true, bindingStats: { upserted: 0, deleted: 0, noop: 1 } }) };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [LightingController],
@@ -61,6 +72,9 @@ describe('LightingController', () => {
         { provide: PricingResolverService, useValue: resolver },
         { provide: CollabDocumentService, useValue: collabSvc },
         { provide: WorkerPresenceService, useValue: presence },
+        { provide: PrismaService, useValue: prismaMock },
+        { provide: EmitPort, useValue: { emitNodeStatus: emitMock } },
+        { provide: AuthorSlotService, useValue: authorSlotMock },
       ],
     }).compile();
 
@@ -273,5 +287,47 @@ describe('LightingController', () => {
       projectId: 'proj1', nodeId: 'node1', params: { position: { x: 0, y: 0, z: 6 }, brightness: 10 }, stateVector: SV_OK,
     } as any, { user: { id: 'u1' } } as any);
     expect(intentSvc.claim).toHaveBeenCalledWith(expect.objectContaining({ authorSlotFrozen: true, authorMediaId: 'm-author' }));
+  });
+
+  // ══════════ Y2 B2d（裁决 13）：受理回放两档（!created → 同代作废键等值查询——
+  //    命中=emit done 不带 fileId 零释放 / 未命中=带 fileId+releaseAuthorSlot 补释放）══════════
+  describe('Y2 B2d：!created 受理回放两档', () => {
+    const replayBody = {
+      nodeId: 'node-1',
+      projectId: 'proj-1',
+      originalImageId: 'media-src',
+      regenToken: 'client-int-1',
+      stateVector: SV_OK,
+      params: { position: { x: 0, y: 0, z: 6 }, brightness: 50, colorTemperature: 5600, rimLight: false },
+    };
+
+    beforeEach(() => {
+      intentSvc.claim.mockResolvedValue({
+        created: false,
+        intent: { id: 'row-1', intentId: 'i-1', execSeq: 1n, status: 'SUCCEEDED', resultRef: 'media-old' },
+      });
+    });
+
+    it('作废键命中（该代交付已作废）→ emit done 不带 fileId + 零释放 + 零 createTask', async () => {
+      prismaMock.artifactProjection.findUnique.mockResolvedValueOnce({ artifactId: 'author-void:row-1:1' });
+      const result = await controller.createTask(replayBody as any, mockReq());
+      expect(service.createTask).not.toHaveBeenCalled();
+      expect(prismaMock.artifactProjection.findUnique).toHaveBeenCalledWith({
+        where: { artifactId_artifactRev: { artifactId: 'author-void:row-1:1', artifactRev: 0 } },
+      });
+      expect(emitMock).toHaveBeenCalledWith('proj-1', expect.objectContaining({ nodeId: 'node-1', status: 'done' }));
+      expect(emitMock).not.toHaveBeenCalledWith('proj-1', expect.objectContaining({ status: 'done', fileId: expect.anything() }));
+      expect(authorSlotMock.releaseAuthorSlot).not.toHaveBeenCalled();
+      expect(result).toEqual({ replayed: true, resultRef: 'media-old' });
+    });
+
+    it('作废键未命中（正常成功交付）→ emit done 带 fileId + releaseAuthorSlot 补释放', async () => {
+      prismaMock.artifactProjection.findUnique.mockResolvedValueOnce(null);
+      const result = await controller.createTask(replayBody as any, mockReq());
+      expect(authorSlotMock.releaseAuthorSlot).toHaveBeenCalledWith('proj-1', 'row-1');
+      expect(emitMock).toHaveBeenCalledWith('proj-1', expect.objectContaining({ status: 'done', fileId: 'media-old' }));
+      expect(service.createTask).not.toHaveBeenCalled();
+      expect(result).toEqual({ replayed: true, resultRef: 'media-old' });
+    });
   });
 });

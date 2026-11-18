@@ -60,6 +60,9 @@ describe('AiImageEditProcessor', () => {
     collabDoc = { // T13 typed outcome：business 档（transient/permanent=悬留档）——交付判据改判别式
       writeNodeData: vi.fn().mockResolvedValue({ kind: 'business', written: true }),
       writeExecStatus: vi.fn().mockResolvedValue(undefined),
+      // Y2 B2d：完成点读槽/释放消费面（stub——默认胜臂：frozen=true 现场=冻结值）
+      readAuthorSlot: vi.fn().mockResolvedValue({ nodeId: 'node1', kind: 'outpaint', frozen: true, authorMediaId: 'm-author', liveMediaId: 'm-author' }),
+      releaseAuthorSlot: vi.fn().mockResolvedValue({ released: true, deletedSlot: true, bindingStats: { upserted: 0, deleted: 0, noop: 1 } }),
     };
     // T10：commitImage=stage→下载→上传→finalize 单事务的 stub 面（默认 committed——mediaId 锚 media-new）
     artifactCommit = {
@@ -398,14 +401,18 @@ describe('AiImageEditProcessor', () => {
       expect(result.status).toBe('completed'); // job 本身成功——产物留作物证，仅不投递
     });
 
-    it('T10 资金独立判：finalize superseded → 照常 completed+emit，doc 不覆盖用户值（writeNodeData 零调用）', async () => {
+    it('T10 资金独立判：finalize superseded → 照常 completed，doc 不覆盖用户值（writeNodeData 零调用；Y2 B2d emit 收窄——superseded 不携 fileId 零释放）', async () => {
       artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'superseded', mediaId: 'media-x' });
       mockResult();
       const result = await processor.process(makeIntentJob());
       expect(collabDoc.writeNodeData).not.toHaveBeenCalled();   // 用户在飞替换值保留
+      expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();   // Y2 B2d：仅 committed 才释放
       expect(gateway.emitNodeStatus).toHaveBeenCalledWith(
-        'proj1', expect.objectContaining({ status: 'edit-result', fileId: 'media-x' }),
+        'proj1', expect.objectContaining({ status: 'edit-result' }),
       );
+      expect(gateway.emitNodeStatus).not.toHaveBeenCalledWith(
+        'proj1', expect.objectContaining({ status: 'edit-result', fileId: expect.anything() }),
+      );   // Y2 B2d emit 收窄：作废/未释放面不投递产物引用
       expect(result.status).toBe('completed');
     });
 
@@ -481,6 +488,115 @@ describe('AiImageEditProcessor', () => {
       expect(gateway.emitNodeStatus).toHaveBeenCalledWith('proj1', expect.objectContaining({
         nodeId: 'node1', status: 'edit-failed',
       }));
+    });
+  });
+
+  // ══════════ Y2 B2d（裁决 13/14/16）：AI 编辑链接入作者槽链——完成点读槽→authorVoid 传参→
+  //    仅 committed 释放→emit 收窄→释放失败有上限重排（B2c execution 链同构；spec v2.10 e/k 条）══════════
+  describe('Y2 B2d：作者槽链（读槽三段+释放+emit 收窄+有上限重排）', () => {
+    const makeSlotJob = () =>
+      ({
+        data: {
+          taskType: 'outpaint',
+          userId: 'user1',
+          projectId: 'proj1',
+          nodeId: 'node1',
+          fileId: 'file-1',
+          rect: { x: 0, y: 0, width: 512, height: 512 },
+          imageWidth: 512,
+          imageHeight: 512,
+          intentRowId: 'row-9',
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 },
+        },
+      }) as any as Job & { data: Record<string, unknown>; moveToDelayed: ReturnType<typeof vi.fn>; updateData: ReturnType<typeof vi.fn>; token: string };
+
+    // 下载成功夹具（外层 describe 的 mockResult 作用域不可达——本块直设 safeFetch 等价）
+    const mockDownload = () => {
+      safeFetch.fetchBuffer.mockResolvedValue({ buffer: Buffer.from('fake-image-data'), contentType: 'image/png' });
+    };
+
+    it('A 挡 B 修复主红测（spec e 条 v3）：节点已有 mediaId（受理冻结=现场）→ 完成点读槽→commitImage 携 authorVoid:false→committed→release 删旧键→emit 携新产物 fileId', async () => {
+      mockDownload();
+      const result = await processor.process(makeSlotJob());
+      expect(result.status).toBe('completed');
+      // 三段之一：完成点读槽（release 判据=冻结值 vs 现场——不读受理时点缓存）
+      expect(collabDoc.readAuthorSlot).toHaveBeenCalledWith('proj1', 'row-9');
+      // 三段之二：authorVoid 传参（胜臂 false——现场=冻结值）
+      expect(artifactCommit.commitImage).toHaveBeenCalledWith(expect.objectContaining({ authorVoid: false }));
+      // 三段之三：仅 committed 且非 void 才释放（经端口进程内直调——worker 形态 HMAC）
+      expect(collabDoc.releaseAuthorSlot).toHaveBeenCalledWith('proj1', 'row-9');
+      expect(gateway.emitNodeStatus).toHaveBeenCalledWith('proj1', expect.objectContaining({ status: 'edit-result', fileId: 'media-new' }));
+    });
+
+    it('用户已换图（现场≠冻结值）→ authorVoid 传入 commitImage（作废臂——不删用户槽）→ 零释放 + emit 不携 fileId', async () => {
+      collabDoc.readAuthorSlot.mockResolvedValueOnce({ nodeId: 'node1', kind: 'outpaint', frozen: true, authorMediaId: 'm-author', liveMediaId: 'm-user-new' });
+      mockDownload();
+      const result = await processor.process(makeSlotJob());
+      expect(artifactCommit.commitImage).toHaveBeenCalledWith(expect.objectContaining({ authorVoid: true }));
+      expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();   // 作废臂不删用户槽键
+      expect(gateway.emitNodeStatus).toHaveBeenCalledWith('proj1', expect.objectContaining({ status: 'edit-result' }));
+      expect(gateway.emitNodeStatus).not.toHaveBeenCalledWith('proj1', expect.objectContaining({ status: 'edit-result', fileId: expect.anything() }));
+      expect(result.status).toBe('completed');
+    });
+
+    it('读槽失败（行仍 RUNNING）→ 本轮跳过零核销（外呼已花是既定事实——次轮重试不烧失败链）', async () => {
+      collabDoc.readAuthorSlot.mockRejectedValueOnce(new Error('collab 503'));
+      const result = await processor.process(makeSlotJob());
+      expect(result.status).toBe('skipped');
+      expect(result.reason).toBe('AUTHOR_SLOT_READ_FAILED');
+      expect(artifactCommit.commitImage).not.toHaveBeenCalled();   // 零核销零交付（行仍 RUNNING——次轮再试）
+      expect(teamCredit.void_).not.toHaveBeenCalled();
+      expect(intentService.fail).not.toHaveBeenCalled();
+    });
+
+    it('emit 收窄：superseded → 零释放+emit 无 fileId', async () => {
+      artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'superseded', mediaId: 'media-x' });
+      mockDownload();
+      const result = await processor.process(makeSlotJob());
+      expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();   // 仅 committed 才释放
+      expect(gateway.emitNodeStatus).not.toHaveBeenCalledWith('proj1', expect.objectContaining({ status: 'edit-result', fileId: expect.anything() }));
+      expect(result.status).toBe('completed');
+    });
+
+    it('intent-stale → 零释放零 emit fileId（旧代产物不投递）', async () => {
+      artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'intent-stale' });
+      mockDownload();
+      const result = await processor.process(makeSlotJob());
+      expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();
+      expect(gateway.emitNodeStatus).not.toHaveBeenCalledWith('proj1', expect.objectContaining({ status: 'edit-result', fileId: expect.anything() }));
+      expect(result.status).toBe('completed');
+    });
+
+    it('fail 路径（外呼失败置 FAILED）→ 零释放（fail/enqueue 失败无 committed=天然零释放）', async () => {
+      apiCaller.callOutpainting.mockRejectedValueOnce(new Error('AI down'));
+      await expect(processor.process(makeSlotJob())).rejects.toThrow('AI down');
+      expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();
+    });
+
+    it('释放失败（AuthorSlotReleaseError）→ 有上限重排：releaseAttempts 计入 job.data+moveToDelayed+DelayedError 不 ack', async () => {
+      collabDoc.releaseAuthorSlot.mockRejectedValueOnce(new Error('collab write port permanent: 500'));
+      mockDownload();
+      const job = makeSlotJob();
+      job.moveToDelayed = vi.fn().mockResolvedValue(undefined);
+      job.updateData = vi.fn().mockResolvedValue(undefined);
+      job.token = 'tok';
+      job.id = 'job-9';
+      await expect(processor.process(job)).rejects.toThrow();   // DelayedError 形态（moveToDelayed 重排续跑）
+      expect(job.updateData).toHaveBeenCalledWith(expect.objectContaining({ releaseAttempts: 1 }));
+      expect(job.moveToDelayed).toHaveBeenCalledWith(expect.any(Number), 'tok');
+    });
+
+    it('重排再入（releaseAttempts≥1，行已 SUCCEEDED∧未释放）→ 入口补释放臂直达释放+completed（编辑链无 claim 回放臂——重排 job 需自持补释放）', async () => {
+      prisma.generationIntent.findUnique.mockResolvedValueOnce({
+        status: 'SUCCEEDED', execSeq: 9n, authorSlotFrozen: true, authorSlotReleased: false,
+      });
+      const job = makeSlotJob();
+      (job.data as any).releaseAttempts = 1;
+      const result = await processor.process(job);
+      expect(collabDoc.releaseAuthorSlot).toHaveBeenCalledWith('proj1', 'row-9');
+      expect(result.status).toBe('completed');
+      expect(apiCaller.callOutpainting).not.toHaveBeenCalled();   // 已核销行零重外呼
+      expect(teamCredit.reserve).not.toHaveBeenCalled();
     });
   });
 });

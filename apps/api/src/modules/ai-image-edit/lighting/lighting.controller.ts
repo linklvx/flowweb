@@ -12,6 +12,10 @@ import { CollabDocumentService } from '../../collab/collab-document.service';
 import { assertSyncAdmitted } from '../../collab/sync-admission';
 import { WorkerPresenceService } from '../../worker-presence/worker-presence.service';
 import { QUEUE_NAMES } from '../../../config/queue.constants';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { EmitPort } from '../../gateway/emit.port';
+import { AuthorSlotService } from '../../collab/author-slot.service';
+import { authorVoidProjectionKey } from '../../artifact-core/artifact-commit.service';
 import type { ExecutionTicket } from '../../execution/execution.types';
 
 @Controller('api/image-edit/lighting')
@@ -25,6 +29,10 @@ export class LightingController {
     // Y0c T29-II（Z148②）：付费队列 enqueue fail-closed 门（当前单进程拓扑下 registered 恒≥1、
     // 门不可实际触发——T30 补 processor 注册门后自动生效，见 worker-presence.service.ts 裁决①注释）
     @Inject(WorkerPresenceService) private readonly presence: WorkerPresenceService,
+    // Y2 B2d：受理回放两档依赖（!created → 作废键等值查+补释放+emit——B2c execution 回放臂同构）
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(EmitPort) private readonly emitPort: EmitPort,
+    @Inject(AuthorSlotService) private readonly authorSlot: AuthorSlotService,
   ) {}
 
   @Post('tasks')
@@ -68,7 +76,24 @@ export class LightingController {
       authorMediaId,
     });
     if (!created) {
-      // SUCCEEDED 幂等重放——零 enqueue 零扣费，回放既有产物引用
+      // SUCCEEDED 幂等重放——零 enqueue 零扣费。Y2 B2d（v2.10 回放臂两档）：先查同代作废键——
+      // 命中=该代交付已作废 ⇒ emit done 不带 fileId+零释放；未命中=正常成功交付 ⇒ 带 fileId
+      // +releaseAuthorSlot 幂等补释放（提交后崩溃窗=release 补上）。
+      const voidKey = authorVoidProjectionKey(intent.id, intent.execSeq);
+      let voidRow: unknown = null;
+      try {
+        voidRow = await this.prisma.artifactProjection.findUnique({
+          where: { artifactId_artifactRev: { artifactId: voidKey, artifactRev: 0 } },
+        });
+      } catch {
+        voidRow = null;
+      }
+      if (voidRow) {
+        this.emitPort.emitNodeStatus(body.projectId, { nodeId: body.nodeId, status: 'done' });
+      } else {
+        await this.authorSlot.releaseAuthorSlot(body.projectId, intent.id);
+        this.emitPort.emitNodeStatus(body.projectId, { nodeId: body.nodeId, status: 'done', fileId: intent.resultRef ?? undefined });
+      }
       return { replayed: true, resultRef: intent.resultRef };
     }
     // Y1c T23 收口 I-1(spec)：M-5 补接线——claim 后 NodeExecution 观测写（统一锚
