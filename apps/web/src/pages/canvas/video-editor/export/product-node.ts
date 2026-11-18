@@ -20,7 +20,7 @@ export function createProductNode(editNodeId: string, videoProjectId: string, fi
   ).length;
   const position = { x: editNode.position.x + sw + GAP + count * PRODUCT_STEP, y: editNode.position.y };
   const label = `${projectTitle} · 导出 ${count + 1}`;
-  const nodeId = addNode(NODE_TYPES.VIDEO_GEN, position, { origin: 'video-edit', videoProjectId, status: 'done', fileId, label });
+  const nodeId = addNode(NODE_TYPES.VIDEO_GEN, position, { origin: 'video-edit', videoProjectId, mediaId: fileId, label });   // Y2 B3：导出产物=作者放置只写 mediaId
   addEdge(editNodeId, nodeId, undefined, undefined, autoOutEdgeId(editNodeId, nodeId));
   return nodeId;
 }

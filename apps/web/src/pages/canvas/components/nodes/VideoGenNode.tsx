@@ -31,7 +31,7 @@ import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS } from '@/utils/resizeUtils';
 // 服务端 ffprobe 固有尺寸；DOM 未加载也可定尺寸，display 契约后到同值幂等）
 import { calcConstrainedSize, ratioDimensions, applyIntrinsicFit, type SizeBounds } from '@flowweb/shared';
 // B6-1（Spec B）：handle 可用性单源谓词——videoGen 现状保留（无 editMode 门、双侧常开=谓词默认分支）
-import { getAvailableHandles } from '@flowweb/shared';
+import { getAvailableHandles, resolvePrimaryMediaId } from '@flowweb/shared';
 import { reportNodeSize } from '@/stores/canvasIntents';
 // Y1c T22 收口批（C-2）：runtime 投影 artifact 槽 overlay 读径（ImageGenNode 同型四节点族）
 import { runtimeMediaIdOf } from '@/stores/runtimeStore';
@@ -52,7 +52,8 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
   const isSingleSelected = useIsSingleSelected(selected);
   // 批1-6（B2）：执行状态合并视图（exec 投影 → data.status；终态优先不回退）
   const status = useNodeStore((s) => selectExecStatus(s, id));
-  const fileId = nodeData?.fileId;
+  // Y2 B3：主槽判定改 resolvePrimaryMediaId（fileId||referenceVideo 三处退役——读面单源）
+  const fileId = resolvePrimaryMediaId({ type, data: nodeData ?? {} }, runtimeMediaIdOf(id));
   const referenceVideo = nodeData?.referenceVideo;
   // R2b-5：onError 自愈直通 <video>——展示哪个 hook 的 url 就传哪个的 onError（displayUrl 优先级与之一致）
   // T22 C-2 读径=runtime 投影 artifact.mediaId（exec.artifact overlay）——T32 删码：doc 残留 fileId
@@ -139,7 +140,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
   }, [id]);
 
   const handleConfirmTrim = useCallback(async (start: number, end: number) => {
-    const targetFileId = fileId || referenceVideo;
+    const targetFileId = fileId;   // Y2 B3：解析值（含 referenceVideo 回落——resolvePrimaryMediaId 单源）
     if (!targetFileId) return;
 
     // Persist the user's trim selection to nodeStore
@@ -168,10 +169,10 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
   useEffect(() => {
     if (trimStatus.status === 'done' && trimTaskId && trimStatus.outputFileId) {
       // Create a new child video node with the trimmed result
+      // Y2 B3（裁决 15）：裁剪结果=新节点作者放置——data 只写 mediaId（=产物 id），不写 status/fileId
       useCanvasStore.getState().addChildNode(id, {
-        fileId: trimStatus.outputFileId,
+        mediaId: trimStatus.outputFileId,
         model: nodeData?.model, // Y0b-1（四轮 Z30/P0-6）：删 'hyvideo-v1.5' 字面量兜底——缺模型走 MODEL_NOT_SELECTED
-        status: 'done',
         ratio: nodeData?.ratio ?? '16:9',
       });
 
@@ -195,9 +196,8 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
       const newNodeIds = useCanvasStore.getState().addChildNodes(id, [
         {
           data: {
-            fileId: videoFileId,
+            mediaId: videoFileId,   // Y2 B3（裁决 15）：分离产物=作者放置只写 mediaId
             model: nodeData?.model, // Y0b-1（四轮 Z30/P0-6）：删 'hyvideo-v1.5' 字面量兜底
-            status: 'done',
             ratio: nodeData?.ratio ?? '16:9',
             label: `${sourceTitle}-无音频`,
           },
@@ -207,8 +207,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
         },
         {
           data: {
-            fileId: audioFileId,
-            status: 'done',
+            mediaId: audioFileId,   // Y2 B3：audio 子节点无 model/ratio 不对称保留
             label: `${sourceTitle}-分离音频`,
           },
           gridRow: 1,
@@ -250,7 +249,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
   }, []);
 
   const handleDownload = useCallback(async () => {
-    const targetFileId = fileId || referenceVideo;
+    const targetFileId = fileId;   // Y2 B3：解析值（含 referenceVideo 回落——resolvePrimaryMediaId 单源）
     if (!targetFileId) return;
     // R2b-2：下载统一走 downloadMediaFile（url 优先/fileId 自愈/60s 延迟 revoke/失败 message.error——window.open 兜底移除）
     await downloadMediaFile({
@@ -363,16 +362,12 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
   const titleText = label || 'Video';
 
   // Real-time video generation status updates — 订阅 /execution 单例（连接/join/credits 转发归单例与 page 生命周期）
+  // Y2 B3：socket 状态回填退役——data.status/fileId 均禁键（交付唯一 owner=服务端投影 poller；
+  // 本订阅面清空=纯执行提示通道归 execStatusView 投影）。
   useEffect(() => {
     const off = subscribeNodeStatus((data) => {
       if (data.nodeId !== id) return;
-      if (data.status === 'loading') {
-        useNodeStore.getState().setStatus(id, 'loading');
-      } else if (data.status === 'done' && data.fileId) {
-        useNodeStore.getState().setFileResult(id, data.fileId);
-      } else if (data.status === 'error') {
-        useNodeStore.getState().setStatus(id, 'error');
-      }
+      void data;
     });
     return off;
   }, [id]);
@@ -441,8 +436,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
       };
 
       const newNodeId = store.addNode(NODE_TYPES.IMAGE_GEN, position, {
-        fileId,
-        status: 'done',
+        mediaId: fileId,   // Y2 B3（裁决 15）：截帧产物=作者放置只写 mediaId
       });
 
       store.addEdge(id, newNodeId);
@@ -466,7 +460,7 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
   const handleAudioSeparate = useCallback(async (type: 'vocal' | 'background' | 'split') => {
     if (type !== 'split') return;
 
-    const targetFileId = fileId || referenceVideo;
+    const targetFileId = fileId;   // Y2 B3：解析值（含 referenceVideo 回落——resolvePrimaryMediaId 单源）
     if (!targetFileId) return;
 
     setAudioSeparatingType(type);

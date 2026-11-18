@@ -22,7 +22,7 @@ const readWriteSession = () =>
   useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
 
 const seedNode = () => {
-  useNodeStore.getState().addNode({ id: 'n1', type: 'imageGen', data: { model: 'm0', status: 'idle' } as any });
+  useNodeStore.getState().addNode({ id: 'n1', type: 'imageGen', data: { model: 'm0' } as any });   // Y2 B3：status 禁键不入播种
   useCanvasStore.setState((s) => ({
     nodes: [...s.nodes.filter((n: any) => n.id !== 'n1'), { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any],
   }));
@@ -30,7 +30,7 @@ const seedNode = () => {
   // readOnly 用例 canEdit 早退在 dispatch 之前，doc 在位不受影响
   const doc = new Y.Doc();
   doc.transact(() => {
-    const dm = new Y.Map(); dm.set('model', 'm0'); dm.set('status', 'idle');
+    const dm = new Y.Map(); dm.set('model', 'm0');   // Y2 B3：status 禁键不入 doc 播种
     const n = new Y.Map(); n.set('type', 'imageGen'); n.set('data', dm);
     doc.getMap('nodes').set('n1', n);
   });
@@ -84,22 +84,23 @@ describe('批2-2 第二层：applyNodeDataPatch（ns 内容写收口 wrapper）'
   });
 
   it('②toast 节流：异节点不共享节流窗', () => {
-    useNodeStore.getState().addNode({ id: 'n2', type: 'imageGen', data: { status: 'idle' } as any });
+    useNodeStore.getState().addNode({ id: 'n2', type: 'imageGen', data: {} as any });   // Y2 B3：status 禁键不入播种
     useNodeStore.getState().applyNodeDataPatch('n1', { model: 'a' });
     useNodeStore.getState().applyNodeDataPatch('n2', { model: 'b' });
     expect(warnSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('③rw 等价现 setState 行为：merge 保留既有键 + 白名单键（fileId/status）桥接 cs', () => {
+  it('③rw 等价现 setState 行为：merge 保留既有键 + mediaId 作者键（Y2 B3：fileId/status 均禁键）', () => {
     readWriteSession();
-    useNodeStore.getState().applyNodeDataPatch('n1', { fileId: 'f-1', status: 'done' });
-    // Y2 A2b：fileId=服务端权威域（CLIENT_FORBIDDEN_ON_UPDATE）——doc 禁写不落 ⇒ ns=doc 快照无此键
-    // Y2 A3：cs 桥镜像退役——cs=作者缓存恒 doc 面（fileId 禁写即不落 cs；B3 拆桥终态语义）
+    useNodeStore.getState().applyNodeDataPatch('n1', { mediaId: 'f-1' });
+    // Y2 A3+B3：fileId/status 禁键——doc 禁写不落 ⇒ ns=doc 快照无此键；cs=作者缓存≡doc
+    expect(nsData().mediaId).toBe('f-1');                   // Y2 B3：mediaId=作者键（doc 落⇒ns 落）
     expect(nsData().fileId).toBeUndefined();
-    expect(nsData().status).toBe('done');
+    expect(nsData().status).toBeUndefined();
     expect(nsData().model).toBe('m0');                      // 既有键保留（等价 {...data, ...patch}）
-    expect((csNode().data as any).fileId).toBeUndefined();  // 不镜像（doc 无此键——作者缓存≡doc）
-    expect((csNode().data as any).status).toBe('done');
+    expect((csNode().data as any).mediaId).toBe('f-1');
+    expect((csNode().data as any).fileId).toBeUndefined();
+    expect((csNode().data as any).status).toBeUndefined();
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
@@ -116,26 +117,9 @@ describe('批2-2 第二层：applyNodeDataPatch（ns 内容写收口 wrapper）'
     expect((csNode().data as any).mediaUrl).toBeUndefined(); // 已从 CANVAS_BRIDGE_KEYS 移除
   });
 
-  it('④setFileResult（AI 落地）readOnly：本地 UI 照常维护（T11 降本地 UI——零 doc 写结构保证，本地渲染态非写路径）', () => {
-    // Y1a T11（spec Z11''②）：socket done 降级本地 UI——applyDataPatchToStores 直写双 store不经
-    // 意图漏斗 ⇒ readOnly 无「先改后回弹」问题（零 doc 写；doc 收敛归服务端写经 Yjs 回流）
-    useNodeStore.getState().setFileResult('n1', 'file-9');
-    expect(nsData().fileId).toBe('file-9');
-    expect(nsData().status).toBe('done');
-    expect((csNode().data as any).fileId).toBe('file-9');
-    expect((csNode().data as any).status).toBe('done');
-  });
-
-  it('⑤setFileResult rw 等价旧行为：ns fileId+status done + cs 桥', () => {
-    readWriteSession();
-    useNodeStore.getState().setFileResult('n1', 'file-9');
-    expect(nsData().fileId).toBe('file-9');
-    expect(nsData().status).toBe('done');
-    expect((csNode().data as any).fileId).toBe('file-9');
-    expect((csNode().data as any).status).toBe('done');
-  });
-
-  it('④readOnly 幽灵节点不抛（门先行早退——既有 no-throw 契约保持）', () => {
-    expect(() => useNodeStore.getState().setFileResult('ghost', 'f')).not.toThrow();
+  // Y2 B3：setFileResult 整体退役——socket done 零本地回填（fileId/status 禁键；
+  // 交付唯一 owner=服务端投影 poller；本组三测试随 action 退役合并为桥白名单收口形态）
+  it('Y2 B3：applyNodeDataPatch readOnly 早退（本地 UI 不写——门先行契约保持）', () => {
+    expect(() => useNodeStore.getState().applyNodeDataPatch('ghost', { mediaId: 'f' })).not.toThrow();
   });
 });

@@ -41,7 +41,7 @@ describe('批2-3 R20：生成回调异步落地 canEdit 门（addChildNode/addCh
   });
 
   it('canEdit 假（无会话）：addChildNode 静默 null——节点/边零加入 + toast 指引素材库', () => {
-    const ret = useCanvasStore.getState().addChildNode('src1', { fileId: 'f1', status: 'done' });
+    const ret = useCanvasStore.getState().addChildNode('src1', { mediaId: 'f1' });
     expect(ret).toBeNull();
     expect(useCanvasStore.getState().nodes).toHaveLength(1); // 仅种子源节点
     expect(useCanvasStore.getState().edges).toHaveLength(0);
@@ -51,15 +51,15 @@ describe('批2-3 R20：生成回调异步落地 canEdit 门（addChildNode/addCh
 
   it('canEdit 假（未水合 pending 窗口）：同拒——canEdit 合取判据', () => {
     pendingSession();
-    const ret = useCanvasStore.getState().addChildNode('src1', { fileId: 'f1', status: 'done' });
+    const ret = useCanvasStore.getState().addChildNode('src1', { mediaId: 'f1' });
     expect(ret).toBeNull();
     expect(useCanvasStore.getState().nodes).toHaveLength(1);
   });
 
   it('canEdit 假：addChildNodes 静默 []——零节点零边 + toast 一次（批量单弹）', () => {
     const ret = useCanvasStore.getState().addChildNodes('src1', [
-      { data: { fileId: 'f1', status: 'done' }, gridRow: 0, gridCol: 0 },
-      { data: { fileId: 'f2', status: 'done' }, gridRow: 0, gridCol: 1 },
+      { data: { mediaId: 'f1' }, gridRow: 0, gridCol: 0 },
+      { data: { mediaId: 'f2' }, gridRow: 0, gridCol: 1 },
     ]);
     expect(ret).toEqual([]);
     expect(useCanvasStore.getState().nodes).toHaveLength(1);
@@ -74,7 +74,7 @@ describe('批2-3 R20：生成回调异步落地 canEdit 门（addChildNode/addCh
     const d = new Y.Doc();
     _setIntentDocForTest(d);
     fillDoc(d, [{ id: 'src1', type: 'imageGen', position: { x: 0, y: 0 }, data: {} } as any], []);   // Y2 A3：doc 同步播种（漏斗尾快照以 doc 收口——直播 cs 不播会被刷没）
-    const ret = useCanvasStore.getState().addChildNode('src1', { fileId: 'f1', status: 'done' });
+    const ret = useCanvasStore.getState().addChildNode('src1', { mediaId: 'f1' });
     expect(typeof ret).toBe('string');
     expect(useCanvasStore.getState().nodes.find((n: any) => n.id === ret)).toBeDefined();
     expect(useCanvasStore.getState().edges).toHaveLength(1);
@@ -85,7 +85,7 @@ describe('批2-3 R20：生成回调异步落地 canEdit 门（addChildNode/addCh
     readWriteSession();
     _setIntentDocForTest(new Y.Doc());   // 同上——exists 收口后投影恒 append 的会话前提
     const ret = useCanvasStore.getState().addChildNodes('src1', [
-      { data: { fileId: 'f1', status: 'done' }, gridRow: 0, gridCol: 0 },
+      { data: { mediaId: 'f1' }, gridRow: 0, gridCol: 0 },
     ]);
     expect(ret).toHaveLength(1);
     expect(useCanvasStore.getState().nodes.find((n: any) => n.id === ret[0])).toBeDefined();

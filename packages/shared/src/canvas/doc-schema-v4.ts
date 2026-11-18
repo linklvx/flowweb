@@ -128,7 +128,8 @@ export const DOC_SCHEMA_V4: Record<
   imageGen: {
     envelope: NODE_ENVELOPE_KEYS,
     data: {
-      fileId: forbidden(), // v3 服务端产物域——v4 禁入（真值=NodeArtifact PG+投影）
+      fileId: forbidden(), // v3 服务端产物域——v4 禁入（真值=NodeArtifact PG+投影）；C1 翻禁前过渡保留
+      mediaId: mediaLww(), // Y2 B3：作者键（放置/生成替代写 data.mediaId——受理读槽/projectCanvas 主槽单源）
       referenceImage: mediaLww(),
       mediaName: lww(),
       slot: lww(), // Y1b 分镜子格位（快照白名单 :41 证实）
@@ -155,6 +156,7 @@ export const DOC_SCHEMA_V4: Record<
     // imageGen 全量 + 扩展配置域（census ②）
     data: {
       fileId: forbidden(),
+      mediaId: mediaLww(), // Y2 B3：作者键（imageExtGen 同 imageGen 域）
       referenceImage: mediaLww(),
       mediaName: lww(),
       slot: lww(),
@@ -189,6 +191,7 @@ export const DOC_SCHEMA_V4: Record<
       model: lww({ inExecutionPlan: true }),
       status: forbidden(),
       fileId: forbidden(),
+      mediaId: mediaLww(), // Y2 B3：作者键（videoGen 同族加键）
       aspectRatio: lww(),
       referenceVideo: mediaLww(),
       ratio: lww({ inExecutionPlan: true }),
@@ -217,6 +220,7 @@ export const DOC_SCHEMA_V4: Record<
       prompt: textSpec({ reader: ['web', 'server', 'public'] }),
       status: forbidden(),
       fileId: forbidden(),
+      mediaId: mediaLww(), // Y2 B3：作者键（audioGen 同族加键）
       referenceAudio: mediaLww(),
       order: lww(),
     },

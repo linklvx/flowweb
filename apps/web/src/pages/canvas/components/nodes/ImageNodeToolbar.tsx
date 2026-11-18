@@ -364,7 +364,8 @@ function ImageNodeToolbarComponent({
   const nodeHeight = internalNode?.measured?.height;
   const { width: windowWidth, height: windowHeight } = windowSize;
 
-  const hasImage = !!fileId || !!referenceImage;
+  // Y2 B3：双 truthy 门改解析型（resolvePrimaryMediaId 单源——referenceImage 不再独立兜底）
+  const hasImage = !!fileId;   // fileId=调用方传入的解析值（ImageGenNode 主槽单源）
 
   const position = useMemo(() => {
     if (nodeWidth == null || nodeHeight == null) return null;

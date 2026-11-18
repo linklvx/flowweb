@@ -1,6 +1,7 @@
 // apps/web/src/utils/imageNodeGuards.ts
 import type { Node } from '@xyflow/react';
-import { NODE_TYPES } from '@/stores/nodeStore'; // Y1c T1：函数体内延迟使用（下方既有循环裁定注释）
+import { NODE_TYPES } from '@/stores/nodeStore';
+import { resolvePrimaryMediaId } from '@flowweb/shared'; // Y1c T1：函数体内延迟使用（下方既有循环裁定注释）
 // 批1-6（B2 合并视图）：完成判定合并视图。循环依赖同 canvasStore 裁定：
 // nodeStore → canvasStore → 本模块 → nodeStore，均函数体内延迟使用（顶层仅声明）。
 // Y1b T16（spec :55 Z18''「exec 降 cache——资金/执行/交付判定全读 PG」）：完成判定不再读 doc exec
@@ -11,7 +12,8 @@ import { NODE_TYPES } from '@/stores/nodeStore'; // Y1c T1：函数体内延迟�
 export function isImageCompletedNode(node: Node): boolean {
   const d = node.data as any;
   if (node.type === NODE_TYPES.IMAGE_GEN || node.type === NODE_TYPES.IMAGE_EXT_GEN) {
-    return !!(d?.fileId || d?.referenceImage);
+    // Y2 B3：完成判定改解析型（resolvePrimaryMediaId 单源——referenceImage 不再独立兜底）
+    return resolvePrimaryMediaId({ type: node.type, data: d ?? {} }, undefined) !== '';
   }
   if (node.type === NODE_TYPES.MULTI_IMAGE_GEN) {
     return Array.isArray(d?.images) && d.images.some((i: any) => i?.status === 'success');

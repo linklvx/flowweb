@@ -9,7 +9,7 @@ import { getMediaUrl } from '@/api/mediaApi';
 import { useMediaUrl } from '@/hooks/useMediaUrl';
 import { MultiImageConfigPanel } from './MultiImageConfigPanel';
 // O0b-2 组件显式上报（终裁 83③/91——四类触发点共用 shared 纯函数公式单源+约束尺寸单源）
-import { calcConstrainedSize, multiImageSize, multiImageGridCols, MULTI_IMAGE_GAP, type SizeBounds } from '@flowweb/shared';
+import { calcConstrainedSize, multiImageSize, multiImageGridCols, MULTI_IMAGE_GAP, type SizeBounds , resolvePrimaryMediaId } from '@flowweb/shared';
 import { reportNodeSize } from '@/stores/canvasIntents';
 // Y1c T22 收口批（C-2）：runtime 投影 artifact 槽 overlay 读径（四节点族同型——选型：MultiImage
 // 产物位=stacked 主图；expanded 网格=用户上传 images 数组〔doc 态〕不参与 overlay）
@@ -69,7 +69,6 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
   const updateMultiImageImages = useNodeStore((s) => s.updateMultiImageImages);
   const setMainImageIndexStore = useNodeStore((s) => s.setMainImageIndex);
   const toggleExpanded = useNodeStore((s) => s.toggleExpanded);
-  const updateMultiImageNodeStatus = useNodeStore((s) => s.updateMultiImageNodeStatus);
   const isSingleSelected = useIsSingleSelected(selected);
   // Y1c T22 G5 末轮收口（T32 前置——卡文第二 checkbox）：投影订阅补位——feed exec.status/exec.artifact
   // 落 runtimeStore 投影→nodeStore.execStatus（projectRuntimeExecToNodeStore 每次投影变更整替），本
@@ -149,7 +148,8 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
     const toUpload = fileArray.slice(0, maxCount - currentCount);
 
     setUploading(true);
-    updateMultiImageNodeStatus(id, 'loading');
+    // Y2 B3：updateMultiImageNodeStatus('loading') 删——nodeStatus=禁键；上传中状态由本组件
+    // 既有本地态（uploading/uploadProgress）承载
 
     const newImages = [...images];
 
@@ -189,9 +189,9 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
     }
 
     updateMultiImageImages(id, newImages);
-    updateMultiImageNodeStatus(id, 'done');
+    // Y2 B3：updateMultiImageNodeStatus('done') 删——nodeStatus=禁键
     setUploading(false);
-  }, [id, images, updateMultiImageImages, updateMultiImageNodeStatus]);
+  }, [id, images, updateMultiImageImages]);
 
   const stackLayerCount = Math.min(images.length - 1, 3);
 
@@ -390,8 +390,9 @@ function MultiImageNodeComponent({ id, selected }: NodeProps) {
                   boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
                 }}
               >
+              {/* Y2 B3：multiImageGen 唯一类型分支=resolver 图库回落（runtime 产物优先——前臂死值语义保持） */}
               <MediaImage
-                fileId={runtimeMediaIdOf(id) ?? images[mainImageIndex]?.id}
+                fileId={resolvePrimaryMediaId({ type: 'multiImageGen', data: { mainImageIndex, images } as Record<string, unknown> }, runtimeMediaIdOf(id) ?? null)}
                 alt={images[mainImageIndex]?.name || ''}
                 className="w-full h-full object-cover"
                 onImageLoad={handleMainImageLoad}

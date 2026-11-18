@@ -1,6 +1,7 @@
 import { memo, useState, useRef, useEffect } from 'react';
 import { BaseFullscreenModal } from '@/components/BaseFullscreenModal';
 import { downloadMediaFile } from '@/utils/mediaDownload';
+import { resolvePrimaryMediaId } from '@flowweb/shared';
 
 interface VideoFullscreenViewerProps {
   open: boolean;
@@ -58,10 +59,12 @@ function VideoFullscreenViewerComponent({
     // R2b-2：下载统一走 downloadMediaFile（fileId+url 双保险/60s 延迟 revoke；失败 message.error——window.open 兜底移除）
     setDownloading(true);
     try {
+      // Y2 B3：下载身份/文件名兜底改解析值（主槽单源）
+      const resolved = resolvePrimaryMediaId({ type: 'videoGen', data: (nodeData ?? {}) as Record<string, unknown> }, undefined);
       await downloadMediaFile({
-        fileId: nodeData?.fileId,
+        fileId: resolved !== '' ? resolved : undefined,
         url: videoUrl,
-        filename: nodeData?.mediaName ?? `视频-${(nodeData?.fileId ?? '').slice(-6)}`,
+        filename: nodeData?.mediaName ?? `视频-${(resolved !== '' ? resolved : '').slice(-6)}`,
       });
     } finally {
       setDownloading(false);

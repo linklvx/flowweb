@@ -318,13 +318,14 @@ describe('canvasStore', () => {
     useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
     try {
       const sourceId = useCanvasStore.getState().addNode('image', { x: 100, y: 100 });
-      useNodeStore.getState().setFileResult(sourceId, 'img-xyz');
+      // Y2 B3：setFileResult 退役——作者放置改写 mediaId（经 updateConfig 漏斗）
+      useNodeStore.getState().updateConfig(sourceId, { mediaId: 'img-xyz' } as any);
 
       const { addNodeWithEdge } = useCanvasStore.getState() as any;
       const newId = addNodeWithEdge(sourceId);
 
       const nsNode = useNodeStore.getState().nodes[newId];
-      expect((nsNode.data as ImageNodeData).fileId).toBe('img-xyz');
+      expect((nsNode.data as ImageNodeData).mediaId).toBe('img-xyz');
     } finally {
       _setIntentDocForTest(null);
     }
@@ -495,17 +496,18 @@ describe('canvasStore', () => {
 
   // ── addNode dataOverride ──
 
-  it('addNode with dataOverride should merge custom data into node data', () => {
-    const nodeId = useCanvasStore.getState().addNode('image', { x: 100, y: 100 }, { fileId: 'x', status: 'done' });
+  it('addNode with dataOverride should merge custom data into node data（Y2 B3：放置键=mediaId——fileId/status 禁键）', () => {
+    const nodeId = useCanvasStore.getState().addNode('image', { x: 100, y: 100 }, { mediaId: 'x' });
     const node = useCanvasStore.getState().nodes.find((n) => n.id === nodeId)!;
-    expect(node.data.fileId).toBe('x');
-    expect(node.data.status).toBe('done');
+    expect(node.data.mediaId).toBe('x');
+    expect(node.data.fileId).toBeUndefined();
+    expect(node.data.status).toBeUndefined();
   });
 
-  it('addNode with dataOverride for video should include fileId', () => {
-    const nodeId = useCanvasStore.getState().addNode('video', { x: 0, y: 0 }, { fileId: 'vid-1' });
+  it('addNode with dataOverride for video should include mediaId（Y2 B3：videoGen 放置键=mediaId）', () => {
+    const nodeId = useCanvasStore.getState().addNode('video', { x: 0, y: 0 }, { mediaId: 'vid-1' });
     const node = useCanvasStore.getState().nodes.find((n) => n.id === nodeId)!;
-    expect(node.data.fileId).toBe('vid-1');
+    expect(node.data.mediaId).toBe('vid-1');
   });
 
   it('addNode without dataOverride: 业务 data 空（T17——order 键=allocator 唯一分配的层内序键）', () => {
@@ -520,12 +522,12 @@ describe('canvasStore', () => {
     expect(typeof order).toBe('string');   // T17：建点必携 order 键（读序单源域）
   });
 
-  it('addNode with dataOverride should also populate nodeStore with custom data', () => {
-    const nodeId = useCanvasStore.getState().addNode('image', { x: 50, y: 50 }, { fileId: 'abc', status: 'done' });
+  it('addNode with dataOverride should also populate nodeStore with custom data（Y2 B3：mediaId 键）', () => {
+    const nodeId = useCanvasStore.getState().addNode('image', { x: 50, y: 50 }, { mediaId: 'abc' });
     const nsNode = useNodeStore.getState().nodes[nodeId];
     expect(nsNode).toBeDefined();
-    expect((nsNode.data as ImageNodeData).fileId).toBe('abc');
-    expect((nsNode.data as ImageNodeData).status).toBe('done');
+    expect((nsNode.data as ImageNodeData).mediaId).toBe('abc');
+    expect((nsNode.data as ImageNodeData).status).toBeUndefined();
   });
 
   // ── pendingMediaFile / requestAddMediaNode ──

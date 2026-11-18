@@ -5,29 +5,29 @@ import { useNodeStore } from '@/stores/nodeStore';
 
 const imgNode = (data: any) => ({ id: 'n', type: 'imageGen', position: { x: 0, y: 0 }, data } as any);
 
-describe('isImageCompletedNode（fileId||referenceImage 归一化，Bug D/E）', () => {
-  it('生成图：done + fileId → true', () => {
-    expect(isImageCompletedNode(imgNode({ status: 'done', fileId: 'f1' }))).toBe(true);
+describe('isImageCompletedNode（Y2 B3：resolvePrimaryMediaId 单源——fileId||referenceImage 退役）', () => {
+  it('生成图：mediaId → true', () => {
+    expect(isImageCompletedNode(imgNode({ mediaId: 'f1' }))).toBe(true);
   });
 
-  it('上传图：referenceImage（status=idle）→ true', () => {
-    expect(isImageCompletedNode(imgNode({ status: 'idle', referenceImage: 'ref-1' }))).toBe(true);
+  it('Y2 B3（spec D8）：referenceImage 不再充当主槽兜底——纯参考图 → false', () => {
+    expect(isImageCompletedNode(imgNode({ referenceImage: 'ref-1' }))).toBe(false);
   });
 
-  it('fileId 空字符串 + referenceImage → true（|| 空串防御）', () => {
-    expect(isImageCompletedNode(imgNode({ status: 'done', fileId: '', referenceImage: 'ref-1' }))).toBe(true);
+  it('mediaId 空字符串 + referenceImage → false（参考图非主槽）', () => {
+    expect(isImageCompletedNode(imgNode({ mediaId: '', referenceImage: 'ref-1' }))).toBe(false);
   });
 
   it('无任何图片身份字段 → false', () => {
-    expect(isImageCompletedNode(imgNode({ status: 'done' }))).toBe(false);
+    expect(isImageCompletedNode(imgNode({}))).toBe(false);
   });
 
-  it('fileId 空字符串 → false', () => {
-    expect(isImageCompletedNode(imgNode({ status: 'done', fileId: '' }))).toBe(false);
+  it('mediaId 空字符串 → false', () => {
+    expect(isImageCompletedNode(imgNode({ mediaId: '' }))).toBe(false);
   });
 
-  it('生成中（status=generating 无结果）→ false', () => {
-    expect(isImageCompletedNode(imgNode({ status: 'generating' }))).toBe(false);
+  it('Y2 B3：残留 fileId（禁键历史字节）不再判完成——解析主槽零命中', () => {
+    expect(isImageCompletedNode(imgNode({ status: 'done', fileId: 'f-legacy' }))).toBe(false);
   });
 
   it('multiImageGen：images 有 success → true（回归）', () => {
@@ -63,8 +63,8 @@ describe('T16 exec 降 cache：篡改 exec 后交付判定不变（判定唯一�
     expect(isImageCompletedNode(imgNode({ status: 'loading' }))).toBe(false);
   });
 
-  it('fileId 在（PG 投影所有权面）⇒ true——exec 漂移（error）不拖低正判', () => {
+  it('Y2 B3：mediaId 在（作者键所有权面）⇒ true——exec 漂移（error）不拖低正判', () => {
     useNodeStore.setState({ execStatus: new Map([['n', { status: 'error' }]]) });
-    expect(isImageCompletedNode(imgNode({ status: 'loading', fileId: 'f1' }))).toBe(true);
+    expect(isImageCompletedNode(imgNode({ status: 'loading', mediaId: 'f1' }))).toBe(true);
   });
 });

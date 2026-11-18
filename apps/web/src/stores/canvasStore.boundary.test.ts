@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useCanvasStore } from './canvasStore';
 
 const doneImage = (id: string, x = 100, y = 100) =>
-  ({ id, type: 'imageGen', position: { x, y }, width: 320, height: 180, data: { status: 'done', fileId: `f-${id}` } });
+  ({ id, type: 'imageGen', position: { x, y }, width: 320, height: 180, data: { mediaId: `f-${id}` } });
 
 beforeEach(() => {
   useCanvasStore.setState({

@@ -138,7 +138,9 @@ export interface TextNodeData {
 
 export interface ImageNodeData {
   // —— 根级通用 ——
-  fileId?: string;
+  fileId?: string;   // Y2 B3 过渡保留（C1 翻禁执法前——doc 面禁写，ns 残留读面随 reset 归零）
+  /** Y2 B3：作者键（放置/生成替代写 mediaId——主槽解析单源 resolvePrimaryMediaId）。 */
+  mediaId?: string;
   referenceImage?: string;
   mediaName?: string;
   /** T17（Z17'' cells→slot）：分镜子格位（非负整数——格位真源；非分镜子无此键）。 */
@@ -171,7 +173,9 @@ export interface ImageNodeData {
 export interface VideoNodeData {
   model: string;
   status: 'idle' | 'loading' | 'done' | 'error';
-  fileId?: string;
+  fileId?: string;   // Y2 B3 过渡保留
+  /** Y2 B3：作者键（放置/截帧产物写 mediaId）。 */
+  mediaId?: string;
   aspectRatio?: number;
   referenceVideo?: string;
   ratio?: string;
@@ -192,7 +196,9 @@ export interface AudioNodeData {
    *  AudioConfigPanel textarea 写读同键。 */
   prompt: string;
   status: 'idle' | 'loading' | 'done' | 'error';
-  fileId?: string;
+  fileId?: string;   // Y2 B3 过渡保留
+  /** Y2 B3：作者键（分离音频产物写 mediaId）。 */
+  mediaId?: string;
   referenceAudio?: string;
 }
 
@@ -332,12 +338,13 @@ export function _resetViewerToastForTest() {
  */
 function mergeNodeData(existing: Record<string, any> | undefined, overrides: Record<string, any>, nodeType?: string): Record<string, any> {
   const defaults: Record<string, any> = {
-    status: 'idle',
     imageRotation: 0 as 0 | 90 | 180 | 270,
     flipH: false,
     flipV: false,
     // editMode/transformMode 不入 defaults（Spec B editMode 口径 13）：本地瞬态键随写点显式
     // 进 ns data（读面 ?? 兜底），defaults 注入会让全量对账把瞬态键常态化
+    // Y2 B3（裁决 7）：status:'idle' 默认值删——执行态投影键（Feed exec.status），defaults 注入
+    // 会把禁键常态化落 ns
     allImages: [] as ImageItem[],
   };
 
@@ -409,19 +416,19 @@ interface NodeState {
 
   updateConfig: (id: string, config: Partial<NodeData>) => void;
   updateExtConfig: (id: string, partial: Partial<ImageExtConfig>) => void;
-  setStatus: (id: string, status: ImageNodeData['status']) => void;
-  setFileResult: (id: string, fileId: string) => void;
+  // Y2 B3：setStatus/setFileResult/updateMultiImageNodeStatus/setTrimTaskStatus/setTrimmedResult
+  // 五 action 整体退役（data.status/fileId/nodeStatus/trimTaskStatus/trimmedFileId 均禁键——
+  // 交付唯一 owner=服务端投影 poller；调用方五 ConfigPanel+useTrimTaskStatus/VideoGenNode 同批改）
   updatePromptImages: (nodeId: string, allImages: ImageItem[]) => void;
   updateMultiImageImages: (nodeId: string, images: ImageItem[]) => void;
   setMainImageIndex: (nodeId: string, index: number) => void;
   toggleExpanded: (nodeId: string) => void;
+  /** Y2 B3 过渡空实现（调用方已删——保留防外部扩展面断裂，C1 后整删）。 */
   updateMultiImageNodeStatus: (nodeId: string, status: MultiImageNodeData['nodeStatus']) => void;
   getNodeData: <T>(id: string) => T | undefined;
 
   // Video trim actions
   updateVideoTrim: (nodeId: string, trimStart: number, trimEnd: number) => void;
-  setTrimTaskStatus: (nodeId: string, status: string) => void;
-  setTrimmedResult: (nodeId: string, fileId: string) => void;
 
   // Transform toolbar support
   cancelRequestedAt: number;
@@ -700,29 +707,11 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     }));
   },
 
-  setStatus: (id, status) => {
-    // 批4b-1 换芯：doc 直写经意图漏斗（canEdit 假时 dispatch 拦 doc——下方 set 照写=既有回弹语义）
-    dispatchCanvasIntent({ type: 'updateNodeData', id, patch: { status } }, Origin.LocalUser);
-    const existing = getNode(get().nodes, id);
-    if (!existing) return;
-    set((s) => ({
-      nodes: {
-        ...s.nodes,
-        [id]: {
-          ...existing,
-          data: { ...existing.data, status },
-        },
-      },
-    }));
-  },
+  // Y2 B3：setStatus 整体退役——data.status=禁键（执行态投影 Feed exec.status 唯一权威；
+  // 五 ConfigPanel 调用方同批删——入队 loading/失败提示用面板本地态）。
 
-  setFileResult: (id, fileId) => {
-    // Y1a T11（spec Z11''②）：socket done 降级本地 UI——fileId/status 不写 doc（服务端 T10 已交付：
-    // writeBatch writeNodeData fileId+exec done 投影；本地再写=双写者竞态+strip 被拦的禁写键）。
-    // 本地渲染态照旧维护（applyDataPatchToStores 直写双 store，不经意图漏斗）；doc 收敛归服务端写
-    // 经 Yjs 回流（applyDocToStore 幂等同值）。
-    applyDataPatchToStores(id, { fileId, status: 'done' });
-  },
+  // Y2 B3：setFileResult 整体退役——fileId/status 均禁键（服务端交付唯一 owner=投影 poller；
+  // socket done 回填的本地 UI 形态随 B2d 服务端交付链+投影视图收口——AI 编辑面 ImageGenNode :1098 同批删）。
 
   updatePromptImages: (nodeId, allImages) => {
     // 批4b-2 换芯：allImages 键 doc 直写（text 节点 no-op 同旧——ns 面与 doc 面同判）
@@ -770,7 +759,9 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     // **Y1c T17 双评审收口 Q-I-1（root fix）**：直写体消费 outcome 同 updatePromptImages——
     // images 被拒 ⇒ ns/cs 桥同拒（doc ≡ store）；伴随键非域键未被拒=逐键语义照旧落。
     const patch: Record<string, unknown> = { images };
-    if (images.length === 0) { patch.mainImageIndex = -1; patch.nodeStatus = 'idle'; }
+    // Y2 B3（v5 改死五）：清空臂 nodeStatus:'idle' 删除——第三处独立 nodeStatus doc 写点（禁键；
+    // loading 由组件本地 uploading/uploadProgress 承载、nodeStatus 生产读点为零）
+    if (images.length === 0) { patch.mainImageIndex = -1; }
     else if ('mainImageIndex' in existing.data && (existing.data as any).mainImageIndex >= images.length) {
       patch.mainImageIndex = 0;
     }
@@ -814,19 +805,10 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     }));
   },
 
-  updateMultiImageNodeStatus: (nodeId, status) => {
-    const existing = getNode(get().nodes, nodeId);
-    if (!existing) return;
-    dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch: { nodeStatus: status } }, Origin.LocalUser);
-    set((s) => ({
-      nodes: {
-        ...s.nodes,
-        [nodeId]: {
-          ...existing,
-          data: { ...existing.data, nodeStatus: status },
-        },
-      },
-    }));
+  updateMultiImageNodeStatus: (nodeId: string, status: MultiImageNodeData['nodeStatus']) => {
+    void nodeId; void status;
+    // Y2 B3：nodeStatus doc 写点退役——生成批次执行态投影键（MultiImageNode 调用方同批删；
+    // 保留空实现过渡防外部扩展面断裂，C1 后整删）。
   },
 
   getNodeData: <T>(id: string): T | undefined => {
@@ -851,38 +833,8 @@ export const useNodeStore = create<NodeState>((set, get) => ({
     }));
   },
 
-  setTrimTaskStatus: (nodeId, status) => {
-    const existing = getNode(get().nodes, nodeId);
-    if (!existing) return;
-    dispatchCanvasIntent({ type: 'updateNodeData', id: nodeId, patch: { trimTaskStatus: status } }, Origin.LocalUser);
-    set((s) => ({
-      nodes: {
-        ...s.nodes,
-        [nodeId]: {
-          ...existing,
-          data: { ...existing.data, trimTaskStatus: status },
-        },
-      },
-    }));
-  },
-
-  setTrimmedResult: (nodeId, fileId) => {
-    const existing = getNode(get().nodes, nodeId);
-    if (!existing) return;
-    dispatchCanvasIntent(
-      { type: 'updateNodeData', id: nodeId, patch: { trimmedFileId: fileId, trimTaskStatus: 'done' } },
-      Origin.LocalUser,
-    );
-    set((s) => ({
-      nodes: {
-        ...s.nodes,
-        [nodeId]: {
-          ...existing,
-          data: { ...existing.data, trimmedFileId: fileId, trimTaskStatus: 'done' as const },
-        },
-      },
-    }));
-  },
+  // Y2 B3：setTrimTaskStatus/setTrimmedResult 整体退役——trimTaskStatus/trimmedFileId 均禁键
+  // （服务端进度/产物域；剪辑结果子节点=VideoGenNode 新节点作者放置只写 mediaId，进度留 useTrimTaskStatus）。
 }));
 
 /** 批1-6（B2）：合并视图读点辅助（非 React 消费方——canvasStore 动作/guards 等）。

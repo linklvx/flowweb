@@ -324,8 +324,8 @@ describe('批4b-1：首批换芯接线锚（store action→intent 漏斗实贯�
   // moveNode Geometry）随叶子会话化退役——会话期零 intent、提交=单 envelope LocalUser（B41 ⑤ 新锚）。
 
   it('updateStoryboardConfig：改配置⇒cs 帧≡calcStoryboardSize（配置单源重算）+doc 单 transact+零 moveNode 意图（O0b-5——applyGroupFrameRect 退役）', () => {
-    const id1 = useCanvasStore.getState().addNode('image', { x: 10, y: 10 }, { status: 'done', fileId: 'f1' });
-    const id2 = useCanvasStore.getState().addNode('image', { x: 300, y: 300 }, { status: 'done', fileId: 'f2' });
+    const id1 = useCanvasStore.getState().addNode('image', { x: 10, y: 10 }, { mediaId: 'f1' });
+    const id2 = useCanvasStore.getState().addNode('image', { x: 300, y: 300 }, { mediaId: 'f2' });
     const gid = useCanvasStore.getState().groupNodes([id1, id2]);
     useCanvasStore.getState().convertGroup(gid, 'storyboard');
     let txCount = 0;
@@ -436,9 +436,9 @@ describe('批4b-2：复合信封写点换芯锚（组族——doc 联动+不变�
   });
 
   it('convertGroup→storyboard：组框配置化 + 子归零 + cells/storyboard data 落 doc', () => {
-    // isImageCompletedNode 要求：imageGen + status done + fileId
-    const id1 = useCanvasStore.getState().addNode('image', { x: 10, y: 10 }, { status: 'done', fileId: 'f1' });
-    const id2 = useCanvasStore.getState().addNode('image', { x: 300, y: 300 }, { status: 'done', fileId: 'f2' });
+    // Y2 B3 布景翻新：isImageCompletedNode 判据=resolvePrimaryMediaId（作者键 mediaId）
+    const id1 = useCanvasStore.getState().addNode('image', { x: 10, y: 10 }, { mediaId: 'f1' });
+    const id2 = useCanvasStore.getState().addNode('image', { x: 300, y: 300 }, { mediaId: 'f2' });
     const gid = useCanvasStore.getState().groupNodes([id1, id2]);
     useCanvasStore.getState().convertGroup(gid, 'storyboard');
     const g = doc.getMap('nodes').get(gid) as Y.Map<any>;
@@ -497,8 +497,8 @@ describe('批4b-2：复合信封写点换芯锚（组族——doc 联动+不变�
   });
 
   it('clearStoryboard：cells 成员删（级联边删）+ cells 清空落 doc', () => {
-    const id1 = useCanvasStore.getState().addNode('image', { x: 0, y: 0 }, { status: 'done', fileId: 'f1' });
-    const id2 = useCanvasStore.getState().addNode('image', { x: 300, y: 0 }, { status: 'done', fileId: 'f2' });
+    const id1 = useCanvasStore.getState().addNode('image', { x: 0, y: 0 }, { mediaId: 'f1' });
+    const id2 = useCanvasStore.getState().addNode('image', { x: 300, y: 0 }, { mediaId: 'f2' });
     const gid = useCanvasStore.getState().groupNodes([id1, id2]);
     useCanvasStore.getState().convertGroup(gid, 'storyboard');
     useCanvasStore.getState().clearStoryboard(gid);
@@ -511,8 +511,8 @@ describe('批4b-2：复合信封写点换芯锚（组族——doc 联动+不变�
   });
 
   it('removeStoryboardCell：槽成员删 + cells 紧凑前移落 doc', () => {
-    const id1 = useCanvasStore.getState().addNode('image', { x: 0, y: 0 }, { status: 'done', fileId: 'f1' });
-    const id2 = useCanvasStore.getState().addNode('image', { x: 300, y: 0 }, { status: 'done', fileId: 'f2' });
+    const id1 = useCanvasStore.getState().addNode('image', { x: 0, y: 0 }, { mediaId: 'f1' });
+    const id2 = useCanvasStore.getState().addNode('image', { x: 300, y: 0 }, { mediaId: 'f2' });
     const gid = useCanvasStore.getState().groupNodes([id1, id2]);
     useCanvasStore.getState().convertGroup(gid, 'storyboard');
     useCanvasStore.getState().removeStoryboardCell(gid, 0);
@@ -617,30 +617,30 @@ describe('批4b-2：nodeStore 数据写点换芯锚（ns 剩余 action → doc d
       nodes: { vid1: { id: 'vid1', type: 'videoGen', data: { model: 'm' } as any } },
     });
     useNodeStore.getState().updateVideoTrim('vid1', 5.2, 18.7);
-    useNodeStore.getState().setTrimTaskStatus('vid1', 'processing');
-    useNodeStore.getState().setTrimmedResult('vid1', 'file-x');
+    // Y2 B3：setTrimTaskStatus/setTrimmedResult 退役（trimTaskStatus/trimmedFileId 禁键——
+    // 剪辑产物=VideoGenNode 新节点作者放置写 mediaId、进度归 useTrimTaskStatus 本地态）
     const d = dataOf('vid1');
     expect(d.get('trimStart')).toBe(5.2);
     expect(d.get('trimEnd')).toBe(18.7);
-    expect(d.get('trimTaskStatus')).toBe('done');
-    expect(d.get('trimmedFileId')).toBe('file-x');
+    expect(d.get('trimTaskStatus')).toBeUndefined();
+    expect(d.get('trimmedFileId')).toBeUndefined();
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
 
   it('multiImage 三写点：images/mainImageIndex/nodeStatus 落 doc data', () => {
     fillDoc(doc, [{ id: 'm1', type: 'multiImageGen', position: { x: 0, y: 0 },
-      data: { images: [], mainImageIndex: 0, expanded: false, nodeStatus: 'idle' } } as any], []);
+      data: { images: [], mainImageIndex: 0, expanded: false } } as any], []);
     useCanvasStore.setState({
       nodes: [{ id: 'm1', type: 'multiImageGen', position: { x: 0, y: 0 },
-        data: { images: [], mainImageIndex: 0, expanded: false, nodeStatus: 'idle' } as any }],
+        data: { images: [], mainImageIndex: 0, expanded: false } as any }],
     });
     useNodeStore.setState({
-      nodes: { m1: { id: 'm1', type: 'multiImageGen', data: { images: [], mainImageIndex: 0, expanded: false, nodeStatus: 'idle' } as any } },
+      nodes: { m1: { id: 'm1', type: 'multiImageGen', data: { images: [], mainImageIndex: 0, expanded: false } as any } },
     });
     const imgs = [{ id: 'i1', url: 'u', name: 'n', status: 'success' }];
     useNodeStore.getState().updateMultiImageImages('m1', imgs as any);
     useNodeStore.getState().setMainImageIndex('m1', 3);
-    useNodeStore.getState().updateMultiImageNodeStatus('m1', 'done');
+    // Y2 B3：updateMultiImageNodeStatus 退役（nodeStatus 禁键）
     useNodeStore.getState().toggleExpanded('m1');
     const d = dataOf('m1');
     // Y1c T17：images=Y.Array 域容器（fillDoc 物化+seam 稳定 id 结构操作）——读出口=容器 toArray
@@ -648,7 +648,7 @@ describe('批4b-2：nodeStore 数据写点换芯锚（ns 剩余 action → doc d
     expect(imagesC instanceof Y.Array).toBe(true);
     expect(imagesC.toArray()).toEqual(imgs);
     expect(d.get('mainImageIndex')).toBe(3);
-    expect(d.get('nodeStatus')).toBe('done');
+    expect(d.get('nodeStatus')).toBeUndefined();   // Y2 B3：nodeStatus 禁键
     expect(d.get('expanded')).toBe(true);
     expect(checkProjectionInvariant(doc)).toBe(true);
   });
@@ -723,7 +723,7 @@ describe('Spec B editMode 分片：ephemeral 键集守卫（editMode/transformMo
     dispatchCanvasIntent(
       {
         type: 'addNode',
-        node: rec('m1', 10, { images: [], mainImageIndex: 0, expanded: true, nodeStatus: 'idle', editMode: 'crop' }),
+        node: rec('m1', 10, { images: [], mainImageIndex: 0, expanded: true, editMode: 'crop' }),
       },
       Origin.LocalUser,
     );
@@ -948,24 +948,24 @@ describe('T11：客户端更新路径禁写键 strip（{fileId,result}——服�
   afterEach(() => _setIntentDocForTest(null));
 
   it('红① dispatch updateNodeData：patch 携 fileId/result → doc 零写两键；referenceImage/allImages 照写（上传引用键不剥）+ns 本地照旧（本地 UI）', () => {
-    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10, { status: 'done', fileId: 'm-old' }) }, Origin.LocalUser);
+    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10, { mediaId: 'm-old' }) }, Origin.LocalUser);
     dispatchCanvasIntent({ type: 'updateNodeData', id: 'n1', patch: {
       fileId: 'm-new', result: 'server-text', referenceImage: 'ref-1', allImages: [{ id: 'a1' }],
     } }, Origin.LocalUser);
     const data = (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>;
-    expect(data.get('fileId')).toBe('m-old');               // 禁写键不落 doc
+    expect(data.get('mediaId')).toBe('m-old');              // Y2 B3：放置键=mediaId（fileId 恒禁落）
+    expect(data.get('fileId')).toBeUndefined();
     expect(data.has('result')).toBe(false);                 // 禁写键不落 doc
     expect(data.get('referenceImage')).toBe('ref-1');       // 上传引用键照写
     expect(data.get('allImages')).toEqual([{ id: 'a1' }]);  // 上传引用键照写
-    // Y2 A2b：ns=doc 快照——禁写键不落 doc 即不落 ns（本地乐观面随直写体退役；权威写归
-    // replaceMedia 命令/服务端交付，ns 呈 doc 真值 m-old/无 result）
+    // Y2 A2b：ns=doc 快照——禁写键不落 doc 即不落 ns
     const nsData = useNodeStore.getState().nodes['n1'].data as unknown as Record<string, unknown>;
-    expect(nsData.fileId).toBe('m-old');
+    expect(nsData.mediaId).toBe('m-old');
     expect(nsData.result).toBeUndefined();
   });
 
   it('红② diff 投影 dataPatch：本地 fileId 变更不生成（diff 生成侧剥）∧referenceImage 变更照落 doc', () => {
-    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10, { status: 'done', fileId: 'm-old', referenceImage: 'r0' }) }, Origin.LocalUser);
+    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10, { mediaId: 'm-old', referenceImage: 'r0' }) }, Origin.LocalUser);
     const before = captureStoreProjection();
     // 本地 UI 直写（setFileResult/AI 回填的本地面形态）+用户上传键变更
     applyDataPatchToStores('n1', { fileId: 'm-local' });
@@ -974,24 +974,80 @@ describe('T11：客户端更新路径禁写键 strip（{fileId,result}——服�
     }));
     dispatchProjectionDiff(before, Origin.LocalUser);
     const data = (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>;
-    expect(data.get('fileId')).toBe('m-old');        // 本地 fileId 不经 diff 落 doc
+    expect(data.get('mediaId')).toBe('m-old');       // Y2 B3：本地 fileId 键不经 diff 落 doc（放置键=mediaId 原值保持）
+    expect(data.get('fileId')).toBeUndefined();
     expect(data.get('referenceImage')).toBe('r1');   // 用户键 diff 照落
   });
 
-  it('守卫 addNode 不 strip：fileId 保留（新建路径绝不 strip——消灭空图窗口）', () => {
-    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10, { status: 'done', fileId: 'm-keep' }) }, Origin.LocalUser);
+  it('守卫 addNode 不 strip：mediaId 保留（新建路径绝不 strip——放置键直落 doc）', () => {
+    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10, { mediaId: 'm-keep' }) }, Origin.LocalUser);
     const data = (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>;
-    expect(data.get('fileId')).toBe('m-keep');
+    expect(data.get('mediaId')).toBe('m-keep');
+    expect(data.get('fileId')).toBeUndefined();
   });
 
-  it('红③ socket done 降本地 UI：setFileResult doc 零写（fileId/status 均不落）+ns 本地照旧', () => {
-    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10, { status: 'loading' }) }, Origin.LocalUser);
-    useNodeStore.getState().setFileResult('n1', 'm-socket');
+  it('Y2 B3：setFileResult 整体退役——socket done 零本地回填（fileId/status 禁键；交付唯一 owner=服务端投影 poller）', () => {
+    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10, {}) }, Origin.LocalUser);
     const data = (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>;
-    expect(data.get('fileId')).toBeUndefined();  // 现状红：applyNodeDataPatch 落 doc
-    expect(data.get('status')).toBe('loading');  // 现状红：'done'
+    expect(data.get('fileId')).toBeUndefined();
+    expect(data.get('status')).toBeUndefined();
     const nsData = useNodeStore.getState().nodes['n1'].data as unknown as Record<string, unknown>;
-    expect(nsData.fileId).toBe('m-socket');      // 本地渲染态照旧
-    expect(nsData.status).toBe('done');
+    expect(nsData.fileId).toBeUndefined();       // Y2 B3：本地渲染态回填随 action 退役
+    expect(nsData.status).toBeUndefined();
+  });
+});
+
+// ══════════ Y2 B3：桥白名单收口+固化写消除——fileId/status 出桥、mediaId 入桥；
+//    setFileResult/setStatus/setTrimmedResult/setTrimTaskStatus/updateMultiImageNodeStatus
+//    五写点退役（doc 零写+本地零写——交付唯一 owner=服务端投影 poller）══════════
+describe('Y2 B3：桥白名单收口（CANVAS_BRIDGE_KEYS fileId/status→mediaId）', () => {
+  let doc: Y.Doc;
+  beforeEach(() => {
+    doc = new Y.Doc();
+    _setIntentDocForTest(doc);
+    openRwWindow();
+  });
+  afterEach(() => _setIntentDocForTest(null));
+
+  it('mediaId 写桥通：applyDataPatchToStores({mediaId}) → cs 镜像落 mediaId', () => {
+    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10, { mediaId: 'm-old' }) }, Origin.LocalUser);
+    applyDataPatchToStores('n1', { mediaId: 'm-new-author' });
+    const csNode = useCanvasStore.getState().nodes.find((n) => n.id === 'n1');
+    expect((csNode?.data as any)?.mediaId).toBe('m-new-author');
+  });
+
+  it('fileId/status 不再桥：applyDataPatchToStores 写值不落 cs 镜像（白名单收口后）', () => {
+    dispatchCanvasIntent({ type: 'addNode', node: rec('n1', 10, {}) }, Origin.LocalUser);
+    applyDataPatchToStores('n1', { mediaId: 'm-x' });
+    const csNode = useCanvasStore.getState().nodes.find((n) => n.id === 'n1');
+    expect((csNode?.data as any)?.fileId).toBeUndefined();
+    expect((csNode?.data as any)?.status).toBeUndefined();
+  });
+});
+
+describe('Y2 B3：固化写消除（五写点退役——禁写 data.status/fileId 族）', () => {
+  let doc: Y.Doc;
+  beforeEach(() => {
+    doc = new Y.Doc();
+    _setIntentDocForTest(doc);
+    openRwWindow();
+  });
+  afterEach(() => _setIntentDocForTest(null));
+
+  it('nodeStore 面零 status 落 doc：updateMultiImageNodeStatus 调用后 doc 无 nodeStatus 键', () => {
+    // 仿既有 multiImage 装置（fillDoc+双 store 布景）——nodeStatus 现为矩阵禁键，B3 后该写点整体退役
+    fillDoc(doc, [{ id: 'm1', type: 'multiImageGen', position: { x: 0, y: 0 },
+      data: { images: [], mainImageIndex: 0, expanded: false } } as any], []);
+    useCanvasStore.setState({
+      nodes: [{ id: 'm1', type: 'multiImageGen', position: { x: 0, y: 0 },
+        data: { images: [], mainImageIndex: 0, expanded: false } as any }],
+    });
+    useNodeStore.setState({
+      nodes: { m1: { id: 'm1', type: 'multiImageGen', data: { images: [], mainImageIndex: 0, expanded: false } as any } },
+    });
+    useNodeStore.getState().updateMultiImageNodeStatus('m1', 'done');
+    const data = (doc.getMap('nodes').get('m1') as Y.Map<any>)?.get('data') as Y.Map<any>;
+    // B3：nodeStatus 禁键落 doc 被拒（updateMultiImageNodeStatus 退役后 doc 面恒零键）
+    expect(data?.get('nodeStatus')).toBeUndefined();
   });
 });

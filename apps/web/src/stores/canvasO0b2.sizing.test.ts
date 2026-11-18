@@ -82,7 +82,7 @@ describe('O0b-2 (i) 命令体显式值：addChildNode(s) intent.node 扩 wh 键�
     _setIntentDocForTest(d);
     seedCanvas([makeChild({ id: 'src', type: 'imageGen', position: { x: 0, y: 0 }, width: 400, height: 300, data: { status: 'done' } })]);
     useNodeStore.setState({ nodes: { src: { id: 'src', type: 'imageGen', data: { status: 'done' } } } as any });
-    const id = useCanvasStore.getState().addChildNode('src', { status: 'done', fileId: 'f1', width: 555.4, height: 333.2 });
+    const id = useCanvasStore.getState().addChildNode('src', { mediaId: 'f1', width: 555.4, height: 333.2 });
     expect(id).toBeTruthy();
     const rec = docRecord(d, id!);
     expect(rec?.width).toBe(556);   // ceil(555.4)——命令体显式值经 normalizeSize 单源
@@ -110,8 +110,8 @@ describe('O0b-2 (i) 命令体显式值：addChildNode(s) intent.node 扩 wh 键�
     seedCanvas([makeChild({ id: 'src', type: 'imageGen', position: { x: 0, y: 0 }, width: 400, height: 300, data: { status: 'done' } })]);
     useNodeStore.setState({ nodes: { src: { id: 'src', type: 'imageGen', data: { status: 'done' } } } as any });
     const ids = useCanvasStore.getState().addChildNodes('src', [
-      { data: { status: 'done', fileId: 'a', width: 200.4, height: 100 }, gridRow: 0, gridCol: 0 },
-      { data: { status: 'done', fileId: 'b' }, gridRow: 0, gridCol: 1 },
+      { data: { mediaId: 'a', width: 200.4, height: 100 }, gridRow: 0, gridCol: 0 },
+      { data: { mediaId: 'b' }, gridRow: 0, gridCol: 1 },
     ]);
     expect(docRecord(d, ids[0])?.width).toBe(201);   // ceil(200.4)
     expect(docRecord(d, ids[0])?.height).toBe(100);
@@ -131,9 +131,9 @@ describe('O0b-2 (i) 命令体显式值：复制链迁 doc 源（锚"复制从未
   it('源 doc 有 wh（从未 resize 图片节点）⇒duplicateNodes 副本 doc wh≡源 doc wh 逐位', () => {
     openRwWindow();
     const d = setupDoc([
-      { id: 'img', type: 'imageGen', position: { x: 100, y: 100 }, width: 320, height: 180, data: { status: 'done', fileId: 'f' } },
+      { id: 'img', type: 'imageGen', position: { x: 100, y: 100 }, width: 320, height: 180, data: { mediaId: 'f' } },
     ]);
-    useNodeStore.setState({ nodes: { img: { id: 'img', type: 'imageGen', data: { status: 'done', fileId: 'f' } } } as any });
+    useNodeStore.setState({ nodes: { img: { id: 'img', type: 'imageGen', data: { mediaId: 'f' } } } as any });
     const copyId = useCanvasStore.getState().duplicateNodes(['img']);
     expect(copyId).toBeTruthy();
     const src = docRecord(d, 'img');
@@ -441,7 +441,7 @@ describe('O0b-2 连带面：removeNodeFromGroup 分镜分支 placementBesideGrou
     const d = new Y.Doc();
     const records: StoredNodeRecord[] = [
       { id: 'sb', type: 'group', position: { x: 100, y: 50 }, data: { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 1, showIndex: true, stitchResolution: '2K' } } },
-      { id: 'c1', type: 'imageGen', parentId: 'sb', width: 320, height: 180, data: { status: 'done', fileId: 'f', slot: 0 } },
+      { id: 'c1', type: 'imageGen', parentId: 'sb', width: 320, height: 180, data: { mediaId: 'f', slot: 0 } },
     ];
     fillDoc(d, records, []);
     applyDocToStore(d);

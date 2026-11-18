@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { useAsyncMediaTask } from './useAsyncMediaTask';
 import { videoTrimApi } from '@/services/video-trim.api';
-import { useNodeStore } from '@/stores/nodeStore';
 
 interface TrimStatusResult {
   status: 'idle' | 'queued' | 'processing' | 'done' | 'error';
@@ -26,20 +25,9 @@ export function useTrimTaskStatus(
 
   const outputFileId: string | null = (data as any).outputFileId ?? null;
   const error: string | null = (data as any).error ?? null;
-
-  // Automatically sync terminal states to nodeStore
-  useEffect(() => {
-    if (!nodeId) return;
-    const isTerminal = status === 'done' || status === 'error';
-
-    if (isTerminal) {
-      if (status === 'done' && outputFileId) {
-        useNodeStore.getState().setTrimmedResult(nodeId, outputFileId);
-      } else if (status === 'error') {
-        useNodeStore.getState().setTrimTaskStatus(nodeId, 'error');
-      }
-    }
-  }, [status, outputFileId, error, nodeId]);
+  void error;
+  // Y2 B3：nodeStore 同步 effect 删除——trimmedFileId/trimTaskStatus 均禁键（服务端进度/产物域）；
+  // 剪辑产物落画布=VideoGenNode 完成回调用新节点作者放置写 mediaId，进度归本 hook 状态面。
 
   return {
     status,

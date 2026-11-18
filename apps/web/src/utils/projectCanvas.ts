@@ -4,8 +4,8 @@
 //   ②gesture 折进记录副本再进内核（叶子/顶层 position/wh 折入；resize 中组=会话矩形作 liveFrame
 //     经 deriveRenderCanvas 传 deriveGroupFrame 值面——manual/storyboard 消费、auto 恒派生）
 //   ③deriveRenderCanvas 产出几何/rel/hidden 剔除/边过滤/cellNodes（共享内核单源——禁第二套帧算法）
-//   ④执行覆盖：主槽解析雏形（过渡期 data.fileId 非空用它，否则运行时产物——B3 写者换键同步切
-//     data.mediaId+resolvePrimaryMediaId）；execStatus 只来自投影（无投影=无键，unknown≠idle）；
+//   ④执行覆盖：主槽解析=resolvePrimaryMediaId 单源（Y2 B3 已切——data.mediaId 作者面+运行时产物
+//     +multiImageGen 回落）；execStatus 只来自投影（无投影=无键，unknown≠idle）；
 //     localPreview 只在主槽解析为空时盖面（粘贴本地预览）；格子覆盖按格子 id 回剔除前作者记录
 //     取值写进 cellNodes（只遍历 React Flow 输出节点的格子是空的——分镜子被 hidden 剔除仍在）
 //   ⑤mediaFacts 只供尺寸等事实（mediaNatural），不改作者坐标、不写 doc
@@ -16,6 +16,7 @@
 import {
   deriveRenderCanvas,
   isActiveTombstone,
+  resolvePrimaryMediaId,
   type RenderNode,
   type RenderEdge,
   type RenderSourceEdge,
@@ -32,7 +33,7 @@ export interface GestureOverlay {
 }
 
 /** 渲染节点/格子叠加键（派生面——不回写 doc/ns 作者缓存）：
- *  mediaId=解析主槽（过渡期=data.fileId 非空用它，否则 runtime 产物）；execStatus=投影态；
+ *  mediaId=解析主槽（Y2 B3=resolvePrimaryMediaId：data.mediaId 作者面→runtime 产物→multiImage 回落）；execStatus=投影态；
  *  previewUrl=localPreview 空槽盖面；mediaNatural=尺寸事实。 */
 export interface ProjectedMediaOverlay {
   mediaId?: string;
@@ -80,15 +81,15 @@ export function projectCanvas(input: {
   const base = deriveRenderCanvas({ records: folded, edges: input.readModel.edges, liveFrames });
 
   // ④ 执行覆盖——格子数据源=剔除前作者记录（分镜子被 hidden 剔除后按格子 id 仍可取值）
+  //    Y2 B3：作者键从 data.fileId 切到 resolvePrimaryMediaId 单源（data.mediaId 作者面+
+  //    multiImageGen images 回落；reset-collab 已清库=零存量双读需求）。
   const authorById = new Map(input.readModel.records.map((r) => [r.id, r]));
   const overlayOf = (id: string): ProjectedMediaOverlay => {
-    const authorKey = authorById.get(id)?.data?.fileId;   // 过渡期作者键（B3 切 data.mediaId）
-    const display = typeof authorKey === 'string' && authorKey !== ''
-      ? authorKey
-      : (() => {
-          const art = runtime?.nodes[id]?.artifact?.mediaId;
-          return typeof art === 'string' && art !== '' ? art : undefined;
-        })();
+    const author = authorById.get(id);
+    const authorKey = author
+      ? resolvePrimaryMediaId({ type: author.type, data: author.data ?? {} }, runtime?.nodes[id]?.artifact?.mediaId ?? null)
+      : '';
+    const display = authorKey !== '' ? authorKey : undefined;
     const execStatus = runtime?.nodes[id]?.execStatus?.status;
     const previewUrl = display === undefined ? localPreview.get(id) : undefined;
     const fact = display !== undefined ? mediaFacts.get(display) : undefined;

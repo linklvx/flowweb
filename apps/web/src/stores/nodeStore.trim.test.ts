@@ -40,40 +40,17 @@ describe('nodeStore — video trim actions', () => {
     });
   });
 
-  describe('setTrimTaskStatus', () => {
-    it('should update trimTaskStatus on a video node', () => {
-      const node = createVideoNode();
-      useNodeStore.getState().addNode(node);
+  // Y2 B3：setTrimTaskStatus/setTrimmedResult 整体退役——trimTaskStatus/trimmedFileId 禁键
+  // （服务端进度/产物域；剪辑产物落画布=VideoGenNode 作者放置写 mediaId、进度归 useTrimTaskStatus 本地态）
+  it('Y2 B3：trim 双写点退役——ns 面零 trimTaskStatus/trimmedFileId 键（updateVideoTrim 照常）', () => {
+    const node = createVideoNode();
+    useNodeStore.getState().addNode(node);
+    useNodeStore.getState().updateVideoTrim(node.id, 1.5, 9.5);
 
-      useNodeStore.getState().setTrimTaskStatus(node.id, 'processing');
-
-      const updated = useNodeStore.getState().getNodeData<VideoNodeData>(node.id);
-      expect(updated?.trimTaskStatus).toBe('processing');
-    });
-
-    it('should be a no-op when node does not exist', () => {
-      expect(() => {
-        useNodeStore.getState().setTrimTaskStatus('nonexistent', 'done');
-      }).not.toThrow();
-    });
-  });
-
-  describe('setTrimmedResult', () => {
-    it('should set trimmedFileId and update status to done', () => {
-      const node = createVideoNode();
-      useNodeStore.getState().addNode(node);
-
-      useNodeStore.getState().setTrimmedResult(node.id, 'trimmed-file-xyz');
-
-      const updated = useNodeStore.getState().getNodeData<VideoNodeData>(node.id);
-      expect(updated?.trimmedFileId).toBe('trimmed-file-xyz');
-      expect(updated?.trimTaskStatus).toBe('done');
-    });
-
-    it('should be a no-op when node does not exist', () => {
-      expect(() => {
-        useNodeStore.getState().setTrimmedResult('nonexistent', 'file-123');
-      }).not.toThrow();
-    });
+    const updated = useNodeStore.getState().getNodeData<VideoNodeData>(node.id);
+    expect(updated?.trimStart).toBe(1.5);
+    expect(updated?.trimEnd).toBe(9.5);
+    expect(updated?.trimTaskStatus).toBeUndefined();
+    expect(updated?.trimmedFileId).toBeUndefined();
   });
 });

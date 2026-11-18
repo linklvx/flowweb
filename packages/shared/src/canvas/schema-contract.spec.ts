@@ -13,16 +13,17 @@ const CENSUS_TYPES = ['textInput', 'imageGen', 'imageExtGen', 'videoGen', 'audio
 
 const CENSUS_DATA_KEYS: Record<string, readonly string[]> = {
   textInput: ['content', 'prompt', 'model', 'order'],
-  imageGen: ['fileId', 'referenceImage', 'mediaName', 'slot', 'status', 'imageRotation', 'flipH', 'flipV',
+  // Y2 B3：四类型 +mediaId（作者键加行）
+  imageGen: ['fileId', 'mediaId', 'referenceImage', 'mediaName', 'slot', 'status', 'imageRotation', 'flipH', 'flipV',
     'aspectRatio', 'allImages', 'style', 'styleId', 'styleName', 'model', 'quality', 'ratio', 'resolution', 'prompt', 'order'],
-  imageExtGen: ['fileId', 'referenceImage', 'mediaName', 'slot', 'status', 'imageRotation', 'flipH', 'flipV',
+  imageExtGen: ['fileId', 'mediaId', 'referenceImage', 'mediaName', 'slot', 'status', 'imageRotation', 'flipH', 'flipV',
     'aspectRatio', 'allImages', 'style', 'styleId', 'styleName', 'model', 'quality', 'ratio', 'resolution', 'prompt',
     'extConfig', 'aiTool', 'order'],
-  videoGen: ['model', 'status', 'fileId', 'aspectRatio', 'referenceVideo', 'ratio', 'prompt', 'styleId', 'styleName',
+  videoGen: ['model', 'status', 'fileId', 'mediaId', 'aspectRatio', 'referenceVideo', 'ratio', 'prompt', 'styleId', 'styleName',
     'allImages', 'trimStart', 'trimEnd', 'trimTaskStatus', 'trimmedFileId', 'order',
     'origin', 'videoProjectId', 'label'],
   // Y1c T15：audioGen content:string → prompt:Y.Text 同卡迁（写面实测键集同步——AudioConfigPanel）
-  audioGen: ['model', 'prompt', 'status', 'fileId', 'referenceAudio', 'order'],
+  audioGen: ['model', 'prompt', 'status', 'fileId', 'mediaId', 'referenceAudio', 'order'],
   multiImageGen: ['label', 'images', 'mainImageIndex', 'expanded', 'nodeStatus', 'generationBatchId', 'prompt', 'order'],
   videoEdit: ['order'],
   group: ['groupType', 'name', 'storyboard', 'collapsed', 'nameCustom', 'color', 'order'],

@@ -39,7 +39,7 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
   const node = useNodeStore((s) => s.nodes[nodeId]);
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const updatePromptImages = useNodeStore((s) => s.updatePromptImages);
-  const setStatus = useNodeStore((s) => s.setStatus);
+  // Y2 B3：setStatus 取用删——data.status 禁键；入队中=既有本地 executing 态，HTTP 失败=本地 submitError 态
   const { zoom } = useViewport();
   const { extConfig, updateExtConfig } = useImageExtConfig(nodeId);
 
@@ -56,6 +56,8 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
   // Y0b-1：null=定价不可用（无规则/解析失败）——0 是合法免费报价不可挪用
   const [creditCost, setCreditCost] = useState<number | null>(0);
   const [executing, setExecuting] = useState(false);
+  // Y2 B3：入队 HTTP 失败的本地即时提示态（data.status 禁写后 error 兜底归本地）
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [maximized, setMaximized] = useState(false);
   const [aiToolOpen, setAiToolOpen] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
@@ -136,7 +138,8 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
   const handleGenerate = useCallback(async () => {
     if (!nodeData?.prompt?.text?.trim()) return;
     setExecuting(true);
-    setStatus(nodeId, 'loading');
+    setSubmitError(null);
+    // Y2 B3：setStatus('loading') 删——入队中由本地 executing 态承载
     const projectId = useCanvasStore.getState().projectId;
     try {
       if (!projectId) return;
@@ -148,11 +151,12 @@ function ImageExtConfigPanelComponent({ nodeId }: Props) {
       await imageExtNodeApi.submitGeneration(nodeId, { projectId, ...(token ? { regenToken: token } : {}) });
     } catch {
       // 异步链失败态由服务端 exec 投影接管（轮换 useEffect 单源）；本地仅 data.status 兜底
-      setStatus(nodeId, 'error');
+      // Y2 B3：入队失败本地提示（服务端 exec 投影接管长链）
+    setSubmitError('任务提交失败，请稍后重试');
     } finally {
       setExecuting(false);
     }
-  }, [nodeId, setStatus, nodeData, status, entry?.rearmable]);
+  }, [nodeId, nodeData, status, entry?.rearmable]);
 
   if (!isImageExtNode(node)) return null;
 

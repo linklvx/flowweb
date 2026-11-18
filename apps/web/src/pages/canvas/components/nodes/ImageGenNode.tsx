@@ -3,7 +3,7 @@ import { NodeResizeControl, useReactFlow, useInternalNode, useViewport, type Nod
 import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
 import { subscribeNodeEditResult, subscribeNodeStatus } from '@/services/executionSocket';
-import { useNodeStore, applyDataPatchToStores, NODE_TYPES } from '@/stores/nodeStore';
+import { useNodeStore, NODE_TYPES } from '@/stores/nodeStore';   // Y2 B3：applyDataPatchToStores 调用方归零随删
 import { replaceNodeMedia, clearNodeMedia, getMediaSlot, MediaRevConflictError } from '@/api/collabApi';
 import { selectExecStatus } from '@/stores/execStatusView';
 import type { AiToolId } from '@/stores/nodeStore';
@@ -43,7 +43,7 @@ import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS } from '@/utils/resizeUtils';
 // O0b-2 contain-fit/约束尺寸/内容事件决策单源（shared——web 三份逐字重复收编；census 定义点=1）
 import { calcConstrainedSize, ratioDimensions, applyIntrinsicFit, type SizeBounds } from '@flowweb/shared';
 // B6-1（Spec B）：handle 可用性单源谓词——编辑中（editMode 或 transformMode）双侧无（删 !editMode 直判防双轨）
-import { getAvailableHandles } from '@flowweb/shared';
+import { getAvailableHandles, resolvePrimaryMediaId } from '@flowweb/shared';
 import { reportNodeSize } from '@/stores/canvasIntents';
 // Y1c T22 收口批（C-2）：runtime 投影 artifact 槽 overlay 读径——data.fileId 服务端停写后产物身份
 // 读点=useMediaUrl(pendingPreview?.mediaId ?? runtimeMediaIdOf(id) ?? fileId)（四节点同型）
@@ -89,7 +89,9 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   const internalNode = useInternalNode(id);
   // 批1-6（B2）：执行状态合并视图（exec 投影 → 对齐 → data.status；终态优先不回退）
   const status = useNodeStore((s) => selectExecStatus(s, id));
-  const fileId = nodeData?.fileId;
+  // Y2 B3：主槽判定改 resolvePrimaryMediaId 单源（fileId||referenceImage 九处退役；
+  // B2d 服务端交付链已接——AI 编辑产物经 commitImage 投影，客户端零固化写）
+  const fileId = resolvePrimaryMediaId({ type, data: nodeData ?? {} }, runtimeMediaIdOf(id));
   const referenceImage = nodeData?.referenceImage;
   // F2（用户裁定③）：pending 预览层——变换产物仅本地预览（displayUrl 优先取 pending 媒体），
   // 命令成功才写共享权威状态；失败/取消撤掉预览回落权威值渲染（共享态从未被本操作写过，
@@ -140,7 +142,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
 
   const handleOpenFullscreen = useCallback(async () => {
     // Fetch fresh presigned URL to avoid expiry
-    const targetFileId = fileId || referenceImage;
+    const targetFileId = fileId;   // Y2 B3：解析值（resolvePrimaryMediaId 单源）
     if (targetFileId) {
       try {
         const { url } = await getMediaUrl(targetFileId);
@@ -160,7 +162,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   }, []);
 
   const handleDownload = useCallback(async () => {
-    const targetFileId = fileId || referenceImage;
+    const targetFileId = fileId;   // Y2 B3：解析值（resolvePrimaryMediaId 单源）
     if (!targetFileId) return;
     // R2b-2：下载统一走 downloadMediaFile（url 优先/fileId 自愈/60s 延迟 revoke/失败 message.error——window.open 兜底移除）
     await downloadMediaFile({
@@ -189,7 +191,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       updateConfig(id, { aiTool: toolId });
     } else {
       // 构建参考图 ImageItem（需要完整 url/name/status）
-      const fileId = nodeData?.fileId;
+      const fileId = resolvePrimaryMediaId({ type: nodeType, data: nodeData ?? {} }, runtimeMediaIdOf(id));   // Y2 B3：解析值
       let allImages: { id: string; url: string; name: string; status: 'success' }[] = [];
       if (fileId) {
         try {
@@ -219,7 +221,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   const [lightingLoading, setLightingLoading] = useState(false);
 
   const handleLighting = useCallback(async () => {
-    const targetFileId = fileId || referenceImage;
+    const targetFileId = fileId;   // Y2 B3：解析值（resolvePrimaryMediaId 单源）
     if (!targetFileId) return;
     setLightingLoading(true);
     try {
@@ -233,7 +235,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   }, [id, fileId, referenceImage]);
 
   const handleAngle3D = useCallback(async () => {
-    const targetFileId = fileId || referenceImage;
+    const targetFileId = fileId;   // Y2 B3：解析值（resolvePrimaryMediaId 单源）
     if (!targetFileId) return;
     try {
       const { url } = await getMediaUrl(targetFileId);
@@ -374,20 +376,12 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
     : undefined;
 
   // Real-time image generation status updates — 订阅 /execution 单例（连接/join/credits 转发归单例与 page 生命周期）
+  // Y2 B3：socket 状态回填退役——data.status/fileId 均禁键（交付唯一 owner=服务端投影 poller，
+  // doc 收敛经 Yjs 回流+runtime 投影面；本订阅面清空=纯执行提示通道归 execStatusView 投影）。
   useEffect(() => {
     const off = subscribeNodeStatus((data) => {
       if (data.nodeId !== id) return;
-      if (data.status === 'loading') {
-        useNodeStore.getState().setStatus(id, 'loading');
-      } else if (data.status === 'done' && data.fileId) {
-        // F2 评审 P2-1：裁定③「socket done 只承担执行状态提示」主通道同门——在飞媒体操作期间
-        // 不写 fileId（无版本 socket 直写不得覆盖 pending 产物展示）
-        if (activeMediaOpRef.current === null) {
-          useNodeStore.getState().setFileResult(id, data.fileId);
-        }
-      } else if (data.status === 'error') {
-        useNodeStore.getState().setStatus(id, 'error');
-      }
+      void data;
     });
     return off;
   }, [id]);
@@ -535,7 +529,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       }
       if (stale()) return;
       updateConfig(id, {
-        fileId: newId, referenceImage: undefined,
+        mediaId: newId, referenceImage: undefined,   // Y2 B3：变换产物=作者放置写 mediaId（fileId 禁键）
         imageRotation: 0, flipH: false, flipV: false,
         transformMode: false,
       });
@@ -700,7 +694,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       await confirmUpload({ fileId: newId, key, fileSize: file.size });
 
       updateConfig(id, { editMode: null });
-      useCanvasStore.getState().addChildNode(id, { fileId: newId, status: 'done' });
+      useCanvasStore.getState().addChildNode(id, { mediaId: newId });   // Y2 B3（裁决 15）：作者放置只写 mediaId
       useNodeStore.getState().setActiveEditNodeId(null);
       useNodeStore.getState().clearAnnotationState();
       message.success('标注已保存');
@@ -773,7 +767,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       await confirmUpload({ fileId: newId, key, fileSize: file.size });
 
       updateConfig(id, { editMode: null });
-      useCanvasStore.getState().addChildNode(id, { fileId: newId, status: 'done' });
+      useCanvasStore.getState().addChildNode(id, { mediaId: newId });   // Y2 B3（裁决 15）：作者放置只写 mediaId
       useNodeStore.getState().setActiveEditNodeId(null);
     } catch (err) {
       console.error('裁剪失败:', err);
@@ -790,7 +784,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
     setEditError(null);
     try {
       let endpoint = '';
-      const body: any = { fileId, nodeId: id, projectId: canvasProjectId() };
+      const body: any = { fileId, nodeId: id, projectId: canvasProjectId() };   // Y2 B3：fileId 值=resolvePrimaryMediaId 解析值（线字段名不动）
       // Y0b-2 T6（Z79 编辑三入口恒手势）：每次应用=生成性重跑，恒带 token——held 优先（终态前重试
       // 复用同 token=免费 rearm，sessionStorage 跨刷新存活），无 held 铸造新 token（新意图照常扣费）
       body.regenToken = storedToken(body.projectId, id) ?? gestureToken(body.projectId, id);
@@ -905,7 +899,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       try {
         await clearNodeMedia(pid, id);
         if (stale()) return;
-        updateConfig(id, { referenceImage: undefined, fileId: undefined } as any);
+        updateConfig(id, { referenceImage: undefined, mediaId: undefined } as any);   // Y2 B3：清空本地 UI 形态换键（doc 面 strip）
       } catch (e) {
         if (stale()) return;
         if (e instanceof MediaRevConflictError) {
@@ -919,7 +913,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
             try {
               await clearNodeMedia(pid, id);   // 用户显式授权：fresh 槽位 rev 单次命令（无 opts）
               if (stale()) return;
-              updateConfig(id, { referenceImage: undefined, fileId: undefined } as any);
+              updateConfig(id, { referenceImage: undefined, mediaId: undefined } as any);   // Y2 B3：清空本地 UI 形态换键（doc 面 strip）
             } catch (e2) {
               if (stale()) return;
               // F2 评审 P2-2：重提失败分型——409 再冲突非网络态（镜像 handleSave 分支文案）
@@ -938,10 +932,9 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
     };
     useAngle3DStore.getState().setNodeCallbacks(id, {
       onReplaceCurrentNode: (_resultUrl: string) => { void runClearMediaCommand(); },
-      onCreateNewNode: (resultUrl: string) => {
-        useCanvasStore.getState().addChildNode(id, {
-          status: 'done',
-        });
+      onCreateNewNode: (_resultUrl: string) => {
+        // Y2 B3：角度回调 resultUrl 未用（零替代）——status 写删（禁键）；无产物 id 可写 mediaId
+        useCanvasStore.getState().addChildNode(id, {});
       },
     });
     return () => {
@@ -1094,9 +1087,8 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
         // F2（用户裁定③）：本节点存在进行中的媒体命令操作（activeMediaOp 未清）时，socket 产物
         // 回填不写 fileId——无版本直写不得覆盖 pending 期间产物展示，socket done 只承担执行状
         // 态提示（setProcessing/setEditError 面保留）；无 pending 时行为不变
-        if (activeMediaOpRef.current === null) {
-          applyDataPatchToStores(id, { fileId: p.fileId });
-        }
+        // Y2 B3：AI 编辑产物固化写消除（裁决 9——B2d 服务端 commitImage 交付链已接；
+        // 客户端本地 fileId 回填随禁键面退役，doc 收敛归服务端投影经 Yjs 回流）
         updateConfig(id, { editMode: null });
         useNodeStore.getState().setActiveEditNodeId(null);
         setProcessing(false);

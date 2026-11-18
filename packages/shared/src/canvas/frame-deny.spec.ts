@@ -239,3 +239,38 @@ describe('Y1c T24 终验 I-7：同型容器整键替换零执法（canDelete=fal
     expect(validateAppliedL2(doc, events)).toEqual({ ok: true });   // 内容写=child/delta 事件（path≠键本身）
   });
 });
+
+// ══════════ Y2 B3：矩阵 mediaId 加键——放置写 data.mediaId 放行（今天 unknown-data-key 拒必红）══════════
+describe('Y2 B3：作者键 mediaId 入矩阵（imageGen/imageExtGen/videoGen/audioGen 四类型）', () => {
+  const MEDIA_TYPES = ['imageGen', 'imageExtGen', 'videoGen', 'audioGen'] as const;
+
+  it('四类型 data.mediaId 条目在位（lww+mediaRef——NORMALIZE 引用存在性检查输入）', () => {
+    for (const t of MEDIA_TYPES) {
+      const spec = DOC_SCHEMA_V4[t]!.data.mediaId;
+      expect(spec, `${t}.mediaId`).toBeDefined();
+      expect(spec!.yType).toBe('lww');
+      expect(spec!.mediaRef).toBe(true);
+    }
+  });
+
+  it('放置帧写 data.mediaId 放行（frame-deny 键集执法——加键前 unknown-data-key 拒）', () => {
+    for (const t of MEDIA_TYPES) {
+      const f = frameOf((d) => {
+        const node = new Y.Map();
+        const data = new Y.Map();
+        data.set('mediaId', 'm-author-1');
+        node.set('type', t);
+        node.set('data', data);
+        node.set('position', new Y.Map());
+        d.getMap('nodes').set(`n-${t}`, node);
+      });
+      expect(validateFrameDeny(f), `${t} mediaId 放置帧`).toEqual({ ok: true });
+    }
+  });
+
+  it('fileId 维持 forbidden（C1 翻禁执法前的过渡态——本 commit 只加键不翻禁）', () => {
+    for (const t of MEDIA_TYPES) {
+      expect(DOC_SCHEMA_V4[t]!.data.fileId!.yType).toBe('server-forbidden');
+    }
+  });
+});

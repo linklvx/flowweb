@@ -206,7 +206,7 @@ describe('nodeStore (AppNode nested structure)', () => {
     expect(imgData.resolution).toBeUndefined();
     expect(imgData.quality).toBe('standard');
     expect(imgData.ratio).toBe('16:9');
-    expect(imgData.status).toBe('idle');
+    expect(imgData.status).toBeUndefined();   // Y2 B3（裁决 7）：status 默认注入删——禁键
     // Y1c T16：prompt=xml 域——defaults 注入删除（缺省归创建 seam；域键写 seam 拒）
     expect(imgData.prompt).toBeUndefined();
     // Y2 A2b：数组域键（allImages）缺容器被 seam 拒——缺省不注入，快照=doc 真值（键缺席）
@@ -322,31 +322,28 @@ describe('nodeStore (AppNode nested structure)', () => {
     }
   });
 
-  // 10. setStatus should update status field
-  it('should update status field via setStatus', () => {
-    // Y2 A2b（裁决 3 v4）：真 doc 种子+rw——updateConfig/setStatus 经漏斗尾快照落 ns
+  // 10. Y2 B3：setStatus 退役——data.status 禁键（执行态投影 Feed exec.status 唯一权威）
+  it('Y2 B3：updateConfig 不再落 status（禁键——漏斗尾快照 ns=doc 真值零 status）', () => {
     seedRwNodeForNs('img4', 'imageGen');
-    useNodeStore.getState().updateConfig('img4', { style: '写实' });
-    useNodeStore.getState().setStatus('img4', 'loading');
+    useNodeStore.getState().updateConfig('img4', { style: '写实' } as any);
+    // 旧 setStatus('loading') 断言随 action 退役翻零键
 
     const stored = useNodeStore.getState().nodes['img4'];
     const imgData = stored.data as unknown as ImageNodeData;
-    expect(imgData.status).toBe('loading');
+    expect(imgData.status).toBeUndefined();
   });
 
-  // 11. setFileResult should set fileId and mark status='done'
-  it('should set fileId and mark status=done via setFileResult', () => {
-    // Y2 A2b（裁决 3 v4）：真 doc 种子+rw——updateConfig 先经快照建 ns 条目（setFileResult 本地写体未退役）
+  // 11. Y2 B3：setFileResult 退役——作者键经 updateConfig 写 mediaId（fileId/status 禁键）
+  it('Y2 B3：updateConfig 落 mediaId 作者键（漏斗尾快照——fileId/status 零键）', () => {
     seedRwNodeForNs('img5', 'imageGen');
-    useNodeStore.getState().updateConfig('img5', { style: '写实' });
-    // 批2-2：AI 落地走 canEdit 门——rw 会话电平（默认 idle/readonly 会被 wrapper 早退）
     useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
-    useNodeStore.getState().setFileResult('img5', 'file-abc-123');
+    useNodeStore.getState().updateConfig('img5', { mediaId: 'file-abc-123' } as any);
 
     const stored = useNodeStore.getState().nodes['img5'];
     const imgData = stored.data as unknown as ImageNodeData;
-    expect(imgData.fileId).toBe('file-abc-123');
-    expect(imgData.status).toBe('done');
+    expect(imgData.mediaId).toBe('file-abc-123');
+    expect(imgData.fileId).toBeUndefined();
+    expect(imgData.status).toBeUndefined();
   });
 
   // 12. deleteNode should remove node (nodes[id] is undefined after)
@@ -1455,11 +1452,12 @@ describe('nodeStore → canvasStore 桥接（图片身份字段，Bug D/E 响应
     expect((cn.data as any).referenceImage).toBe('f1');
   });
 
-  it('updateConfig 白名单字段——cs 桥镜像退役（Y2 A3：cs=作者缓存恒 doc 面，doc 缺席零写零镜像）', () => {
-    useNodeStore.getState().updateConfig('b1', { fileId: 'fx', status: 'done' } as any);
+  it('updateConfig 白名单字段——cs 桥镜像退役（Y2 A3+B3：cs=作者缓存恒 doc 面；mediaId 作者键落/禁键零落）', () => {
+    useNodeStore.getState().updateConfig('b1', { mediaId: 'fx' } as any);
     const cn = useCanvasStore.getState().nodes.find((n) => n.id === 'b1')!;
+    expect((cn.data as any).mediaId).toBe('fx');        // Y2 B3：mediaId=作者键（doc 落⇒投影回填 cs）
     expect((cn.data as any).fileId).toBeUndefined();   // fileId=CLIENT_FORBIDDEN——doc 不落即 cs 不落
-    expect((cn.data as any).status).toBe('done');      // status=作者键——doc 落⇒cs=作者缓存跟随（非桥直写）
+    expect((cn.data as any).status).toBeUndefined();    // Y2 B3：status 禁键——updateConfig 不携即零键
   });
 
   it('updateConfig 非白名单字段不触发 canvasStore setState（防高频重渲染）', () => {
@@ -1472,11 +1470,12 @@ describe('nodeStore → canvasStore 桥接（图片身份字段，Bug D/E 响应
     spy.mockRestore();
   });
 
-  it('setFileResult 桥接 fileId + status done', () => {
-    useNodeStore.getState().setFileResult('b1', 'file-9');
+  it('Y2 B3：桥白名单收口——mediaId 桥通（fileId/status 出桥）', () => {
+    useNodeStore.getState().updateConfig('b1', { mediaId: 'file-9' } as any);
     const cn = useCanvasStore.getState().nodes.find((n) => n.id === 'b1')!;
-    expect((cn.data as any).fileId).toBe('file-9');
-    expect((cn.data as any).status).toBe('done');
+    expect((cn.data as any).mediaId).toBe('file-9');
+    expect((cn.data as any).fileId).toBeUndefined();
+    expect((cn.data as any).status).toBeUndefined();
   });
 
   it('updateMultiImageImages 桥接 images', () => {
@@ -1488,7 +1487,7 @@ describe('nodeStore → canvasStore 桥接（图片身份字段，Bug D/E 响应
 
   it('canvasStore 中不存在的节点 id 桥接不报错（guard）', () => {
     useNodeStore.getState().addNode({ id: 'ghost', type: 'imageGen', data: {} as any });
-    expect(() => useNodeStore.getState().setFileResult('ghost', 'f')).not.toThrow();
+    expect(() => useNodeStore.getState().updateConfig('ghost', { mediaId: 'f' } as any)).not.toThrow();   // Y2 B3：作者键经 updateConfig
     expect(() => useNodeStore.getState().updateConfig('ghost', { referenceImage: 'f' } as any)).not.toThrow();
   });
 });

@@ -108,13 +108,13 @@ describe('Y1c T22 G5（红③收口）：exec 监听投影退役——doc.exec �
     expect(useNodeStore.getState().execStatus.get('n1')).toBeUndefined();
   });
 
-  it('投影移除回落语义保持：runtime 投影清空 → 回落 data.status（execStatusOf 合并视图不变）', async () => {
+  it('Y2 B3：投影移除回落语义翻新——runtime 投影清空 → idle（data.status 回落已删——投影键唯一权威）', async () => {
     await driveToSynced('p1');
     useNodeStore.setState({ nodes: { n1: loadingNode('n1') as any } });
     useNodeStore.setState({ execStatus: new Map([['n1', { status: 'done' }]]) });
     expect(execStatusOf('n1')).toBe('done');
     useNodeStore.setState({ execStatus: new Map() });   // 投影清（如 feed 换代全量重建前窗）
-    expect(execStatusOf('n1')).toBe('loading'); // 回落 data.status
+    expect(execStatusOf('n1')).toBe('idle'); // Y2 B3：无投影=idle（data.status 禁写零残留）
   });
 });
 
@@ -131,12 +131,11 @@ describe('批1-6：execStatusOf 合并视图（exec 投影 → data.status）', 
     expect(execStatusOf('n1')).toBe('done');
   });
 
-  it('无 exec 投影 → data.status（默认路径回归）', () => {
+  it('Y2 B3：无 exec 投影 → idle（data.status 回落删除——写面退役零残留）', () => {
     useNodeStore.setState({
-      nodes: { n1: { id: 'n1', type: 'imageGen', data: { status: 'error' } as any } },
+      nodes: { n1: loadingNode('n1') as any },
     });
-    expect(execStatusOf('n1')).toBe('error');
-    expect(execStatusOf('ghost')).toBe('idle');
+    expect(execStatusOf('n1')).toBe('idle');
   });
 });
 

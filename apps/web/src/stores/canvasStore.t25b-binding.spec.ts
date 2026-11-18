@@ -16,7 +16,7 @@ import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 
 const doneImage = (id: string, x = 100, y = 100) =>
-  ({ id, type: 'imageGen', position: { x, y }, width: 320, height: 180, data: { status: 'done', fileId: `f-${id}` } });
+  ({ id, type: 'imageGen', position: { x, y }, width: 320, height: 180, data: { mediaId: `f-${id}` } });
 
 beforeEach(() => {
   bindMediaMock.mockReset().mockResolvedValue({ type: 'BindMedia', rev: 1, mediaId: 'f-a' });
@@ -28,8 +28,8 @@ beforeEach(() => {
   });
   useNodeStore.setState({
     nodes: {
-      a: { id: 'a', type: 'imageGen', data: { status: 'done', fileId: 'f-a' } },
-      b: { id: 'b', type: 'imageGen', data: { status: 'done', fileId: 'f-b' } },
+      a: { id: 'a', type: 'imageGen', data: { mediaId: 'f-a' } },
+      b: { id: 'b', type: 'imageGen', data: { mediaId: 'f-b' } },
     },
   } as any);
 });
@@ -38,12 +38,15 @@ const unlockCollab = () =>
   useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
 
 describe('T25b 四读径③ web 接线：复制/粘贴→typed BindMedia', () => {
-  it('★duplicateNodes：携 fileId 的副本对源节点发 BindMedia（src→dst+expectedRev=0）——修前零调用（红）', () => {
+  it('★duplicateNodes（Y2 B3 裁决 4 形态）：副本槽剥离（data 无 mediaId）+对源节点发 BindMedia（补绑定经服务端投影）', () => {
     unlockCollab();
     useCanvasStore.getState().duplicateNodes(['a']);
     const s = useCanvasStore.getState();
-    const copy = s.nodes.find((n) => n.id !== 'a' && (n.data as any).fileId === 'f-a')!;
+    const copy = s.nodes.find((n) => n.id !== 'a' && n.id !== 'b')!;
     expect(copy).toBeTruthy();
+    // Y2 B3：copyPlan 剥离 fileId/mediaId——副本 data 零媒体身份（图示经 bind 命令服务端投影补）
+    expect((copy.data as any).mediaId).toBeUndefined();
+    expect((copy.data as any).fileId).toBeUndefined();
     expect(bindMediaMock).toHaveBeenCalledWith('p1', { type: 'BindMedia', sourceNodeId: 'a', mediaId: 'f-a', targetNodeId: copy.id, expectedRev: 0 });
   });
 

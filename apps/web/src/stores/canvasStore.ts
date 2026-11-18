@@ -7,7 +7,7 @@ import {
 import { useNodeStore, IMAGE_EXT_DEFAULTS, NODE_TYPES, CANVAS_NODE_TYPES } from './nodeStore';
 import type { ImageItem, AiToolId, AppNode } from './nodeStore';
 import type { MaterialFile, ArrangeMode, CanvasNodeRecord, CopyPlan, DragSession, Rect, RenderNode } from '@flowweb/shared';
-import { normalizeSelection, participation, arrangeRects, buildCopyPlan, normalizeSize, emptyGroupSealFrame, utf8Bytes, orderRecords, deriveStoryboardCells, readPlacement, EDIT_COMMAND_DENY_THROTTLE_MS, ensureTextDomainDefaults, ensureXmlDomainDefaults, ensureArrayDomainDefaults, NODE_TYPE_ALIASES } from '@flowweb/shared';
+import { normalizeSelection, participation, arrangeRects, buildCopyPlan, normalizeSize, emptyGroupSealFrame, utf8Bytes, orderRecords, deriveStoryboardCells, readPlacement, EDIT_COMMAND_DENY_THROTTLE_MS, ensureTextDomainDefaults, ensureXmlDomainDefaults, ensureArrayDomainDefaults, NODE_TYPE_ALIASES, resolvePrimaryMediaId } from '@flowweb/shared';
 import type { StoryboardConfig } from '@/types/group';
 import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
@@ -562,8 +562,9 @@ function rebindCopiedMedia(idMap: Map<string, string>): void {
   const nodes = useCanvasStore.getState().nodes;
   const fileIdOf = new Map<string, string>();
   for (const n of nodes) {
-    const fid = (n.data as Record<string, unknown> | undefined)?.fileId;
-    if (typeof fid === 'string' && fid !== '') fileIdOf.set(n.id, fid);
+    // Y2 B3：主槽判定改 resolvePrimaryMediaId 单源（data.fileId 直读退役）
+    const fid = resolvePrimaryMediaId({ type: n.type ?? '', data: (n.data ?? {}) as Record<string, unknown> }, undefined);
+    if (fid !== '') fileIdOf.set(n.id, fid);
   }
   for (const [srcId, dstId] of idMap) {
     const mediaId = fileIdOf.get(srcId);
@@ -1962,10 +1963,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (!sourceNode) return null;
 
     const nsData = useNodeStore.getState().nodes[nodeId]?.data as any;
-    const fileId: string | undefined = nsData?.fileId;
-    const referenceImage: string | undefined = nsData?.referenceImage;
-
-    const mediaId = fileId || referenceImage;
+    const mediaId = resolvePrimaryMediaId({ type: sourceNode.type ?? '', data: nsData ?? {} }, undefined);   // Y2 B3：主槽解析单源
     if (!mediaId) return null;
 
     // Snapshot source position/size（O0b-2 A 类三档链——doc wh 第一）
@@ -2029,7 +2027,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       }
 
       // Upload (pass blobResults directly — preserves original indices)
-      const namePrefix = (nsData?.fileName as string) || fileId || referenceImage || 'split';
+      const namePrefix = (nsData?.fileName as string) || mediaId || 'split';   // Y2 B3：拆图前缀跟随解析主槽
       const uploadResult = await uploadSplitBlobs(
         blobResults,
         { signal: ac.signal, maxConcurrent: 3, maxRetries: 1, cols, namePrefix, projectId: get().projectId ?? undefined },
@@ -2050,9 +2048,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
           gridRow,
           gridCol,
           data: {
-            fileId: r.fileId,
+            mediaId: r.fileId,   // Y2 B3：拆分子节点=作者放置只写 mediaId
             fileName: `${namePrefix}_r${gridRow}_c${gridCol}.webp`,
-            status: 'done',
             width: sourceW,
             height: sourceH,
           },
@@ -2631,7 +2628,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         const newNode: Node = {
           id, type: NODE_TYPES.IMAGE_GEN, parentId: groupId,
           position: { x: 0, y: 0 }, width: 320, height: 180,
-          data: { status: 'done', fileId: img.id, __fromMulti: nodeId, slot: -1 },
+          data: { mediaId: img.id, __fromMulti: nodeId, slot: -1 },   // Y2 B3：放置只写 mediaId（status/fileId 禁键）
           selected: false,
         } as Node;
 
@@ -2685,9 +2682,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         message.info(`分镜组已满，${overflowNodes.length} 张图片已放在组旁`);
       }
     } else if (node.type === NODE_TYPES.IMAGE_GEN || node.type === NODE_TYPES.IMAGE_EXT_GEN) {
-      // imageGen/imageExtGen 完成态
+      // imageGen/imageExtGen 完成态——Y2 B3：status 门改解析主槽非空（status 禁键零值；
+      // 判据=resolvePrimaryMediaId 单源：放置图 mediaId/参考图/产物兜底）
       const nd = node.data as any;
-      if (nd.status !== 'done') return;
+      if (resolvePrimaryMediaId({ type: node.type, data: nd ?? {} }, undefined) === '') return;
 
       // O0c-3：入格=attachMember 纯成员原语（membership+首空槽一体——addToGroup 公开面已挂分镜组
       // 守卫，旧 addToGroup+cells 两段写通道退役）；满员返回 null → 溢出落组旁（placementBesideGroup
@@ -2737,7 +2735,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (node.type === NODE_TYPES.MULTI_IMAGE_GEN) {
       if (!(nd.images ?? []).some((i: any) => i.status === 'success')) return;
     } else if (node.type === NODE_TYPES.IMAGE_GEN || node.type === NODE_TYPES.IMAGE_EXT_GEN) {
-      if (nd.status !== 'done') return;
+      // Y2 B3：status 门改解析主槽非空（守卫判据与 Inner 同源——resolvePrimaryMediaId）
+      if (resolvePrimaryMediaId({ type: node.type, data: nd ?? {} }, undefined) === '') return;
     } else {
       return;
     }
@@ -2770,7 +2769,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
             // 暂留原 multi 位置：读序排序依据（P1-新1 同源——若归零则展开图永远插队排最前）；
             // 追加进 nodes 时统一归零（分镜组子节点坐标无意义）
             position: { x: n.position.x, y: n.position.y }, width: 320, height: 180,
-            data: { status: 'done', fileId: img.id, __fromMulti: n.id, slot: -1 },  // slot 后按读序回填
+            data: { mediaId: img.id, __fromMulti: n.id, slot: -1 },   // Y2 B3：放置只写 mediaId；slot 后按读序回填
             selected: false,
           } as Node);
         }
@@ -3166,10 +3165,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       nodes: st.nodes.concat([{
         id, type: NODE_TYPES.IMAGE_GEN, parentId: groupId,
         position: { x: 0, y: 0 }, width: 320, height: 180,
-        data: { status: 'done', fileId, slot: cellIndex }, selected: false,
-      } as Node]),
+        data: { mediaId: fileId, slot: cellIndex } as any, selected: false,   // Y2 B3：放置只写 mediaId（status 必填属旧契约——写面已退役）
+      } as any as Node]),
     }));
-    useNodeStore.getState().addNode({ id, type: NODE_TYPES.IMAGE_GEN, data: { status: 'done', fileId, slot: cellIndex } });
+    useNodeStore.getState().addNode({ id, type: NODE_TYPES.IMAGE_GEN, data: { mediaId: fileId, slot: cellIndex } as any });   // Y2 B3：放置只写 mediaId（status 旧契约退役）
     dispatchProjectionDiff(before, Origin.LocalUser);
   },
 

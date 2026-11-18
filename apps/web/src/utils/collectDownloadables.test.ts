@@ -10,12 +10,12 @@ const toNsMap = (nodes: CanvasNodeRecord[]) => (): Record<string, CanvasNodeReco
   nodes.reduce((m, n) => ({ ...m, [n.id]: n }), {} as Record<string, CanvasNodeRecord>);
 
 describe('collectDownloadables（participation download=闭包全展开含 hidden）', () => {
-  it('图片三型：imageGen 完成=fileId||referenceImage；multiImageGen 主图=images[mainImageIndex]（success）否则首个 success 否则跳过（F15）', () => {
+  it('图片三型（Y2 B3）：imageGen=解析主槽 mediaId；multiImageGen 主图=images[mainImageIndex]（success）否则首个 success 否则跳过（F15）', () => {
     const nodes: CanvasNodeRecord[] = [
-      node('i1', 'imageGen', { status: 'done', fileId: 'f1' }),
-      node('i2', 'imageGen', { status: 'done', referenceImage: 'r1' }),
+      node('i1', 'imageGen', { mediaId: 'f1' }),
+      node('i2', 'imageGen', { mediaId: 'r1' }),   // Y2 B3：下载=解析主槽（作者键 mediaId）
       node('m1', 'multiImageGen', { images: [{ id: 'x1', status: 'failed' }, { id: 'x2', status: 'success' }], mainImageIndex: 0 }),
-      node('v1', 'videoGen', { status: 'done', fileId: 'vf1' }),
+      node('v1', 'videoGen', { mediaId: 'vf1' }),   // Y2 B3：status+fileId 双门退役
     ];
     const r = collectDownloadables(nodes, nodes.map((n) => n.id), toNsMap(nodes));
     expect(r.map((x) => x.fileId)).toEqual(['f1', 'r1', 'x2', 'vf1']);
@@ -24,8 +24,8 @@ describe('collectDownloadables（participation download=闭包全展开含 hidde
 
   it('选组 → 闭包展开为成员（含折叠组 hidden 成员——v1 空壳缺陷回归锚）', () => {
     const g = node('g1', 'group', { collapsed: true });
-    const c1 = node('c1', 'imageGen', { status: 'done', fileId: 'cf1' }, 'g1');
-    const c2 = node('c2', 'videoGen', { status: 'done', fileId: 'cv1' }, 'g1');
+    const c1 = node('c1', 'imageGen', { mediaId: 'cf1' }, 'g1');
+    const c2 = node('c2', 'videoGen', { mediaId: 'cv1' }, 'g1');
     const nodes = [g, c1, c2];
     const r = collectDownloadables(nodes, ['g1'], toNsMap(nodes));
     expect(r.map((x) => x.fileId)).toEqual(['cf1', 'cv1']);

@@ -31,7 +31,7 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const node = useNodeStore((s) => s.nodes[nodeId]);
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const updatePromptImages = useNodeStore((s) => s.updatePromptImages);
-  const setStatus = useNodeStore((s) => s.setStatus);
+  // Y2 B3：setStatus 取用删——data.status 禁键；入队中=既有本地 executing 态，HTTP 失败=本地 submitError 态
   const { zoom } = useViewport();
 
   const nodeData = isImageNode(node) ? node.data : undefined;
@@ -50,6 +50,8 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const [models, setModels] = useState<imageNodeApi.ModelWithDimensions[]>([]);
   const [creditCost, setCreditCost] = useState<number | null>(0);
   const [executing, setExecuting] = useState(false);
+  // Y2 B3：入队 HTTP 失败的本地即时提示态（data.status 禁写后 error 兜底归本地）
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [maximized, setMaximized] = useState(false);
   const [generateCount, setGenerateCount] = useState(1);
 
@@ -98,7 +100,8 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   const handleGenerate = useCallback(async () => {
     if (!nodeData?.prompt?.text?.trim()) return;
     setExecuting(true);
-    setStatus(nodeId, 'loading');
+    setSubmitError(null);
+    // Y2 B3：setStatus('loading') 删——入队中由本地 executing 态承载
     const projectId = useCanvasStore.getState().projectId;
     try {
       if (!projectId) return;
@@ -112,11 +115,12 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
     } catch {
       // 异步链（enqueue）失败态由服务端 exec 投影接管（error 三件 errorCode/rearmable/attempts——
       // 轮换 useEffect 单源处理）；本地仅置 data.status 兜底（HTTP 4xx/网络错）
-      setStatus(nodeId, 'error');
+      // Y2 B3：入队失败本地提示（服务端 exec 投影接管长链）
+    setSubmitError('任务提交失败，请稍后重试');
     } finally {
       setExecuting(false);
     }
-  }, [nodeId, setStatus, nodeData, status, entry?.rearmable]);
+  }, [nodeId, nodeData, status, entry?.rearmable]);
 
   if (!isImageNode(node)) return null;
 

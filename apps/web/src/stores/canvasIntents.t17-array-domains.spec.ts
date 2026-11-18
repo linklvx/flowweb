@@ -447,18 +447,18 @@ describe('Y1c T17 双评审收口 Q-I-1：域专属写路径消费 outcome（doc
   });
 
   it('红轴：updateMultiImageImages 命中 mismatch → images 不落 ns/cs 桥；伴随键逐键照落（doc ≡ store 同尺）', () => {
-    seedNode(doc, 'q3', 'multiImageGen', { images: [img('I1')], mainImageIndex: 0, nodeStatus: 'idle' });
+    seedNode(doc, 'q3', 'multiImageGen', { images: [img('I1')], mainImageIndex: 0 });
     corruptToPlainArray('q3', 'images', [img('I1')]);
     useNodeStore.setState({
-      nodes: { q3: { id: 'q3', type: 'multiImageGen', data: { images: [img('I1')], mainImageIndex: 0, nodeStatus: 'idle' } as any } },
+      nodes: { q3: { id: 'q3', type: 'multiImageGen', data: { images: [img('I1')], mainImageIndex: 0 } as any } },
     });
-    appendCanvasNode({ id: 'q3', type: 'multiImageGen', position: { x: 0, y: 0 }, data: { images: [img('I1')], mainImageIndex: 0, nodeStatus: 'idle' } } as any);
+    appendCanvasNode({ id: 'q3', type: 'multiImageGen', position: { x: 0, y: 0 }, data: { images: [img('I1')], mainImageIndex: 0 } } as any);
     // 清空语义：patch={images:[], mainImageIndex:-1, nodeStatus:'idle'}——images 被拒、伴随键非域键照落
     useNodeStore.getState().updateMultiImageImages('q3', [] as any);
     const nsData = useNodeStore.getState().nodes['q3']?.data as unknown as Record<string, unknown>;
     expect((nsData.images as unknown[]).map((x) => (x as { id: string }).id)).toEqual(['I1']);   // ns 不落（现状红：落 []）
     expect(nsData.mainImageIndex).toBe(-1);    // 伴随键逐键语义照旧
-    expect(nsData.nodeStatus).toBe('idle');
+    expect(nsData.nodeStatus).toBeUndefined();   // Y2 B3：清空臂 nodeStatus 写删——禁键
     // cs 桥同门：images 被拒不桥（现状红：桥写 []）
     const csNode = useCanvasStore.getState().nodes.find((n) => n.id === 'q3');
     const csData = csNode?.data as unknown as Record<string, unknown>;

@@ -19,7 +19,7 @@ interface Props {
 function AudioConfigPanelComponent({ nodeId }: Props) {
   const node = useNodeStore((s) => s.nodes[nodeId]);
   const updateConfig = useNodeStore((s) => s.updateConfig);
-  const setStatus = useNodeStore((s) => s.setStatus);
+  // Y2 B3：setStatus 取用删——data.status 禁键；入队中=既有本地 executing 态，HTTP 失败=本地 submitError 态
   const { zoom } = useViewport();
   // Y0b-2 T7：canExecute 硬态（断连/只读/冻结禁执行）
   const canExec = useCanvasStore(canExecute);
@@ -43,6 +43,8 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [creditCost, setCreditCost] = useState<number>(0);
   const [executing, setExecuting] = useState(false);
+  // Y2 B3：入队 HTTP 失败的本地即时提示态（data.status 禁写后 error 兜底归本地）
+  const [submitError, setSubmitError] = useState<string | null>(null);
   // Y1c T15：content:string 同卡迁 prompt（Y.Text 域——读模型/ns 形态=string）
   const [prompt, setPrompt] = useState(() => nodeData?.prompt || '');
   const [listening, setListening] = useState(false);
@@ -157,7 +159,8 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim()) return;
     setExecuting(true);
-    setStatus(nodeId, 'loading');
+    setSubmitError(null);
+    // Y2 B3：setStatus('loading') 删——入队中由本地 executing 态承载
     try {
       // 批2-2：收口 wrapper（readOnly 早退——提交快照不落 store）
       useNodeStore.getState().applyNodeDataPatch(nodeId, { prompt });
@@ -170,11 +173,12 @@ function AudioConfigPanelComponent({ nodeId }: Props) {
       const { jobId } = await enqueueWorkflow({ projectId, nodeId, ...(token ? { regenToken: token } : {}) });
       console.log('[AudioPanel] enqueued job:', jobId);
     } catch {
-      setStatus(nodeId, 'error');
+      // Y2 B3：入队失败本地提示（服务端 exec 投影接管长链）
+    setSubmitError('任务提交失败，请稍后重试');
     } finally {
       setExecuting(false);
     }
-  }, [nodeId, setStatus, prompt, status, entry?.rearmable]);
+  }, [nodeId, prompt, status, entry?.rearmable]);
 
   // Type guard — only render for audioGen
   if (!node || node.type !== NODE_TYPES.AUDIO_GEN) return null;

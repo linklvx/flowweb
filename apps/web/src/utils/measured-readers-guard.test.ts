@@ -61,8 +61,8 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     //（interface +9/初始值 +3）+rebindCopiedMedia helper +31——13 行整体 +40 漂移（集合不变）
     // C3a-8 批：HEAD=a953e55a（C3a-7 收口）在 canvasStore:561 附近注释段净 +1 行未同步本表
     //（本卡零 web 改动——机械行号同步，集合不变；隔离复跑绿）
-    'stores/canvasStore.ts': [1133, 1134, 1140, 1141, 1204, 1205, 1283, 1284, 1290, 1291, 1450, 1972, 1973],   // Y2 A5：±行漂移机械同步（集合语义不变——computeStoryboardCellsPatch 读侧单源化/clearStoryboard 旧档回退删净等增删行所致）
-    'pages/canvas/components/groups/GroupNode.tsx': [21, 22],
+    'stores/canvasStore.ts': [1134, 1135, 1141, 1142, 1205, 1206, 1284, 1285, 1291, 1292, 1451, 1970, 1971],   // Y2 B3：五写点退役+splitImageNode/放置面改写——13 行机械同步（集合语义不变）   // Y2 A5：±行漂移机械同步（集合语义不变——computeStoryboardCellsPatch 读侧单源化/clearStoryboard 旧档回退删净等增删行所致）
+    'pages/canvas/components/groups/GroupNode.tsx': [22, 23],   // Y2 B3：折叠卡 resolver 改写行漂移
     'utils/handleMenu.ts': [53, 54],  // Y1c T1：注释+import 插入 +4 漂移
     'pages/canvas/video-editor/export/product-node.ts': [16],  // Y1c T1：import 插入 +1 漂移
   },
@@ -76,9 +76,9 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     'pages/canvas/components/nodes/ImageNodeToolbar.tsx': [363, 364],
     'pages/canvas/components/nodes/TextNodeToolbar.tsx': [166, 171],
     'pages/canvas/components/nodes/TransformToolbar.tsx': [94, 95],
-    'pages/canvas/components/nodes/ImageGenNode.tsx': [209, 210], // Y1c T22：scheduleUploadFactPull import 删 -1（尺寸回写链删除）——205,206→204,205； Y0b-2 T6：旧手势 id 记忆 ref 两行删除+3（搬运=重审）；T7：import +3——160,161→163,164；Y0b-5 T6：unloadGuard import +1——→164,165；Y1a+Y1b T6③：toFlowaiUrl import +1——→165,166；Y1a T11：nodeStore 具名 import+collabApi import +2——→167,168；F2（裁定②③）：pending 预览层/op token 声明+confirmMediaOverwrite 模块函数 +31——→197,198；F2 评审 P1-1/P1-2：pendingRef/naturalSizeRef 声明+fit 单源抽取 +7——→204,205（集合不变）；F4c P0：scheduleUploadFactPull import +1——→205,206（集合不变）；T22 收口批 C-2：runtimeMediaIdOf import+读径注释 +5——→209,210（集合不变）
+    'pages/canvas/components/nodes/ImageGenNode.tsx': [211, 212],   // Y2 B3：socket 回填退役+标注/裁剪改写行漂移 // Y1c T22：scheduleUploadFactPull import 删 -1（尺寸回写链删除）——205,206→204,205； Y0b-2 T6：旧手势 id 记忆 ref 两行删除+3（搬运=重审）；T7：import +3——160,161→163,164；Y0b-5 T6：unloadGuard import +1——→164,165；Y1a+Y1b T6③：toFlowaiUrl import +1——→165,166；Y1a T11：nodeStore 具名 import+collabApi import +2——→167,168；F2（裁定②③）：pending 预览层/op token 声明+confirmMediaOverwrite 模块函数 +31——→197,198；F2 评审 P1-1/P1-2：pendingRef/naturalSizeRef 声明+fit 单源抽取 +7——→204,205（集合不变）；F4c P0：scheduleUploadFactPull import +1——→205,206（集合不变）；T22 收口批 C-2：runtimeMediaIdOf import+读径注释 +5——→209,210（集合不变）
     'pages/canvas/components/CanvasReferenceSelectBanner.tsx': [32, 33],
-    'pages/canvas/components/nodes/VideoGenNode.tsx': [437],   // Y1b T16：useMediaFact/pullMediaFactsForIds import+overlay +4——399→403；T19 登记收口：applyIntrinsicFit 换芯+facts natural 决策 effect +30——403→433（集合不变）；T22 收口批 C-2：runtimeMediaIdOf import+注释 +3——→436；Y1c T32：fileId legacy 兜底读径退役注释收窄 +1——→437
+    'pages/canvas/components/nodes/VideoGenNode.tsx': [432],   // Y2 B3：截帧建图改写行漂移   // Y1b T16：useMediaFact/pullMediaFactsForIds import+overlay +4——399→403；T19 登记收口：applyIntrinsicFit 换芯+facts natural 决策 effect +30——403→433（集合不变）；T22 收口批 C-2：runtimeMediaIdOf import+注释 +3——→436；Y1c T32：fileId legacy 兜底读径退役注释收窄 +1——→437
     'pages/canvas/components/nodes/TextInputNode.tsx': [33, 34],   // Y2 A4：叶子会话化 ±行漂移机械同步（集合不变）
     'pages/canvas/components/groups/addOutput.ts': [80, 81, 138, 139, 199, 200],  // Y1c T1：import 插入 +1 漂移
     'pages/canvas/components/RemoteCursors.tsx': [26, 27],   // Y0b-4 T12 E38：selection 高亮层（overlay 屏幕空间）

@@ -5,6 +5,7 @@ import type { GroupNodeData } from '@/types/group';
 import { resolveGroupColor } from '@/utils/groupColor';
 import { GROUP_BOX, BADGE } from './selectionTokens';
 import { CollapsedPreviewCard, type CollapsedPreviewCell } from './CollapsedPreviewCard';
+import { resolvePrimaryMediaId } from '@flowweb/shared';
 
 interface Props { groupId: string; data: GroupNodeData; selected: boolean }
 
@@ -34,8 +35,10 @@ function NormalGroupRendererComponent({ groupId, data, selected }: Props) {
     for (let i = 0; i < s.nodes.length; i++) {
       const n = s.nodes[i];
       if (n.parentId !== groupId) continue;
-      const d = n.data as { fileId?: unknown; referenceImage?: unknown } | undefined;
-      out.push({ nodeId: n.id, mediaId: (d?.fileId || d?.referenceImage) as string | undefined });
+      // Y2 B3：折叠卡主槽改 resolvePrimaryMediaId（fileId||referenceImage 退役）
+      const d = (n.data ?? {}) as Record<string, unknown>;
+      const resolved = resolvePrimaryMediaId({ type: n.type ?? '', data: d }, undefined);
+      out.push({ nodeId: n.id, mediaId: resolved !== '' ? resolved : undefined });
     }
     return out;
   });

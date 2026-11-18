@@ -18,7 +18,7 @@ interface Props {
 
 function TextConfigPanelComponent({ nodeId }: Props) {
   const nodeData = useNodeStore((s) => s.nodes[nodeId]?.data) as any;
-  const setStatus = useNodeStore((s) => s.setStatus);
+  // Y2 B3：setStatus 取用删——data.status 禁键；入队中=既有本地 executing 态，HTTP 失败=本地 submitError 态
   // Y0b-2 T6（Z79）：投影单源——status 三态/entry 轮换判据（ImageConfigPanel 同型）
   const status = useNodeStore((s) => selectExecStatus(s, nodeId));
   const entry = useNodeStore((s) => selectExecEntry(s, nodeId));
@@ -29,6 +29,8 @@ function TextConfigPanelComponent({ nodeId }: Props) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [creditCost, setCreditCost] = useState<number>(0);
   const [executing, setExecuting] = useState(false);
+  // Y2 B3：入队 HTTP 失败的本地即时提示态（data.status 禁写后 error 兜底归本地）
+  const [submitError, setSubmitError] = useState<string | null>(null);
   // Y1c T15：prompt=Y.Map{text:Y.Text} 迁移——ns/读模型形态={text:string}
   const [prompt, setPrompt] = useState(() => nodeData?.prompt?.text ?? '');
   const [listening, setListening] = useState(false);
@@ -157,7 +159,8 @@ function TextConfigPanelComponent({ nodeId }: Props) {
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim()) return;
     setExecuting(true);
-    setStatus(nodeId, 'loading');
+    setSubmitError(null);
+    // Y2 B3：setStatus('loading') 删——入队中由本地 executing 态承载
     const projectId = useCanvasStore.getState().projectId;
     try {
       // Y1c T2（bug②）：删生成时 {content: prompt} 覆盖写——正文语义归正文（tiptap 正文/上游注入），
@@ -173,11 +176,12 @@ function TextConfigPanelComponent({ nodeId }: Props) {
       console.log('[TextPanel] enqueued job:', jobId);
       // Socket.io will update status → done/error with AI response（失败态由服务端 exec 投影接管——轮换 useEffect 单源）
     } catch {
-      setStatus(nodeId, 'error');
+      // Y2 B3：入队失败本地提示（服务端 exec 投影接管长链）
+    setSubmitError('任务提交失败，请稍后重试');
     } finally {
       setExecuting(false);
     }
-  }, [nodeId, setStatus, prompt, status, entry?.rearmable]);
+  }, [nodeId, prompt, status, entry?.rearmable]);
 
   return (
     <div

@@ -14,7 +14,7 @@ import { openRwWindow, resetCanvasStores } from '@/test/fixtures/canvas';
 import type { Node } from '@xyflow/react';
 
 const doneImage = (id: string, x = 100, y = 100): Node =>
-  ({ id, type: 'imageGen', position: { x, y }, width: 320, height: 180, data: { status: 'done', fileId: `f-${id}` } } as Node);
+  ({ id, type: 'imageGen', position: { x, y }, width: 320, height: 180, data: { mediaId: `f-${id}` } } as Node);
 
 beforeEach(() => {
   useCanvasStore.setState({
@@ -33,7 +33,7 @@ describe('addImageToStoryboardCell', () => {
     // Y2 A3：cs cells 派生缓存退役（写域⑥）——成员判据改 slot/membership
     const cell3 = s.nodes.find((n: any) => n.parentId === gid && (n.data as any).slot === 3);
     expect(cell3).toBeTruthy();
-    expect((cell3!.data as any).fileId).toBe('f-new');
+    expect((cell3!.data as any).mediaId).toBe('f-new');   // Y2 B3：格位新子=放置写 mediaId
   });
 
   it('槽位建图节点 data 不含 mediaUrl 键（R2b-6 写入面清零——F37 presigned URL 不得持久化）', () => {
@@ -127,9 +127,9 @@ describe('O0c-3 attachMember 分镜成员原语', () => {
     ({ id: 'sb', type: 'group', position: { x: 100, y: 50 }, data: sbData() });
   const cellRecord = (id: string, slot?: number): StoredNodeRecord =>
     ({ id, type: 'imageGen', parentId: 'sb', width: 320, height: 180,
-       data: { status: 'done', fileId: `f-${id}`, ...(slot != null ? { slot } : {}) } });
+       data: { mediaId: `f-${id}`, ...(slot != null ? { slot } : {}) } });
   const freeRecord = (): StoredNodeRecord =>
-    ({ id: 'z', type: 'imageGen', position: { x: 900, y: 900 }, width: 320, height: 180, data: { status: 'done', fileId: 'f-z' } });
+    ({ id: 'z', type: 'imageGen', position: { x: 900, y: 900 }, width: 320, height: 180, data: { mediaId: 'f-z' } });
   const rig = (records: StoredNodeRecord[]): Y.Doc => {
     openRwWindow();
     const d = new Y.Doc();
@@ -165,7 +165,7 @@ describe('O0c-3 attachMember 分镜成员原语', () => {
     // 根节点携 allocator 分配的 order 键（生产形态——addNode 建点必带）
     const d = rig([sbRecord(), cellRecord('c1', 0), {
       id: 'z', type: 'imageGen', position: { x: 900, y: 900 }, width: 320, height: 180,
-      data: { status: 'done', fileId: 'f-z', order: '9000' },
+      data: { mediaId: 'f-z', order: '9000' },
     }]);
     const slot = useCanvasStore.getState().attachMember('sb', 'z');
     expect(slot).toBe(1);
@@ -227,7 +227,7 @@ describe('O0c-3 attachMember 分镜成员原语', () => {
   it('跨组拖入分镜：源组失去最后子 → 解组（addToGroup 善后语义随通道退役移入 caller——原语零善后是刻意分层）', () => {
     rig([
       { id: 'ng', type: 'group', position: { x: 500, y: 500 }, width: 340, height: 220, data: { groupType: 'normal' } },
-      { id: 'z', type: 'imageGen', parentId: 'ng', position: { x: 520, y: 520 }, width: 320, height: 180, data: { status: 'done', fileId: 'f-z' } },
+      { id: 'z', type: 'imageGen', parentId: 'ng', position: { x: 520, y: 520 }, width: 320, height: 180, data: { mediaId: 'f-z' } },
       sbRecord(),
       cellRecord('c1', 0),
     ]);
@@ -250,7 +250,7 @@ describe('Y2 A5 分镜渲染通道（D2——cellNodes 单通道）', () => {
     } });
   const cellRecord = (id: string, slot?: number): StoredNodeRecord =>
     ({ id, type: 'imageGen', parentId: 'sb', width: 320, height: 180,
-       data: { status: 'done', fileId: `f-${id}`, ...(slot != null ? { slot } : {}) } });
+       data: { mediaId: `f-${id}`, ...(slot != null ? { slot } : {}) } });
   const hydrate = (records: readonly StoredNodeRecord[]): Y.Doc => {
     openRwWindow();
     const d = new Y.Doc();

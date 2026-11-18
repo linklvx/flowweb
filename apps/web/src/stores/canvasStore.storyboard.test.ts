@@ -9,7 +9,7 @@ import { GROUP_PADDING, GROUP_PADDING_TOP } from '@flowweb/shared';
 
 const doneImage = (id: string, x: number, y: number) =>
   ({ id, type: 'imageGen', position: { x, y }, width: 320, height: 180,
-     data: { status: 'done', fileId: `file-${id}` } });
+     data: { mediaId: `file-${id}` } });
 
 // O0b-4：hidden 派生并入 reconcile（挂点=命令尾 diff 首行/漏斗尾——消费前提=会话 doc 在）；
 // 裸 store 无 doc 形态不再是合法装置（旧聚合入口无 doc 也能跑——已整删）
@@ -60,7 +60,8 @@ describe('mergeStoryboard', () => {
     expect(g.data.cells).toBeUndefined();   // Y2 A3：cs cells 派生缓存退役（写域⑥ 收口——渲染面 cellNodes 派生；格位真源=子 slot）
     const expanded = s.nodes.filter((n) => (n.data as any).__fromMulti === 'multi');
     expect(expanded).toHaveLength(2);
-    expect(expanded.every((n) => n.type === 'imageGen' && (n.data as any).status === 'done')).toBe(true);
+    // Y2 B3：展开节点=放置写 mediaId（status 禁键——断言翻键）
+    expect(expanded.every((n) => n.type === 'imageGen' && typeof (n.data as any).mediaId === 'string')).toBe(true);
     // R2b-6 写入面清零（F37）：展开节点 data 不得持久化 presigned URL（mediaUrl 键删除）
     expect(expanded.every((n) => !JSON.stringify(n.data).includes('mediaUrl'))).toBe(true);
     expect(s.nodes.find((n) => n.id === 'multi')).toBeUndefined(); // 原节点移除

@@ -19,7 +19,7 @@ import {
 /** 对拍夹具：manual/auto/storyboard/collapsed 四组态+顶层+悬空边（几何族全模式覆盖）。 */
 const RECORDS: RenderSourceNode[] = [
   { id: 'g1', type: 'group', position: { x: 100, y: 50 }, width: 400, height: 300, data: { groupType: 'normal' } },
-  { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 120, y: 80 }, width: 100, height: 60, data: { fileId: 'm-c1' } },
+  { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 120, y: 80 }, width: 100, height: 60, data: { mediaId: 'm-c1' } },   // Y2 B3：作者键=mediaId
   { id: 'g2', type: 'group', data: { groupType: 'normal' } },
   { id: 'c2', type: 'imageGen', parentId: 'g2', position: { x: 300, y: 100 }, width: 200, height: 100, data: {} },
   { id: 'c3', type: 'imageGen', parentId: 'g2', position: { x: 550, y: 100 }, width: 150, height: 80, data: {} },
@@ -27,7 +27,7 @@ const RECORDS: RenderSourceNode[] = [
     id: 'sb', type: 'group', position: { x: 0, y: 400 },
     data: { groupType: 'storyboard', storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: true, stitchResolution: '2K' } },
   },
-  { id: 's1', type: 'imageGen', parentId: 'sb', width: 320, height: 180, data: { slot: 0, fileId: 'm-s1' } },
+  { id: 's1', type: 'imageGen', parentId: 'sb', width: 320, height: 180, data: { slot: 0, mediaId: 'm-s1' } },   // Y2 B3：作者键=mediaId
   { id: 's2', type: 'imageGen', parentId: 'sb', width: 320, height: 180, data: { slot: 1 } },
   { id: 't1', type: 'textInput', position: { x: 700, y: 0 }, data: {} },
   { id: 'col', type: 'group', data: { groupType: 'normal', collapsed: true } },
@@ -113,7 +113,7 @@ describe('Y2 格子覆盖：分镜子被 hidden 剔除时 cellNodes 仍有内容
     expect(cells).toHaveLength(2);   // s1/s2 均被 hidden 剔除出 React Flow 列表，但格子仍在
     const s1cell = cells.find((c) => c.id === 's1')!;
     const s2cell = cells.find((c) => c.id === 's2')!;
-    expect(s1cell.mediaId).toBe('m-s1');      // 作者键（data.fileId 过渡期）胜
+    expect(s1cell.mediaId).toBe('m-s1');      // 作者键（Y2 B3：data.mediaId）胜
     expect(s2cell.mediaId).toBe('m-art-s2');  // 无作者键→运行时产物回落
   });
 

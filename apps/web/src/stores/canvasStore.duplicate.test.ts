@@ -4,7 +4,7 @@ import { useCanvasStore } from './canvasStore';
 import { useNodeStore } from './nodeStore';
 
 const doneImage = (id: string, x = 100, y = 100) =>
-  ({ id, type: 'imageGen', position: { x, y }, width: 320, height: 180, data: { status: 'done', fileId: `f-${id}` } });
+  ({ id, type: 'imageGen', position: { x, y }, width: 320, height: 180, data: { mediaId: `f-${id}` } });
 
 beforeEach(() => {
   useCanvasStore.setState({
@@ -15,8 +15,8 @@ beforeEach(() => {
   // 2a-6：薄壳取数走 resolveNodeData（普通节点=ns 全量，缺即红）——ns 与 cs 同步播种（生产态恒双写）
   useNodeStore.setState({
     nodes: {
-      a: { id: 'a', type: 'imageGen', data: { status: 'done', fileId: 'f-a' } },
-      b: { id: 'b', type: 'imageGen', data: { status: 'done', fileId: 'f-b' } },
+      a: { id: 'a', type: 'imageGen', data: { mediaId: 'f-a' } },
+      b: { id: 'b', type: 'imageGen', data: { mediaId: 'f-b' } },
     },
   } as any);
 });
@@ -38,7 +38,9 @@ describe('duplicateGroup', () => {
     expect((copy.data as any).cells).toBeUndefined();
     const copyChildren = s.nodes.filter((n) => n.parentId === newGid);
     expect(copyChildren).toHaveLength(2);
-    expect((copyChildren[0].data as any).fileId).toMatch(/^f-/); // fileId 复用
+    // Y2 B3（裁决 4）：副本槽剥离——fileId/mediaId 均无（bind 命令补绑定后服务端投影回填）
+    expect((copyChildren[0].data as any).fileId).toBeUndefined();
+    expect((copyChildren[0].data as any).mediaId).toBeUndefined();
     // 分镜组组内边（a→b 原有边保留原节点；复制边存在于新节点之间）
     const copyIds = copyChildren.map((n) => n.id);
     expect(s.edges.filter((e) => copyIds.includes(e.source) && copyIds.includes(e.target))).toHaveLength(1);

@@ -38,7 +38,7 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   const node = useNodeStore((s) => s.nodes[nodeId]);
   const updateConfig = useNodeStore((s) => s.updateConfig);
   const updatePromptImages = useNodeStore((s) => s.updatePromptImages);
-  const setStatus = useNodeStore((s) => s.setStatus);
+  // Y2 B3：setStatus 取用删——data.status 禁键；入队中=既有本地 executing 态，HTTP 失败=本地 submitError 态
   const { zoom } = useViewport();
   // Y0b-2 T7：canExecute 硬态（断连/只读/冻结禁执行）
   const canExec = useCanvasStore(canExecute);
@@ -63,6 +63,8 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [creditCost, setCreditCost] = useState<number>(0);
   const [executing, setExecuting] = useState(false);
+  // Y2 B3：入队 HTTP 失败的本地即时提示态（data.status 禁写后 error 兜底归本地）
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [maximized, setMaximized] = useState(false);
@@ -194,8 +196,9 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
     // Y1c T16：fragment 只读导出（getRichText——生成判据；ns 投影 50ms 滞后面不再吃）
     const latestText = promptRef.current?.getRichText().text || '';
     if (!latestText.trim()) return;
+    // Y2 B3：setStatus('loading') 删——入队中由本地 executing 态承载
     setExecuting(true);
-    setStatus(nodeId, 'loading');
+    setSubmitError(null);
     const projectId = useCanvasStore.getState().projectId;
     try {
       if (!projectId) return;
@@ -207,12 +210,12 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
       const { jobId } = await enqueueWorkflow({ projectId, nodeId, ...(token ? { regenToken: token } : {}) });
       console.log('[VideoPanel] enqueued job:', jobId);
     } catch {
-      // 异步链失败态由服务端 exec 投影接管（轮换 useEffect 单源）；本地仅 data.status 兜底
-      setStatus(nodeId, 'error');
+      // Y2 B3：本地 submitError 态（服务端 exec 投影接管长链；入队 HTTP 失败的即时提示归本地）
+      setSubmitError('任务提交失败，请稍后重试');
     } finally {
       setExecuting(false);
     }
-  }, [nodeId, setStatus, status, entry?.rearmable]);
+  }, [nodeId, status, entry?.rearmable]);
 
   const handlePasteImage = useCallback(async (file: File) => {
     if (allImages.length >= 9) return;

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { BaseFullscreenModal } from '@/components/BaseFullscreenModal';
 import { downloadMediaFile } from '@/utils/mediaDownload';
 import type { ImageNodeData } from '@/stores/nodeStore';
+import { resolvePrimaryMediaId } from '@flowweb/shared';
 
 interface ImageFullscreenViewerProps {
   open: boolean;
@@ -66,10 +67,12 @@ function ImageFullscreenViewerComponent({
     // R2b-2：下载统一走 downloadMediaFile（fileId+url 双保险/60s 延迟 revoke；失败 message.error——window.open 兜底移除）
     setDownloading(true);
     try {
+      // Y2 B3：下载身份/文件名兜底改解析值（主槽单源——下载 API 参数名可仍叫 fileId）
+      const resolved = resolvePrimaryMediaId({ type: 'imageGen', data: (nodeData ?? {}) as Record<string, unknown> }, undefined);
       await downloadMediaFile({
-        fileId: nodeData?.fileId,
+        fileId: resolved !== '' ? resolved : undefined,
         url: displayUrl,
-        filename: nodeData?.mediaName ?? `图片-${(nodeData?.fileId ?? '').slice(-6)}`,
+        filename: nodeData?.mediaName ?? `图片-${(resolved !== '' ? resolved : '').slice(-6)}`,
       });
     } finally {
       setDownloading(false);

@@ -8,6 +8,7 @@ import { execOverrideOf } from '@/stores/nodeStore';
 import { calcGroupMinSize } from '@/utils/groupLayout';
 import type { CellNodeInfo } from '@/components/storyboard/StoryboardCell';
 import { HANDLE } from './selectionTokens';
+import { resolvePrimaryMediaId } from '@flowweb/shared';
 
 function GroupNodeResizer({ id }: { id: string }) {
   // 取稳定引用的 nodes 数组，filter/useMemo 在组件内算，避免新对象选择器的快照问题
@@ -69,11 +70,13 @@ function StoryboardGroupRendererCellNodes({ id, data }: { id: string; data: any 
   // 现拼扫描退役）。mediaId/status 主画布现算：exec 覆盖值优先，回落 cs 节点 data（byId 直查零扫描）。
   const csNodes = useCanvasStore((s) => s.nodes);
   const cellNodes = useMemo(() => ((data.cellNodes ?? []) as Array<{ id: string }>).map((c) => {
-    const d = (csNodes.find((n) => n.id === c.id)?.data ?? {}) as { fileId?: unknown; referenceImage?: unknown; status?: unknown };
+    const d = (csNodes.find((n) => n.id === c.id)?.data ?? {}) as Record<string, unknown>;
+    // Y2 B3：折叠卡主槽改 resolvePrimaryMediaId（fileId||referenceImage 退役；status 禁读零回落）
+    const resolved = resolvePrimaryMediaId({ type: csNodes.find((n) => n.id === c.id)?.type ?? '', data: d }, undefined);
     return {
       id: c.id,
-      mediaId: (d.fileId || d.referenceImage) as string | undefined,
-      status: execOverrideOf(c.id) ?? (d.status as string | undefined),
+      mediaId: resolved !== '' ? resolved : undefined,
+      status: execOverrideOf(c.id),
     };
   }), [data.cellNodes, csNodes]);
   // O0c-2：删除回调参数化（抽取组件零 store——主画布通道在此注入；useCallback 稳定引用防键监听重挂）

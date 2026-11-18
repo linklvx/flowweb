@@ -67,7 +67,7 @@ const FIXTURE: StoredNodeRecord[] = [
   { id: 'sb1', type: 'group', position: { x: 0, y: 400 }, data: { groupType: 'storyboard', storyboard: SB_CONFIG } },   // T17：格位=子 slot（cells 派生删）
   { id: 's1', type: 'imageGen', parentId: 'sb1', width: 320, height: 180, data: { slot: 0 } },
   { id: 't1', type: 'textInput', position: { x: 700, y: 0 }, data: {} },
-  { id: 'img1', type: 'imageGen', position: { x: 0, y: 900 }, width: 320, height: 180, data: { status: 'done' } },
+  { id: 'img1', type: 'imageGen', position: { x: 0, y: 900 }, width: 320, height: 180, data: { mediaId: 'f-img1' } },   // Y2 B3：完成图判据=解析主槽（status 禁键）
 ];
 
 function buildDoc(records: StoredNodeRecord[] = FIXTURE): Y.Doc {

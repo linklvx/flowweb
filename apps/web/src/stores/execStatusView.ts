@@ -41,12 +41,12 @@ export function selectExecEntry(s: ExecViewSlice, nodeId: string): ExecStatusEnt
   return s.execStatus?.get(nodeId);
 }
 
-/** B2 合并视图：exec 投影 → node.data.status。
- *  读侧终态优先不回退（服务端写前幂等读同语义）：exec 投影 loading 压过 data.status done
- *  （服务端重跑接管）；条目删除（GC）随投影重建自然回落 data.status。 */
+/** B2 合并视图：exec 投影 → 状态三态。
+ *  读侧终态优先不回退（服务端写前幂等读同语义）：exec 投影 loading 压过 done
+ *  （服务端重跑接管）；条目删除（GC）随投影重建自然回落。
+ *  Y2 B3：data.status 回落删除——投影键唯一权威（无投影返回现有 idle；data.status 写面
+ *  已全链退役，回落只会读到历史残留字节——reset-collab 后零残留）。 */
 export function selectExecStatus(s: ExecViewSlice, nodeId: string): NodeExecStatus {
-  const data = s.nodes?.[nodeId] as { data?: { status?: NodeExecStatus } } | undefined;
   return execOverrideStatus(s, nodeId)
-    ?? data?.data?.status
     ?? 'idle';
 }

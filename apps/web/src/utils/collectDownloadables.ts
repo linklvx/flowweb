@@ -1,5 +1,5 @@
 // apps/web/src/utils/collectDownloadables.ts
-import { normalizeSelection, participation, type CanvasNodeRecord } from '@flowweb/shared';
+import { normalizeSelection, participation, type CanvasNodeRecord , resolvePrimaryMediaId } from '@flowweb/shared';
 import { isImageCompletedNode } from './imageNodeGuards';
 import { NODE_TYPES } from '@/stores/nodeStore';
 
@@ -35,8 +35,8 @@ export function collectDownloadables(
     const guardNode = { id: node.id, type: node.type, position: node.position, data: d };
     if (node.type === NODE_TYPES.IMAGE_GEN || node.type === NODE_TYPES.IMAGE_EXT_GEN) {
       if (!isImageCompletedNode(guardNode)) continue;
-      const fileId = d.fileId || d.referenceImage;
-      if (typeof fileId === 'string' && fileId) {
+      const fileId = resolvePrimaryMediaId({ type: node.type, data: d }, undefined);   // Y2 B3：解析单源
+      if (fileId !== '') {
         out.push({ fileId, filename: mediaNameOf(d) ?? fallbackName(node), type: node.type });
       }
       continue;
@@ -52,8 +52,10 @@ export function collectDownloadables(
       }
       continue;
     }
-    if ((node.type === NODE_TYPES.VIDEO_GEN || node.type === NODE_TYPES.AUDIO_GEN) && d.status === 'done' && typeof d.fileId === 'string' && d.fileId) {
-      out.push({ fileId: d.fileId, filename: mediaNameOf(d) ?? fallbackName(node), type: node.type });
+    if (node.type === NODE_TYPES.VIDEO_GEN || node.type === NODE_TYPES.AUDIO_GEN) {
+      // Y2 B3：status+fileId 双门退役——解析主槽有值即可下载（status 禁键/交付值=投影键）
+      const fileId = resolvePrimaryMediaId({ type: node.type, data: d }, undefined);
+      if (fileId !== '') out.push({ fileId, filename: mediaNameOf(d) ?? fallbackName(node), type: node.type });
     }
   }
   return out;

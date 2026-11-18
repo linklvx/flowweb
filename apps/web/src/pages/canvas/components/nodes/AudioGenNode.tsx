@@ -57,16 +57,11 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
   const titleText = label || 'Audio';
 
   // Real-time audio generation status updates — 订阅 /execution 单例（连接/join/credits 转发归单例与 page 生命周期）
+  // Y2 B3：socket 状态回填退役——data.status/fileId 均禁键（交付唯一 owner=服务端投影 poller）。
   useEffect(() => {
     const off = subscribeNodeStatus((data) => {
       if (data.nodeId !== id) return;
-      if (data.status === 'loading') {
-        useNodeStore.getState().setStatus(id, 'loading');
-      } else if (data.status === 'done' && data.fileId) {
-        useNodeStore.getState().setFileResult(id, data.fileId);
-      } else if (data.status === 'error') {
-        useNodeStore.getState().setStatus(id, 'error');
-      }
+      void data;
     });
     return off;
   }, [id]);

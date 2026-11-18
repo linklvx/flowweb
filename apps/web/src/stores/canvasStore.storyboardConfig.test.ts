@@ -11,7 +11,7 @@ import type { StoryboardConfig } from '@/types/group';
 import { ASPECT_RATIOS } from '@/types/group';
 
 const doneImage = (id: string, x = 100, y = 100) =>
-  ({ id, type: 'imageGen', position: { x, y }, width: 320, height: 180, data: { status: 'done', fileId: `f-${id}` } });
+  ({ id, type: 'imageGen', position: { x, y }, width: 320, height: 180, data: { mediaId: `f-${id}` } });
 
 // O0b-4：hidden 派生并入 reconcile（挂点=命令尾 diff——消费前提=会话 doc 在）；裸 store 装置升级
 // O0b-5：doc 句柄留存（配置型命令体 doc 面断言——零帧意图键集检查）
@@ -27,10 +27,10 @@ beforeEach(() => {
   // 播种 nodeStore（生产中这些是既有节点，nodeStore 已有记录）——供 P0-新1 断言验证 resize 不误删
   useNodeStore.setState({
     nodes: {
-      a: { id: 'a', type: 'imageGen', position: { x: 100, y: 100 }, data: { status: 'done', fileId: 'f-a' } },
-      b: { id: 'b', type: 'imageGen', position: { x: 500, y: 100 }, data: { status: 'done', fileId: 'f-b' } },
-      c: { id: 'c', type: 'imageGen', position: { x: 100, y: 400 }, data: { status: 'done', fileId: 'f-c' } },
-      d: { id: 'd', type: 'imageGen', position: { x: 500, y: 400 }, data: { status: 'done', fileId: 'f-d' } },
+      a: { id: 'a', type: 'imageGen', position: { x: 100, y: 100 }, data: { mediaId: 'f-a' } },
+      b: { id: 'b', type: 'imageGen', position: { x: 500, y: 100 }, data: { mediaId: 'f-b' } },
+      c: { id: 'c', type: 'imageGen', position: { x: 100, y: 400 }, data: { mediaId: 'f-c' } },
+      d: { id: 'd', type: 'imageGen', position: { x: 500, y: 400 }, data: { mediaId: 'f-d' } },
     } as any,
   });
   // Y2 A2b（裁决 3 v4）：ns=漏斗尾 doc 快照——既有节点须在案 doc（生产形态：节点经 dispatch 落

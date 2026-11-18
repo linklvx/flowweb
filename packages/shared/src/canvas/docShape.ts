@@ -65,7 +65,9 @@ export const CANVAS_DOC_SCHEMA_VERSION = 3;
 // Y2 A3：mediaUrl 收编——零生产读者（StoryboardCell/useStitchTask 注记「不再写入」）+presigned
 // URL 禁持久（F37——旧守面=桥白名单仅护 cs 镜像，doc 面一直漏；A3 统一快照暴露后收口为 doc 剥键）。
 export const EPHEMERAL_DATA_KEYS = new Set(['editMode', 'transformMode', 'mediaUrl']);
-export const CANVAS_BRIDGE_KEYS = new Set(['fileId', 'referenceImage', 'status', 'images']);
+// Y2 B3：桥白名单收口——fileId/status 出（doc 已禁入，经 cs 镜像回流=对 doc 剥键面绕行）；
+// mediaId 入（作者键身份面——多选工具条等订阅方实时响应）。images 维持（域容器身份）。
+export const CANVAS_BRIDGE_KEYS = new Set(['mediaId', 'referenceImage', 'images']);
 
 /** Y0c T10（Z6/Z119）：服务端写事务 origin 跨端单源——api withDoc 最外层 doc.transact 第二参
  *  （DirectConnection.transact 硬编码 {source:'local'} 不可传参，故改直开 connection.document

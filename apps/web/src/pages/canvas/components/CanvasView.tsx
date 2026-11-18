@@ -204,8 +204,7 @@ function CanvasViewComponent(_props: Props) {
         const isVideo = file.mimeType?.startsWith('video/');
         const nodeType = isVideo ? NODE_TYPES.VIDEO_GEN : NODE_TYPES.IMAGE_GEN;
         const nodeData = {
-          fileId: file.id,
-          status: 'done',
+          mediaId: file.id,   // Y2 B3：素材库拖入=作者放置只写 mediaId（status/fileId 禁键）
           mediaName: file.originalName,
           thumbnailUrl: file.thumbnailUrl,
         };

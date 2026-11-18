@@ -3,15 +3,13 @@ import type { CanvasNodeRecord } from './nodeEnvelope';
 /**
  * normalizeCopiedNodeData（Z14''-v13 收窄——**副本归一单函数**；实况消费面：duplicate/paste
  * 两生产路径经本函数（buildCopyPlan 调用）；explode=dropImageIntoStoryboard multi 展开直构
- * （status done 源+slot 直赋+无 cells/order——语义与本函数等价，形态为展开构造不复用）；seed
+ * （无 cells/order——语义与本函数等价，形态为展开构造不复用）；seed
  * （api 种子）/clone（本仓 clone 白名单路径不产新格位）无此归一需求。规则：
- *   - status loading/error → **有 fileId 则 done 无则 idle**（red 锚：copyPlan:63 structuredClone
- *     连 loading 复制=副本永久转圈——无交付者的 loading 是死态）；
- *   - 清 errorCode/error（副本不继承失败态）；
- *   - 删 ImageItem.url（历史键——T5a ImageItem 去 url 契约；**保留 images[].id**——新建路径不 strip
- *     身份引用，消灭空图窗口 G46）；
- *   - **保留 fileId/images[].id**（新建不 strip——裁决 3/Z11''-v14：CLIENT_FORBIDDEN_ON_UPDATE
- *     只挂更新路径）；
+ *   - **Y2 B3（裁决 4 翻转）：副本槽不携媒体 id**——fileId/mediaId 删（交付归服务端 bind 命令
+ *     补绑定，副本图示=rebindCopiedMedia 独立幂等链；旧「有 fileId 则 done」归一随身份剥离整删）；
+ *   - status 整态删除（副本不继承执行态——交付值/失败态均不随副本走）；errorCode/error 清；
+ *   - 删 ImageItem.url（历史键——T5a ImageItem 去 url 契约；**保留 images[].id**——域容器身份
+ *     非节点槽位，不属裁决 4 剥离面）；
  *   - exec 永不复制（exec=doc 独立根，不在节点 data——本函数断言域不含 exec 键，副本构造点
  *     全走 addNode 意图=结构性零 exec 复制）；
  *   - cells 派生删（Z17''——cells 不落 doc；格位由子 slot 承载，slot **保留**：分镜副本格位保真，
@@ -24,11 +22,9 @@ export function normalizeCopiedNodeData(data: Record<string, unknown>): Record<s
   const out: Record<string, unknown> = structuredClone(data);
   delete out.cells;    // cells 派生删（格位=子 slot）
   delete out.order;    // order 重新分配（allocator 唯一入口）
-  const status = out.status;
-  if (status === 'loading' || status === 'error') {
-    const fid = out.fileId;
-    out.status = typeof fid === 'string' && fid !== '' ? 'done' : 'idle';
-  }
+  delete out.fileId;   // Y2 B3（裁决 4）：副本槽不携媒体 id——bind 命令补绑定
+  delete out.mediaId;  // 作者键同族剥离
+  delete out.status;   // 执行态整删（副本不继承 loading/error/done——交付值不随副本走）
   delete out.errorCode;
   delete out.error;
   if (Array.isArray(out.images)) {

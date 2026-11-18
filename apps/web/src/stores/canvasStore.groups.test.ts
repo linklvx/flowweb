@@ -110,8 +110,8 @@ describe('ungroup', () => {
           groupType: 'storyboard', cells: ['c1', 'c2'],
           storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' },
         } },
-        { id: 'c1', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
-        { id: 'c2', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
+        { id: 'c1', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, width: 320, height: 180, data: { mediaId: 'f1' } },
+        { id: 'c2', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, width: 320, height: 180, data: { mediaId: 'f2' } },
       ] as any,
       edges: [], selectedId: null,
     });
@@ -169,8 +169,8 @@ describe('父前子后不变式（RF updateChildNode 要求）', () => {
   it('mergeStoryboard 后组在子节点前', () => {
     useCanvasStore.setState({
       nodes: [
-        { id: 'm1', type: 'imageGen', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
-        { id: 'm2', type: 'imageGen', position: { x: 500, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
+        { id: 'm1', type: 'imageGen', position: { x: 0, y: 0 }, width: 320, height: 180, data: { mediaId: 'f1' } },
+        { id: 'm2', type: 'imageGen', position: { x: 500, y: 0 }, width: 320, height: 180, data: { mediaId: 'f2' } },
       ] as any,
     });
     const gid = useCanvasStore.getState().mergeStoryboard(['m1', 'm2']);
@@ -182,8 +182,8 @@ describe('父前子后不变式（RF updateChildNode 要求）', () => {
     // 播种乱序组：子在前父在后（历史数据/快照恢复可能出现的顺序）
     useCanvasStore.setState({
       nodes: [
-        { id: 'c1', type: 'imageGen', parentId: 'g', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
-        { id: 'c2', type: 'imageGen', parentId: 'g', position: { x: 340, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
+        { id: 'c1', type: 'imageGen', parentId: 'g', position: { x: 0, y: 0 }, width: 320, height: 180, data: { mediaId: 'f1' } },
+        { id: 'c2', type: 'imageGen', parentId: 'g', position: { x: 340, y: 0 }, width: 320, height: 180, data: { mediaId: 'f2' } },
         { id: 'g', type: 'group', position: { x: 100, y: 100 }, width: 700, height: 220, data: { groupType: 'normal' } },
       ] as any,
     });
@@ -306,8 +306,8 @@ describe('convertGroup 清键（F18——savedSize 键已随 O0c-3 全链删；�
     useCanvasStore.setState({
       nodes: [
         { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 340, height: 220, data: { groupType: 'normal', collapsed: true, name: '旧名' } },
-        { id: 'img1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, width: 300, height: 180, data: { status: 'done', fileId: 'f1' } },
-        { id: 'img2', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, width: 300, height: 180, data: { status: 'done', fileId: 'f2' } },
+        { id: 'img1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, width: 300, height: 180, data: { mediaId: 'f1' } },
+        { id: 'img2', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, width: 300, height: 180, data: { mediaId: 'f2' } },
       ] as any,
       edges: [], selectedId: null,
     });
@@ -334,8 +334,8 @@ describe('B7-1 修（O0b-9 接线发现）：auto 组分镜往返转回 normal�
     fillDoc(d, [
       // Y1b T16 夹具更正：imageGen 完成判定唯一身份=fileId||referenceImage（spec 5.1——data.status
       // 不再参与；done 态生成图恒携 fileId，旧夹具 status:'done' 无 fileId 是非现实形态）
-      { id: 'img1', type: 'imageGen', position: { x: 0, y: 300 }, width: 200, height: 120, data: { status: 'done', fileId: 't16-grp-img1' } },
-      { id: 'img2', type: 'imageGen', position: { x: 300, y: 300 }, width: 200, height: 120, data: { status: 'done', fileId: 't16-grp-img2' } },
+      { id: 'img1', type: 'imageGen', position: { x: 0, y: 300 }, width: 200, height: 120, data: { mediaId: 't16-grp-img1' } },
+      { id: 'img2', type: 'imageGen', position: { x: 300, y: 300 }, width: 200, height: 120, data: { mediaId: 't16-grp-img2' } },
     ], []);
     applyDocToStore(d);
     _setIntentDocForTest(d);
@@ -432,7 +432,7 @@ describe('patchGroupData（undefined=delete，只写 cs——所有权单一）'
     useCanvasStore.setState({ nodes: [
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 250,
         data: { groupType: 'normal', name: '我的组', color: 'red', collapsed: true } },
-      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, data: { status: 'done', fileId: 'f1' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, data: { mediaId: 'f1' } },
     ] as any, edges: [] });
     useCanvasStore.getState().convertGroup('g1', 'storyboard');
     const d = (useCanvasStore.getState().nodes.find((n) => n.id === 'g1') as any).data;
@@ -446,7 +446,7 @@ describe('patchGroupData（undefined=delete，只写 cs——所有权单一）'
     useCanvasStore.setState({ nodes: [
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 250,
         data: { groupType: 'normal', collapsed: true } },
-      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, data: { status: 'done', fileId: 'f1' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, data: { mediaId: 'f1' } },
     ] as any, edges: [] });
     useCanvasStore.getState().convertGroup('g1', 'storyboard');
     let d = (useCanvasStore.getState().nodes.find((n: any) => n.id === 'g1') as any).data;
@@ -732,8 +732,8 @@ describe('几何不变量（§4.8——每个重算型命令后 frame ≡ calcGr
   });
   it('convertGroup 两方向后不变量成立', () => {
     setupRig([
-      { id: 'a', type: 'imageGen', position: { x: 100, y: 150 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
-      { id: 'b', type: 'imageGen', position: { x: 300, y: 260 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
+      { id: 'a', type: 'imageGen', position: { x: 100, y: 150 }, width: 320, height: 180, data: { mediaId: 'f1' } },
+      { id: 'b', type: 'imageGen', position: { x: 300, y: 260 }, width: 320, height: 180, data: { mediaId: 'f2' } },
     ]);
     try {
       const gid = useCanvasStore.getState().groupNodes(['a', 'b']);
@@ -758,9 +758,9 @@ describe('复制型几何例外（§4.8 登记——frame 继承源组±offset�
       { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 300, height: 250,
         data: { groupType: 'storyboard', cells: ['c1', 'ghost'],
                 storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' } } },
-      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'f1' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { mediaId: 'f1' } },
     ] as any, edges: [], hydration: 'ready', collabReadOnly: false, wsAuthNotice: null, projectId: 'p1' });
-    useNodeStore.setState({ nodes: { c1: { id: 'c1', type: 'imageGen', data: { status: 'done', fileId: 'f1' } } } as any });
+    useNodeStore.setState({ nodes: { c1: { id: 'c1', type: 'imageGen', data: { mediaId: 'f1' } } } as any });
     useCanvasStore.getState().duplicateGroup('g1');
     const st = useCanvasStore.getState().nodes;
     const copy = st.find((n: any) => n.id !== 'g1' && n.type === 'group') as any;
@@ -1037,8 +1037,8 @@ describe('hidden 写入侧不变量（hidden ⇒ selected===false）', () => {
     try {
       fillDoc(d, [
         { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 340, height: 240, data: { groupType: 'normal' } },
-        { id: 'img1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 300, height: 180, data: { status: 'done', fileId: 'f1' } },
-        { id: 'img2', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 300, height: 180, data: { status: 'done', fileId: 'f2' } },
+        { id: 'img1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 300, height: 180, data: { mediaId: 'f1' } },
+        { id: 'img2', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 300, height: 180, data: { mediaId: 'f2' } },
       ] as any, []);
       openRwWindow();
       applyDocToStore(d);
@@ -1090,8 +1090,8 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
   const rigNodes = () => [
     { id: 'g1', type: 'group', position: { x: 100, y: 100 }, width: 340, height: 240, data: { groupType: 'normal', name: 'A', color: 'red' } },
     // Y2 A3：cs 子恒 abs（旧 rel 形态+toDocRecords 翻转退役）
-    { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 120, y: 150 }, width: 100, height: 60, data: { status: 'done', fileId: 'f1', prompt: 'ns-fresh' } },
-    { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 240, y: 150 }, width: 100, height: 60, data: { status: 'done', fileId: 'f2', prompt: 'p-b' } },
+    { id: 'a', type: 'imageGen', parentId: 'g1', position: { x: 120, y: 150 }, width: 100, height: 60, data: { mediaId: 'f1', prompt: 'ns-fresh' } },
+    { id: 'b', type: 'imageGen', parentId: 'g1', position: { x: 240, y: 150 }, width: 100, height: 60, data: { mediaId: 'f2', prompt: 'p-b' } },
   ];
   const seed = (nodes: unknown[], edges: unknown[] = []) => {
     const d = new Y.Doc();
@@ -1132,7 +1132,8 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
     seed(rigNodes());
     try {
       const newGid = useCanvasStore.getState().duplicateNodes(['g1']);
-      const child = useCanvasStore.getState().nodes.find((n) => n.parentId === newGid && (n.data as any).fileId === 'f1')!;
+      // Y2 B3：副本槽剥离（fileId/mediaId 无）——child 查找改 prompt 判据
+      const child = useCanvasStore.getState().nodes.find((n) => n.parentId === newGid)!;
       expect((child.data as any).prompt).toMatchObject({ text: 'ns-fresh' });   // Y2 A3：prompt=xml 域容器（ns=doc 快照解码）——保真=容器 text 携新值
     } finally { teardown(); }
   });
@@ -1155,7 +1156,7 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
         data: { groupType: 'storyboard', cells: ['c1', 'ghost'],
                 storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' } } },
       // cs 面 position {0,0}=构造默认（三层表第三层）；doc 面剥键由 seed helper 统一处理（O0a-1）
-      { id: 'c1', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
+      { id: 'c1', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, width: 320, height: 180, data: { mediaId: 'f1' } },
     ]);
     try {
       useCanvasStore.getState().duplicateNodes(['sg']);
@@ -1210,7 +1211,8 @@ describe('duplicateNodes/duplicateGroup/paste 三薄壳（2a-6）', () => {
       const newGid = useCanvasStore.getState().pasteGroupClipboard({ x: 500, y: 300 });
       const st = useCanvasStore.getState();
       expect(st.nodes.find((n) => n.id === newGid)!.position).toEqual({ x: 500, y: 300 });   // position 直落
-      const child = st.nodes.find((n) => n.parentId === newGid && (n.data as any).fileId === 'f1')!;
+      // Y2 B3：副本槽剥离——child 查找改 parentId 单判据
+      const child = st.nodes.find((n) => n.parentId === newGid)!;
       expect((child.data as any).prompt).toMatchObject({ text: 'ns-fresh' });   // Y2 A3：prompt=xml 域容器（ns=doc 快照解码）——复制时点快照
       // schema 含 edges：删原内部边后再次粘贴——副本内部边仍由 clipboard.edges 承载恢复
       useCanvasStore.getState().removeEdge('e-in');
@@ -1327,7 +1329,7 @@ describe('setGroupColor（2c-3）', () => {
     useCanvasStore.setState({ nodes: [
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, width: 300, height: 250,
         data: { groupType: 'normal', name: '我的组', color: 'red' } },
-      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 300, height: 180, data: { status: 'done', fileId: 'f1' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 20, y: 50 }, width: 300, height: 180, data: { mediaId: 'f1' } },
     ] as any, edges: [] });
     useCanvasStore.getState().convertGroup('g1', 'storyboard');
     expect((useCanvasStore.getState().nodes.find((n) => n.id === 'g1')!.data as any).color).toBe('red');
@@ -1454,8 +1456,8 @@ describe('arrangeGroupChildren（2c-4）', () => {
       { id: 'sg', type: 'group', position: { x: 500, y: 500 }, width: 642, height: 182,
         data: { groupType: 'storyboard', cells: ['c1', 'c2'],
                 storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 2, showIndex: false, stitchResolution: '2K' } } },
-      { id: 'c1', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f1' } },
-      { id: 'c2', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, width: 320, height: 180, data: { status: 'done', fileId: 'f2' } },
+      { id: 'c1', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, width: 320, height: 180, data: { mediaId: 'f1' } },
+      { id: 'c2', type: 'imageGen', parentId: 'sg', position: { x: 0, y: 0 }, width: 320, height: 180, data: { mediaId: 'f2' } },
     ]);
     try {
       let transacts = 0;

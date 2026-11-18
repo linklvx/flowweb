@@ -19,20 +19,22 @@ const dupIds = (records: any[], ids: string[]) =>
   participation(normalizeSelection(records, ids), 'duplicate', records).ids;
 
 describe('normalizeCopiedNodeData（Z14 单函数五路径共用）', () => {
-  it('red 锚（copyPlan:63 structuredClone）：loading 不再原样复制——有 fileId → done', () => {
+  // Y2 B3（裁决 4）翻转：副本槽不携媒体 id——fileId/mediaId/status 均剥（交付归服务端 bind 命令）。
+  it('loading 源副本：status/fileId 整删（旧「有 fileId 则 done」归一随身份剥离退役）', () => {
     const out = normalizeCopiedNodeData({ status: 'loading', fileId: 'm1', prompt: 'p' });
-    expect(out.status).toBe('done');
-    expect(out.fileId).toBe('m1');            // 新建保留 fileId——立即渲染
+    expect(out.status).toBeUndefined();
+    expect(out.fileId).toBeUndefined();
+    expect(out.prompt).toBe('p');
   });
-  it('loading 无 fileId → idle（副本不转圈）', () => {
-    expect(normalizeCopiedNodeData({ status: 'loading' }).status).toBe('idle');
+  it('loading 无 fileId → status 仍删（副本不转圈=无键态）', () => {
+    expect(normalizeCopiedNodeData({ status: 'loading' }).status).toBeUndefined();
   });
-  it('error → 有 fileId 则 done 无则 idle；errorCode/error 清', () => {
-    expect(normalizeCopiedNodeData({ status: 'error', errorCode: 'E_TIMEOUT', error: 'boom' }).status).toBe('idle');
-    const done = normalizeCopiedNodeData({ status: 'error', fileId: 'm2', errorCode: 'X' });
-    expect(done.status).toBe('done');
-    expect(done.errorCode).toBeUndefined();
-    expect(done.error).toBeUndefined();
+  it('error 源：status/errorCode/error 清（副本不继承失败态）', () => {
+    const out = normalizeCopiedNodeData({ status: 'error', fileId: 'm2', errorCode: 'X' });
+    expect(out.status).toBeUndefined();
+    expect(out.fileId).toBeUndefined();
+    expect(out.errorCode).toBeUndefined();
+    expect(out.error).toBeUndefined();
   });
   it('images[].url 删、images[].id 保留（多图身份引用不 strip）', () => {
     const out = normalizeCopiedNodeData({
@@ -47,11 +49,13 @@ describe('normalizeCopiedNodeData（Z14 单函数五路径共用）', () => {
     expect(out.slot).toBe(2);
     expect(out.order).toBeUndefined();
   });
-  it('终态 done/idle 原样；入参不被就地修改（纯函数）', () => {
+  it('终态 done 同剥；入参不被就地修改（纯函数）', () => {
     const input = { status: 'done', fileId: 'f', cells: ['a'] };
     const out = normalizeCopiedNodeData(input);
-    expect(out.status).toBe('done');
+    expect(out.status).toBeUndefined();   // Y2 B3：status 整删（终态亦不随副本走）
+    expect(out.fileId).toBeUndefined();
     expect(input.cells).toEqual(['a']);   // 入参隔离
+    expect(input.status).toBe('done');
     expect(out.cells).toBeUndefined();
   });
 });
@@ -69,12 +73,12 @@ describe('buildCopyPlan（副本构造体——分工单点：participation 裁�
     const plan = buildCopyPlan(records, dupIds(records, ['n1']), { offset: { x: 40, y: 0 } }, () => 'c1');
     expect((plan.copies[0].data as any).prompt).toBe('用户改过的长提示词');
   });
-  it('副本归一：loading 副本=done（有 fileId）；fileId 保留', () => {
+  it('副本归一（Y2 B3 翻转）：loading 源副本 status/fileId 均剥（bind 命令补绑定）', () => {
     const records: any[] = [N('n1', undefined, { status: 'loading', fileId: 'm9' })];
     const plan = buildCopyPlan(records, dupIds(records, ['n1']), { offset: { x: 40, y: 0 } }, () => 'c1');
     const d = plan.copies[0].data as any;
-    expect(d.status).toBe('done');
-    expect(d.fileId).toBe('m9');
+    expect(d.status).toBeUndefined();
+    expect(d.fileId).toBeUndefined();
   });
   it('P1-1 禁两可红线：slot 档副本跳过 order 分配——全员 validatePlacementData 零违例（分镜宫格保真不降级）', () => {
     const records: any[] = [
@@ -179,5 +183,33 @@ describe('buildCopyPlan（副本构造体——分工单点：participation 裁�
     for (const childId of ['a', 'b']) {
       expect(plan.copies.find((c) => c.id === plan.idMap.get(childId))!.selected).toBe(false);   // 子副本不入选
     }
+  });
+});
+
+// ══════════ Y2 B3（裁决 4）：副本槽不携媒体 id——fileId 保留规则翻转（副本图示走服务端
+//    bind 命令补绑定；mediaId 同批剥离——作者键与 fileId 同族）══════════
+describe('Y2 B3：normalizeCopiedNodeData 副本槽剥离翻转', () => {
+  it('fileId 删（裁决 4 翻转——副本不携媒体身份；服务端 bind 命令补绑定）', () => {
+    const out = normalizeCopiedNodeData({ fileId: 'm1', prompt: 'p' });
+    expect(out.fileId).toBeUndefined();
+  });
+  it('mediaId 删（作者键同族剥离）', () => {
+    const out = normalizeCopiedNodeData({ mediaId: 'm-author', prompt: 'p' });
+    expect(out.mediaId).toBeUndefined();
+  });
+  it('status 归一翻转：副本不再落 done/idle——loading/error 整态删除（交付值不随副本走）', () => {
+    const out = normalizeCopiedNodeData({ status: 'loading', fileId: 'm1', errorCode: 'X', error: 'boom' });
+    expect(out.status).toBeUndefined();
+    expect(out.errorCode).toBeUndefined();
+    expect(out.error).toBeUndefined();
+    expect(out.fileId).toBeUndefined();
+  });
+  it('非身份键保真（prompt/images[].id/slot 等不受影响）', () => {
+    const out = normalizeCopiedNodeData({
+      prompt: 'p', slot: 2, images: [{ id: 'i1', status: 'success', url: 'http://x' }],
+    }) as any;
+    expect(out.prompt).toBe('p');
+    expect(out.slot).toBe(2);
+    expect(out.images[0]).toEqual({ id: 'i1', status: 'success' });   // images[].id 保留（域容器身份）
   });
 });
