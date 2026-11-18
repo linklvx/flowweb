@@ -72,7 +72,7 @@ function makePoller(over: {
   const rows = over.claimRows ?? [];
   const artifacts = new Map(rows.map((r) => [r.artifactId, {
     id: r.artifactId, rev: r.artifactRev, mediaId: r.mediaId ?? null, resultText: null,
-    targetField: 'fileId', sourceIntentRowId: null, sourceExecSeq: null, source: 'generated',
+    targetField: 'mediaId', sourceIntentRowId: null, sourceExecSeq: null, source: 'generated',
   }]));
   const tx: any = {
     $queryRaw: vi.fn(async () => rows.map((r) => ({ id: r.id }))),
@@ -116,7 +116,7 @@ describe('T15 onModuleDestroy（停 claim+等在飞有界）', () => {
     let release!: (v: void) => void;
     const gate = new Promise<void>((r) => { release = r; });
     const { poller, tx } = makePoller({
-      claimRows: [{ id: 'p1', artifactId: 'a1', artifactRev: 1, projectId: 'px', nodeId: 'n1', targetField: 'fileId', targetItemId: '', mediaId: 'm1', resultText: null, attempts: 0, createdAt: new Date() }],
+      claimRows: [{ id: 'p1', artifactId: 'a1', artifactRev: 1, projectId: 'px', nodeId: 'n1', targetField: 'mediaId', targetItemId: '', mediaId: 'm1', resultText: null, attempts: 0, createdAt: new Date() }],
       deliverArtifact: async () => { await gate; return { data: { written: true }, execWritten: true }; },
     });
     const ticking = poller.tick();   // 在飞（apply 挂起）
@@ -142,7 +142,7 @@ describe('T15 onModuleDestroy（停 claim+等在飞有界）', () => {
 describe('T16 post-apply 触发：poller→requestReconcile（spec 评审 P2#3——两触发点断言）', () => {
   const row = (over: Record<string, unknown> = {}) => ({
     id: 'p1', artifactId: 'a1', artifactRev: 1, projectId: 'px', nodeId: 'n1',
-    targetField: 'fileId', targetItemId: '', mediaId: 'm1', resultText: null,
+    targetField: 'mediaId', targetItemId: '', mediaId: 'm1', resultText: null,
     attempts: 0, createdAt: new Date(), ...over,
   });
 
@@ -231,7 +231,7 @@ describe('T16 post-apply 触发：poller→requestReconcile（spec 评审 P2#3�
 describe('★T19 质评 Important#1：doc_delivery_applied_unpersisted 跨 project 累计（tick 全局语义）', () => {
   const rowOf = (projectId: string, i: number) => ({
     id: `pr-${projectId}-${i}`, artifactId: `a-${projectId}-${i}`, artifactRev: 1, projectId,
-    nodeId: `n-${projectId}-${i}`, targetField: 'fileId', targetItemId: '', mediaId: `m-${projectId}-${i}`,
+    nodeId: `n-${projectId}-${i}`, targetField: 'mediaId', targetItemId: '', mediaId: `m-${projectId}-${i}`,
     resultText: null, attempts: 0, createdAt: new Date(),
   });
   const gaugeOf = async (): Promise<number> =>

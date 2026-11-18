@@ -30,7 +30,7 @@ const UID = FIXTURE_USER;
 /** 导入信封（imageGen 节点 data.fileId=M——canonical $yjs 形态；hash 零填充=完整性占位跳过）。 */
 function envelopeOf(draftId: string) {
   const canvasDoc = rebuildCanvasDoc({
-    nodes: [{ id: 'n-imp', type: 'imageGen', position: { x: 0, y: 0 }, data: { fileId: M } }],
+    nodes: [{ id: 'n-imp', type: 'imageGen', position: { x: 0, y: 0 }, data: { mediaId: M } }],   // Y2 B3 后作者键
     edges: [],
     meta: {},
   });
@@ -117,7 +117,7 @@ maybe('C3a-8：recovery import 前置 dirty + 崩溃窗 rebuild 收敛（真 PG�
     // rebuild 收敛（消费前）：binding 有 M+dirty 清+水位推
     const r = await rebuild.rebuildProjectBindings(PID);
     expect(r).toMatchObject({ outcome: 'cleared', pgSeq: 1n });
-    expect(await prisma.mediaBinding.count({ where: { projectId: PID, nodeId: 'n-imp', targetField: 'fileId', mediaId: M } })).toBe(1);
+    expect(await prisma.mediaBinding.count({ where: { projectId: PID, nodeId: 'n-imp', targetField: 'mediaId', mediaId: M } })).toBe(1);
     expect((await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID }, select: { bindingsDirty: true } })).bindingsDirty).toBe(false);
     doc.destroy();
   }, 60_000);

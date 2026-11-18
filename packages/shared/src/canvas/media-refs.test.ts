@@ -45,37 +45,31 @@ describe('T16 collectMediaRefs（七键扫描）', () => {
       id: 'n1',
       type: 'imageGen',
       data: {
-        fileId: 'm-file',
+        mediaId: 'm-file',   // Y2 B4：主槽作者键（九键收六键——fileId 随 B3 doc 禁入退役）
         referenceImage: 'm-ref',
         referenceVideo: 'm-refv',   // spec 评审 P1#1：AddNodeMenu.tsx:249 上传视频引用（updateConfig→data）
         referenceAudio: 'm-refa',   // AudioGenNode.tsx:105 上传音频引用（同路径）
         images: [{ id: 'm-i1' }, { id: 'm-i2' }],
         allImages: [{ id: 'm-i1' }],
-        trimmedFileId: 'm-trim',
-        videoFileId: 'm-vid',
-        audioFileId: 'm-aud',
       },
     } as unknown as StoredNodeRecord], []);
     const refs = collectMediaRefs(doc).map((r) => [r.targetField, r.targetItemId, r.mediaId]).sort();
     expect(refs).toEqual([
       ['allImages', 'm-i1', 'm-i1'],
-      ['audioFileId', '', 'm-aud'],
-      ['fileId', '', 'm-file'],
       ['images', 'm-i1', 'm-i1'],
       ['images', 'm-i2', 'm-i2'],
+      ['mediaId', '', 'm-file'],
       ['referenceAudio', '', 'm-refa'],
       ['referenceImage', '', 'm-ref'],
       ['referenceVideo', '', 'm-refv'],
-      ['trimmedFileId', '', 'm-trim'],
-      ['videoFileId', '', 'm-vid'],
     ].sort());
-    expect([...collectMediaIds(doc)].sort()).toEqual(['m-aud', 'm-file', 'm-i1', 'm-i2', 'm-ref', 'm-refa', 'm-refv', 'm-trim', 'm-vid']);
+    expect([...collectMediaIds(doc)].sort()).toEqual(['m-file', 'm-i1', 'm-i2', 'm-ref', 'm-refa', 'm-refv']);
   });
 
   it('非引用形态免疫：null（clearMedia 钉 null 写）/空串/非 string 标量槽、坏 item、无 data 节点、非 map 条目', () => {
     const doc = makeDoc();
     fillDoc(doc, [
-      { id: 'n1', type: 'imageGen', data: { fileId: null, referenceImage: '', images: [{ noId: 1 }, 'junk', null], allImages: 'not-a-list' } } as unknown as StoredNodeRecord,
+      { id: 'n1', type: 'imageGen', data: { mediaId: null, referenceImage: '', images: [{ noId: 1 }, 'junk', null], allImages: 'not-a-list' } } as unknown as StoredNodeRecord,
       { id: 'n2', type: 'textGen', data: {} } as unknown as StoredNodeRecord,
     ], []);
     doc.getMap('nodes').set('n3', 'plain string entry');   // 非 map 节点
@@ -83,18 +77,17 @@ describe('T16 collectMediaRefs（七键扫描）', () => {
     expect(collectMediaIds(doc).size).toBe(0);
   });
 
-  it('词表九键恰（MediaBinding.targetField 应用层单源——增删键本测即红；P1#1 补 referenceVideo/referenceAudio）', () => {
+  it('词表六键恰（Y2 B4 九键收六键——MediaBinding.targetField 应用层单源；增删键本测即红）', () => {
     expect([...MEDIA_REF_TARGET_FIELDS]).toEqual([
-      'fileId', 'referenceImage', 'referenceVideo', 'referenceAudio', 'images', 'allImages',
-      'trimmedFileId', 'videoFileId', 'audioFileId',
+      'mediaId', 'referenceImage', 'referenceVideo', 'referenceAudio', 'images', 'allImages',
     ]);
   });
 
   it('跨节点同 media 多行（索引语义——GC 引用图按集消费）', () => {
     const doc = makeDoc();
     fillDoc(doc, [
-      { id: 'n1', type: 'imageGen', data: { fileId: 'm-x' } } as unknown as StoredNodeRecord,
-      { id: 'n2', type: 'videoGen', data: { videoFileId: 'm-x' } } as unknown as StoredNodeRecord,
+      { id: 'n1', type: 'imageGen', data: { mediaId: 'm-x' } } as unknown as StoredNodeRecord,
+      { id: 'n2', type: 'videoGen', data: { mediaId: 'm-x' } } as unknown as StoredNodeRecord,   // Y2 B4：同键六键域（videoFileId 退役）
     ], []);
     expect(collectMediaRefs(doc)).toHaveLength(2);
     expect(collectMediaIds(doc)).toEqual(new Set(['m-x']));
@@ -167,18 +160,18 @@ describe('C3a-1 collectMediaRefsForNode 单源收口', () => {
   it('① 候选无关：未知/乱写/缺失 type 照常产出（不按 type/schema 收窄——第五轮 P0 保守收集钉死）', () => {
     const doc = makeDoc();
     const nodes = doc.getMap('nodes') as unknown as Map<string, unknown>;
-    nodes.set('n1', plainNode('warp-drive-3000', new Map([['fileId', 'm-unk']])));        // 词表外 type
-    nodes.set('n2', plainNode('', new Map([['trimmedFileId', 'm-notype-empty']])));        // 空串 type
+    nodes.set('n1', plainNode('warp-drive-3000', new Map([['mediaId', 'm-unk']])));        // 词表外 type
+    nodes.set('n2', plainNode('', new Map([['mediaId', 'm-notype-empty']])));        // 空串 type
     nodes.set('n3', plainNode(null, new Map([['images', [{ id: 'm-missing-type' }]]])));   // 无 type 键
     // 聚合面：三节点引用全产出（type 不参与判定）
     expect(collectMediaRefs(doc).map(refKey).sort()).toEqual([
-      'n1|primary|fileId||m-unk',
-      'n2|primary|trimmedFileId||m-notype-empty',
+      'n1|primary|mediaId||m-unk',
+      'n2|primary|mediaId||m-notype-empty',
       'n3|primary|images|m-missing-type|m-missing-type',
     ]);
     // 逐节点面同口径：词表外 type 节点单扫=同引用（全对象形状钉死——含 role 槽）
     expect(collectMediaRefsForNode('n1', nodes.get('n1'))).toEqual([
-      { nodeId: 'n1', mediaId: 'm-unk', role: 'primary', targetField: 'fileId', targetItemId: '' },
+      { nodeId: 'n1', mediaId: 'm-unk', role: 'primary', targetField: 'mediaId', targetItemId: '' },
     ]);
     expect(collectMediaRefsForNode('n3', nodes.get('n3'))).toEqual([
       { nodeId: 'n3', mediaId: 'm-missing-type', role: 'primary', targetField: 'images', targetItemId: 'm-missing-type' },
@@ -212,7 +205,7 @@ describe('C3a-1 collectMediaRefsForNode 单源收口', () => {
     const doc = makeDoc();
     fillDoc(doc, [{
       id: 'n1', type: 'imageGen',
-      data: { fileId: 'm-file', referenceImage: 'm-ref', images: [{ id: 'm-i1' }] },
+      data: { mediaId: 'm-file', referenceImage: 'm-ref', images: [{ id: 'm-i1' }] },
     } as unknown as StoredNodeRecord], []);
     const node = doc.getMap('nodes').get('n1');
     // 逐节点面：每条引用 role='primary'（类型面=常量字面量槽——非自由 string）
@@ -237,8 +230,8 @@ describe('C3a-1 collectMediaRefsForNode 单源收口', () => {
       createArray: () => new Y.Array() as never,
     };
     fillDoc(docLike, [
-      { id: 'n1', type: 'imageGen', data: { fileId: 'm-file', allImages: [{ id: 'm-i1' }, { id: 'm-i2' }] } } as unknown as StoredNodeRecord,
-      { id: 'n2', type: 'videoGen', data: { videoFileId: 'm-vid' } } as unknown as StoredNodeRecord,
+      { id: 'n1', type: 'imageGen', data: { mediaId: 'm-file', allImages: [{ id: 'm-i1' }, { id: 'm-i2' }] } } as unknown as StoredNodeRecord,
+      { id: 'n2', type: 'videoGen', data: { mediaId: 'm-vid' } } as unknown as StoredNodeRecord,
     ], []);
     const odd = new Y.Map();
     odd.set('type', 'quantum-fold');

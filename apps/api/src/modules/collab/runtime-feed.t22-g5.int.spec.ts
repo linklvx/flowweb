@@ -207,7 +207,7 @@ let TID = '';
 
   it('NODE_DELETED 三清扫：VideoProject 级联删+ArtifactProjection 在飞行置 orphaned+MediaBinding reconcile 入队（M-3 注桩断言）+EXEC_FINALIZE 消费=collect+drain（T23 接线——本例节点无在飞意图=零 RefundObligation 行直达 DONE）', async () => {
     await prisma.videoProject.create({ data: { teamId: TID, userId: SEED_UID, workflowId: PID, sourceNodeId: 'n-del', title: 'x', data: {} } });
-    await prisma.artifactProjection.create({ data: { artifactId: 'art-pending', artifactRev: 1, projectId: PID, nodeId: 'n-del', targetField: 'fileId', targetItemId: '', mediaId: 'm-p', state: 'pending' } });
+    await prisma.artifactProjection.create({ data: { artifactId: 'art-pending', artifactRev: 1, projectId: PID, nodeId: 'n-del', targetField: 'mediaId', targetItemId: '', mediaId: 'm-p', state: 'pending' } });
     await prisma.lifecycleObligation.create({ data: { projectId: PID, nodeId: 'n-del', kind: 'NODE_DELETED', walSeq: 42n } });
     await prisma.lifecycleObligation.create({ data: { projectId: PID, nodeId: 'n-del', kind: 'EXEC_FINALIZE', walSeq: 42n } });
     // T22 收口批 M-3：reconcile 腿注桩断言（①清扫面 @Optional 注入——修前零断言）
@@ -298,8 +298,8 @@ let TID = '';
     await new Promise((r) => setTimeout(r, 15));   // 错开 createdAt——修前 findFirst desc 反查恒取最新行（PID2）：双执行都作用于 PID2 ⇒ PID 零事件（红确定性）
     await prisma.lifecycleObligation.create({ data: { projectId: PID2, nodeId: SHARED, kind: 'FEED_TOMBSTONE', walSeq: 60n } });
     await prisma.artifactProjection.createMany({ data: [
-      { artifactId: 'art-x-a', artifactRev: 1, projectId: PID, nodeId: SHARED, targetField: 'fileId', targetItemId: '', mediaId: 'm-a', state: 'pending' },
-      { artifactId: 'art-x-b', artifactRev: 1, projectId: PID2, nodeId: SHARED, targetField: 'fileId', targetItemId: '', mediaId: 'm-b', state: 'pending' },
+      { artifactId: 'art-x-a', artifactRev: 1, projectId: PID, nodeId: SHARED, targetField: 'mediaId', targetItemId: '', mediaId: 'm-a', state: 'pending' },
+      { artifactId: 'art-x-b', artifactRev: 1, projectId: PID2, nodeId: SHARED, targetField: 'mediaId', targetItemId: '', mediaId: 'm-b', state: 'pending' },
     ] });
     const summary = await sweeper.tick();
     expect(summary.claimed).toBeGreaterThanOrEqual(2);   // 两行都 claim（含跨项目同 nodeId）

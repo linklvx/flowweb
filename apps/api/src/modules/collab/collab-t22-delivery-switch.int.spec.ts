@@ -89,7 +89,7 @@ const execDonePatch = { status: 'done', attempts: 1 } as const;
   it('红④（不变量）：deliverArtifact 后 doc 零派生字段（data.fileId 不变+exec map 恒空）+RuntimeEvent exec.artifact/exec.status 两事件在档（新权威）', async () => {
     await seedActiveFence('n1');
     const before = await hydrateDoc();
-    const r = await docs.deliverArtifact(PID, { nodeId: 'n1', targetField: 'fileId', value: 'm-t22-a', exec: { ...execDonePatch, artifactRev: 1, fileId: 'm-t22-a' } });
+    const r = await docs.deliverArtifact(PID, { nodeId: 'n1', targetField: 'mediaId', value: 'm-t22-a', exec: { ...execDonePatch, artifactRev: 1, fileId: 'm-t22-a' } });
     expect(r.data.written).toBe(true);   // 交付成功（fence ACTIVE 放行）
     const after = await hydrateDoc();
     const node = after.getMap('nodes').get('n1') as Y.Map<unknown>;
@@ -126,7 +126,7 @@ const execDonePatch = { status: 'done', attempts: 1 } as const;
     const before = await hydrateDoc();
     const beforeBytes = Buffer.from(Y.encodeStateAsUpdate(before)).toString('base64');
     await docs.writeExecStatus(PID, 'n2', { status: 'loading', attempts: 9, intentId: 'i-t32' });
-    await docs.deliverArtifact(PID, { nodeId: 'n2', targetField: 'fileId', value: 'm-t32', exec: { status: 'done', attempts: 9, artifactRev: 2 } });
+    await docs.deliverArtifact(PID, { nodeId: 'n2', targetField: 'mediaId', value: 'm-t32', exec: { status: 'done', attempts: 9, artifactRev: 2 } });
     const after = await hydrateDoc();
     expect(Buffer.from(Y.encodeStateAsUpdate(after)).toString('base64')).toBe(beforeBytes);   // doc 全量零变更（编码字节级——含 exec 根/任意键）
     after.destroy();
@@ -134,7 +134,7 @@ const execDonePatch = { status: 'done', attempts: 1 } as const;
   });
 
   it('T26 裁定面：fence unregistered（无行——legacy/词表外）⇒ 拒档 written:false（T25 收口 I-5：unregistered 档独立 surfaced——fail-closed 开发期无存量兼容）', async () => {
-    const r = await docs.deliverArtifact(PID, { nodeId: 'ghost-node', targetField: 'fileId', value: 'm-x', exec: { ...execDonePatch, artifactRev: 1 } });
+    const r = await docs.deliverArtifact(PID, { nodeId: 'ghost-node', targetField: 'mediaId', value: 'm-x', exec: { ...execDonePatch, artifactRev: 1 } });
     expect(r.data.written).toBe(false);
     expect((r.data as WriteNodeDataResult).reason).toBe('fence-unregistered');   // T25 收口：unregistered 独立 surfaced（poller orphaned 族不变）
     const ghost = await prisma.runtimeEvent.findMany({ where: { projectId: PID } });
@@ -144,14 +144,14 @@ const execDonePatch = { status: 'done', attempts: 1 } as const;
   it('T26 裁定面：fence-stale（fenceSeq=0——replayAll 崩溃窗/doc-lag 收养整体 stale）⇒ 拒档（宁拒勿复活 stale-ACTIVE 逃逸）', async () => {
     await seedActiveFence('n-stale');
     await prisma.deliveryFence.update({ where: { projectId_nodeId: { projectId: PID, nodeId: 'n-stale' } }, data: { fenceSeq: 0n } });   // staleProjectFencesInTx 同构态
-    const r = await docs.deliverArtifact(PID, { nodeId: 'n-stale', targetField: 'fileId', value: 'm-y', exec: { ...execDonePatch, artifactRev: 1 } });
+    const r = await docs.deliverArtifact(PID, { nodeId: 'n-stale', targetField: 'mediaId', value: 'm-y', exec: { ...execDonePatch, artifactRev: 1 } });
     expect(r.data.written).toBe(false);
     expect(r.data.reason).toBe('node-deleted');
   });
 
   it('幂等：同 (nodeId,artifactRev) 二次投递=no-op（事件不重复——poller 重投/ambiguous commit 安全）', async () => {
     const before = await prisma.runtimeEvent.count({ where: { projectId: PID } });
-    const r = await docs.deliverArtifact(PID, { nodeId: 'n1', targetField: 'fileId', value: 'm-t22-a', exec: { ...execDonePatch, artifactRev: 1, fileId: 'm-t22-a' } });
+    const r = await docs.deliverArtifact(PID, { nodeId: 'n1', targetField: 'mediaId', value: 'm-t22-a', exec: { ...execDonePatch, artifactRev: 1, fileId: 'm-t22-a' } });
     expect(r.data.written).toBe(true);
     const after = await prisma.runtimeEvent.count({ where: { projectId: PID } });
     expect(after).toBe(before);   // 零新事件（幂等前置命中）
@@ -172,8 +172,8 @@ const execDonePatch = { status: 'done', attempts: 1 } as const;
     expect(fenceTaken).toBe(true);
     const before = await prisma.runtimeEvent.count({ where: { projectId: PID } });
     const both = await Promise.all([
-      docs.deliverArtifact(PID, { nodeId: 'n-race-m10', targetField: 'fileId', value: 'm-race', exec: { ...execDonePatch, artifactRev: 7 } }),
-      docs.deliverArtifact(PID, { nodeId: 'n-race-m10', targetField: 'fileId', value: 'm-race', exec: { ...execDonePatch, artifactRev: 7 } }),
+      docs.deliverArtifact(PID, { nodeId: 'n-race-m10', targetField: 'mediaId', value: 'm-race', exec: { ...execDonePatch, artifactRev: 7 } }),
+      docs.deliverArtifact(PID, { nodeId: 'n-race-m10', targetField: 'mediaId', value: 'm-race', exec: { ...execDonePatch, artifactRev: 7 } }),
     ]);
     await holder;
     expect(both.every((r) => r.data.written === true)).toBe(true);   // 第二投递=幂等 no-op written:true

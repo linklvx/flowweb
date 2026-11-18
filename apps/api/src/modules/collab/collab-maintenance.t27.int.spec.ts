@@ -189,6 +189,7 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
       new TeamCreditService(prisma as never, new CreditLedgerService(prisma as never)),
       null,
       repo,
+      null,   // Y2 B4：upstreamMedia 缺席（手工 new 容忍）
     );
     const admit = await admitSvc.admit({ projectId: PID, requestId: 't27-gate-' + randomUUID().slice(0, 12), userId: 'u-x', nodeIds: ['n1'], docSeq: 0n });
     // 卡文「必须 4xx」=非 2xx 拒绝口径——具体码=T21 前置锚已定 503 MAINTENANCE_ACTIVE（服务不可用档）

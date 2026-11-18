@@ -216,7 +216,7 @@ const agePastGrace = async (id: string) =>
     // 锚行=finalize 产物权威在案（simulate：finalize 已建 NodeArtifact 但 settle 未达核销的崩溃窗）
     await prisma.nodeArtifact.create({
       data: {
-        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'fileId',
+        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'mediaId',
         mediaId: 'm-crash-window', state: 'stored', rev: 1,
         sourceIntentRowId: intent.id, sourceExecSeq: intent.execSeq, artifactIndex: 0,
       },
@@ -253,7 +253,7 @@ const agePastGrace = async (id: string) =>
     await intentSvc.fail(intent.id, 'crash with artifact anchored');
     await prisma.nodeArtifact.create({
       data: {
-        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'fileId',
+        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'mediaId',
         mediaId: 'm-ambiguous', state: 'stored', rev: 1,
         sourceIntentRowId: intent.id, sourceExecSeq: intent.execSeq, artifactIndex: 0,
       },

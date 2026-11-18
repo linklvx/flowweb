@@ -55,7 +55,7 @@ function importDiff(nodeId = 'n-imp'): Uint8Array {
   const d = new Y.Doc();
   const node = new Y.Map<unknown>();
   const data = new Y.Map<unknown>();
-  data.set('fileId', M);
+  data.set('mediaId', M);
   node.set('type', 'image');
   node.set('data', data);
   (d.getMap('nodes') as Y.Map<unknown>).set(nodeId, node);
@@ -198,7 +198,7 @@ type MaintSubmit = (projectId: string, payload: Uint8Array, opts?: { bindingUnco
     expect(enqueue).toHaveBeenCalledTimes(1);   // 队列清空后入队（enqueue 归 flush 路径）
     // 消费前 rebuild：binding 收敛 + dirty 清 + 水位齐
     expect(await runner.runProject(PID_HEAD)).toBe('done');
-    expect(await prisma.mediaBinding.count({ where: { projectId: PID_HEAD, nodeId: 'n-imp', targetField: 'fileId', mediaId: M } })).toBe(1);
+    expect(await prisma.mediaBinding.count({ where: { projectId: PID_HEAD, nodeId: 'n-imp', targetField: 'mediaId', mediaId: M } })).toBe(1);
     expect(await docState(PID_HEAD)).toMatchObject({ pgSeq: 1n, mediaBindingSeq: 1n, bindingsDirty: false });
     doc.destroy();
   }, 60_000);
@@ -216,7 +216,7 @@ type MaintSubmit = (projectId: string, payload: Uint8Array, opts?: { bindingUnco
     expect(await prisma.mediaBinding.count({ where: { projectId: PID_LAZY } })).toBe(0);
     expect(enqueue).toHaveBeenCalledTimes(1);
     expect(await runner.runProject(PID_LAZY)).toBe('done');
-    expect(await prisma.mediaBinding.count({ where: { projectId: PID_LAZY, nodeId: 'n-lazy', targetField: 'fileId', mediaId: M } })).toBe(1);
+    expect(await prisma.mediaBinding.count({ where: { projectId: PID_LAZY, nodeId: 'n-lazy', targetField: 'mediaId', mediaId: M } })).toBe(1);
     expect(await docState(PID_LAZY)).toMatchObject({ pgSeq: 1n, mediaBindingSeq: 1n, bindingsDirty: false });
     doc.destroy();
   }, 60_000);
@@ -262,7 +262,7 @@ type MaintSubmit = (projectId: string, payload: Uint8Array, opts?: { bindingUnco
     expect(await prisma.mediaBinding.count({ where: { projectId: PID_MIX, nodeId: 'n-imp' } })).toBe(0);
     // rebuild 收敛：导入引用出现 + 水位齐 + dirty 清
     expect(await runner.runProject(PID_MIX)).toBe('done');
-    expect(await prisma.mediaBinding.count({ where: { projectId: PID_MIX, nodeId: 'n-imp', targetField: 'fileId', mediaId: M } })).toBe(1);
+    expect(await prisma.mediaBinding.count({ where: { projectId: PID_MIX, nodeId: 'n-imp', targetField: 'mediaId', mediaId: M } })).toBe(1);
     expect(await prisma.mediaBinding.count({ where: { projectId: PID_MIX, nodeId: 'n-conn', targetField: 'referenceImage', mediaId: M } })).toBe(1);
     expect(await docState(PID_MIX)).toMatchObject({ pgSeq: 2n, mediaBindingSeq: 2n, bindingsDirty: false });
     doc.destroy();
@@ -313,7 +313,7 @@ type MaintSubmit = (projectId: string, payload: Uint8Array, opts?: { bindingUnco
       if (Date.now() > deadline) throw new Error('⑤：恢复链 runner 未在 15s 内收敛');
       await new Promise((r) => setTimeout(r, 50));
     }
-    expect(await prisma.mediaBinding.count({ where: { projectId: PID_RECOVERY, nodeId: 'n-rec', targetField: 'fileId', mediaId: M } })).toBe(1);
+    expect(await prisma.mediaBinding.count({ where: { projectId: PID_RECOVERY, nodeId: 'n-rec', targetField: 'mediaId', mediaId: M } })).toBe(1);
     const fin = await docState(PID_RECOVERY);
     expect(fin?.bindingsDirty).toBe(false);
     expect(fin?.mediaBindingSeq).toBe(fin?.pgSeq);

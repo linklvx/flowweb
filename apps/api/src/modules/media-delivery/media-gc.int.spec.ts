@@ -145,7 +145,7 @@ const IN_GRACE = new Date(Date.now() - 3600_000);              // grace 期内
     // 副本：doc 引用在（copy/paste 保留 fileId——裁决③）但 binding 索引未建（reconcile 未触窗）
     doc.getMap('nodes').set('n-copy', new Y.Map());
     const data = new Y.Map();
-    data.set('fileId', m.id);
+    data.set('mediaId', m.id);
     (doc.getMap('nodes').get('n-copy') as Y.Map<unknown>).set('data', data);
     await appendPgFrame(f);   // PG 帧+oracle 真扫=决策面证人
 
@@ -177,10 +177,10 @@ const IN_GRACE = new Date(Date.now() - 3600_000);              // grace 期内
     const mWork = await seedMedia('work-ref', GRACE_OLD);
     const mTimeline = await seedMedia('timeline-ref', GRACE_OLD);
     await prisma.mediaBinding.create({
-      data: { mediaId: mBind.id, projectId: PID, nodeId: 'n-b', teamId: TID, role: 'primary', targetField: 'fileId', targetItemId: '' },
+      data: { mediaId: mBind.id, projectId: PID, nodeId: 'n-b', teamId: TID, role: 'primary', targetField: 'mediaId', targetItemId: '' },
     });
     await prisma.nodeArtifact.create({
-      data: { projectId: PID, nodeId: 'n-a', teamId: TID, role: 'primary', targetField: 'fileId', targetItemId: '', mediaId: mArt.id, state: 'stored', source: 'generated' },
+      data: { projectId: PID, nodeId: 'n-a', teamId: TID, role: 'primary', targetField: 'mediaId', targetItemId: '', mediaId: mArt.id, state: 'stored', source: 'generated' },
     });
     const w = await prisma.videoWork.create({
       data: { title: 'int-t16gc', authorName: 'x', videoKey: `int-t16gc/w-${randomUUID().slice(0, 8)}`, videoMediaId: mWork.id },
@@ -251,7 +251,7 @@ const IN_GRACE = new Date(Date.now() - 3600_000);              // grace 期内
     // 引用命中档：binding 行（并集 Binding 臂）
     const mRef = await seedMedia('bucket-ref', GRACE_OLD);
     await prisma.mediaBinding.create({
-      data: { mediaId: mRef.id, projectId: PID, nodeId: 'n-bucket-ref', teamId: TID, role: 'primary', targetField: 'fileId', targetItemId: '' },
+      data: { mediaId: mRef.id, projectId: PID, nodeId: 'n-bucket-ref', teamId: TID, role: 'primary', targetField: 'mediaId', targetItemId: '' },
     });
     const outcomeOf = async (outcome: string): Promise<number> =>
       (await (mediaGcOutcomeTotal as any).get()).values.find((v: any) => v.labels.outcome === outcome)?.value ?? 0;

@@ -111,7 +111,7 @@ const txOf = async (intentRowId: string, type: string) =>
       const r1 = await teamCredit.reserve(UID, { intentRowId: first.intent.id, execSeq: gen1 });
       expect(r1.mayCall).toBe(true);
       await prisma.artifactProjection.create({
-        data: { artifactId: `t9-fixture-art-${randomUUID().slice(0, 8)}`, artifactRev: 0, projectId: PID, nodeId: first.intent.nodeId, targetField: 'fileId', state: 'pending' },
+        data: { artifactId: `t9-fixture-art-${randomUUID().slice(0, 8)}`, artifactRev: 0, projectId: PID, nodeId: first.intent.nodeId, targetField: 'mediaId', state: 'pending' },
       });
       await ageHeartbeat(first.intent.id, 61_000);
       // 新 worker 同 jobId 重入——过期接管
@@ -145,7 +145,7 @@ const txOf = async (intentRowId: string, type: string) =>
       const gen1 = first.intent.execSeq;
       await intentSvc.fail(first.intent.id, 'boom', 't9-rearm-job', gen1);
       await prisma.artifactProjection.create({
-        data: { artifactId: `t9-fixture-art2-${randomUUID().slice(0, 8)}`, artifactRev: 0, projectId: PID, nodeId: first.intent.nodeId, targetField: 'fileId', state: 'pending' },
+        data: { artifactId: `t9-fixture-art2-${randomUUID().slice(0, 8)}`, artifactRev: 0, projectId: PID, nodeId: first.intent.nodeId, targetField: 'mediaId', state: 'pending' },
       });
       const rearm = await claimIntent({ nodeId: first.intent.nodeId, paramsHash: first.intent.paramsHash, gestureToken: first.intent.gestureKey ?? undefined, jobId: 't9-rearm-job2' });
       expect(rearm.created).toBe(true);

@@ -43,13 +43,13 @@ const claimIntent = async (over: Record<string, unknown> = {}) =>
 
 const slotKey = (nodeId: string) => ({
   projectId_nodeId_role_targetField_targetItemId: {
-    projectId: PID, nodeId, role: 'primary', targetField: 'fileId', targetItemId: '',
+    projectId: PID, nodeId, role: 'primary', targetField: 'mediaId', targetItemId: '',
   },
 });
 
 const casUpsert = (nodeId: string, expectedRev: number, over: Record<string, unknown> = {}) =>
   prisma.$transaction((tx) => nodeArtifacts.casUpsert(tx, {
-    projectId: PID, nodeId, teamId: TID, targetField: 'fileId',
+    projectId: PID, nodeId, teamId: TID, targetField: 'mediaId',
     expectedRev, source: 'generated', state: 'stored',
     mediaId: `media-gen-${randomUUID().slice(0, 8)}`,
     ...over,
@@ -90,7 +90,7 @@ const casUpsert = (nodeId: string, expectedRev: number, over: Record<string, unk
     it('槽位行 rev=5（前代产物）→ claim 捕获 5 作 expectedRev（PG 权威非 doc）', async () => {
       const nodeId = `n-cap2-${randomUUID().slice(0, 6)}`;
       await prisma.nodeArtifact.create({
-        data: { projectId: PID, nodeId, teamId: TID, role: 'primary', targetField: 'fileId', targetItemId: '', rev: 5, state: 'stored', mediaId: 'media-old' },
+        data: { projectId: PID, nodeId, teamId: TID, role: 'primary', targetField: 'mediaId', targetItemId: '', rev: 5, state: 'stored', mediaId: 'media-old' },
       });
       const c = await claimIntent({ nodeId, jobId: 't10na-cap2' });
       expect((c as any).artifactRev).toBe(5);
@@ -101,7 +101,7 @@ const casUpsert = (nodeId: string, expectedRev: number, over: Record<string, unk
       const nodeId = `n-cap3-${randomUUID().slice(0, 6)}`;
       // image 槽已有前代行 rev=7；text claim 读 result 槽（无行=0）——两槽互不串
       await prisma.nodeArtifact.create({
-        data: { projectId: PID, nodeId, teamId: TID, role: 'primary', targetField: 'fileId', targetItemId: '', rev: 7, state: 'stored', mediaId: 'media-old' },
+        data: { projectId: PID, nodeId, teamId: TID, role: 'primary', targetField: 'mediaId', targetItemId: '', rev: 7, state: 'stored', mediaId: 'media-old' },
       });
       const c = await claimIntent({ nodeId, kind: 'text', jobId: 't10na-cap3' });
       expect((c as any).artifactRev).toBe(0);
@@ -138,7 +138,7 @@ const casUpsert = (nodeId: string, expectedRev: number, over: Record<string, unk
       // 用户 replace（T11 命令形态预演）：槽位 rev 1→2、mediaId=用户替换值
       const userMedia = `media-user-${randomUUID().slice(0, 6)}`;
       await prisma.$transaction((tx) => nodeArtifacts.casUpsert(tx, {
-        projectId: PID, nodeId, teamId: TID, targetField: 'fileId',
+        projectId: PID, nodeId, teamId: TID, targetField: 'mediaId',
         expectedRev: 1, source: 'replace', state: 'stored', mediaId: userMedia,
       }));
       // 旧代 finalize 携过期 expectedRev=1 → 0 行
@@ -155,7 +155,7 @@ const casUpsert = (nodeId: string, expectedRev: number, over: Record<string, unk
       const nodeId = `n-cas4-${randomUUID().slice(0, 6)}`;
       await casUpsert(nodeId, 0);
       await prisma.$transaction((tx) => nodeArtifacts.casUpsert(tx, {
-        projectId: PID, nodeId, teamId: TID, targetField: 'fileId',
+        projectId: PID, nodeId, teamId: TID, targetField: 'mediaId',
         expectedRev: 1, source: 'replace', state: 'stored', mediaId: 'media-user-x',
       }));
       // 新 claim（rearm/新意图）捕获 rev=2

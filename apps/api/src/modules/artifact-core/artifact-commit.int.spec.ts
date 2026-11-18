@@ -73,7 +73,7 @@ const ledgerRows = (intentRowId: string, type: string) =>
 const balanceOf = async () => (await prisma.teamBalance.findUnique({ where: { teamId: TID } }))!.credits;
 
 const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
-  where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId, role: 'primary', targetField: 'fileId', targetItemId: '' } },
+  where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId, role: 'primary', targetField: 'mediaId', targetItemId: '' } },
 });
 
 /** 回滚用例销毁 TeamBalance 后重建+复充（后续用例 reserve 依赖） */
@@ -141,7 +141,7 @@ const restoreBalance = async () => {
     expect(art!.sourceExecSeq).toBe(c.intent.execSeq);
     // ★C3a-7：finalize 零 MediaBinding 写（spec §3.2-4——bindInTx 退役；binding 由 doc 帧投影出现）
     const binding = await prisma.mediaBinding.findUnique({
-      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: c.intent.nodeId, role: 'primary', targetField: 'fileId', targetItemId: '' } },
+      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: c.intent.nodeId, role: 'primary', targetField: 'mediaId', targetItemId: '' } },
     });
     expect(binding).toBeNull();
     // 投影 pending
@@ -162,7 +162,7 @@ const restoreBalance = async () => {
     // 用户 replace（T11 命令形态预演）：槽位 rev 0→1+用户 mediaId
     const userMedia = `media-user-${randomUUID().slice(0, 6)}`;
     await prisma.$transaction((tx) => nodeArtifacts.casUpsert(tx, {
-      projectId: PID, nodeId: c.intent.nodeId, teamId: TID, targetField: 'fileId',
+      projectId: PID, nodeId: c.intent.nodeId, teamId: TID, targetField: 'mediaId',
       expectedRev: 0, source: 'replace', state: 'stored', mediaId: userMedia,
     }));
     const out = await commitFor(c);
@@ -182,7 +182,7 @@ const restoreBalance = async () => {
     const c = await claimIntent({ jobId: 't10ac-fundA' });
     await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
     await prisma.$transaction((tx) => nodeArtifacts.casUpsert(tx, {
-      projectId: PID, nodeId: c.intent.nodeId, teamId: TID, targetField: 'fileId',
+      projectId: PID, nodeId: c.intent.nodeId, teamId: TID, targetField: 'mediaId',
       expectedRev: 0, source: 'replace', state: 'stored', mediaId: 'media-user-a',
     }));
     const balanceBefore = await balanceOf();
@@ -284,7 +284,7 @@ const restoreBalance = async () => {
     expect(first.outcome).toBe('committed');
     // T11 replace 命令形态预演：槽位换用户 media+锚清空（casUpsert replace 不带资金锚——改锚）
     await prisma.$transaction((tx) => nodeArtifacts.casUpsert(tx, {
-      projectId: PID, nodeId: c.intent.nodeId, teamId: TID, targetField: 'fileId',
+      projectId: PID, nodeId: c.intent.nodeId, teamId: TID, targetField: 'mediaId',
       expectedRev: 1, source: 'replace', state: 'stored', mediaId: 'media-user-reanchored',
     }));
     const art = await slotRow(c.intent.nodeId);
@@ -450,7 +450,7 @@ const restoreBalance = async () => {
       await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
       // 用户 replace 抬槽位 rev（finalize 的 NodeArtifact CAS 必败=superseded 分支）
       await prisma.$transaction((tx) => nodeArtifacts.casUpsert(tx, {
-        projectId: PID, nodeId: c.intent.nodeId, teamId: TID, targetField: 'fileId',
+        projectId: PID, nodeId: c.intent.nodeId, teamId: TID, targetField: 'mediaId',
         expectedRev: 0, source: 'replace', state: 'stored', mediaId: 'media-user-f1',
       }));
       await prisma.generationIntent.update({ where: { id: c.intent.id }, data: { reservedCredits: 0 } });

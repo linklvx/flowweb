@@ -35,12 +35,12 @@ const SEL_PIDS = ['c3a6-sel-a', 'c3a6-sel-b', 'c3a6-sel-c', 'c3a6-sel-d'] as con
 const M1 = 'c3a6-media-1';
 const M2 = 'c3a6-media-2';
 
-/** 媒体引用帧（nodeId+fileId——C3a-1 collectMediaRefsForNode 扫描域=data 域标量槽）。 */
+/** 媒体引用帧（nodeId+mediaId——Y2 B3 后作者键；C3a-1 collectMediaRefsForNode 扫描域=data 域标量槽）。 */
 const mediaFrame = (nodeId: string, mediaId: string): Uint8Array => {
   const d = new Y.Doc();
   const node = new Y.Map<unknown>();
   const data = new Y.Map<unknown>();
-  data.set('fileId', mediaId);
+  data.set('mediaId', mediaId);
   node.set('type', 'image');
   node.set('data', data);
   (d.getMap('nodes') as Y.Map<unknown>).set(nodeId, node);
@@ -155,8 +155,8 @@ maybe('C3a-6：水位不变量闭环——rebuild CAS 四条件+loadForHydration
     expect(await repo.appendBatch(PID, [seedRow(mediaFrame('r2', M2), 10n)], { expectedPgSeq: 5n, newPgSeq: 10n, walCheckpointSeq: 10n })).toEqual({ ok: true, rows: 1 });
     // 写面（doc@5 重放——只含 r1）+全量替换布景：stale 行（doc 外节点）+错 mediaId 行（r1 槽指 M2）
     await prisma.mediaBinding.createMany({ data: [
-      { mediaId: M1, projectId: PID, nodeId: 'ghost', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'fileId', targetItemId: '' },
-      { mediaId: M2, projectId: PID, nodeId: 'r1', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'fileId', targetItemId: '' },
+      { mediaId: M1, projectId: PID, nodeId: 'ghost', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'mediaId', targetItemId: '' },
+      { mediaId: M2, projectId: PID, nodeId: 'r1', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'mediaId', targetItemId: '' },
     ] });
     await svc.writeBindingsAt(PID, anchor);
     // CAS 四条件：pgSeq=5 门失（现 10）→失败→dirty 保持（下轮重试）
@@ -183,8 +183,8 @@ maybe('C3a-6：水位不变量闭环——rebuild CAS 四条件+loadForHydration
       for (const u of at.updates) Y.applyUpdate(oracleDoc, new Uint8Array(u));
       const oracle = slotKeysOf(collectMediaRefs(toDocLike(oracleDoc)).map((r) => ({ nodeId: r.nodeId, targetField: r.targetField, targetItemId: r.targetItemId, mediaId: r.mediaId })));
       expect(slotKeysOf(rs)).toEqual(oracle);   // binding 集==递归重算结果（r1→M1 修正+r2→M2）
-      expect(oracle).toContain(`r1|fileId|=>${M1}`);   // 错 mediaId 行（r1→M2）被全量替换修正
-      expect(oracle).toContain(`r2|fileId|=>${M2}`);
+      expect(oracle).toContain(`r1|mediaId|=>${M1}`);   // 错 mediaId 行（r1→M2）被全量替换修正
+      expect(oracle).toContain(`r2|mediaId|=>${M2}`);
     } finally { oracleDoc.destroy(); }
   });
 
@@ -209,7 +209,7 @@ maybe('C3a-6：水位不变量闭环——rebuild CAS 四条件+loadForHydration
   it('族④：dirty 期连续 append（投影成功 covered=true）→mediaBindingSeq 冻结∧dirty 保持；「持续 dirty」可观测=needsBindingRebuild 恒选中（§3.2-7 无 binding_dirty 指标——记录性注释）', async () => {
     await resetDoc(prisma, { pgSeq: 5n, mediaBindingSeq: 5n, dirty: true });   // SAVEPOINT 回滚置位形
     const covered = (nodeId: string, mediaId: string) => async (tx: Prisma.TransactionClient) => {
-      await projectBindings(tx, PID, FIXTURE_TEAM, new Map([[nodeId, [{ nodeId, mediaId, role: 'primary' as const, targetField: 'fileId' as const, targetItemId: '' }]]]));
+      await projectBindings(tx, PID, FIXTURE_TEAM, new Map([[nodeId, [{ nodeId, mediaId, role: 'primary' as const, targetField: 'mediaId' as const, targetItemId: '' }]]]));
       return { bindingCovered: true };
     };
     await repo.appendBatch(PID, [seedRow(mediaFrame('w1', M1), 10n)], { expectedPgSeq: 5n, newPgSeq: 10n, walCheckpointSeq: 10n }, covered('w1', M1));

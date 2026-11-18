@@ -641,7 +641,7 @@ export class ExecutionService {
     const { upstreamSource, allEdges, styleTextOf } = ctx;
     const upstream = await this.topology.collectUpstreamData(
       projectId, node.id, upstreamSource, allEdges,
-      (pid, nid, downstreamNodeId) => this.upstreamMedia.readUpstreamMediaId(pid, nid, downstreamNodeId),
+      (pid, nid, downstreamNodeId, upstreamNode) => this.upstreamMedia.readUpstreamMediaId(pid, nid, downstreamNodeId, upstreamNode),
     );
     const data = node.data as any;
     // Y1c T2/T15：执行读点=resolvePromptText 单源（读模型形态：audioGen/multiImageGen.prompt=string

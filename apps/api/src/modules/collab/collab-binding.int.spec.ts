@@ -2,7 +2,7 @@
 // C3a-7（plan v3 Task C3a-7——spec 2026-11-11-foundation-batch-design.md §3.2-4 单写者+命令面两改）：
 // BindMedia 真库用例——命令=校验+NodeArtifact/Projection 写（**零 MediaBinding 直写**——绑定经投影
 // 出现）；CloneBinding 已删（命令删除锚在 controller.spec 坏 body 档）。三族：
-//   ①copy/paste 投影族：客户端粘贴帧（doc 副本携 fileId——canvasStore paste 路径）→appendBatch
+//   ①copy/paste 投影族：客户端粘贴帧（doc 副本携 mediaId——canvasStore paste 路径，Y2 B3 后作者键）→appendBatch
 //     flush（C3a-5 组合闭包真投影器）→目标节点 binding 经投影出现+零裂图（粘贴后 binding 行在=渲染面引用证人）；
 //   ②BindMedia 零 binding 读写：命令前后 MediaBinding 行数不变（布景区分——经投影的行不在命令面断言域）；
 //   ③真库 ACL/CAS 档承前（跨队 403+CAS 409+HTTP wire 面）。
@@ -47,12 +47,12 @@ async function seedMedia(id: string, teamId: string) {
   });
 }
 
-/** 客户端粘贴帧（doc 副本携 fileId——canvasStore paste 路径的帧形态）。 */
+/** 客户端粘贴帧（doc 副本携 mediaId——Y2 B3 后 paste 路径的帧形态：作者键=mediaId）。 */
 const pasteFrame = (nodeId: string, mediaId: string): Uint8Array => {
   const d = new Y.Doc();
   const node = new Y.Map<unknown>();
   const data = new Y.Map<unknown>();
-  data.set('fileId', mediaId);
+  data.set('mediaId', mediaId);
   node.set('type', 'image');
   node.set('data', data);
   (d.getMap('nodes') as Y.Map<unknown>).set(nodeId, node);
@@ -80,7 +80,7 @@ maybe('C3a-7：命令面读写两改——BindMedia 零 binding 写+粘贴帧投
     await seedMedia('m-c3a7-x', 'c3a7-other-team');
     // 源节点 n-src 的 pairArtifact 腿（唯一腿——NodeArtifact 面）
     await prisma.nodeArtifact.create({
-      data: { projectId: PID, nodeId: 'n-src', teamId: 'y0a-fixture-team', role: 'primary', targetField: 'fileId', targetItemId: '', rev: 1, source: 'replace', state: 'stored', mediaId: 'm-c3a7-own' },
+      data: { projectId: PID, nodeId: 'n-src', teamId: 'y0a-fixture-team', role: 'primary', targetField: 'mediaId', targetItemId: '', rev: 1, source: 'replace', state: 'stored', mediaId: 'm-c3a7-own' },
     });
 
     const nodeArtifacts = new NodeArtifactService();
@@ -118,32 +118,27 @@ maybe('C3a-7：命令面读写两改——BindMedia 零 binding 写+粘贴帧投
   }, 30_000);
 
   // ── 族②：BindMedia 零 binding 读写（spec §3.2-4——bindInTx 退役，绑定经投影出现）──
-  it('BindMedia（pairArtifact 腿）：NodeArtifact CAS+投影 pending 落地+★MediaBinding 零直写（命令前后行数不变）', async () => {
+  // Y2 B4（v5 改死四）：删生成 CAS 段——命令=校验+stub 回执，零 NodeArtifact/Projection 写。
+  it('BindMedia（pairArtifact 腿）：★零 NodeArtifact/Projection/binding 写（校验过=stub 回执 rev:0）', async () => {
     const before = await prisma.mediaBinding.count({ where: { projectId: PID } });
     const out = await controller.command(PID, { type: 'BindMedia', sourceNodeId: 'n-src', mediaId: 'm-c3a7-own', targetNodeId: 'n-tgt', expectedRev: 0 }, req());
-    expect(out).toEqual({ type: 'BindMedia', rev: 1, mediaId: 'm-c3a7-own' });
-    const artifact = await prisma.nodeArtifact.findUnique({
-      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: 'n-tgt', role: 'primary', targetField: 'fileId', targetItemId: '' } },
-    });
-    expect(artifact?.rev).toBe(1);
-    expect(artifact?.mediaId).toBe('m-c3a7-own');
-    expect(artifact?.state).toBe('stored');
-    const projection = await prisma.artifactProjection.findFirst({ where: { artifactId: artifact!.id, artifactRev: 1 } });
-    expect(projection?.state).toBe('pending');
-    // ★零 binding 直写：命令不写 MediaBinding（目标槽 binding 由客户端 doc 帧→投影出现——族①）
+    expect(out).toEqual({ type: 'BindMedia', rev: 0, mediaId: 'm-c3a7-own' });   // rev=stub（客户端仅 .catch 零消费）
+    expect(await prisma.nodeArtifact.findFirst({ where: { projectId: PID, nodeId: 'n-tgt' } })).toBeNull();   // CAS 段已删
+    expect(await prisma.artifactProjection.findFirst({ where: { projectId: PID, nodeId: 'n-tgt' } })).toBeNull();
     const after = await prisma.mediaBinding.count({ where: { projectId: PID } });
     expect(after).toBe(before);
     expect(await prisma.mediaBinding.findFirst({ where: { projectId: PID, nodeId: 'n-tgt' } })).toBeNull();
   });
 
-  it('BindMedia（doc 兜底腿）：pairArtifact 缺→端口 refs 命中→放行+零 binding 直写', async () => {
+  it('BindMedia（doc 兜底腿）：pairArtifact 缺→端口 refs 命中→放行 stub 回执+零 binding 直写', async () => {
     (port.readNodeRefs as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { nodeId: 'n-doc', mediaId: 'm-c3a7-own', role: 'primary', targetField: 'fileId', targetItemId: '' },
+      { nodeId: 'n-doc', mediaId: 'm-c3a7-own', role: 'primary', targetField: 'mediaId', targetItemId: '' },
     ]);
     const before = await prisma.mediaBinding.count({ where: { projectId: PID } });
     const out = await controller.command(PID, { type: 'BindMedia', sourceNodeId: 'n-doc', mediaId: 'm-c3a7-own', targetNodeId: 'n-tgt2', expectedRev: 0 }, req());
-    expect(out).toEqual({ type: 'BindMedia', rev: 1, mediaId: 'm-c3a7-own' });
+    expect(out).toEqual({ type: 'BindMedia', rev: 0, mediaId: 'm-c3a7-own' });
     expect(port.readNodeRefs).toHaveBeenCalledWith(PID, 'n-doc');
+    expect(await prisma.nodeArtifact.findFirst({ where: { projectId: PID, nodeId: 'n-tgt2' } })).toBeNull();
     expect(await prisma.mediaBinding.count({ where: { projectId: PID } })).toBe(before);
     (port.readNodeRefs as ReturnType<typeof vi.fn>).mockReset();
   });
@@ -151,19 +146,8 @@ maybe('C3a-7：命令面读写两改——BindMedia 零 binding 写+粘贴帧投
   it('★BindMedia 跨团队 ACL 档（真库）：源 media 团队≠目标项目团队→403+零写（NodeArtifact/binding 均无行）', async () => {
     await expect(controller.command(PID, { type: 'BindMedia', sourceNodeId: 'n-src', mediaId: 'm-c3a7-x', targetNodeId: 'n-x', expectedRev: 0 }, req()))
       .rejects.toMatchObject({ status: 403 });
-    expect(await prisma.nodeArtifact.findUnique({
-      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: 'n-x', role: 'primary', targetField: 'fileId', targetItemId: '' } },
-    })).toBeNull();   // fail-closed：ACL 拒档零 NodeArtifact 行
+    expect(await prisma.nodeArtifact.findFirst({ where: { projectId: PID, nodeId: 'n-x' } })).toBeNull();   // fail-closed：ACL 拒档零 NodeArtifact 行
     expect(await prisma.mediaBinding.findFirst({ where: { projectId: PID, nodeId: 'n-x' } })).toBeNull();
-  });
-
-  it('BindMedia 真库 CAS：expectedRev 过时（rev 已 1 再以 0 提交）→409 ARTIFACT_REV_CONFLICT 零换代', async () => {
-    await expect(controller.command(PID, { type: 'BindMedia', sourceNodeId: 'n-src', mediaId: 'm-c3a7-own', targetNodeId: 'n-tgt', expectedRev: 0 }, req()))
-      .rejects.toMatchObject({ status: 409, errorCode: 'ARTIFACT_REV_CONFLICT' });
-    const artifact = await prisma.nodeArtifact.findUnique({
-      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: 'n-tgt', role: 'primary', targetField: 'fileId', targetItemId: '' } },
-    });
-    expect(artifact?.rev).toBe(1);   // 旧 rev 保持（禁静默覆盖）
   });
 
   it('真 HTTP 面：POST /api/projects/:pid/collab/bindings 路由可达（403 档经 wire 形态透出）；CloneBinding 已删（404 面=路由 body 400）', async () => {
@@ -185,7 +169,7 @@ maybe('C3a-7：命令面读写两改——BindMedia 零 binding 写+粘贴帧投
   });
 
   // ── 族①：copy/paste 投影族（客户端 doc 帧自足→目标节点 binding 经投影出现+零裂图）──
-  it('★粘贴帧→flush→binding 在：客户端 doc 帧（doc 副本携 fileId）经 appendBatch 组合闭包真投影→MediaBinding 行出现+水位推进', async () => {
+  it('★粘贴帧→flush→binding 在：客户端 doc 帧（doc 副本携 mediaId）经 appendBatch 组合闭包真投影→MediaBinding 行出现+水位推进', async () => {
     await ensureLeaseFixture(prisma, repo);
     // 帧路径布景：CanvasDoc 建档（干净水位 0）
     await prisma.canvasDoc.create({
@@ -219,7 +203,7 @@ maybe('C3a-7：命令面读写两改——BindMedia 零 binding 写+粘贴帧投
     }
     // 目标节点 binding 经投影出现（零裂图——渲染面引用证人在）
     const binding = await prisma.mediaBinding.findUnique({
-      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: OTHER_PID, nodeId, role: 'primary', targetField: 'fileId', targetItemId: '' } },
+      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: OTHER_PID, nodeId, role: 'primary', targetField: 'mediaId', targetItemId: '' } },
     });
     expect(binding?.mediaId).toBe('m-c3a7-own');
     // 干净 flush：binding 水位随帧水位推进（连续前缀落定）

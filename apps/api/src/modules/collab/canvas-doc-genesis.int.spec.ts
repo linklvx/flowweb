@@ -131,7 +131,7 @@ maybe('Y1c T7 genesis 建头 helper（真 PG）', () => {
     const doc = createCanvasDoc();
     const node = new Y.Map<unknown>();
     const data = new Y.Map<unknown>();
-    data.set('fileId', 'c3a6-genesis-media-1');
+    data.set('mediaId', 'c3a6-genesis-media-1');
     node.set('type', 'image');
     node.set('data', data);
     (doc.getMap('nodes') as Y.Map<unknown>).set('gn', node);

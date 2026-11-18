@@ -11,18 +11,18 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 
-/** T10 槽位 targetField 单源（claim 捕获与 finalize 写侧共用）：image/edit/lighting/video→fileId
- *  （doc data.fileId=mediaId——前端 ImageGenNode/VideoGenNode 本就走 useMediaUrl(fileId)）；
- *  text→result（doc data.result=resultText）。 */
-export function targetFieldOfKind(kind: string): 'fileId' | 'result' {
-  return kind === 'text' ? 'result' : 'fileId';
+/** T10 槽位 targetField 单源（claim 捕获与 finalize 写侧共用）：image/edit/lighting/video→mediaId
+ *  （Y2 B4 域换名——doc 作者键 data.mediaId 同名；CHECK/词表/五写点同 commit）；text→result
+ *  （doc data.result=resultText）。 */
+export function targetFieldOfKind(kind: string): 'mediaId' | 'result' {
+  return kind === 'text' ? 'result' : 'mediaId';
 }
 
 /** 槽位坐标（槽位唯一键 [projectId,nodeId,role,targetField,targetItemId] 的应用层形态）。 */
 export interface ArtifactSlot {
   projectId: string;
   nodeId: string;
-  targetField: 'fileId' | 'result';
+  targetField: 'mediaId' | 'result';
   role?: string;
   targetItemId?: string;
 }

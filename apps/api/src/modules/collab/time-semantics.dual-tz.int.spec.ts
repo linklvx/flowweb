@@ -204,7 +204,7 @@ afterAll(async () => {
       const poller = new ProjectionOutboxPoller(asPrisma(client), {} as never, {} as never, {} as never, {} as never);
       const seed = (suffix: string, nextAttemptAt: Date) => prisma.artifactProjection.create({ data: {
         artifactId: `tz-c14-${TID}-${suffix}-${randomUUID()}`, artifactRev: 1, projectId,
-        nodeId: `outbox-${suffix}-${tz}`, targetField: 'fileId', targetItemId: '',
+        nodeId: `outbox-${suffix}-${tz}`, targetField: 'mediaId', targetItemId: '',
         state: 'pending', nextAttemptAt, leaseUntil: null,
       } });
       const due = await seed('due', new Date(Date.now() - 3 * HOUR));

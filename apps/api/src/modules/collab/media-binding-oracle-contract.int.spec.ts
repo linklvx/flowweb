@@ -54,10 +54,9 @@ const ALL_MEDIA = [MEDIA.m1, MEDIA.m2, MEDIA.m3, MEDIA.m4, MEDIA.mdel, ...MEDIA.
 // DELETING——后者照写），故 binding 行集应恒等于 oracle 槽位集。
 // 输出槽位集（nodeId/role='primary'/targetField/targetItemId/mediaId）。
 
-/** 字面键表（含 videoFileId/audioFileId——**现网无生产写路径**〔DOC_SCHEMA_V4 未注册/collect 单元测试
- *  覆盖〕，oracle 保留词表完整性；actor 路径可构造键=fileId/referenceImage/referenceVideo/
- *  referenceAudio/trimmedFileId/images/allImages）。 */
-const ORACLE_SCALAR_KEYS = ['fileId', 'referenceImage', 'referenceVideo', 'referenceAudio', 'trimmedFileId', 'videoFileId', 'audioFileId'] as const;
+/** 字面键表（Y2 B4 九键收六键——与生产 MEDIA_REF_TARGET_FIELDS 同步但字面独立（契约测试禁 import 生产单源）；
+ *  三退役键（trimmedFileId/videoFileId/audioFileId）随词表退役。 */
+const ORACLE_SCALAR_KEYS = ['mediaId', 'referenceImage', 'referenceVideo', 'referenceAudio'] as const;
 const ORACLE_LIST_KEYS = ['images', 'allImages'] as const;
 
 interface OracleSlot {
@@ -162,7 +161,7 @@ describe('C3a-9 oracle 递归单元（data 域递归/容器叶/循环剪枝）',
     const text = new Y.Text();
     text.insert(0, 'm-text');
     const doc = docWithData({
-      fileId: 'm-top',
+      mediaId: 'm-top',
       allImages: (() => { const a = new Y.Array<unknown>(); a.push([{ id: 'm-list' }]); return a; })(),
       nested: nestedMap,
       plain: { referenceAudio: 'm-plain' },
@@ -173,7 +172,7 @@ describe('C3a-9 oracle 递归单元（data 域递归/容器叶/循环剪枝）',
       const lines = oracleSlotsOfDoc(doc).map(slotLine).sort();
       expect(lines).toEqual([
         `n1\u0000primary\u0000allImages\u0000m-list\u0000m-list`,
-        `n1\u0000primary\u0000fileId\u0000\u0000m-top`,
+        `n1\u0000primary\u0000mediaId\u0000\u0000m-top`,
         `n1\u0000primary\u0000referenceAudio\u0000\u0000m-plain`,
         `n1\u0000primary\u0000referenceVideo\u0000\u0000m-video-nested`,
       ].sort());
@@ -235,7 +234,7 @@ function mediaFrame(nodeId: string, mediaId: string): Uint8Array {
   try {
     const node = new Y.Map<unknown>();
     const data = new Y.Map<unknown>();
-    data.set('fileId', mediaId);
+    data.set('mediaId', mediaId);
     node.set('type', 'imageGen');
     node.set('data', data);
     (d.getMap('nodes') as Y.Map<unknown>).set(nodeId, node);
@@ -667,7 +666,7 @@ maybe('C3a-9：binding@mediaBindingSeq == oracle(doc@pgSeq) 独立对拍契约�
     expect(baseline.rebuilt, '自播种后比较前已 clean（内部 rebuild 未触发）').toBe(false);
     expect(baseline.actual, '基线契约绿').toEqual(baseline.expected);
     const ghost = await prisma.mediaBinding.create({
-      data: { mediaId: MEDIA.m1, projectId: PID, nodeId: 'mutation-ghost', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'fileId', targetItemId: '' },
+      data: { mediaId: MEDIA.m1, projectId: PID, nodeId: 'mutation-ghost', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'mediaId', targetItemId: '' },
     });
     try {
       const inserted = await contractDiffOf(PID);
@@ -738,7 +737,7 @@ maybe('C3a-9：binding@mediaBindingSeq == oracle(doc@pgSeq) 独立对拍契约�
         data.label = `prop-${i}`;
       } else if (shape === 'videoGen') {
         data.referenceVideo = pick(MEDIA.pool);
-        if (rand() < 0.5) data.trimmedFileId = pick(MEDIA.pool);
+        if (rand() < 0.5) data.referenceVideo = pick(MEDIA.pool);   // Y2 B4：三退役键随词表换六键形态（videoGen 域键=referenceVideo）
       } else {
         data.referenceAudio = pick(MEDIA.pool);
       }

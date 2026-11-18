@@ -75,7 +75,7 @@ export function vacuum(projectId: string): Promise<VacuumResult> {
 // 保留先提交者」语义冲突；由调用方拿权威值提示用户显式裁定后才重提交。
 
 export interface MediaSlotState {
-  targetField: 'fileId';
+  targetField: 'mediaId';
   rev: number;
   mediaId: string | null;
 }

@@ -79,11 +79,11 @@ describe('collabApi（T11 媒体命令）', () => {
   });
 
   it('getMediaSlot：GET /api/projects/:pid/collab/nodes/:nid/media + 信封解包', async () => {
-    (global.fetch as any).mockResolvedValue(okEnvelope({ targetField: 'fileId', rev: 3, mediaId: 'm-3' }));
+    (global.fetch as any).mockResolvedValue(okEnvelope({ targetField: 'mediaId', rev: 3, mediaId: 'm-3' }));
     const r = await getMediaSlot('p1', 'n1');
     expect((global.fetch as any).mock.calls[0][0]).toBe('/api/projects/p1/collab/nodes/n1/media');
     expect((global.fetch as any).mock.calls[0][1].method).toBe('GET');
-    expect(r).toEqual({ targetField: 'fileId', rev: 3, mediaId: 'm-3' });
+    expect(r).toEqual({ targetField: 'mediaId', rev: 3, mediaId: 'm-3' });
   });
 
   it('postMediaCommand：POST 判别联合 body（replace 携 mediaId+expectedRev）', async () => {
@@ -98,7 +98,7 @@ describe('collabApi（T11 媒体命令）', () => {
 
   it('replaceNodeMedia happy：GET 槽位 rev → POST {expectedRev=槽位 rev}', async () => {
     (global.fetch as any)
-      .mockResolvedValueOnce(okEnvelope({ targetField: 'fileId', rev: 7, mediaId: null }))
+      .mockResolvedValueOnce(okEnvelope({ targetField: 'mediaId', rev: 7, mediaId: null }))
       .mockResolvedValueOnce(okEnvelope({ action: 'replace', rev: 8, mediaId: 'm-8' }));
     const r = await replaceNodeMedia('p1', 'n1', 'm-8');
     expect(r.rev).toBe(8);
@@ -107,7 +107,7 @@ describe('collabApi（T11 媒体命令）', () => {
 
   it('replaceNodeMedia 409 ARTIFACT_REV_CONFLICT → throw MediaRevConflictError（取消静默重试——旧操作禁自动换 rev 重提）', async () => {
     (global.fetch as any)
-      .mockResolvedValueOnce(okEnvelope({ targetField: 'fileId', rev: 5, mediaId: null }))   // GET① rev=5
+      .mockResolvedValueOnce(okEnvelope({ targetField: 'mediaId', rev: 5, mediaId: null }))   // GET① rev=5
       .mockResolvedValueOnce(err409());                                                        // POST① 409——到此为止
     const p = replaceNodeMedia('p1', 'n1', 'm-8');
     await expect(p).rejects.toBeInstanceOf(MediaRevConflictError);
@@ -125,7 +125,7 @@ describe('collabApi（T11 媒体命令）', () => {
 
   it('replaceNodeMedia 非 409 错误照 throw 原错误（不被包装成 MediaRevConflictError——单次 POST）', async () => {
     (global.fetch as any)
-      .mockResolvedValueOnce(okEnvelope({ targetField: 'fileId', rev: 5, mediaId: null }))
+      .mockResolvedValueOnce(okEnvelope({ targetField: 'mediaId', rev: 5, mediaId: null }))
       .mockResolvedValueOnce({
         ok: false, status: 403, statusText: 'Forbidden',
         clone: () => ({ json: async () => ({ code: -1, message: '无项目编辑权限' }) }),
@@ -140,7 +140,7 @@ describe('collabApi（T11 媒体命令）', () => {
 
   it('clearNodeMedia：GET→POST {action:"clear",expectedRev}；expectedRev 透传+409 throw 同构', async () => {
     (global.fetch as any)
-      .mockResolvedValueOnce(okEnvelope({ targetField: 'fileId', rev: 2, mediaId: 'm-2' }))
+      .mockResolvedValueOnce(okEnvelope({ targetField: 'mediaId', rev: 2, mediaId: 'm-2' }))
       .mockResolvedValueOnce(okEnvelope({ action: 'clear', rev: 3, mediaId: null }));
     const r = await clearNodeMedia('p1', 'n1');
     expect(r).toEqual({ action: 'clear', rev: 3, mediaId: null });

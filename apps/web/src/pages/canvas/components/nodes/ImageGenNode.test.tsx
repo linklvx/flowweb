@@ -103,8 +103,8 @@ const {
   const setNodeCallbacks = vi.fn();   // Y1a T11：Angle3D 回调捕获（clear 路径驱动）
   // F2 评审 P1-1：默认槽位=生产形态 {rev:0, mediaId:null}——变换节点由 addNodeWithEdge 复制源
   // fileId 进新 nodeId（PG 无 NodeArtifact 行，服务端 GET 归零）；冲突用例用 Once 覆盖 rev>0 形态
-  const getMediaSlot = vi.fn(async (): Promise<{ targetField: 'fileId'; rev: number; mediaId: string | null }> => ({
-    targetField: 'fileId', rev: 0, mediaId: null,
+  const getMediaSlot = vi.fn(async (): Promise<{ targetField: 'mediaId'; rev: number; mediaId: string | null }> => ({
+    targetField: 'mediaId', rev: 0, mediaId: null,
   }));
   const confirmShow = vi.fn();   // F2（裁定①）：409/入口冲突确认弹窗捕获
   const confirmClose = vi.fn();
@@ -1092,7 +1092,7 @@ describe('ImageGenNode', () => {
     });
 
     it('P1-1 槽位被他人清空（rev>0+mediaId:null）→ 真冲突弹窗（取消零处理零写）', async () => {
-      mockGetMediaSlot.mockResolvedValueOnce({ targetField: 'fileId', rev: 4, mediaId: null });
+      mockGetMediaSlot.mockResolvedValueOnce({ targetField: 'mediaId', rev: 4, mediaId: null });
       mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90 };
       renderNode(true);
       await act(async () => { getSaveHandler()(); });
@@ -1171,7 +1171,7 @@ describe('ImageGenNode', () => {
 
     it('入口捕获：槽位 mediaId≠本轮输入 fileId → 上传前弹确认；取消 → 零处理零写', async () => {
       const infoSpy = vi.spyOn(message, 'info').mockImplementation(() => ({} as any));
-      mockGetMediaSlot.mockResolvedValueOnce({ targetField: 'fileId', rev: 3, mediaId: 'collaborator-new' });
+      mockGetMediaSlot.mockResolvedValueOnce({ targetField: 'mediaId', rev: 3, mediaId: 'collaborator-new' });
       mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90 };
       renderNode(true);
       await act(async () => { getSaveHandler()(); });
@@ -1187,7 +1187,7 @@ describe('ImageGenNode', () => {
     });
 
     it('入口冲突确认「仍要替换」→ 继续处理+命令携入口捕获 rev 成功应用', async () => {
-      mockGetMediaSlot.mockResolvedValueOnce({ targetField: 'fileId', rev: 6, mediaId: 'collaborator-new' });
+      mockGetMediaSlot.mockResolvedValueOnce({ targetField: 'mediaId', rev: 6, mediaId: 'collaborator-new' });
       mockPresign('transformed-file-id');
       mockReplaceNodeMedia.mockResolvedValueOnce({ action: 'replace', rev: 7, mediaId: 'transformed-file-id' });
       mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', transformMode: true, imageRotation: 90 };
@@ -1365,7 +1365,7 @@ describe('ImageGenNode', () => {
       expect(getConfirm().primaryText).toBe('仍要替换');
       expect(screen.getByRole('img', { name: 'preview' })).toHaveAttribute('src', 'http://media/t-1');
       // 保存②启动（新入口——真实面=Angle3D 回调等非键盘通道；①成 stale，其确认窗位移作废）
-      mockGetMediaSlot.mockResolvedValueOnce({ targetField: 'fileId', rev: 5, mediaId: 'collaborator-new' });
+      mockGetMediaSlot.mockResolvedValueOnce({ targetField: 'mediaId', rev: 5, mediaId: 'collaborator-new' });
       await act(async () => { getSaveHandler()(); });   // 保存②：入口冲突确认
       const cfg2 = getConfirm();
       await act(async () => { cfg2.onClose(); });   // ②取消 → ①残留 pending 必须同批清除

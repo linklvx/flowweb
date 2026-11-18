@@ -46,12 +46,12 @@ describe('C3a-7 CollabMediaRefsReadAdapter：doc 源节点引用读端口', () =
     }
   });
 
-  it('③ data.fileId→[{nodeId,mediaId,role,targetField,targetItemId}]；withSession 第三参 {mode:"read"}', async () => {
-    const doc = docWithNode('n1', { fileId: 'm1' });
+  it('③ data.mediaId→[{nodeId,mediaId,role,targetField,targetItemId}]（Y2 B4 域换名）；withSession 第三参 {mode:"read"}', async () => {
+    const doc = docWithNode('n1', { mediaId: 'm1' });
     try {
       const { adapter, withSession } = setup(doc);
       await expect(adapter.readNodeRefs('p1', 'n1')).resolves.toEqual([
-        { nodeId: 'n1', mediaId: 'm1', role: 'primary', targetField: 'fileId', targetItemId: '' },
+        { nodeId: 'n1', mediaId: 'm1', role: 'primary', targetField: 'mediaId', targetItemId: '' },
       ]);
       expect(withSession).toHaveBeenCalledWith('p1', expect.any(Function), { mode: 'read' });
     } finally {

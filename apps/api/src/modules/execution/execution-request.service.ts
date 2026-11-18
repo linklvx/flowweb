@@ -17,6 +17,7 @@ import {
   EXEC_REQUEST_EXPIRES_AT_MS,
   canonicalPlanHashPayload,
   referencedMediaIdsOf,
+  resolvePrimaryMediaId,
   resolvePromptText,
   richTextOfFragment,
   validateExecutionInputLimits,
@@ -26,6 +27,7 @@ import type { ExecutionInputEncoding, ExecutionNodePlanStatus, ExecutionRequestS
 import { PrismaService } from '../../prisma/prisma.service';
 import { ValidationService } from './validation.service';
 import { TopologyService } from './topology.service';
+import { UpstreamMediaService } from './upstream-media.service';
 import { isExecutableNode } from './is-executable-node';
 import { TeamCreditService } from '../team/team-credit.service';
 import { CollabProjectActorService } from '../collab/collab-project-actor.service';
@@ -189,6 +191,8 @@ export class ExecutionRequestService {
     /** 常驻 doc 冻结读（live 临界区）；null/缺席=直接走 PG 前缀重建档（int/无 actor 上下文） */
     @Optional() @Inject(CollabProjectActorService) private readonly actor: CollabProjectActorService | null,
     @Inject(CanvasDocUpdateRepository) private readonly repo: CanvasDocUpdateRepository,
+    /** Y2 B4：产物腿读源（readUpstreamMediaId 单源——SQL 之二删除）；int 手工 new 装置可缺席 */
+    @Optional() @Inject(UpstreamMediaService) private readonly upstreamMedia?: UpstreamMediaService | null,
   ) {}
 
   // ═══ 冻结读：候选 doc 构造（live 临界区 ∨ PG 前缀重建——两者读面同构 slice）═════════════
@@ -239,14 +243,16 @@ export class ExecutionRequestService {
     return { nodes, edges };
   }
 
-  /** NodeArtifact 槽位媒体身份（直接父产物——PG 读非 doc；upstream-media.service 同源键形态）。 */
-  private async readUpstreamMediaId(projectId: string, nodeId: string): Promise<string | null> {
-    const rows = await this.prisma.$queryRaw<{ mediaId: string | null }[]>`
-      SELECT "mediaId" FROM "NodeArtifact"
-      WHERE "projectId" = ${projectId}::text AND "nodeId" = ${nodeId}::text
-        AND role = 'primary' AND "targetField" = 'fileId'
-      ORDER BY rev DESC LIMIT 1`;
-    return rows[0]?.mediaId ?? null;
+  /** 直接父产物媒体身份（Y2 B4：raw SQL 之二删除——spec §4.2 禁留第二份判定）。冻结切片自 doc
+   *  读出父节点形态（readSlice 已含 data.mediaId 作者键），产物腿经 UpstreamMediaService
+   *  单源解析（resolvePrimaryMediaId——作者键→产物→图库回落；miss warn 可观测同源）。 */
+  private async readUpstreamMediaId(projectId: string, nodeId: string, parent?: { type: string; data: Record<string, unknown> }): Promise<string | null> {
+    if (!this.upstreamMedia) {
+      // DI 缺席防御档（int 装置面手工 new 形态）：只走 doc 作者键腿（冻结切片父节点必在）
+      const resolved = resolvePrimaryMediaId(parent ?? { type: '', data: {} }, null);
+      return resolved === '' ? null : resolved;
+    }
+    return this.upstreamMedia.readUpstreamMediaId(projectId, nodeId, undefined, parent);
   }
 
   /** 冻结 slice 组装（候选 doc 上）：前缀校验+拓扑+per-node 冻结输入（prompt=上游正文优先）。 */
@@ -277,7 +283,7 @@ export class ExecutionRequestService {
           const text = typeof content === 'string' ? content : (content?.text ?? '');
           if (text) upstreamTexts.push(text);
         } else if (parent.type === 'imageGen' || parent.type === 'imageExtGen' || parent.type === 'videoGen') {
-          if (!upstreamImageMediaId) upstreamImageMediaId = (await this.readUpstreamMediaId(projectId, parent.id)) ?? undefined;
+          if (!upstreamImageMediaId) upstreamImageMediaId = (await this.readUpstreamMediaId(projectId, parent.id, parent)) ?? undefined;
         }
       }
       const promptText = upstreamTexts.join(' ') || resolvePromptText(node.data as never);

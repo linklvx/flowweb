@@ -351,7 +351,7 @@ maybe('Y1c T25 recovery import REST 服务面（真 gateway+真 PG——唯一�
 
     // 修前红锚 A：unregistered 拒因归并 'node-deleted'（不可观测分档）
     const first = await docs!.deliverArtifact(PID, {
-      nodeId: 'n-gen', targetField: 'fileId', value: 'm-gen-1',
+      nodeId: 'n-gen', targetField: 'mediaId', value: 'm-gen-1',
       exec: { status: 'done', attempts: 1, artifactRev: 1 },
     });
     expect(first.data).toMatchObject({ written: false, reason: 'fence-unregistered' });   // 修前 reason='node-deleted'（红）
@@ -365,7 +365,7 @@ maybe('Y1c T25 recovery import REST 服务面（真 gateway+真 PG——唯一�
     await gateway.projectActor.flushThrough(PID, r1.walSeq, { maxWaitMs: 5_000 });
 
     const second = await docs!.deliverArtifact(PID, {
-      nodeId: 'n-gen', targetField: 'fileId', value: 'm-gen-1',
+      nodeId: 'n-gen', targetField: 'mediaId', value: 'm-gen-1',
       exec: { status: 'done', attempts: 1, artifactRev: 2 },
     });
     expect(second.data).toMatchObject({ written: true });   // 修前：unregistered 恒拒（红）——播种自愈链实证

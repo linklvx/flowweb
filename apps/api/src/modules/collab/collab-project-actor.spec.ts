@@ -326,7 +326,7 @@ describe('Y1c T9 用例组（actor 批验证/去重/copy/毒帧/SS2/上限/Frame
     const node = new Y.Map();
     node.set('type', 'imageGen');
     const data = new Y.Map();
-    data.set('fileId', 'media-1');
+    data.set('mediaId', 'media-1');   // Y2 B4 作者键（旧 fileId 禁入）
     node.set('data', data);
     src.getMap('nodes').set('nd1', node);
     const edge = new Y.Map();

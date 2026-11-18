@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import * as Y from 'yjs';
 import { ExecutionController } from './execution.controller';
+import { TopologyService } from './topology.service';
 import { ExecutionRequestService } from './execution-request.service';
 import { ExecutionService } from './execution.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
@@ -26,7 +27,7 @@ describe('ExecutionController', () => {
     getJob: ReturnType<typeof vi.fn>;
   };
   let permSvc: { resolve: ReturnType<typeof vi.fn>; assertEditor: ReturnType<typeof vi.fn> };
-  let collabSvc: { readServerSV: ReturnType<typeof vi.fn> };
+  let collabSvc: { readServerSV: ReturnType<typeof vi.fn>; readCanvas: ReturnType<typeof vi.fn> };
   let presence: { assertAdmittable: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
@@ -45,7 +46,10 @@ describe('ExecutionController', () => {
       resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
       assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR'),
     };
-    collabSvc = { readServerSV: vi.fn(async () => Y.encodeStateVector(svDoc)) };   // 默认=支配成立
+    collabSvc = {
+      readServerSV: vi.fn(async () => Y.encodeStateVector(svDoc)),   // 默认=支配成立
+      readCanvas: vi.fn(async () => ({ nodes: [], edges: [] })),   // Y2 B2c：enqueue 受理建表读（零节点形态）
+    };
     // Y0c T29-II（Z148②）：worker 准入门依赖（默认放行——单进程拓扑常态，裁决①）
     presence = { assertAdmittable: vi.fn().mockResolvedValue(undefined) };
 
@@ -61,6 +65,7 @@ describe('ExecutionController', () => {
         { provide: CollabDocumentService, useValue: collabSvc },
         { provide: WorkerPresenceService, useValue: presence },
         { provide: ExecutionRequestService, useValue: { admit: vi.fn() } },   // Y1c T21：受理冻结（controller spec 最小装置）
+        { provide: TopologyService, useValue: { sort: vi.fn(), getScope: vi.fn(() => []), collectUpstreamData: vi.fn() } },   // Y2 B2c：enqueue 建表依赖（本装置零调用）
       ],
     }).compile();
 
@@ -148,6 +153,7 @@ describe('ExecutionController', () => {
         userId: 'user-1',
         regenToken: null, // Y0b-2 T6（Z91）：改名自 intentId 位——缺省 null
         traceId: null,    // Y0b-5 T13：ALS 外=null（ALS 内用例见下）——跨 Redis 经 job.data 显式携带
+        authorSlots: {},  // Y2 B2c：受理捕获表（零节点形态＝空表）
       });
       expect(result).toEqual({ jobId: 'job-123', status: 'queued' });
     });

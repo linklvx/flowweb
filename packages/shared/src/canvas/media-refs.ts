@@ -7,31 +7,26 @@
 // 【扫描域钉死（spec 评审 P1#1 补全 2026-10-22 grep 实证）】doc 节点引用键全在 **data 域单域**
 //（nodes map→nodeId→Y.Map 的 'data' 子 Map）——web 的 updateConfig/updateNodeData/文件引用设置
 // 全部经 mergeNodeData 终态全量 merge 后 dispatch updateNodeData 落 data（nodeStore.ts:640-646
-// ——「config」只是 store 侧入口命名，doc 无独立 config 域）；referenceVideo/referenceAudio
-//（AddNodeMenu.tsx:247-251 视频/音频上传引用）/referenceImage（ImageGenNode.tsx:360）/
-// trimmedFileId（nodeStore.setTrimmedResult:855）均此路径。videoFileId/audioFileId 现网不落 doc
-//（VideoGenNode.tsx:176-200 分离产物以 fileId 落**子节点**）——spec :80 七键词表原文名目保留
-//（未来直落形态预留），与 referenceVideo/referenceAudio 一并进词表（应用层单源——DB CHECK 见下行）。
+// ——「config」只是 store 侧入口命名，doc 无独立 config 域）。
+// Y2 B4：九键收六键——fileId 随 doc 禁入已无写者（B3），主槽作者键=媒体身份同名 mediaId；
+// 三键（trimmedFileId/videoFileId/audioFileId）随词表退役（B3 已删 doc 写者——迁移 20261118142000 同批删行）。
 import type { DocLike } from './docShape';
 import { isDocMap, type DocMapLike } from './collab-doc-ops';
 
 /** 媒体引用键词表（MediaBinding.targetField 应用层单源——DB 侧另有 raw SQL CHECK
- *  media_binding_target_field_domain（migration 20261020200300 建、20261022070000 放宽至九键），
- *  **加第十键须同批迁移同步 CHECK 域**，否则运行时 DB 拒写；
- *  键形实证 2026-10-22 grep：fileId/referenceImage/referenceVideo/referenceAudio/trimmedFileId/
- *  videoFileId/audioFileId 为 string 槽（值=mediaId；web 写入面 AddNodeMenu/ImageGenNode/
- *  VideoGenNode/AudioGenNode/nodeStore.trim），images/allImages 为 ImageItem 列表槽
- *  （item.id=mediaId——imageNodeApi/ImageGenNode allImages 写入形态）。 */
+ *  media_binding_target_field_domain（Y2 B4 迁移 20261118142000 同批收紧至六键），
+ *  **加/删键须同批迁移同步 CHECK 域**，否则运行时 DB 拒写；
+ *  键形：mediaId/referenceImage/referenceVideo/referenceAudio 为 string 槽（值=mediaId），
+ *  images/allImages 为 ImageItem 列表槽（item.id=mediaId）。 */
 export const MEDIA_REF_TARGET_FIELDS = [
-  'fileId', 'referenceImage', 'referenceVideo', 'referenceAudio', 'images', 'allImages',
-  'trimmedFileId', 'videoFileId', 'audioFileId',
+  'mediaId', 'referenceImage', 'referenceVideo', 'referenceAudio', 'images', 'allImages',
 ] as const;
 
 export type MediaRefTargetField = (typeof MEDIA_REF_TARGET_FIELDS)[number];
 
 /** string 槽键（值=mediaId；targetItemId 空 sentinel——与 MediaBinding 键对齐）。 */
 const SCALAR_REF_FIELDS: readonly MediaRefTargetField[] = [
-  'fileId', 'referenceImage', 'referenceVideo', 'referenceAudio', 'trimmedFileId', 'videoFileId', 'audioFileId',
+  'mediaId', 'referenceImage', 'referenceVideo', 'referenceAudio',
 ];
 
 /** 列表槽键（值=ImageItem 列表——Y1c T17 后 doc 载体=Y.Array 容器〔fillDoc 物化+array-domains

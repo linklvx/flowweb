@@ -157,7 +157,7 @@ const agePastGrace = async (id: string) =>
     await intentSvc.complete(intent.id, 'm-r3-w13', intent.execSeq);   // SUCCEEDED（settle 崩溃窗）
     await prisma.nodeArtifact.create({
       data: {
-        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'fileId',
+        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'mediaId',
         mediaId: 'm-r3-w13', state: 'stored', rev: 1,
         sourceIntentRowId: intent.id, sourceExecSeq: intent.execSeq, artifactIndex: 0,
       },
@@ -196,7 +196,7 @@ const agePastGrace = async (id: string) =>
     await intentSvc.fail(b.intent.id, 'r3 window4 with-delivery-evidence');
     const anchorB = await prisma.nodeArtifact.create({
       data: {
-        projectId: PID, nodeId: b.intent.nodeId, teamId: TID, targetField: 'fileId',
+        projectId: PID, nodeId: b.intent.nodeId, teamId: TID, targetField: 'mediaId',
         mediaId: 'm-x', state: 'stored', rev: 1,
         sourceIntentRowId: b.intent.id, sourceExecSeq: b.intent.execSeq, artifactIndex: 0,
       },
@@ -204,7 +204,7 @@ const agePastGrace = async (id: string) =>
     await prisma.artifactProjection.create({
       data: {
         artifactId: anchorB.id, artifactRev: 1, projectId: PID, nodeId: b.intent.nodeId,
-        targetField: 'fileId', targetItemId: '', mediaId: 'm-x', state: 'pending',
+        targetField: 'mediaId', targetItemId: '', mediaId: 'm-x', state: 'pending',
       },
     });
     await agePastGrace(b.intent.id);
@@ -222,13 +222,13 @@ const agePastGrace = async (id: string) =>
     await teamCredit.settle({ intentRowId: intent.id, execSeq: intent.execSeq });   // 真核销（poller 退款锚形态：creditsConsumed=cost）
     const anchor = await prisma.nodeArtifact.create({
       data: {
-        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'fileId',
+        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'mediaId',
         mediaId: 'm-r3-w6', state: 'stored', rev: 1,
         sourceIntentRowId: intent.id, sourceExecSeq: intent.execSeq, artifactIndex: 0,
       },
     });
     await prisma.artifactProjection.create({
-      data: { artifactId: anchor.id, artifactRev: 1, projectId: PID, nodeId: intent.nodeId, targetField: 'fileId', targetItemId: '', mediaId: 'm-r3-w6', state: 'orphaned' },   // poller 标记 orphaned 后 refundOrphaned 抛错的悬置形态
+      data: { artifactId: anchor.id, artifactRev: 1, projectId: PID, nodeId: intent.nodeId, targetField: 'mediaId', targetItemId: '', mediaId: 'm-r3-w6', state: 'orphaned' },   // poller 标记 orphaned 后 refundOrphaned 抛错的悬置形态
     });
 
     await reconcile.verifyActive();
@@ -249,13 +249,13 @@ const agePastGrace = async (id: string) =>
     await teamCredit.settle({ intentRowId: intent.id, execSeq: intent.execSeq });
     const anchor = await prisma.nodeArtifact.create({
       data: {
-        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'fileId',
+        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'mediaId',
         mediaId: 'm-r3-w6b', state: 'stored', rev: 1,
         sourceIntentRowId: intent.id, sourceExecSeq: intent.execSeq, artifactIndex: 0,
       },
     });
     await prisma.artifactProjection.create({
-      data: { artifactId: anchor.id, artifactRev: 1, projectId: PID, nodeId: intent.nodeId, targetField: 'fileId', targetItemId: '', mediaId: 'm-r3-w6b', state: 'projected' },
+      data: { artifactId: anchor.id, artifactRev: 1, projectId: PID, nodeId: intent.nodeId, targetField: 'mediaId', targetItemId: '', mediaId: 'm-r3-w6b', state: 'projected' },
     });
 
     await reconcile.verifyActive();
@@ -271,7 +271,7 @@ const agePastGrace = async (id: string) =>
     await intentSvc.complete(intent.id, 'm-r3-concurrent', intent.execSeq);
     await prisma.nodeArtifact.create({
       data: {
-        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'fileId',
+        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'mediaId',
         mediaId: 'm-r3-concurrent', state: 'stored', rev: 1,
         sourceIntentRowId: intent.id, sourceExecSeq: intent.execSeq, artifactIndex: 0,
       },
@@ -313,7 +313,7 @@ const agePastGrace = async (id: string) =>
     const t3 = await createIntentFixture(prisma as unknown as PrismaService, { projectId: PID, teamId: TID, nodeId: 'n-r3-t3', userId: UID, intentId: `r3-t3-${Date.now()}`, kind: 'image', paramsHash: 'h', status: 'FAILED', creditCost: 1, reservedCredits: 0, completedAt: old8 });
     // ④ 有锚行的行（7d 外）不物理删
     const t4 = await createIntentFixture(prisma as unknown as PrismaService, { projectId: PID, teamId: TID, nodeId: 'n-r3-t4', userId: UID, intentId: `r3-t4-${Date.now()}`, kind: 'image', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 1, reservedCredits: 0, creditsConsumed: 1, completedAt: old8 });
-    await prisma.nodeArtifact.create({ data: { projectId: PID, nodeId: 'n-r3-t4', teamId: TID, targetField: 'fileId', mediaId: 'm-keep', state: 'stored', rev: 1, sourceIntentRowId: t4.id, sourceExecSeq: t4.execSeq, artifactIndex: 0 } });
+    await prisma.nodeArtifact.create({ data: { projectId: PID, nodeId: 'n-r3-t4', teamId: TID, targetField: 'mediaId', mediaId: 'm-keep', state: 'stored', rev: 1, sourceIntentRowId: t4.id, sourceExecSeq: t4.execSeq, artifactIndex: 0 } });
 
     await (reconcile as any).cleanTerminalIntents();
 
@@ -331,11 +331,11 @@ const agePastGrace = async (id: string) =>
     await prisma.media.create({ data: { id: `m-y2b2b-${Date.now()}`, userId: UID, teamId: TID, key: `uploads/${UID}/y2b2b/${Date.now()}.png`, originalName: 'a.png', mimeType: 'image/png', size: 1n, type: 'uploaded', sourceIntentRowId: t5.id, sourceExecSeq: t5.execSeq } });
     // ⑥ author-void 投影行臂（当前代键）：7d 外不删
     const t6 = await createIntentFixture(prisma as unknown as PrismaService, { projectId: PID, teamId: TID, nodeId: 'n-y2b2b-t6', userId: UID, intentId: `y2b2b-t6-${Date.now()}`, kind: 'image', paramsHash: 'h', status: 'VOIDED', creditCost: 1, reservedCredits: 0, completedAt: old8 });
-    await prisma.artifactProjection.create({ data: { artifactId: `author-void:${t6.id}:${t6.execSeq}`, artifactRev: 0, projectId: PID, nodeId: 'n-y2b2b-t6', targetField: 'fileId', targetItemId: '', state: 'superseded', createdAt: old8 } });
+    await prisma.artifactProjection.create({ data: { artifactId: `author-void:${t6.id}:${t6.execSeq}`, artifactRev: 0, projectId: PID, nodeId: 'n-y2b2b-t6', targetField: 'mediaId', targetItemId: '', state: 'superseded', createdAt: old8 } });
     // ⑦ 旧代 void 行（execSeq 失配——换代后残行）：intent 删除+其 void 行同批出清
     const t7 = await createIntentFixture(prisma as unknown as PrismaService, { projectId: PID, teamId: TID, nodeId: 'n-y2b2b-t7', userId: UID, intentId: `y2b2b-t7-${Date.now()}`, kind: 'image', paramsHash: 'h', status: 'FAILED', creditCost: 0, reservedCredits: 0, completedAt: old8 });
     const t7VoidId = `author-void:${t7.id}:${t7.execSeq - 1n}`;   // 旧代键（keep 臂不认）
-    await prisma.artifactProjection.create({ data: { artifactId: t7VoidId, artifactRev: 0, projectId: PID, nodeId: 'n-y2b2b-t7', targetField: 'fileId', targetItemId: '', state: 'superseded', createdAt: old8 } });
+    await prisma.artifactProjection.create({ data: { artifactId: t7VoidId, artifactRev: 0, projectId: PID, nodeId: 'n-y2b2b-t7', targetField: 'mediaId', targetItemId: '', state: 'superseded', createdAt: old8 } });
 
     await (reconcile as any).cleanTerminalIntents();
 
@@ -347,7 +347,7 @@ const agePastGrace = async (id: string) =>
     // cleanProjection 作废行豁免：35d 的 author-void 行不删；普通 superseded 35d 删
     const keepVoid = await prisma.artifactProjection.findFirst({ where: { artifactId: `author-void:${t6.id}:${t6.execSeq}` } });
     expect(keepVoid).not.toBeNull();   // 35d+ 仍在（豁免——出清半边归 intent 删除链）
-    await prisma.artifactProjection.create({ data: { artifactId: `ap-y2b2b-normal-${Date.now()}`, artifactRev: 1, projectId: PID, nodeId: 'n-y2b2b-t6', targetField: 'fileId', targetItemId: '', state: 'superseded', createdAt: old35 } });
+    await prisma.artifactProjection.create({ data: { artifactId: `ap-y2b2b-normal-${Date.now()}`, artifactRev: 1, projectId: PID, nodeId: 'n-y2b2b-t6', targetField: 'mediaId', targetItemId: '', state: 'superseded', createdAt: old35 } });
     await (reconcile as any).cleanProjection();
     expect(await prisma.artifactProjection.findFirst({ where: { artifactId: `author-void:${t6.id}:${t6.execSeq}` } })).not.toBeNull();   // 豁免维持
   }, 30_000);
@@ -365,7 +365,7 @@ const agePastGrace = async (id: string) =>
     const nodeArtifacts = new NodeArtifactService();
     await prisma.$transaction(async (tx) => {
       await nodeArtifacts.casUpsert(tx, {
-        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'fileId',
+        projectId: PID, nodeId: intent.nodeId, teamId: TID, targetField: 'mediaId',
         expectedRev: 0, source: 'replace', state: 'stored', mediaId: 'm-user-replace',
       });
     });
@@ -381,7 +381,7 @@ const agePastGrace = async (id: string) =>
     expect(row!.creditsConsumed).toBe(PRICING.creditCost);
     await expect(ledgerRows(intent.id, 'settle')).resolves.toHaveLength(1);
     const slot = await prisma.nodeArtifact.findUnique({
-      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: intent.nodeId, role: 'primary', targetField: 'fileId', targetItemId: '' } },
+      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: intent.nodeId, role: 'primary', targetField: 'mediaId', targetItemId: '' } },
     });
     expect(slot!.mediaId).toBe('m-user-replace');                 // 红锚：用户值不被旧代产物覆盖（改前=stage mediaId）
     expect(slot!.rev).toBe(1);                                    // replace 的 rev 保持——未被 finalize 覆写
@@ -452,7 +452,7 @@ const agePastGrace = async (id: string) =>
     const old = await createIntentFixture(prisma as unknown as PrismaService, { projectId: PID, teamId: TID, nodeId: 'n-r3-old-anchor', userId: UID, intentId: `r3-oa-${Date.now()}`, kind: 'image', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 1, reservedCredits: 0, creditsConsumed: 1, completedAt: new Date(Date.now() - 40 * 24 * 3600_000) });
     await prisma.nodeArtifact.create({
       data: {
-        projectId: PID, nodeId: 'n-r3-old-anchor', teamId: TID, targetField: 'fileId',
+        projectId: PID, nodeId: 'n-r3-old-anchor', teamId: TID, targetField: 'mediaId',
         mediaId: 'm-old-anchor', state: 'stored', rev: 1,
         sourceIntentRowId: old.id, sourceExecSeq: old.execSeq, artifactIndex: 0,
         updatedAt: new Date(Date.now() - 8 * 24 * 3600_000),   // 龄守卫判据（7d 窗外）
@@ -466,7 +466,7 @@ const agePastGrace = async (id: string) =>
     const fresh = await createIntentFixture(prisma as unknown as PrismaService, { projectId: PID, teamId: TID, nodeId: 'n-r3-fresh-anchor', userId: UID, intentId: `r3-fa-${Date.now()}`, kind: 'image', paramsHash: 'h', status: 'SUCCEEDED', creditCost: 1, reservedCredits: 0, creditsConsumed: 1 });
     await prisma.nodeArtifact.create({
       data: {
-        projectId: PID, nodeId: 'n-r3-fresh-anchor', teamId: TID, targetField: 'fileId',
+        projectId: PID, nodeId: 'n-r3-fresh-anchor', teamId: TID, targetField: 'mediaId',
         mediaId: 'm-fresh-anchor', state: 'stored', rev: 1,
         sourceIntentRowId: fresh.id, sourceExecSeq: fresh.execSeq, artifactIndex: 0,
       },
@@ -477,8 +477,8 @@ const agePastGrace = async (id: string) =>
   }, 30_000);
 
   it('保留矩阵 retention：ArtifactProjection 终态 30d 清理+ReconcileAction 审计行 90d 清理（outbox 段已随 C2-4 退役）', async () => {
-    await prisma.artifactProjection.create({ data: { artifactId: `art-old-${randomUUID().slice(0, 6)}`, artifactRev: 1, projectId: PID, nodeId: 'n-r3-old', targetField: 'fileId', targetItemId: '', state: 'orphaned', createdAt: new Date(Date.now() - 31 * 24 * 3600_000) } });
-    await prisma.artifactProjection.create({ data: { artifactId: `art-new-${randomUUID().slice(0, 6)}`, artifactRev: 1, projectId: PID, nodeId: 'n-r3-new', targetField: 'fileId', targetItemId: '', state: 'orphaned' } });
+    await prisma.artifactProjection.create({ data: { artifactId: `art-old-${randomUUID().slice(0, 6)}`, artifactRev: 1, projectId: PID, nodeId: 'n-r3-old', targetField: 'mediaId', targetItemId: '', state: 'orphaned', createdAt: new Date(Date.now() - 31 * 24 * 3600_000) } });
+    await prisma.artifactProjection.create({ data: { artifactId: `art-new-${randomUUID().slice(0, 6)}`, artifactRev: 1, projectId: PID, nodeId: 'n-r3-new', targetField: 'mediaId', targetItemId: '', state: 'orphaned' } });
 
     await (reconcile as any).cleanProjection();
 

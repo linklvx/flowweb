@@ -69,7 +69,7 @@ const DOWNSTREAM_NODE = 'n-down';
     await prisma.nodeArtifact.create({
       data: {
         projectId: PID, nodeId: UPSTREAM_NODE, teamId: TID,
-        role: 'primary', targetField: 'fileId', targetItemId: '',
+        role: 'primary', targetField: 'mediaId', targetItemId: '',
         mediaId: MEDIA_ID, state: 'stored',
       },
     });
@@ -95,12 +95,12 @@ const DOWNSTREAM_NODE = 'n-down';
 
   it('非终态槽位行（materializing）→ 不注入（finalize 未完成）', async () => {
     await prisma.nodeArtifact.update({
-      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: UPSTREAM_NODE, role: 'primary', targetField: 'fileId', targetItemId: '' } },
+      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: UPSTREAM_NODE, role: 'primary', targetField: 'mediaId', targetItemId: '' } },
       data: { state: 'materializing' },
     });
     await expect(upstreamMedia.readUpstreamMediaId(PID, UPSTREAM_NODE)).resolves.toBeNull();
     await prisma.nodeArtifact.update({
-      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: UPSTREAM_NODE, role: 'primary', targetField: 'fileId', targetItemId: '' } },
+      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: UPSTREAM_NODE, role: 'primary', targetField: 'mediaId', targetItemId: '' } },
       data: { state: 'stored' },
     });
   });

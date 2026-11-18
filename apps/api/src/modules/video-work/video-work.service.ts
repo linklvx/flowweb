@@ -5,7 +5,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { createHash } from 'crypto';
 import { toPublicSnapshot } from './snapshot-filter.util';
 import {
-  composeRenderModel, formatCanvasReadETag, formatPublicSnapshotCacheKey,
+  composeRenderModel, formatCanvasReadETag, formatPublicSnapshotCacheKey, resolvePrimaryMediaId,
   type CanvasReadModel, type CanvasReadSnapshot, type CanvasRenderModel,
 } from '@flowweb/shared';
 import { CreateVideoWorkDto } from './dto/create-video-work.dto';
@@ -339,16 +339,14 @@ export class VideoWorkService {
     await this.invalidateWorkCaches(id);
   }
 
-  /** 产物缩略图 URL 表（Y1c T19：sanitize 前从读模型收集 fileId〔服务端字段组——D9 中间态直读至
-   *  T22 切投影〕→ presign；注入归 toPublicSnapshot 的 thumbnailUrls 参——注入键不进公开白名单）。
-   *  T25b 四读径①：消费面=join 后的 render model——媒体身份取**投影 artifact.mediaId 优先**
-   *  （T22 后 doc 不再写 fileId：data.fileId 是陈旧面，投影槽 nodeVersion 大者胜后的 artifact 为
-   *  权威；无投影槽节点回落 doc fileId=D9 中间态兼容）。 */
+  /** 产物缩略图 URL 表（Y1c T19：sanitize 前从读模型收集媒体身份→ presign；注入归 toPublicSnapshot 的
+   *  thumbnailUrls 参——注入键不进公开白名单）。T25b 四读径①：消费面=join 后的 render
+   *  model——媒体身份取**投影 artifact.mediaId 优先**；Y2 B4：回落改 resolvePrimaryMediaId
+   *  单源（作者键 data.mediaId→产物→多图图库——spec D8；旧 data.fileId 回落随 B3 doc 禁入死亡）。 */
   async computeThumbnailUrls(model: CanvasRenderModel | CanvasReadModel): Promise<Record<string, string>> {
     const fileIds = [...new Set(model.nodes.map(n => {
       const artifact = (n as { runtime?: { artifact?: { mediaId?: string } } }).runtime?.artifact?.mediaId;
-      if (typeof artifact === 'string' && artifact !== '') return artifact;   // 投影槽权威
-      return (n.data as Record<string, unknown> | undefined)?.fileId;        // 回落 doc（中间态/无槽节点）
+      return resolvePrimaryMediaId({ type: n.type ?? '', data: (n.data ?? {}) as Record<string, unknown> }, artifact ?? null);   // 作者键→产物→图库回落（Y2 B4）
     }).filter((f): f is string => !!f))];
     if (fileIds.length === 0) return {};
     const medias = await this.prisma.media.findMany({ where: { id: { in: fileIds } }, select: { id: true, thumbnailKey: true } });
@@ -359,8 +357,8 @@ export class VideoWorkService {
     const out: Record<string, string> = {};
     for (const n of model.nodes) {
       const artifact = (n as { runtime?: { artifact?: { mediaId?: string } } }).runtime?.artifact?.mediaId;
-      const fid = typeof artifact === 'string' && artifact !== '' ? artifact : (n.data as Record<string, unknown> | undefined)?.fileId;
-      if (typeof fid === 'string' && urlById.has(fid)) out[n.id] = urlById.get(fid)!;
+      const fid = resolvePrimaryMediaId({ type: n.type ?? '', data: (n.data ?? {}) as Record<string, unknown> }, artifact ?? null);
+      if (fid !== '' && urlById.has(fid)) out[n.id] = urlById.get(fid)!;
     }
     return out;
   }

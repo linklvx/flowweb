@@ -29,7 +29,7 @@ export type MediaCommandBody =
   | { action: 'clear'; expectedRev: number };
 
 export interface MediaSlotState {
-  targetField: 'fileId';
+  targetField: 'mediaId';
   rev: number;
   mediaId: string | null;
 }
@@ -63,12 +63,12 @@ export class CollabMediaController {
     const row = await this.prisma.nodeArtifact.findUnique({
       where: {
         projectId_nodeId_role_targetField_targetItemId: {
-          projectId, nodeId, role: 'primary', targetField: 'fileId', targetItemId: '',
+          projectId, nodeId, role: 'primary', targetField: 'mediaId', targetItemId: '',
         },
       },
       select: { rev: true, mediaId: true },
     });
-    return { targetField: 'fileId', rev: row?.rev ?? 0, mediaId: row?.mediaId ?? null };
+    return { targetField: 'mediaId', rev: row?.rev ?? 0, mediaId: row?.mediaId ?? null };
   }
 
   /** replaceMedia/clearMedia 命令（spec Z11''③：用户写 fileId/result 必经命令——禁客户端 doc 直写）。
@@ -111,7 +111,7 @@ export class CollabMediaController {
     // ── PG 单事务：CAS（0 行=superseded→409）+旧非终态投影 superseded+新 pending 投影 ──
     const cas = await this.prisma.$transaction(async (tx) => {
       const cas = await this.nodeArtifacts.casUpsert(tx, {
-        projectId, nodeId, teamId, targetField: 'fileId',
+        projectId, nodeId, teamId, targetField: 'mediaId',
         expectedRev,
         source: 'replace',
         state: isReplace ? 'stored' : 'none',
@@ -132,7 +132,7 @@ export class CollabMediaController {
       await tx.artifactProjection.createMany({
         data: [{
           artifactId: cas.artifactId, artifactRev: cas.rev, projectId, nodeId,
-          targetField: 'fileId', targetItemId: '', mediaId, resultText: null, state: 'pending',
+          targetField: 'mediaId', targetItemId: '', mediaId, resultText: null, state: 'pending',
         }],
         skipDuplicates: true,   // [artifactId,artifactRev] 唯一
       });

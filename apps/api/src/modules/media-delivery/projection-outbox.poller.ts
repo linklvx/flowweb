@@ -516,8 +516,8 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
 
 // ── 纯读 helper（fast path 判定/doc 值读取——Y 结构守卫读，非 Y.Map 一律 undefined=不等值） ──
 
-function keyOf(row: Pick<ArtifactProjection, 'targetField'>): 'fileId' | 'result' {
-  return row.targetField === 'result' ? 'result' : 'fileId';
+function keyOf(row: Pick<ArtifactProjection, 'targetField'>): 'mediaId' | 'result' {
+  return row.targetField === 'result' ? 'result' : 'mediaId';
 }
 
 function valueOf(artifact: NodeArtifact, row: Pick<ArtifactProjection, 'targetField'>): string | null {

@@ -19,7 +19,6 @@ import type { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { ProjectPermissionService } from '../team/project-permission.service';
-import { NodeArtifactService } from '../artifact-core/node-artifact.service';
 import { MEDIA_REFS_READ_PORT, type MediaRefsReadPort } from './media-refs-read.port';
 import { MAX_EXPECTED_REV } from './collab-media.controller';
 
@@ -30,7 +29,6 @@ export class CollabBindingController {
   constructor(
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(NodeArtifactService) private readonly nodeArtifacts: NodeArtifactService,
     @Inject(MEDIA_REFS_READ_PORT) private readonly mediaRefs: MediaRefsReadPort,
   ) {}
 
@@ -101,36 +99,10 @@ export class CollabBindingController {
       }
     }
 
-    // ── PG 单事务：目标槽 CAS（0 行=superseded→409）+旧非终态投影 superseded+新 pending 投影 ──
-    //    （零 MediaBinding 读写——目标槽 binding 由客户端 doc 帧→appendBatch 投影出现）
-    const cas = await this.prisma.$transaction(async (tx) => {
-      const cas = await this.nodeArtifacts.casUpsert(tx, {
-        projectId: p.projectId, nodeId: p.targetNodeId, teamId: p.teamId, targetField: 'fileId',
-        expectedRev: p.expectedRev,
-        source: 'replace',
-        state: 'stored',
-        mediaId: p.mediaId,
-      });
-      if (!cas.won) {
-        throw new BusinessException(
-          'ARTIFACT_REV_CONFLICT',
-          `槽位已换代（期望 rev=${p.expectedRev}，当前 rev=${cas.rev}）——请刷新后重试`,
-          HttpStatus.CONFLICT,
-        );
-      }
-      await tx.artifactProjection.updateMany({
-        where: { artifactId: cas.artifactId, state: { in: ['pending', 'projecting'] } },
-        data: { state: 'superseded' },
-      });
-      await tx.artifactProjection.createMany({
-        data: [{
-          artifactId: cas.artifactId, artifactRev: cas.rev, projectId: p.projectId, nodeId: p.targetNodeId,
-          targetField: 'fileId', targetItemId: '', mediaId: p.mediaId, resultText: null, state: 'pending',
-        }],
-        skipDuplicates: true,
-      });
-      return cas;
-    });
-    return { type: 'BindMedia', rev: cas.rev, mediaId: p.mediaId };
+    // Y2 B4（v5 改死四）：生成 CAS 段删除——BindMedia=校验（ACL+源配对）即回执，零
+    // NodeArtifact/ArtifactProjection 写（占生成 CAS 行=D5 要根除的反模式；粘贴主链=客户端 doc 帧
+    // 自足+BindMedia 校验兜底，槽位权威写归 replaceMedia/生成 finalize 两命令面）。rev=stub 0
+    //（客户端 rebindCopiedMedia 仅 .catch 零 .rev 消费——plan B4 勘定）。
+    return { type: 'BindMedia', rev: 0, mediaId: p.mediaId };
   }
 }

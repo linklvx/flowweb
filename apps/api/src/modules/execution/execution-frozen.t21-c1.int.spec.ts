@@ -48,6 +48,7 @@ const sweepExpired = () => prisma.$transaction((tx) => requestRetention.sweepExp
 const execRequests = new ExecutionRequestService(
   prisma as unknown as PrismaService, validation, new TopologyService(), teamCredit,
   null as never, new CanvasDocUpdateRepository(prisma as unknown as PrismaService),
+  null,   // Y2 B4：upstreamMedia 缺席（手工 new 容忍）
 );
 const nodeArtifacts = new NodeArtifactService();
 const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService, teamCredit, nodeArtifacts);

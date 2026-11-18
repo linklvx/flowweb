@@ -138,7 +138,7 @@ maybe('C3b-4：DELETING 状态机+删除序（真 PG）', () => {
     const before = await conflictOf('media-gc');
     const m = await seedMedia({ deletedAt: GRACE_OLD });
     await prisma.mediaBinding.create({
-      data: { mediaId: m.id, projectId: PID, nodeId: 'n-c3b4a', teamId: TID, role: 'primary', targetField: 'fileId', targetItemId: '' },
+      data: { mediaId: m.id, projectId: PID, nodeId: 'n-c3b4a', teamId: TID, role: 'primary', targetField: 'mediaId', targetItemId: '' },
     });
     const svc = new MediaGcService(prismaService, makeMinioStub(), okBarrier());
     const s = await svc.sweep();

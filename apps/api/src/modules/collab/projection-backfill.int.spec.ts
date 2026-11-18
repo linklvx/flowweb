@@ -33,7 +33,7 @@ const mediaFrame = (nodeId: string, mediaId: string): Uint8Array => {
   const d = new Y.Doc();
   const node = new Y.Map<unknown>();
   const data = new Y.Map<unknown>();
-  data.set('fileId', mediaId);
+  data.set('mediaId', mediaId);
   node.set('type', 'image');
   node.set('data', data);
   (d.getMap('nodes') as Y.Map<unknown>).set(nodeId, node);
@@ -124,7 +124,7 @@ maybe('C3a-8：ProjectionBackfillRunner（真 PG——恢复 replay 腿+100 项�
       const st = await prisma.projectionBackfillState.findUnique({ where: { projectId: PID } });
       expect(st).toMatchObject({ state: 'DONE', verifiedSeq: 1n });
       expect(st?.backfillEpoch).toBe(runner2.backfillEpoch);
-      expect(await prisma.mediaBinding.count({ where: { projectId: PID, nodeId: 'n-m1', targetField: 'fileId', mediaId: M1 } })).toBe(1);
+      expect(await prisma.mediaBinding.count({ where: { projectId: PID, nodeId: 'n-m1', targetField: 'mediaId', mediaId: M1 } })).toBe(1);
       // PG doc 有 M（定代重放语义——loadForHydration 读回）
       const { state, updates } = await repo.loadForHydration(PID);
       const doc = createCanvasDoc();
@@ -133,7 +133,7 @@ maybe('C3a-8：ProjectionBackfillRunner（真 PG——恢复 replay 腿+100 项�
         for (const u of updates) Y.applyUpdate(doc, new Uint8Array(u));
         const node = doc.getMap('nodes').get('n-m1') as Y.Map<unknown>;
         expect(node).toBeDefined();
-        expect((node.get('data') as Y.Map<unknown>).get('fileId')).toBe(M1);
+        expect((node.get('data') as Y.Map<unknown>).get('mediaId')).toBe(M1);
       } finally { doc.destroy(); }
       const after = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID }, select: { mediaBindingSeq: true, bindingsDirty: true } });
       expect(after).toEqual({ mediaBindingSeq: 1n, bindingsDirty: false });
@@ -343,7 +343,7 @@ maybe('C3a-8：ProjectionBackfillRunner（真 PG——恢复 replay 腿+100 项�
         if (Date.now() > deadline) throw new Error('I1：runner 未在 15s 内收敛');
         await new Promise((r) => setTimeout(r, 50));
       }
-      expect(await prisma.mediaBinding.count({ where: { projectId: PID_BOOT, nodeId: 'n-boot', targetField: 'fileId', mediaId: M1 } })).toBe(1);
+      expect(await prisma.mediaBinding.count({ where: { projectId: PID_BOOT, nodeId: 'n-boot', targetField: 'mediaId', mediaId: M1 } })).toBe(1);
       const fin = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID_BOOT }, select: { pgSeq: true, mediaBindingSeq: true, bindingsDirty: true } });
       expect(fin).toEqual({ pgSeq: 1n, mediaBindingSeq: 1n, bindingsDirty: false });   // 无假覆盖：水位==帧水位
     } finally {

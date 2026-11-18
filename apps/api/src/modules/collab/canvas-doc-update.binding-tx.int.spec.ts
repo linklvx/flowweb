@@ -54,7 +54,7 @@ async function combinedInTx(
 /** 注入投影桩（C3a-5 MediaBindingProjector 替身）：成功形态=写一条 binding。 */
 const projectorSuccess = (slotNodeId: string) => async (tx: Prisma.TransactionClient): Promise<void> => {
   await tx.mediaBinding.create({
-    data: { mediaId: MEDIA_ID, projectId: PID, nodeId: slotNodeId, teamId: FIXTURE_TEAM, role: 'primary', targetField: 'fileId', targetItemId: '' },
+    data: { mediaId: MEDIA_ID, projectId: PID, nodeId: slotNodeId, teamId: FIXTURE_TEAM, role: 'primary', targetField: 'mediaId', targetItemId: '' },
   });
 };
 

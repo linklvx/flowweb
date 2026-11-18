@@ -143,12 +143,12 @@ maybe('C3b-3：decision snapshot+isMediaReferenced+referrer registry', () => {
     // ── B2 转 DELETING（扫后置位——DELETING 项目照常计入决策宇宙）──
     await prisma.canvasProject.updateMany({ where: { id: PID_B2 }, data: { lifecycleState: 'DELETING' } });
     // ── 四组 referrer ──
-    await prisma.mediaBinding.create({ data: { mediaId: M.binding, projectId: PID_B, nodeId: 'n-1', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'fileId', targetItemId: '' } });
-    await prisma.nodeArtifact.create({ data: { projectId: PID_B, nodeId: 'n-1', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'fileId', targetItemId: '', mediaId: M.struct, source: 'generated' } });
+    await prisma.mediaBinding.create({ data: { mediaId: M.binding, projectId: PID_B, nodeId: 'n-1', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'mediaId', targetItemId: '' } });
+    await prisma.nodeArtifact.create({ data: { projectId: PID_B, nodeId: 'n-1', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'mediaId', targetItemId: '', mediaId: M.struct, source: 'generated' } });
     await prisma.videoWork.create({ data: { id: WORK_IDS[0], title: 'c3b3-cover', authorName: 't', videoKey: 'c3b3/work-video', coverKey: keyOf(M.objKey) } });
     // ── registry sweep referrer ──
     await prisma.lightingTask.create({ data: { userId: FIXTURE_USER, nodeId: 'n-1', projectId: PID_B, originalImageUrl: 'http://x', params: {}, teamId: FIXTURE_TEAM, resultMediaId: M.lighting } });
-    await prisma.artifactProjection.create({ data: { artifactId: 'c3b3-art-1', artifactRev: 0, projectId: PID_B, nodeId: 'n-1', targetField: 'fileId', targetItemId: '', mediaId: M.proj, state: 'pending' } });
+    await prisma.artifactProjection.create({ data: { artifactId: 'c3b3-art-1', artifactRev: 0, projectId: PID_B, nodeId: 'n-1', targetField: 'mediaId', targetItemId: '', mediaId: M.proj, state: 'pending' } });
     await prisma.generationIntent.create({
       data: {
         projectId: PID_B, nodeId: 'n-1', userId: FIXTURE_USER, teamId: FIXTURE_TEAM, intentId: 'c3b3-intent', kind: 'image',
@@ -161,9 +161,9 @@ maybe('C3b-3：decision snapshot+isMediaReferenced+referrer registry', () => {
     await prisma.objectManifest.create({ data: { objectKey: objKeyOf(M.claim), sizeBytes: 1n, claimOwner: 'c3b3', claimUntil: BigInt(Date.now() + 60_000), state: 'LIVE' } });
     await prisma.videoWork.create({ data: { id: WORK_IDS[1], title: 'c3b3-pub', authorName: 't', videoKey: 'c3b3/work-video-2', videoMediaId: M.videoMedia } });
     // ── erasure 三形态 ──
-    await prisma.mediaBinding.create({ data: { mediaId: M.ab, projectId: PID_B, nodeId: 'n-2', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'fileId', targetItemId: '' } });
-    await prisma.mediaBinding.create({ data: { mediaId: M.aOnly, projectId: PID_A, nodeId: 'n-3', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'fileId', targetItemId: '' } });
-    await prisma.mediaBinding.create({ data: { mediaId: M.ab2, projectId: PID_B2, nodeId: 'n-4', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'fileId', targetItemId: '' } });
+    await prisma.mediaBinding.create({ data: { mediaId: M.ab, projectId: PID_B, nodeId: 'n-2', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'mediaId', targetItemId: '' } });
+    await prisma.mediaBinding.create({ data: { mediaId: M.aOnly, projectId: PID_A, nodeId: 'n-3', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'mediaId', targetItemId: '' } });
+    await prisma.mediaBinding.create({ data: { mediaId: M.ab2, projectId: PID_B2, nodeId: 'n-4', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'mediaId', targetItemId: '' } });
     // ── 负控 ──
     await prisma.objectManifest.create({ data: { objectKey: objKeyOf(M.expiredClaim), sizeBytes: 1n, claimOwner: 'c3b3', claimUntil: BigInt(Date.now() - 60_000), state: 'LIVE' } });
   }, 120_000);

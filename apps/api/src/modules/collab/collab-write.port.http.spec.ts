@@ -169,6 +169,7 @@ describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFa
       planMap: new Map([['n1', { creditCost: 5 }]]),
       upstreamSource: [], allEdges: [], styleTextOf: () => '',
       results, errors, onDeducted: () => {},
+      authorTable: { n1: null },   // Y2 B2c 受理捕获表（本用例空槽）
     });
     // 锚三断言：①零退款 ②job 不失败（零 throw+节点零 error+外呼完成）③外呼/结算照常（作业成败由生成结果决定）
     expect(rollbackDeliveryFailed).not.toHaveBeenCalled();

@@ -7,5 +7,11 @@
   },
   "20261113050000_c3b4_media_deleting_audit": {
     "migration.sql": "e55c7f3d1238ee21f41d038eb6fb8ffe27f233ea8b562f584e6a2247e026dd8e"
+  },
+  "20261118140000_y2_author_slot_frozen": {
+    "migration.sql": "6567725419894ca29e0356c72152e65074b2020aa1ba316573d41c455b440a46"
+  },
+  "20261118142000_y2_target_field_mediaid": {
+    "migration.sql": "136e1b34da92dee7b1bcbcf48d26ed018bcb676fd3bb73be65566efa3cd1a806"
   }
 }

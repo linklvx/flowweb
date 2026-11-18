@@ -32,7 +32,7 @@ const mediaFrame = (nodeId: string, mediaId: string): Uint8Array => {
   const d = new Y.Doc();
   const node = new Y.Map<unknown>();
   const data = new Y.Map<unknown>();
-  data.set('fileId', mediaId);
+  data.set('mediaId', mediaId);
   node.set('type', 'image');
   node.set('data', data);
   (d.getMap('nodes') as Y.Map<unknown>).set(nodeId, node);
@@ -124,8 +124,8 @@ maybe('C3a-8：MediaBinding 只读漂移检测（真 PG——零 MediaBinding �
     // 布景：n1 槽指 M2（mismatch——doc 期望 M1）+ ghost 行（extra）
     await prisma.mediaBinding.deleteMany({ where: { projectId: PID } });
     await prisma.mediaBinding.createMany({ data: [
-      { mediaId: M2, projectId: PID, nodeId: 'n1', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'fileId', targetItemId: '' },
-      { mediaId: M2, projectId: PID, nodeId: 'ghost', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'fileId', targetItemId: '' },
+      { mediaId: M2, projectId: PID, nodeId: 'n1', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'mediaId', targetItemId: '' },
+      { mediaId: M2, projectId: PID, nodeId: 'ghost', teamId: FIXTURE_TEAM, role: 'primary', targetField: 'mediaId', targetItemId: '' },
     ] });
     await prisma.canvasDoc.update({ where: { projectId: PID }, data: { bindingsDirty: false, mediaBindingSeq: 10n } });
     const rowsBefore = await rowsOf();

@@ -68,7 +68,7 @@ function refFrame(fileId: string): Uint8Array {
   try {
     const node = new Y.Map<unknown>();
     const data = new Y.Map<unknown>();
-    data.set('fileId', fileId);
+    data.set('mediaId', fileId);
     node.set('type', 'imageGen');
     node.set('data', data);
     (doc.getMap('nodes') as Y.Map<unknown>).set(nodeKeyOf(fileId), node);
@@ -334,7 +334,7 @@ maybe('C3b-5：消费面切换+shadow 对拍+回滚开关（真 PG）', () => {
     const raceBarrier: DeletionBarrierPort = {
       prepare: async () => ({ outcome: 'verified', barrierId: `stub-${randomUUID()}`, projects: [], expiresAt: Date.now() + 60_000 }),
       release: async () => {
-        await prisma.mediaBinding.create({ data: { mediaId: mExc.id, projectId: PO, nodeId: 'n-p1-race', teamId: ER_TID, role: 'primary', targetField: 'fileId', targetItemId: '' } });
+        await prisma.mediaBinding.create({ data: { mediaId: mExc.id, projectId: PO, nodeId: 'n-p1-race', teamId: ER_TID, role: 'primary', targetField: 'mediaId', targetItemId: '' } });
         return true;
       },
     } as unknown as DeletionBarrierPort;

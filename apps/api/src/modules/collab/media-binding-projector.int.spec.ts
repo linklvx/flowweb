@@ -37,7 +37,7 @@ const M = {
 } as const;
 
 /** MediaRef 构造（槽位键五元组——role 恒 primary 来自 MediaRef.role）。 */
-const ref = (nodeId: string, mediaId: string, targetField: MediaRefTargetField = 'fileId', targetItemId = ''): MediaRef =>
+const ref = (nodeId: string, mediaId: string, targetField: MediaRefTargetField = 'mediaId', targetItemId = ''): MediaRef =>
   ({ nodeId, mediaId, role: 'primary', targetField, targetItemId });
 
 const delta = (entries: Record<string, readonly MediaRef[] | null>) => new Map(Object.entries(entries));
@@ -84,7 +84,7 @@ maybe('C3a-5：MediaBindingProjector 四族（真 PG）', () => {
     const s1 = await project(prisma, delta({ a: [ref('a', M.fresh1)] }));
     expect(s1).toEqual({ written: 1, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } });
     let rs = await rowsOf(prisma);
-    expect(slotKeys(rs)).toEqual([`a|primary|fileId|=>${M.fresh1}`]);
+    expect(slotKeys(rs)).toEqual([`a|primary|mediaId|=>${M.fresh1}`]);
     const idBefore = rs[0].id;
     const s2 = await project(prisma, delta({ a: [ref('a', M.fresh1)] }));   // 同槽同 mediaId 重投=幂等
     expect(s2.written).toBe(0);   // C3a-8：未变更槽零写（write_total 不虚高）
@@ -97,7 +97,7 @@ maybe('C3a-5：MediaBindingProjector 四族（真 PG）', () => {
     await project(prisma, delta({ a: [ref('a', M.fresh1)] }));
     await project(prisma, delta({ a: [ref('a', M.fresh2)] }));   // 同槽换 mediaId
     const rs = await rowsOf(prisma);
-    expect(slotKeys(rs.filter((r) => r.nodeId === 'a'))).toEqual([`a|primary|fileId|=>${M.fresh2}`]);
+    expect(slotKeys(rs.filter((r) => r.nodeId === 'a'))).toEqual([`a|primary|mediaId|=>${M.fresh2}`]);
     expect(await prisma.mediaBinding.count({ where: { projectId: PID, nodeId: 'a', mediaId: M.fresh1 } })).toBe(0);   // 旧 mediaId 行已删
   });
 
@@ -124,7 +124,7 @@ maybe('C3a-5：MediaBindingProjector 四族（真 PG）', () => {
   it('②a：deletedAt≠null ∧ DELETING→照写（序测锚：软删先判会吞掉 DELETING 照写——spec §3.2-2 第六轮修正）', async () => {
     await prisma.mediaBinding.deleteMany({ where: { projectId: PID, nodeId: 'da' } });
     await project(prisma, delta({ da: [ref('da', M.deleting)] }));
-    expect(slotKeys(await rowsOf(prisma)).filter((k) => k.startsWith('da|'))).toEqual([`da|primary|fileId|=>${M.deleting}`]);
+    expect(slotKeys(await rowsOf(prisma)).filter((k) => k.startsWith('da|'))).toEqual([`da|primary|mediaId|=>${M.deleting}`]);
   });
 
   it('②b：deletedAt≠null ∧ ACTIVE→跳过+该槽现存行清（只清该槽——不删该 media 其他 node 槽）', async () => {
@@ -158,17 +158,17 @@ maybe('C3a-5：MediaBindingProjector 四族（真 PG）', () => {
   });
 
   // ── 族③：unnest 批量（一批多 node 多槽一轮事务落）──
-  it('③：3 node×3 槽（fileId+images 2 item）单轮投影→9 行落且槽键/mediaId 正确；空 delta no-op', async () => {
+  it('③：3 node×3 槽（mediaId+images 2 item）单轮投影→9 行落且槽键/mediaId 正确；空 delta no-op', async () => {
     await prisma.mediaBinding.deleteMany({ where: { projectId: PID, nodeId: { in: ['u1', 'u2', 'u3'] } } });
     const perNode = (n: string) => [ref(n, M.fresh1), ref(n, M.fresh2, 'images', M.fresh2), ref(n, M.fresh3, 'images', M.fresh3)];
     await project(prisma, delta({ u1: perNode('u1'), u2: perNode('u2'), u3: perNode('u3') }));
     const rs = await rowsOf(prisma);
     expect(rs.filter((r) => r.nodeId.startsWith('u')).length, 'N 槽位一轮事务落（9 槽）').toBe(9);
     for (const n of ['u1', 'u2', 'u3']) {
-      expect(slotKeys(rs.filter((r) => r.nodeId === n))).toEqual([
-        `${n}|primary|fileId|=>${M.fresh1}`,
+      expect(slotKeys(rs.filter((r) => r.nodeId === n)).sort((a: string, b: string) => a.localeCompare(b))).toEqual([
         `${n}|primary|images|${M.fresh2}=>${M.fresh2}`,
         `${n}|primary|images|${M.fresh3}=>${M.fresh3}`,
+        `${n}|primary|mediaId|=>${M.fresh1}`,
       ]);
     }
     const before = await prisma.mediaBinding.count({ where: { projectId: PID } });

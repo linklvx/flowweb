@@ -67,7 +67,7 @@ const ledgerRows = (intentRowId: string, type: string) =>
   prisma.teamCreditTransaction.findMany({ where: { teamId: TID, referenceId: `intent:${intentRowId}`, type: type as any } });
 
 const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
-  where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId, role: 'primary', targetField: 'fileId', targetItemId: '' } },
+  where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId, role: 'primary', targetField: 'mediaId', targetItemId: '' } },
 });
 
 (hasDb ? describe : describe.skip)('Y1a+Y1b T12 核心一：video finalize-first（真 PG；事务/CAS/settle 全真）', () => {
@@ -141,7 +141,7 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
     expect(art!.sourceIntentRowId).toBe(c.intent.id);
     // ★C3a-7：finalize 零 MediaBinding 写（spec §3.2-4——bindInTx 退役；binding 由 doc 帧投影出现）
     const binding = await prisma.mediaBinding.findUnique({
-      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: c.intent.nodeId, role: 'primary', targetField: 'fileId', targetItemId: '' } },
+      where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId: c.intent.nodeId, role: 'primary', targetField: 'mediaId', targetItemId: '' } },
     });
     expect(binding).toBeNull();
     // ── 件三：settle/complete+投影 fileId 交付 mediaId（T10 过渡模式：投影行 pending）──
@@ -151,7 +151,7 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
     expect(await ledgerRows(c.intent.id, 'settle')).toHaveLength(1);
     const proj = await prisma.artifactProjection.findUnique({ where: { artifactId_artifactRev: { artifactId: art!.id, artifactRev: 1 } } });
     expect(proj!.state).toBe('pending');
-    expect(proj!.targetField).toBe('fileId');           // doc 交付键唯一 fileId（videoUrl 词表删除面）
+    expect(proj!.targetField).toBe('mediaId');           // Y2 B4 域换名（doc 交付键唯一 mediaId）
     expect(proj!.mediaId).toBe(out.mediaId);
   });
 
@@ -187,7 +187,7 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
     await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
     const userMedia = `media-user-${randomUUID().slice(0, 6)}`;
     await prisma.$transaction((tx) => nodeArtifacts.casUpsert(tx, {
-      projectId: PID, nodeId: c.intent.nodeId, teamId: TID, targetField: 'fileId',
+      projectId: PID, nodeId: c.intent.nodeId, teamId: TID, targetField: 'mediaId',
       expectedRev: 0, source: 'replace', state: 'stored', mediaId: userMedia,
     }));
     const balanceBefore = (await prisma.teamBalance.findUnique({ where: { teamId: TID } }))!.credits;
@@ -214,7 +214,7 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
     const first = await finalizeFor(c);
     expect(first.outcome).toBe('committed');
     await prisma.$transaction((tx) => nodeArtifacts.casUpsert(tx, {
-      projectId: PID, nodeId: c.intent.nodeId, teamId: TID, targetField: 'fileId',
+      projectId: PID, nodeId: c.intent.nodeId, teamId: TID, targetField: 'mediaId',
       expectedRev: 1, source: 'replace', state: 'stored', mediaId: 'media-user-reanchored',
     }));
     const second = await finalizeFor(c);   // intent 已 SUCCEEDED∧核销但锚行被 replace 改锚——照走全链由幂等分支收敛

@@ -71,7 +71,7 @@ describe('C3a-8 质量收口 I-2：reconcile 候选跳过/预算/扫描异常', 
     const d = new Y.Doc();
     const node = new Y.Map<unknown>();
     const data = new Y.Map<unknown>();
-    data.set('fileId', 'm1');
+    data.set('mediaId', 'm1');   // Y2 B4 作者键（本用例驱 异常路径，键名随域）
     node.set('type', 'image');
     node.set('data', data);
     (d.getMap('nodes') as Y.Map<unknown>).set('n1', node);

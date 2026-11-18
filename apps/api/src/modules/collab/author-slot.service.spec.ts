@@ -36,11 +36,11 @@ const intentRow = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-/** 真 Y.Doc 装置：n1 携 fileId=m-author（冻结值同值=可删形态）。 */
+/** 真 Y.Doc 装置：n1 携作者键 mediaId=m-author（Y2 B4 域换名——冻结值同值=可删形态）。 */
 const mkDoc = (opts: { fileId?: unknown; extraNode?: [string, unknown] } = {}) => {
   const doc = new Y.Doc();
   fillDoc(toDocLike(doc), [
-    { id: 'n1', type: 'imageGen', data: { status: 'done', ...(opts.fileId !== undefined ? { fileId: opts.fileId } : { fileId: 'm-author' }) } },
+    { id: 'n1', type: 'imageGen', data: { status: 'done', ...(opts.fileId !== undefined ? { mediaId: opts.fileId } : { mediaId: 'm-author' }) } },
     ...(opts.extraNode ? [{ id: opts.extraNode[0], type: 'imageGen', data: opts.extraNode[1] as Record<string, unknown> }] : []),
   ], []);
   return doc;
@@ -102,7 +102,7 @@ describe('Y2 B2a AuthorSlotService（两封闭操作——先红）', () => {
       expect(r.deletedSlot).toBe(true);
       const data1 = (doc.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>;
       expect(data1.get('status')).toBe('done');   // 其余键不动
-      expect(data1.get('fileId')).toBeUndefined();   // 键删（现场=冻结值）
+      expect(data1.get('mediaId')).toBeUndefined();   // 键删（现场=冻结值——Y2 B4 作者键）
       expect(order).toEqual(['projectBindings', 'released']);   // ⑵序：投影在前置位在后
       // 快照语义：n1 剩余引用=0 → projectBindings 实参=Map{nodeId→[]}（v6 ⑴——恰一键非空 Map）
       const delta = vi.mocked(projectBindings).mock.calls[0][3] as Map<string, unknown>;
@@ -118,9 +118,9 @@ describe('Y2 B2a AuthorSlotService（两封闭操作——先红）', () => {
       const { svc, prisma } = mkService(intentRow(), doc);
       const r = await svc.releaseAuthorSlot('p1', 'gi-1');
       expect(r.deletedSlot).toBe(false);
-      expect(((doc.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>).get('fileId')).toBe('m-replaced');   // 不动
+      expect(((doc.getMap('nodes').get('n1') as Y.Map<any>).get('data') as Y.Map<any>).get('mediaId')).toBe('m-replaced');   // 不动
       const delta = vi.mocked(projectBindings).mock.calls[0][3] as Map<string, unknown>;
-      expect(delta.get('n1')).toEqual([{ nodeId: 'n1', mediaId: 'm-replaced', role: 'primary', targetField: 'fileId', targetItemId: '' }]);   // 现值照收
+      expect(delta.get('n1')).toEqual([{ nodeId: 'n1', mediaId: 'm-replaced', role: 'primary', targetField: 'mediaId', targetItemId: '' }]);   // 现值照收
       expect(prisma.generationIntent.updateMany).toHaveBeenCalled();
     });
 

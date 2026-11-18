@@ -1600,7 +1600,7 @@ model NodeArtifact {
   nodeId            String
   teamId            String
   role              String        @default("primary") // CHECK 白名单（raw SQL——词表 primary）
-  targetField       String // fileId | result —— CHECK 白名单（raw SQL）
+  targetField       String // mediaId | result —— CHECK 白名单（raw SQL）
   targetItemId      String        @default("") // 非空 sentinel；本批一 intent 一 artifact 默认 ''
   mediaId           String?
   resultText        String?       @db.Text
@@ -1626,7 +1626,7 @@ model ArtifactProjection {
   artifactRev   Int // 投影时快照——recheck 比对 NodeArtifact.rev
   projectId     String
   nodeId        String
-  targetField   String // CHECK 白名单（fileId|result）
+  targetField   String // CHECK 白名单（mediaId|result）
   targetItemId  String          @default("")
   mediaId       String?
   resultText    String?
@@ -1652,7 +1652,7 @@ model MediaBinding {
   nodeId       String
   teamId       String
   role         String        @default("primary")
-  targetField  String        @default("fileId") // 词表单源=shared MEDIA_REF_TARGET_FIELDS（fileId|referenceImage|referenceVideo|referenceAudio|images|allImages|trimmedFileId|videoFileId|audioFileId——T16 spec 评审 P1#1 补 referenceVideo/referenceAudio；DB CHECK=raw SQL media_binding_target_field_domain（20261022070000 放宽至九键），加键须同批迁移同步）
+  targetField  String        @default("mediaId") // 词表单源=shared MEDIA_REF_TARGET_FIELDS（mediaId|referenceImage|referenceVideo|referenceAudio|images|allImages——Y2 B4 九键收六键（trimmedFileId/videoFileId/audioFileId 随词表退役）；DB CHECK=raw SQL media_binding_target_field_domain（Y2 迁移 20261118142000 同批收紧），加/删键须同批迁移同步）
   targetItemId String        @default("") // 非空 sentinel（PG NULL 不去重根修）
   createdAt    DateTime      @default(now()) @db.Timestamptz(3)
   // C1-1（spec v5.2/v5.3 终态）：去 mediaId FK（锁耦合由 project fence 承担，fence 承担时序后 FK

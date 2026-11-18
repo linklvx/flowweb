@@ -582,7 +582,7 @@ const okBarrier = (): DeletionBarrierPort => ({
     // ⑤ 在位 ObjectManifest claim（claimUntil 未过期——在飞物化保守保留）
     await prisma.objectManifest.create({ data: { objectKey: `${pid}/claim-ref.obj`, claimOwner: 'materialize-inflight', claimUntil: BigInt(Date.now() + 60_000), state: 'LIVE' } });
     // ⑥ 他项目 NodeArtifact.mediaId
-    await prisma.nodeArtifact.create({ data: { projectId: other, nodeId: 'n-na', teamId, targetField: 'fileId', mediaId: `${pid}-m-art` } });
+    await prisma.nodeArtifact.create({ data: { projectId: other, nodeId: 'n-na', teamId, targetField: 'mediaId', mediaId: `${pid}-m-art` } });
     // 全 pipeline：tombstone→DRAINING→执行体（七候选全 tier-b ⇒ 零独占 ⇒ 同 tick detach+批删+断言+前置位）
     await tombstone(pid);
     await poller.tick();

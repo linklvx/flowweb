@@ -104,7 +104,7 @@ async function seedMaterializing(over: Record<string, unknown> = {}): Promise<Se
     sourceIntentRowId: c.intent.id, sourceExecSeq: c.intent.execSeq, artifactIndex: 0,
   }));
   await prisma.$transaction((tx) => nodeArtifacts.casUpsert(tx, {
-    projectId: PID, nodeId, teamId: TID, targetField: 'fileId',
+    projectId: PID, nodeId, teamId: TID, targetField: 'mediaId',
     expectedRev: 0, source: 'generated', state: 'materializing', mediaId: media.id,
     sourceIntentRowId: c.intent.id, sourceExecSeq: c.intent.execSeq, artifactIndex: 0,
   }));

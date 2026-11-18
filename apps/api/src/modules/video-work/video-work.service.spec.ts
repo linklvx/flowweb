@@ -397,8 +397,8 @@ describe('toggleLike', () => {
   });
 });
 
-describe('computeThumbnailUrls（Y1c T19：sanitize 前收集 fileId→presign 表——注入归 toPublicSnapshot.thumbnailUrls）', () => {
-  it('收集 fileId 批量查 Media.thumbnailKey → presign 返回 nodeId→URL 表（fileId 留在读模型侧，公开面白名单剥）', async () => {
+describe('computeThumbnailUrls（Y1c T19：sanitize 前收集媒体身份→presign 表——注入归 toPublicSnapshot.thumbnailUrls）', () => {
+  it('收集批量查 Media.thumbnailKey → presign 返回 nodeId→URL 表（Y2 B4：主槽=作者键 mediaId——旧 fileId 夹具随 B3 翻新）', async () => {
     prisma.media.findMany = vi.fn().mockResolvedValue([
       { id: 'f1', thumbnailKey: 'thumbnails/f1.webp' },
       { id: 'f2', thumbnailKey: null },
@@ -406,14 +406,44 @@ describe('computeThumbnailUrls（Y1c T19：sanitize 前收集 fileId→presign �
     minio.generatePresignedGetUrl = vi.fn().mockResolvedValue('http://minio/thumbs');
     const raw = {
       nodes: [
-        { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: { text: 'a', html: 'b' }, fileId: 'f1' } },
-        { id: 'n2', type: 'videoGen', position: { x: 0, y: 0 }, data: { model: 'm', fileId: 'f2' } },
+        { id: 'n1', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: { text: 'a', html: 'b' }, mediaId: 'f1' } },
+        { id: 'n2', type: 'videoGen', position: { x: 0, y: 0 }, data: { model: 'm', mediaId: 'f2' } },
       ],
       edges: [],
     };
     const out = await service.computeThumbnailUrls(raw as any);
     expect(prisma.media.findMany).toHaveBeenCalledWith({ where: { id: { in: ['f1', 'f2'] } }, select: { id: true, thumbnailKey: true } });
     expect(out).toEqual({ n1: 'http://minio/thumbs' });   // 有 thumbnail 的入表；无 thumbnail 不入（前端占位）
+  });
+
+  // ── Y2 B4（spec §4.2 D8）：回落改 resolvePrimaryMediaId——公开分镜即有图 ──
+  // 改前红：回落读 data.fileId ⇒ 只有 data.mediaId 的作者放置节点收集不到 id（f-author 恒缺）。
+  it('Y2 B4 红测：只有 data.mediaId 的作者放置节点 → thumbnailUrl 注出（回落改解析——「只有 data.mediaId」形态）', async () => {
+    prisma.media.findMany = vi.fn().mockResolvedValue([{ id: 'f-author', thumbnailKey: 'thumbnails/fa.webp' }]);
+    minio.generatePresignedGetUrl = vi.fn().mockResolvedValue('http://minio/author');
+    const raw = {
+      nodes: [
+        { id: 'n-a', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: { text: 'a', html: 'b' }, mediaId: 'f-author' } },
+      ],
+      edges: [],
+    };
+    const out = await service.computeThumbnailUrls(raw as any);
+    expect(prisma.media.findMany).toHaveBeenCalledWith({ where: { id: { in: ['f-author'] } }, select: { id: true, thumbnailKey: true } });
+    expect(out).toEqual({ 'n-a': 'http://minio/author' });   // 改前红：fileId 回落收集不到 mediaId 键
+  });
+
+  it('Y2 B4：只有产物（runtime.artifact.mediaId）的节点 → thumbnailUrl 注出（产物腿照收——「只有产物」形态）', async () => {
+    prisma.media.findMany = vi.fn().mockResolvedValue([{ id: 'f-art', thumbnailKey: 'thumbnails/fart.webp' }]);
+    minio.generatePresignedGetUrl = vi.fn().mockResolvedValue('http://minio/artifact');
+    const raw = {
+      nodes: [
+        { id: 'n-b', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: { text: 'a', html: 'b' } }, runtime: { artifact: { mediaId: 'f-art', artifactRev: 1, nodeVersion: '1' } } },
+      ],
+      edges: [],
+    };
+    const out = await service.computeThumbnailUrls(raw as any);
+    expect(prisma.media.findMany).toHaveBeenCalledWith({ where: { id: { in: ['f-art'] } }, select: { id: true, thumbnailKey: true } });
+    expect(out).toEqual({ 'n-b': 'http://minio/artifact' });
   });
 });
 
@@ -424,7 +454,7 @@ describe('getProcessSnapshot（安全验收）', () => {
       { id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: { content: '<p>一只猫在窗台上</p>', prompt: 'p' } },
       // O0c-1 质评随 O0c-2 补种：storageKey/userId/email 三键入夹具——泄漏红线（键级 collectKeys+JSON 级）
       // 原先对这三键无牙齿（夹具无键 ⇒ 白名单漏剥也绿）；种入后两断言可判别（imageGen 白名单必剥）。
-      { id: 'n2', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: { text: 'cat', html: '<p>evil</p>' }, fileId: 'f1', mediaUrl: 'http://secret', mediaName: 'a.png', storageKey: 'uploads/raw/n2.bin', userId: 'u-secret', email: 'author@x.test' } },
+      { id: 'n2', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: { text: 'cat', html: '<p>evil</p>' }, mediaId: 'f1', mediaUrl: 'http://secret', mediaName: 'a.png', storageKey: 'uploads/raw/n2.bin', userId: 'u-secret', email: 'author@x.test' } },   // Y2 B3 后作者键（旧 fileId 禁入）
       { id: 'n3', type: 'videoGen', position: { x: 0, y: 0 }, data: { label: '末班地铁 · 导出 1', model: 'video-01', origin: 'video-edit', videoProjectId: 'vp1', fileId: 'f3' } },
       { id: 'n35', type: 'videoEdit', position: { x: 0, y: 0 }, data: { timeline: [1], draft: '内部时间轴' } }, // 第八轮：快照保留 videoEdit（仅结构字段，spec:228）
       { id: 'n4', type: 'multiImageGen', position: { x: 0, y: 0 }, data: { prompt: '分镜提示', images: [{ url: 'u' }], generationBatchId: 'g4', nodeStatus: 'done' } },
@@ -755,7 +785,7 @@ describe('getProcessSnapshot（T25b 四读径①：服务端 projection join+pro
   const work = { id: 'w1', title: 't', canvasProjectId: 'p1', allowViewProcess: true, status: 'PUBLISHED' };
   const canvas = {
     nodes: [
-      { id: 'n2', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: { text: 'cat', html: '<p>evil</p>' }, fileId: 'f1' } },
+      { id: 'n2', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: { text: 'cat', html: '<p>evil</p>' }, mediaId: 'f1' } },
       { id: 'n3', type: 'videoGen', position: { x: 0, y: 0 }, data: { label: 'l', model: 'video-01' } },
     ],
     edges: [],
@@ -800,7 +830,7 @@ describe('getProcessSnapshot（T25b 四读径①：服务端 projection join+pro
     const out = await service.getProcessSnapshot('w1');
     const n2 = out.nodes.find((n: any) => n.id === 'n2')!;
     expect(n2.data.thumbnailUrl).toBe('http://minio/presigned');   // presign mock 恒定值——改断言 media 查询集
-    expect(prisma.media.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: ['f2'] } } }));   // 修前：in:['f1']（红）
+    expect(prisma.media.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: ['f1'] } } }));   // Y2 B4：作者键优先（data.mediaId='f1' 胜产物 f2——spec v2.1 不变量）
   });
 
   it('★四读径①-红 缓存键第四维 :p<projectionSeq>（feedSeq 水位——键漂移=投影更新触发失效）+meta 指针随行', async () => {

@@ -29,7 +29,7 @@ prisma.$transaction = (fn: (t: typeof tx) => Promise<unknown>) => fn(tx);
 
 const req = () => ({ user: { id: 'u1' } }) as any;
 const BIND_BODY = { type: 'BindMedia', sourceNodeId: 'n-src', mediaId: 'm1', targetNodeId: 'n-tgt', expectedRev: 0 };
-const ref = (mediaId: string): MediaRef => ({ nodeId: 'n-src', mediaId, role: 'primary', targetField: 'fileId', targetItemId: '' });
+const ref = (mediaId: string): MediaRef => ({ nodeId: 'n-src', mediaId, role: 'primary', targetField: 'mediaId', targetItemId: '' });
 
 async function make() {
   const moduleRef = await Test.createTestingModule({
@@ -49,30 +49,29 @@ beforeEach(() => {
   perm.assertEditorWithTeam.mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' });
   prisma.media = { findFirst: vi.fn().mockResolvedValue({ teamId: 't1' }) };
   prisma.nodeArtifact = { findFirst: vi.fn() };
-  nodeArtifacts.casUpsert.mockResolvedValue({ won: true, rev: 1, artifactId: 'a1' });
 });
 
 describe('C3a-7：BindMedia——校验+NodeArtifact/Projection 写（零 MediaBinding 读写）', () => {
-  it('pairArtifact 腿命中：CAS+投影 pending 落地+零 binding 面（端口不被调+tx.mediaBinding 零操作）', async () => {
+  it('pairArtifact 腿命中：★Y2 B4 删生成 CAS 段——校验通过即 stub 回执（零 NodeArtifact/Projection 写；端口不被调+tx 零操作）', async () => {
     const c = await make();
     prisma.nodeArtifact.findFirst.mockResolvedValue({ id: 'na1' });   // 源配对唯一腿（NodeArtifact 面）
     const out = await c.command('p1', BIND_BODY, req());
-    expect(out).toEqual({ type: 'BindMedia', rev: 1, mediaId: 'm1' });
-    expect(nodeArtifacts.casUpsert).toHaveBeenCalledWith(tx, expect.objectContaining({
-      projectId: 'p1', nodeId: 'n-tgt', teamId: 't1', targetField: 'fileId', expectedRev: 0, mediaId: 'm1',
-    }));
-    expect(tx.artifactProjection.createMany).toHaveBeenCalled();   // 投影 pending（feed 经 poller deliverArtifact 链）
+    expect(out).toEqual({ type: 'BindMedia', rev: 0, mediaId: 'm1' });   // rev=stub（客户端仅 .catch 零消费——plan B4）
+    expect(nodeArtifacts.casUpsert).not.toHaveBeenCalled();   // ★CAS 段已删（v5 改死四：改 mediaId=占生成 CAS 行=D5 要根除的反模式）
+    expect(tx.artifactProjection.createMany).not.toHaveBeenCalled();
+    expect(tx.artifactProjection.updateMany).not.toHaveBeenCalled();
     expect(port.readNodeRefs).not.toHaveBeenCalled();   // pairArtifact 命中=doc 兜底不触发
     for (const op of Object.values(tx.mediaBinding)) expect(op).not.toHaveBeenCalled();   // ★零 binding 读写
   });
 
-  it('doc 兜底腿：pairArtifact 缺→端口读源节点 refs 命中 mediaId→放行（活 doc 读=命令面即时校验）', async () => {
+  it('doc 兜底腿：pairArtifact 缺→端口读源节点 refs 命中 mediaId→放行 stub 回执（活 doc 读=命令面即时校验；Y2 B4 后零 CAS 写）', async () => {
     const c = await make();
     prisma.nodeArtifact.findFirst.mockResolvedValue(null);
     (port.readNodeRefs as ReturnType<typeof vi.fn>).mockResolvedValue([ref('m1'), ref('m2')]);
     const out = await c.command('p1', BIND_BODY, req());
-    expect(out).toEqual({ type: 'BindMedia', rev: 1, mediaId: 'm1' });
+    expect(out).toEqual({ type: 'BindMedia', rev: 0, mediaId: 'm1' });
     expect(port.readNodeRefs).toHaveBeenCalledWith('p1', 'n-src');
+    expect(nodeArtifacts.casUpsert).not.toHaveBeenCalled();
   });
 
   it('★分档①：源节点不在 doc（端口 null）→400 SOURCE_NODE_MISSING', async () => {
@@ -123,17 +122,10 @@ describe('C3a-7：BindMedia——校验+NodeArtifact/Projection 写（零 MediaB
   it('C3b-4：DELETING media 拒新绑定——ACL 查询含 deletionState=ACTIVE 门（spec §3.4-5「命令面拒新绑定」；erasure 路径 DELETING 行 deletedAt=null，软删门单独拦不住→404 同档）', async () => {
     const c = await make();
     prisma.nodeArtifact.findFirst.mockResolvedValue({ id: 'na1' });
-    await c.command('p1', BIND_BODY, req());
+    await c.command('p1', BIND_BODY, req());   // media.findFirst 默认 mock={teamId:'t1'} 放行——本用例只锁 where 形态
     expect(prisma.media.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'm1', deletedAt: null, deletionState: 'ACTIVE' },   // 改前红：where 无 deletionState 门
     }));
-  });
-
-  it('CAS 0 行=superseded→409 ARTIFACT_REV_CONFLICT（F2 同门——禁静默覆盖并发生成）', async () => {
-    const c = await make();
-    prisma.nodeArtifact.findFirst.mockResolvedValue({ id: 'na1' });
-    nodeArtifacts.casUpsert.mockResolvedValue({ won: false, rev: 3 });
-    await expect(c.command('p1', BIND_BODY, req())).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
   });
 
   it('坏 body（type 异/字段缺/expectedRev 非法）→400；★CloneBinding 已删（type=CloneBinding→400 BINDING_COMMAND_BAD_BODY）', async () => {

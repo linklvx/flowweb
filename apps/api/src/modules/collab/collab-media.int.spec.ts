@@ -47,7 +47,7 @@ const seedNode = (id: string, data: Record<string, unknown> = { status: 'idle' }
 
 const seedSlot = async (nodeId: string, rev: number, mediaId: string) => {
   await prisma.nodeArtifact.create({
-    data: { projectId: PID, nodeId, teamId: TID, role: 'primary', targetField: 'fileId', targetItemId: '', rev, state: 'stored', mediaId },
+    data: { projectId: PID, nodeId, teamId: TID, role: 'primary', targetField: 'mediaId', targetItemId: '', rev, state: 'stored', mediaId },
   });
 };
 const seedMedia = async (teamId: string, suffix: string) =>
@@ -55,8 +55,8 @@ const seedMedia = async (teamId: string, suffix: string) =>
     data: { userId: UID, teamId, key: `int-t11/${suffix}`, originalName: `${suffix}.png`, mimeType: 'image/png', size: 1_000, type: 'uploaded', status: 'completed' },
   });
 
-const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
-  where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId, role: 'primary', targetField: 'fileId', targetItemId: '' } },
+const slotRow = (nodeId: string, targetField = 'mediaId') => prisma.nodeArtifact.findUnique({
+  where: { projectId_nodeId_role_targetField_targetItemId: { projectId: PID, nodeId, role: 'primary', targetField, targetItemId: '' } },
 });
 
 (hasDb ? describe : describe.skip)('Y1a T11：replaceMedia/clearMedia 命令（真 PG）', () => {
@@ -109,14 +109,14 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
   describe('GET 槽位状态（初始 expectedRev 来源）', () => {
     it('无槽位行 → {targetField:"fileId", rev:0, mediaId:null}', async () => {
       const r = await controller.getSlot(PID, `n-get-${randomUUID().slice(0, 6)}`, { user: { id: UID } } as never);
-      expect(r).toEqual({ targetField: 'fileId', rev: 0, mediaId: null });
+      expect(r).toEqual({ targetField: 'mediaId', rev: 0, mediaId: null });
     });
 
     it('有槽位行（rev=1+mediaId）→ 回读真值', async () => {
       const nodeId = `n-get2-${randomUUID().slice(0, 6)}`;
       await seedSlot(nodeId, 1, MEDIA_OLD);
       const r = await controller.getSlot(PID, nodeId, { user: { id: UID } } as never);
-      expect(r).toEqual({ targetField: 'fileId', rev: 1, mediaId: MEDIA_OLD });
+      expect(r).toEqual({ targetField: 'mediaId', rev: 1, mediaId: MEDIA_OLD });
     });
   });
 
@@ -126,7 +126,7 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
       // 旧代 pending 投影（T10 finalize 形态）——胜者命令后必须 superseded
       const artifactId = (await slotRow(NODE))!.id;
       await prisma.artifactProjection.create({
-        data: { artifactId, artifactRev: 1, projectId: PID, nodeId: NODE, targetField: 'fileId', targetItemId: '', mediaId: MEDIA_OLD, state: 'pending' },
+        data: { artifactId, artifactRev: 1, projectId: PID, nodeId: NODE, targetField: 'mediaId', targetItemId: '', mediaId: MEDIA_OLD, state: 'pending' },
       });
 
       const r = await controller.command(PID, NODE, { action: 'replace', mediaId: MEDIA_NEW, expectedRev: 1 }, { user: { id: UID } } as never);
@@ -267,6 +267,33 @@ const slotRow = (nodeId: string) => prisma.nodeArtifact.findUnique({
       expect(r.rev).toBe(2);                     // PG 权威面照常成功（CAS 不因投影基础设施回退）
       const projection = await prisma.artifactProjection.findFirst({ where: { nodeId, artifactRev: 2 } });
       expect(projection?.state).toBe('pending'); // 交付有 owner（poller apply written:false→orphaned 终态）
+    });
+  });
+
+  // ════════ Y2 B4：约束失败形态（迁移段序钉死——CHECK 收紧后写旧值即拒）════════
+  // 迁移段序=UPDATE 三表存量 'fileId'→'mediaId' → DELETE 三退役键 → 收紧三表 CHECK（裁决 12
+  // 不可换序）；本族验证收紧后的约束面：targetField='fileId' 的新行/改值=CHECK 拒（23514），
+  // 'mediaId'/'result' 值照常可写；三退役键（trimmedFileId/videoFileId/audioFileId）新行同拒。
+  describe('Y2 B4：targetField 域收紧（写旧值即拒）', () => {
+    it('NodeArtifact 直插 targetField=fileId → CHECK 拒（迁移段序③段收紧的约束面）；mediaId 值照常可写', async () => {
+      const nodeId = `n-b4-chk-${randomUUID().slice(0, 6)}`;
+      // 写旧值即拒：旧域值 'fileId'（收紧前的字面量——B4 后 23514）
+      await expect(prisma.nodeArtifact.create({
+        data: { projectId: PID, nodeId, teamId: TID, role: 'primary', targetField: 'fileId', targetItemId: '', rev: 1, state: 'stored', mediaId: MEDIA_OLD },
+      })).rejects.toThrow(/check|23514/i);
+      await prisma.nodeArtifact.create({
+        data: { projectId: PID, nodeId, teamId: TID, role: 'primary', targetField: 'mediaId', targetItemId: '', rev: 1, state: 'stored', mediaId: MEDIA_OLD },
+      });
+      expect((await slotRow(nodeId, 'mediaId'))!.mediaId).toBe(MEDIA_OLD);
+    });
+
+    it('三退役键（trimmedFileId/videoFileId/audioFileId）新 MediaBinding 行 → CHECK 拒（词表九键收六键同批）', async () => {
+      for (const field of ['trimmedFileId', 'videoFileId', 'audioFileId']) {
+        await expect(prisma.mediaBinding.create({
+          data: { mediaId: MEDIA_OLD, projectId: PID, nodeId: `n-b4-retired-${field}`, teamId: TID, role: 'primary', targetField: field, targetItemId: '' },
+        })).rejects.toThrow(/check|23514/i);
+      }
+      expect(await prisma.mediaBinding.count({ where: { projectId: PID, targetField: { in: ['trimmedFileId', 'videoFileId', 'audioFileId'] } } })).toBe(0);
     });
   });
 });

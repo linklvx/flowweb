@@ -37,6 +37,7 @@ const requests = new ExecutionRequestService(
   credit,
   null as never,
   new CanvasDocUpdateRepository(prisma as unknown as PrismaService),
+  null,   // Y2 B4：upstreamMedia 缺席（手工 new 容忍）
 );
 
 let TID = '';

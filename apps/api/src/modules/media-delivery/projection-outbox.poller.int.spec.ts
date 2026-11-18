@@ -88,7 +88,7 @@ async function seedNode(pid: string, nodeId: string, data: Record<string, unknow
 interface SeedOpts {
   mediaId?: string | null;
   resultText?: string | null;
-  targetField?: 'fileId' | 'result';
+  targetField?: 'mediaId' | 'result';
   rev?: number;
   projectionRev?: number;
   attempts?: number;
@@ -98,7 +98,7 @@ interface SeedOpts {
 
 /** NodeArtifact+ArtifactProjection 成对落行（slot 唯一键=targetItemId ''）。 */
 async function seedArtifact(pid: string, nodeId: string, opts: SeedOpts = {}): Promise<{ artifactId: string; projectionId: string }> {
-  const targetField = opts.targetField ?? 'fileId';
+  const targetField = opts.targetField ?? 'mediaId';
   const artifact = await prisma.nodeArtifact.create({
     data: {
       projectId: pid, nodeId, teamId: 'y0a-fixture-team', role: 'primary', targetField, targetItemId: '',
@@ -312,7 +312,7 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     const stale = await prisma.artifactProjection.create({
       data: {
         artifactId: recent.artifactId, artifactRev: 999, projectId: PID, nodeId: 'n1',
-        targetField: 'fileId', targetItemId: '', state: 'dead', attempts: 99,
+        targetField: 'mediaId', targetItemId: '', state: 'dead', attempts: 99,
         createdAt: new Date(Date.now() - 90 * 24 * 3600_000),   // 远期（窗外）
       },
     });

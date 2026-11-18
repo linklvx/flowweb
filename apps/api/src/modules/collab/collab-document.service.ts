@@ -284,7 +284,7 @@ export class CollabDocumentService implements OnApplicationShutdown {
    *  ambiguous commit 安全——事件唯一性按业务键非 feedSeq）。 */
   async deliverArtifact(projectId: string, params: {
     nodeId: string;
-    targetField: 'fileId' | 'result';
+    targetField: 'mediaId' | 'result';
     value: string | null;
     exec: ExecStatusPatch;
   }): Promise<{ data: WriteNodeDataResult; execWritten: boolean }> {
@@ -312,7 +312,7 @@ export class CollabDocumentService implements OnApplicationShutdown {
       // ③ exec.artifact（mediaId/resultRef 引用——尺寸事实走 media-facts 通道不进事件）
       await append('exec.artifact', () => ({
         nodeId,
-        ...(params.targetField === 'fileId' && typeof value === 'string' ? { mediaId: value } : {}),
+        ...(params.targetField === 'mediaId' && typeof value === 'string' ? { mediaId: value } : {}),
         ...(params.targetField === 'result' && typeof value === 'string' ? { resultRef: value } : {}),
         artifactRev,
       }));

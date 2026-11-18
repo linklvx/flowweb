@@ -45,6 +45,14 @@ export const EXEMPTIONS = {
   '20261118140000_y2_author_slot_frozen': {
     GenerationIntent: { reason: 'Y2 B1 冻结列终态化——回填前置覆盖全部余行（plan v6 段序钉死）', owner: 'Y2 plan v6 用户确认（2026-11-17）', since: '2026-11-18' },
     ExecutionNodePlan: { reason: '同款 plan 行两列（受理 createMany 恒携列——NOT NULL 无断链）', owner: 'Y2 plan v6 用户确认（2026-11-17）', since: '2026-11-18' },
+  },  // Y2 B4（spec 第③步 6「约束与写者同一次提交」）：三表 targetField CHECK 域收紧
+  // 'fileId'→'mediaId'。放行依据=①段 UPDATE 存量先改值 ⇒ DROP 时表内无域外值；CHECK 收紧与
+  // 全部写点/词表/夹具同 commit（spec 机理：中间提交在开发库直接约束失败）——无 drain 期旧代码
+  // 写旧值面（开发测试档 reset runbook 同语义）。
+  '20261118142000_y2_target_field_mediaid': {
+    NodeArtifact: { reason: 'Y2 B4 CHECK 域换名收紧——段序①UPDATE 存量先行', owner: 'Y2 plan v6 用户确认（2026-11-17）', since: '2026-11-18' },
+    ArtifactProjection: { reason: '同款两键域（mediaId|result）——①段 UPDATE 存量先行', owner: 'Y2 plan v6 用户确认（2026-11-17）', since: '2026-11-18' },
+    MediaBinding: { reason: '九键域收六键（②段 DELETE 三退役键行先行）', owner: 'Y2 plan v6 用户确认（2026-11-17）', since: '2026-11-18' },
   },
 };
 

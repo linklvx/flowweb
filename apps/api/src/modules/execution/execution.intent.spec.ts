@@ -58,6 +58,9 @@ function makeService(nodes: any[], intentOverrides: Record<string, any> = {}, ar
     isLeaseServing: vi.fn(() => true), // Y0a-3 T8 计费读门——默认放行
     writeNodeData: vi.fn().mockResolvedValue({ kind: 'business', written: true }),   // T13 typed outcome——business 档（transient/permanent=悬留档）, // Y0b-2 T5：交付判据类型化 {written,reason}
     writeExecStatus: vi.fn().mockResolvedValue(undefined),
+    // Y2 B2c/B2d 作者槽端口（本装置默认空槽=走胜臂释放——readSlot 两 null 相等不 void）
+    readAuthorSlot: vi.fn().mockResolvedValue({ nodeId: 'n1', kind: 'image', frozen: true, authorMediaId: null, liveMediaId: null }),
+    releaseAuthorSlot: vi.fn().mockResolvedValue({ released: true, deletedSlot: false, bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } } }),
   };
   const gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（census 清零）
   // T10/T12：image/text/video finalize 改道 stub（默认 committed——mediaId 锚 media-t10；finalizeText 无 mediaId）
@@ -434,10 +437,12 @@ function makeController() {
   const perm = { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'), assertEditor: vi.fn() };
   const queue = { add: vi.fn().mockResolvedValue({ id: 'job-1' }), getJob: vi.fn() };
   const intentService = { listByNode: vi.fn().mockResolvedValue([]) };
-  const collabDoc = { readServerSV: vi.fn(async () => Y.encodeStateVector(svFixDoc)) };
+  const collabDoc = { readServerSV: vi.fn(async () => Y.encodeStateVector(svFixDoc)), readCanvas: vi.fn(async () => ({ nodes: [], edges: [] })) };
   // Y0c T29-II：presence 第 6 参（enqueue 门）——默认放行（单进程拓扑常态）
   const presence = { assertAdmittable: vi.fn(async () => {}) };
-  const ctrl: any = new (ExecutionController as any)(service, perm, queue, intentService, collabDoc, presence);
+  const topology = { sort: vi.fn(), getScope: vi.fn(() => []), collectUpstreamData: vi.fn() };   // Y2 B2c：enqueue 建表依赖（本装置零调用）
+  const executionRequests = { admit: vi.fn() };   // Y1c T21：最小装置
+  const ctrl: any = new (ExecutionController as any)(service, perm, queue, intentService, collabDoc, presence, executionRequests, topology);
   return { ctrl, service, perm, queue, intentService };
 }
 
@@ -452,11 +457,11 @@ describe('Y0b-2 T6 controller 意图接线（Z91/Z103）', () => {
     const { ctrl, queue } = makeController();
     await ctrl.enqueue({ projectId: 'p1', nodeId: 'n2', regenToken: 'i-9', stateVector: SV_FIX }, { user: { id: 'u1' } } as any);
     expect(queue.add).toHaveBeenCalledWith('execution', {
-      projectId: 'p1', nodeId: 'n2', userId: 'u1', regenToken: 'i-9', traceId: null,
+      projectId: 'p1', nodeId: 'n2', userId: 'u1', regenToken: 'i-9', traceId: null, authorSlots: {},   // Y2 B2c 受理捕获表（零节点=空表）
     });
     await ctrl.enqueue({ projectId: 'p1', nodeId: 'n2', stateVector: SV_FIX }, { user: { id: 'u1' } } as any);
     expect(queue.add).toHaveBeenLastCalledWith('execution', {
-      projectId: 'p1', nodeId: 'n2', userId: 'u1', regenToken: null, traceId: null,
+      projectId: 'p1', nodeId: 'n2', userId: 'u1', regenToken: null, traceId: null, authorSlots: {},
     });
   });
 });

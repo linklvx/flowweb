@@ -38,6 +38,8 @@ const svc = new ExecutionRequestService(
   credit,
   null as never,   // actor 缺席=PG 重建档（G4-⑥ 临界区在 actor 单元面锁——T21 受理缝 null 容忍）
   new CanvasDocUpdateRepository(prisma as unknown as PrismaService),
+
+  null,   // Y2 B4：upstreamMedia 缺席（手工 new 容忍）
 );
 // C1-1：sweepExpired 抽共享 ExecutionRequestRetentionService（原 api 侧方法死代码删除——红⑧ 迁新单源）
 const retention = new ExecutionRequestRetentionService(prisma as unknown as PrismaService, credit);

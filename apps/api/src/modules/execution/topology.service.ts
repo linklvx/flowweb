@@ -12,7 +12,11 @@ export interface UpstreamData {
  *  （sort/getScope 纯函数不动；产物收集的数据源经注入参数化）。
  *  downstreamNodeId（下游目标节点）：miss warn 定位上下文透传——miss 形态只在 reader 实现处可辨，
  *  warn 落实现处（T8 质评 Important：静默不注入=下游无图模式扣费需可观测），本服务恒传。 */
-export type UpstreamMediaIdReader = (projectId: string, nodeId: string, downstreamNodeId: string) => Promise<string | null>;
+export type UpstreamMediaIdReader = (
+  projectId: string, nodeId: string, downstreamNodeId: string,
+  /** 上游节点形态（Y2 B4——作者键腿解析输入；reader 实现可缺省） */
+  node?: { type: string; data: Record<string, unknown> },
+) => Promise<string | null>;
 
 @Injectable()
 export class TopologyService {
@@ -88,7 +92,7 @@ export class TopologyService {
         if (text) textContents.push(text);
       } else if (upstream.type === 'imageGen' || upstream.type === 'imageExtGen' || upstream.type === 'videoGen') {
         if (!imageMediaId) {
-          const mediaId = await readUpstreamMediaId(projectId, upstream.id, nodeId);   // nodeId=下游目标——miss warn 定位上下文
+          const mediaId = await readUpstreamMediaId(projectId, upstream.id, nodeId, upstream);   // nodeId=下游目标——miss warn 定位上下文；Y2 B4 随行传上游节点形态（作者键腿）
           if (mediaId) imageMediaId = mediaId;
         }
       }

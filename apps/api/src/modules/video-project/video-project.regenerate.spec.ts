@@ -108,6 +108,9 @@ describe('批5 评审 H1：retake 幂等闭环（retakeId 归目标节点 + 上�
       isLeaseServing: vi.fn(() => true), // Y0a-3 T8 计费/语义读门——默认放行
       writeNodeData: vi.fn().mockResolvedValue({ written: true }), // Y0b-2 T5：交付判据类型化 {written,reason}
       writeExecStatus: vi.fn().mockResolvedValue(undefined),
+      // Y2 B2c/B2d 作者槽端口（默认空槽=胜臂释放——readSlot 两 null 相等不 void）
+      readAuthorSlot: vi.fn().mockResolvedValue({ nodeId: 'vg1', kind: 'video', frozen: true, authorMediaId: null, liveMediaId: null }),
+      releaseAuthorSlot: vi.fn().mockResolvedValue({ released: true, deletedSlot: false, bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } } }),
     };
     const gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（census 清零）
     const succeeded = new Map<string, string>(); // "nodeId:intentId" -> resultRef（complete 落地）
