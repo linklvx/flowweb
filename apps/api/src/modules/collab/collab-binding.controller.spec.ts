@@ -14,8 +14,10 @@
 // 构造=位置参数直建（Test.createTestingModule 面在 DI 环境联调 spec——collab-media.int 同款先例）。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ForbiddenException, NotFoundException, HttpStatus, ServiceUnavailableException } from '@nestjs/common';
+import * as Y from 'yjs';
 import { CollabBindingController } from './collab-binding.controller';
 import { type MediaRefsReadPort } from './media-refs-read.port';
+import { type CollabSlotWritePort, type SlotWriteOutcome } from './slot-write.port';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -30,10 +32,41 @@ const minio: any = {
 const quota: any = { assertCanUploadInTx: vi.fn(async () => undefined) };
 const registration: any = { deletePending: vi.fn(async () => 1) };
 
+/** 槽条件写端口桩（D3t——Y.Doc 直投真 collectMediaRefsForNode 形态；档位由 stateOf 布景驱动）。 */
+const makeSlotPort = (stateOf: (pid: string, nodeId: string, slotId: string) => SlotWriteOutcome['slot'] = () => 'empty') => {
+  const doc = new Y.Doc();
+  const portSlot: CollabSlotWritePort = {
+    async conditionalWrite(pid: string, nodeId: string, slotId: string): Promise<SlotWriteOutcome> {
+      const slot = stateOf(pid, nodeId, slotId);
+      if (slot === 'empty') {
+        // 槽空才写——真 conditionalWrite 同款（Y.Doc 直投）
+        const node = new Y.Map<unknown>();
+        const data = new Y.Map<unknown>();
+        data.set('mediaId', slotId);
+        node.set('type', 'imageGen');
+        node.set('data', data);
+        (doc.getMap('nodes') as Y.Map<unknown>).set(nodeId, node);
+      }
+      const entry = (doc.getMap('nodes') as Y.Map<unknown>).get(nodeId);
+      return { slot, snapshot: entry == null ? [] : [] };
+    },
+  };
+  return { port: portSlot, doc };
+};
+
 const tx = {
   mediaBinding: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), upsert: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },   // 零读写断言面（任意操作被调=红）
-  media: { create: vi.fn(async (args: { data: Record<string, unknown> }) => ({ id: 'm-new', ...args.data })) },
-  storageReservation: { create: vi.fn(async () => ({})) },
+  media: {
+    create: vi.fn(async (args: { data: Record<string, unknown> }) => ({ id: 'm-new', ...args.data })),
+    updateMany: vi.fn(async () => ({ count: 1 })),
+    findUniqueOrThrow: vi.fn(async () => ({ factVersion: 1n })),
+  },
+  storageReservation: { create: vi.fn(async () => ({})), updateMany: vi.fn(async () => ({ count: 1 })) },
+  mediaFact: {},
+  canvasProject: { findUniqueOrThrow: vi.fn(async () => ({ teamId: 't-dst' })) },
+  // D3t 快照直调：projector 桩（真投影器走 $queryRaw——unit 池无 DB；projection 语义在 int 池钉）
+  $queryRaw: vi.fn(async () => []),
+  $executeRaw: vi.fn(async () => 0),
 };
 prisma.$transaction = (fn: (t: typeof tx) => Promise<unknown>) => fn(tx);
 
@@ -49,7 +82,7 @@ const SRC_MEDIA_ROW = {
   deletedAt: null, deletionState: 'ACTIVE',
 };
 
-async function make() {
+async function make(slotPort?: CollabSlotWritePort) {
   return new CollabBindingController(
     perm as unknown as ProjectPermissionService,
     prisma as unknown as PrismaService,
@@ -57,6 +90,7 @@ async function make() {
     minio as never,
     quota as never,
     registration as never,
+    slotPort ?? makeSlotPort().port,
   );
 }
 
@@ -68,7 +102,12 @@ beforeEach(() => {
   prisma.teamMember = { findFirst: vi.fn().mockResolvedValue({ role: 'MEMBER' }) };   // 三查第②查（源团队成员）
   prisma.media = { findFirst: vi.fn().mockResolvedValue(SRC_MEDIA_ROW), findUnique: vi.fn().mockResolvedValue(null) };
   prisma.nodeArtifact = { findFirst: vi.fn() };
+  prisma.canvasProject = { findUniqueOrThrow: vi.fn(async () => ({ teamId: 't-dst' })) };
   quota.assertCanUploadInTx.mockResolvedValue(undefined);
+  tx.media.updateMany.mockResolvedValue({ count: 1 });
+  tx.media.findUniqueOrThrow.mockResolvedValue({ factVersion: 1n });
+  tx.storageReservation.updateMany.mockResolvedValue({ count: 1 });
+  tx.canvasProject.findUniqueOrThrow.mockResolvedValue({ teamId: 't-dst' });
 });
 
 describe('Y2 D2t：BindMedia 受理层——权限三查+幂等+占坑+去重拷贝（桩面）', () => {

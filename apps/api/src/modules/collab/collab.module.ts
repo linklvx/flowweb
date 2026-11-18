@@ -27,6 +27,7 @@ import { CollabReadController } from './collab-read.controller';
 import { CollabWriteController } from './collab-write.controller';
 import { CollabMediaController } from './collab-media.controller';   // Y1a T11：replaceMedia/clearMedia 命令（用户写 fileId 必经命令——PG NodeArtifact CAS）
 import { CollabBindingController } from './collab-binding.controller';   // T25b 四读径③：BindMedia typed 命令（C3a-7：CloneBinding 删+零 MediaBinding 读写——校验+NodeArtifact/Projection 面）
+import { DirectCollabSlotWriteAdapter, COLLAB_SLOT_WRITE_PORT } from './slot-write.port';   // Y2 D3t：BindMedia 槽条件写窄端口（裁决 10 防 DI 环——controller 注入端口）
 import { CollabMediaRefsReadAdapter, MEDIA_REFS_READ_PORT } from './media-refs-read.port';   // C3a-7：BindMedia doc 源节点兜底窄端口（CollabDocumentService 适配——controller 注入端口防 DI 环）
 import { CollabRecoveryAcceptController } from './collab-recovery-accept.controller';
 import { CollabCanvasReadController } from './collab-canvas-read.controller';   // T25b 微批 C-1：用户面画布读（assertEditor 门+标准 envelope）   // T25b B5：server-restored 管理员裁定接受（OWNER/ADMIN 门）
@@ -103,6 +104,8 @@ import { ArtifactCoreModule } from '../artifact-core/artifact-core.module';   //
     DirectDeletionBarrierPort,   // C3b-4a：端口 Direct 形态（api 进程）
     { provide: DeletionBarrierPort, useExisting: DirectDeletionBarrierPort },   // C3b-4a：端口令牌→Direct（CollabWritePort 同款；Http 形态=worker.module 装配，消费接线归 C3b-5）
     CollabMediaRefsReadAdapter,   // C3a-7：BindMedia doc 源节点兜底端口适配（读活 doc——命令面即时校验允许）
+    DirectCollabSlotWriteAdapter,   // Y2 D3t：BindMedia 槽条件写端口适配（withSession(write) 同步回调——SERVER_TRANSACT_ORIGIN 档）
+    { provide: COLLAB_SLOT_WRITE_PORT, useExisting: DirectCollabSlotWriteAdapter },   // Y2 D3t：端口令牌→适配器（测试 useValue 注入 mock）
     { provide: MEDIA_REFS_READ_PORT, useExisting: CollabMediaRefsReadAdapter },   // C3a-7：端口令牌→适配器（测试 useValue 注入 mock）
     TelemetryService,   // Y0b-5 T1：sendBeacon 遥测批次 ingest（一律 204——计数族在 store.metrics）
     AuditService,   // T5 递延至此——drain 审计消费（team/subscription module 直注册同款先例）
