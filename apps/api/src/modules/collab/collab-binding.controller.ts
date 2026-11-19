@@ -351,8 +351,8 @@ export class CollabBindingController {
       if (row.status === 'completed') return { status: 'completed' };
       if (attempt >= 2) {
         // 重试穷尽仍 pending——非幂等异常态（行锁窗口外不收敛）：让上层抛错走 CopyObject 失败
-        // 同款清理档（删已拷新键+deletePending）前先让 503 面（非 500 幂等破坏）——防御兜底，
-        // 现实并发窗=行锁下 attempt 1 即收敛
+        // 同款清理档（删已拷新键+deletePending）前先抛 409 BIND_COMPLETION_CONFLICT（显式冲突
+        // 非幂等破坏）——防御兜底，现实并发窗=行锁下 attempt 1 即收敛
         throw new BusinessException('BIND_COMPLETION_CONFLICT', `粘贴完成事务与并发完成竞争未收敛（mediaId=${mediaId}）`, HttpStatus.CONFLICT);
       }
     }
