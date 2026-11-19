@@ -202,12 +202,14 @@ describe('T16 mediaFactsRuntime（会话编排——mock API）', () => {
   });
   afterEach(() => { resetMediaFacts(); useNodeStore.setState({ mediaFacts: new Map() }); });
 
-  const makeDoc = (fileId?: string): Y.Doc => {
+  // Y2 B4：collectMediaIds 词表九键收六键——fileId 不在引用键域（doc 禁键后零写者）；
+  // 测试 doc 夹具的媒体引用=作者键 mediaId（主槽）。
+  const makeDoc = (mediaId?: string): Y.Doc => {
     const doc = new Y.Doc();
-    if (fileId) {
+    if (mediaId) {
       const n = new Y.Map();
       const data = new Y.Map();
-      data.set('fileId', fileId);
+      data.set('mediaId', mediaId);
       n.set('type', 'imageGen');
       n.set('data', data);
       doc.getMap('nodes').set('n1', n);

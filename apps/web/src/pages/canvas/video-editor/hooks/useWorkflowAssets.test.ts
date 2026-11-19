@@ -6,14 +6,15 @@ import { batchGetMedia } from '@/api/mediaApi';
 
 vi.mock('@/api/mediaApi', () => ({ batchGetMedia: vi.fn() }));
 
-describe('useWorkflowAssets（nodeStore 聚合 fileId → batch 批查）', () => {
+describe('useWorkflowAssets（nodeStore 聚合解析主槽 → batch 批查）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useNodeStore.setState({
       nodes: {
-        v1: { id: 'v1', type: 'videoGen', position: { x: 0, y: 0 }, data: { fileId: 'm1', status: 'done', duration: 5 } },
-        a1: { id: 'a1', type: 'audioGen', position: { x: 0, y: 0 }, data: { fileId: 'm2', status: 'done' } },
-        v2: { id: 'v2', type: 'videoGen', position: { x: 0, y: 0 }, data: { status: 'loading' } },
+        // Y2 B3：资产收集=resolvePrimaryMediaId 单源——作者键 mediaId（fileId/status 直读退役）
+        v1: { id: 'v1', type: 'videoGen', position: { x: 0, y: 0 }, data: { mediaId: 'm1', duration: 5 } },
+        a1: { id: 'a1', type: 'audioGen', position: { x: 0, y: 0 }, data: { mediaId: 'm2' } },
+        v2: { id: 'v2', type: 'videoGen', position: { x: 0, y: 0 }, data: {} },
         e1: { id: 'e1', type: 'videoEdit', position: { x: 0, y: 0 }, data: {} },
       } as any,
     });

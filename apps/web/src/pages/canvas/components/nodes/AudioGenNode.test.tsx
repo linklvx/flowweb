@@ -206,7 +206,9 @@ describe('AudioGenNode', () => {
   // ─── Loading state ───
 
   it('should render loading state', () => {
-    setMockNodeData({ fileId: undefined, status: 'loading', model: '', referenceAudio: undefined });
+    // Y2 B3：execStatus 只来自投影（data.status 回落删）——loading 态经 execStatusView 投影注入
+    setMockNodeData({ fileId: undefined, model: '', referenceAudio: undefined });
+    setMockExecStatus(new Map([['a1', { status: 'loading' }]]));
     renderNode();
     expect(screen.getByText(/生成中/i)).toBeInTheDocument();
   });
@@ -276,22 +278,24 @@ describe('AudioGenNode', () => {
   });
 
   // ─── Socket.io（经 executionSocket 单例 subscribeNodeStatus 触发）───
+  // Y2 B3：socket 状态回填退役（data.status/fileId 均禁键——交付唯一 owner=服务端投影 poller）。
+  // 订阅面保持 nodeId 过滤不变量：本节点事件被吞（零 store 写）、它节点事件早退。
 
-  it('should update status to loading on socket node:status event', () => {
+  it('node:status loading → 零 store 写（socket 回填退役——execStatus 只来自投影）', () => {
     setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceAudio: undefined });
     renderNode();
     expect(subscribeNodeStatusMock).toHaveBeenCalledWith(expect.any(Function));
     const statusHandler = subscribeNodeStatusMock.mock.calls[0][0];
     statusHandler({ nodeId: 'a1', status: 'loading' });
-    expect(getStoreSetStatus()).toHaveBeenCalledWith('a1', 'loading');
+    expect(getStoreSetStatus()).not.toHaveBeenCalled();
   });
 
-  it('should set fileId and done on socket node:status done event', () => {
+  it('node:status done（携 fileId）→ 零 store 写（setFileResult 固化写退役——产物经投影到达）', () => {
     setMockNodeData({ fileId: undefined, status: 'loading', model: '', referenceAudio: undefined });
     renderNode();
     const statusHandler = subscribeNodeStatusMock.mock.calls[0][0];
     statusHandler({ nodeId: 'a1', status: 'done', fileId: 'gen-audio-001' });
-    expect(getStoreSetFileResult()).toHaveBeenCalledWith('a1', 'gen-audio-001');
+    expect(getStoreSetFileResult()).not.toHaveBeenCalled();
   });
 
   // ─── AudioWaveform integration ───

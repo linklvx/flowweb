@@ -48,7 +48,8 @@ describe('AssetPanel', () => {
     });
     useNodeStore.setState({
       nodes: {
-        v1: { id: 'v1', type: 'videoGen', position: { x: 0, y: 0 }, data: { fileId: 'm1', status: 'done', duration: 5 } }, // 节点配置 5s——与素材 metadata 8s 双值分解（R4 P1-1）
+        // Y2 B3：节点配置时长经 resolvePrimaryMediaId 命中节点（作者键 mediaId——fileId/status 直读退役）
+        v1: { id: 'v1', type: 'videoGen', position: { x: 0, y: 0 }, data: { mediaId: 'm1', duration: 5 } }, // 节点配置 5s——与素材 metadata 8s 双值分解（R4 P1-1）
       } as any,
     });
   });

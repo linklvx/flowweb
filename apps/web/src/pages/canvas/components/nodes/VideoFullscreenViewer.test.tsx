@@ -81,12 +81,12 @@ describe('VideoFullscreenViewer', () => {
     expect(screen.getByText('下载视频')).toBeInTheDocument();
   });
 
-  it('点击下载 → downloadMediaFile 携 fileId+url+类型前缀文件名（R2b-2；fileId 经 nodeData 流入）', async () => {
+  it('点击下载 → downloadMediaFile 携 fileId+url+类型前缀文件名（R2b-2；Y2 B3：身份=resolvePrimaryMediaId 解析值 mediaId）', async () => {
     mockDownloadMediaFile.mockResolvedValue({ ok: true });
     render(
       <VideoFullscreenViewer
         {...defaultProps}
-        nodeData={{ ...defaultProps.nodeData, fileId: 'vfile-123456' }}
+        nodeData={{ ...defaultProps.nodeData, mediaId: 'vfile-123456' }}
       />,
     );
 

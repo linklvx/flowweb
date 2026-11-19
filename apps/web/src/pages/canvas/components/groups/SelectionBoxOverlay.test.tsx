@@ -193,12 +193,13 @@ describe('SelectionBoxOverlay', () => {
   });
 
   it('批量下载按钮：含完成图片选中 → aria-disabled=false，点击以 collectDownloadables 结果调用 runBatchDownload', () => {
+    // Y2 B3：解析主槽有值即可下载（status+fileId 双门退役——data.mediaId 作者键）
     ns.state = {
-      i1: { id: 'i1', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'f1', mediaName: '封面.png' } },
+      i1: { id: 'i1', type: 'imageGen', position: { x: 0, y: 0 }, data: { mediaId: 'f1', mediaName: '封面.png' } },
       t2: { id: 't2', type: 'textInput', position: { x: 0, y: 0 }, data: {} },
     };
     rf.state.nodes = [
-      mk('i1', 'imageGen', { status: 'done', fileId: 'f1', mediaName: '封面.png' }, { positionAbsolute: { x: 0, y: 300 } }),
+      mk('i1', 'imageGen', { mediaId: 'f1', mediaName: '封面.png' }, { positionAbsolute: { x: 0, y: 300 } }),
       mk('t2', 'textInput', {}, { positionAbsolute: { x: 10, y: 310 } }),
     ];
     rf.state.vp = { x: 0, y: 0, zoom: 1 };

@@ -16,12 +16,14 @@ beforeEach(() => {
 });
 
 describe('createProductNode（产物上画布）', () => {
-  it('建 videoGen 产物节点：data 含 origin/videoProjectId/status/fileId/label，位置在剪辑节点右侧', () => {
+  it('建 videoGen 产物节点：data 含 origin/videoProjectId/mediaId/label（Y2 B3：作者放置只写 mediaId），位置在剪辑节点右侧', () => {
     const id = createProductNode('edit1', 'vp1', 'file-1', '多轨剪辑');
     const s = useCanvasStore.getState();
     const node = s.nodes.find((n) => n.id === id) as unknown as { type: string; data: Record<string, unknown>; position: { x: number; y: number } };
     expect(node.type).toBe('videoGen');
-    expect(node.data).toMatchObject({ origin: 'video-edit', videoProjectId: 'vp1', status: 'done', fileId: 'file-1', label: '多轨剪辑 · 导出 1' });
+    expect(node.data).toMatchObject({ origin: 'video-edit', videoProjectId: 'vp1', mediaId: 'file-1', label: '多轨剪辑 · 导出 1' });
+    expect(node.data.status).toBeUndefined();   // Y2 B3：status 禁键零写
+    expect(node.data.fileId).toBeUndefined();
     expect(node.position.x).toBe(100 + 320 + 80); // sw + GAP
     expect(node.position.y).toBe(50);
     expect(s.edges.some((e: { id: string }) => e.id === autoOutEdgeId('edit1', id))).toBe(true);

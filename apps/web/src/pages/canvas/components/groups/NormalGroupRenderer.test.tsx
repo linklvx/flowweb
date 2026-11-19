@@ -124,12 +124,13 @@ describe('NormalGroupRenderer 展开态', () => {
 });
 
 describe('NormalGroupRenderer 折叠态', () => {
-  it('折叠分支渲染 CollapsedPreviewCard（2d-3 内容替换）：title/aria/摘要接线 + 子节点 mediaId 映射（data.fileId||referenceImage——GroupNode 同款；Y2 A5 随 CellNodeInfo→mediaId）', async () => {
+  it('折叠分支渲染 CollapsedPreviewCard（2d-3 内容替换）：title/aria/摘要接线 + 子节点 mediaId 映射（resolvePrimaryMediaId——GroupNode 同款；Y2 A5 随 CellNodeInfo→mediaId）', async () => {
+    // Y2 B3（spec D8）：折叠卡主槽改解析单源——作者键 data.mediaId；仅 referenceImage 的格子不再有图
     mockStore.nodes = [
-      { id: 'c1', parentId: 'g1', data: { fileId: 'f1' } },
-      { id: 'c2', parentId: 'g1', data: { referenceImage: 'ref2' } },
+      { id: 'c1', parentId: 'g1', data: { mediaId: 'f1' } },
+      { id: 'c2', parentId: 'g1', data: { mediaId: 'ref2' } },
       { id: 'c3', parentId: 'g1' },
-      { id: 'x', parentId: null, data: { fileId: 'not-in-group' } },
+      { id: 'x', parentId: null, data: { mediaId: 'not-in-group' } },
     ];
     render(<NormalGroupRenderer groupId="g1" data={{ groupType: 'normal', name: '我的分组', collapsed: true } as any} selected={false} />);
     const card = screen.getByTestId('collapsed-preview-card');

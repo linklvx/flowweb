@@ -7,3 +7,7 @@
 # bash 脚本必须 LF（T38：pg-dump-daily.sh 经 scp 上服务器由 cron bash 执行——CRLF 即
 # shebang/语法解析带 \r 失效，*.service 同教训；index 已全 LF，本行=未来检出钉死）
 *.sh text eol=lf
+# 迁移 SQL 逐字节只读面（provider-adapters.spec 正则锚 VALUES\n/ON CONFLICT——autocrlf=true
+# 检出翻 CRLF 即 2 fail 假红，2026-11-19 批末核证：HEAD blob LF 下用例绿、CRLF 工作树红）。
+# index 已全 LF（i/lf）；本行钉死检出面 LF——与 *.service/*.sh 同款防翻（fresh checkout 实测再生 CRLF）。
+apps/api/prisma/migrations/20261112120000_c1_rebaseline_init/migration.sql text eol=lf

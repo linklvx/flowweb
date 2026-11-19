@@ -59,28 +59,31 @@ vi.mock('@xyflow/react', async (orig) => ({
 describe('GroupNode（StoryboardGroupRendererCellNodes 映射）', () => {
   // Y2 A5：cellNodes 列表=渲染节点 data 携带（projectCanvas 内核——id+slot）；cs 节点仅补
   // mediaId/status（byId 直查）。mock nodes=cs 作者缓存面。
-  it('cellNodes mediaId 归一化：无 fileId 有 referenceImage（上传图）→ mediaId 取 referenceImage（格子有图）', () => {
+  // Y2 B3 契约（spec D8）：主槽判定=resolvePrimaryMediaId 单源——作者键 data.mediaId 非空用它，
+  // 否则（无产物入参）主槽为空；referenceImage 不再充当主槽兜底、status 禁读（cellNodes status 只来自
+  // exec 投影——execOverrideOf 无条目=undefined 序列化丢失）。
+  it('cellNodes mediaId 归一化：无作者键（仅 referenceImage 上传图）→ mediaId 空（referenceImage 不再兜底）', () => {
     setMockNodes([
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard' } },
-      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'idle', referenceImage: 'ref-1' } },
-      { id: 'c2', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'gen-2' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { referenceImage: 'ref-1' } },
+      { id: 'c2', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { mediaId: 'gen-2' } },
     ]);
     render(<GroupNode id="g1" data={{ groupType: 'storyboard', cellNodes: [{ id: 'c1' }, { id: 'c2' }] }} selected={false} {...{} as any} />);
     const cellNodes = JSON.parse(screen.getByTestId('renderer').getAttribute('data-cellnodes')!);
     expect(cellNodes).toEqual([
-      { id: 'c1', mediaId: 'ref-1', status: 'idle' }, // url 键已删（R2b-7 读点清零）
-      { id: 'c2', mediaId: 'gen-2', status: 'done' }, // url 键已删（R2b-7 读点清零）
+      { id: 'c1' }, // referenceImage 兜底退役——mediaId:undefined/status:undefined 序列化丢失
+      { id: 'c2', mediaId: 'gen-2' },
     ]);
   });
 
   it('R2b-7 读点清零：节点 data 含遗留 mediaUrl 键 → cellNodes 不透传 url（陈旧 URL 不进读路径）', () => {
     setMockNodes([
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard' } },
-      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'gen-1', mediaUrl: 'http://stale/presigned' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { mediaId: 'gen-1', mediaUrl: 'http://stale/presigned' } },
     ]);
     render(<GroupNode id="g1" data={{ groupType: 'storyboard', cellNodes: [{ id: 'c1' }] }} selected={false} {...{} as any} />);
     const cellNodes = JSON.parse(screen.getByTestId('renderer').getAttribute('data-cellnodes')!);
-    expect(cellNodes).toEqual([{ id: 'c1', mediaId: 'gen-1', status: 'done' }]); // 无 url 键
+    expect(cellNodes).toEqual([{ id: 'c1', mediaId: 'gen-1' }]); // 无 url 键（status 禁读零回落）
     expect(JSON.stringify(cellNodes)).not.toContain('stale');
   });
 
@@ -88,12 +91,12 @@ describe('GroupNode（StoryboardGroupRendererCellNodes 映射）', () => {
     // Y2 A5：格位/成员真源=内核 cellNodes（parentId 派生）；cs byId 只补媒体身份不扩员
     setMockNodes([
       { id: 'g1', type: 'group', position: { x: 0, y: 0 }, data: { groupType: 'storyboard' } },
-      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'a' } },
-      { id: 'c2', type: 'imageGen', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'b' } },
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { mediaId: 'a' } },
+      { id: 'c2', type: 'imageGen', position: { x: 0, y: 0 }, data: { mediaId: 'b' } },
     ]);
     render(<GroupNode id="g1" data={{ groupType: 'storyboard', cellNodes: [{ id: 'c1' }] }} selected={false} {...{} as any} />);
     const cellNodes = JSON.parse(screen.getByTestId('renderer').getAttribute('data-cellnodes')!);
-    expect(cellNodes).toEqual([{ id: 'c1', mediaId: 'a', status: 'done' }]);
+    expect(cellNodes).toEqual([{ id: 'c1', mediaId: 'a' }]);
   });
 
   it('批1-6 合并视图：data.status=loading 但 exec 投影 done → cellNodes status=done（读点换源）', () => {

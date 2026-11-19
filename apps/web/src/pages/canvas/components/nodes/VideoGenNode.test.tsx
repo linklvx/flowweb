@@ -262,7 +262,9 @@ describe('VideoGenNode', () => {
   });
 
   it('should render loading state', () => {
-    setMockNodeData({ fileId: undefined, status: 'loading', model: '', referenceVideo: undefined });
+    // Y2 B3：execStatus 只来自投影（data.status 回落删）——loading 态经 execStatusView 投影注入
+    setMockNodeData({ fileId: undefined, model: '', referenceVideo: undefined });
+    setMockExecStatus(new Map([['v1', { status: 'loading' }]]));
     renderNode();
     expect(screen.getByText(/生成中/i)).toBeInTheDocument();
   });
@@ -356,31 +358,32 @@ describe('VideoGenNode', () => {
   });
 
   // ─── Socket.io real-time status updates（经 executionSocket 单例 subscribeNodeStatus 触发）───
+  // Y2 B3：socket 状态回填退役（data.status/fileId 均禁键——交付唯一 owner=服务端投影 poller）。
+  // 订阅面保持 nodeId 过滤不变量：本节点事件被吞（零 store 写）、它节点事件早退。
 
-  it('should update node status to loading when socket emits node:status loading', () => {
+  it('node:status loading → 零 store 写（socket 回填退役——execStatus 只来自投影）', () => {
     setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
     renderNode();
     expect(subscribeNodeStatusMock).toHaveBeenCalledWith(expect.any(Function));
     const statusHandler = subscribeNodeStatusMock.mock.calls[0][0];
-    // Simulate status event for this node
     statusHandler({ nodeId: 'v1', status: 'loading' });
-    expect(getStoreSetStatus()).toHaveBeenCalledWith('v1', 'loading');
+    expect(getStoreSetStatus()).not.toHaveBeenCalled();
   });
 
-  it('should update fileId and set done when socket emits node:status done', () => {
+  it('node:status done（携 fileId）→ 零 store 写（setFileResult 固化写退役——产物经投影到达）', () => {
     setMockNodeData({ fileId: undefined, status: 'loading', model: '', referenceVideo: undefined });
     renderNode();
     const statusHandler = subscribeNodeStatusMock.mock.calls[0][0];
     statusHandler({ nodeId: 'v1', status: 'done', fileId: 'gen-vid-456' });
-    expect(getStoreSetFileResult()).toHaveBeenCalledWith('v1', 'gen-vid-456');
+    expect(getStoreSetFileResult()).not.toHaveBeenCalled();
   });
 
-  it('should set status to error when socket emits node:status error', () => {
+  it('node:status error → 零 store 写（socket 回填退役——错误态经投影到达）', () => {
     setMockNodeData({ fileId: undefined, status: 'loading', model: '', referenceVideo: undefined });
     renderNode();
     const statusHandler = subscribeNodeStatusMock.mock.calls[0][0];
     statusHandler({ nodeId: 'v1', status: 'error' });
-    expect(getStoreSetStatus()).toHaveBeenCalledWith('v1', 'error');
+    expect(getStoreSetStatus()).not.toHaveBeenCalled();
   });
 
   it('should ignore socket events for other nodes', () => {

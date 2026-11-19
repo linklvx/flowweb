@@ -261,8 +261,9 @@ describe('CanvasView', () => {
 
       const callArgs = mockAddNode.mock.calls[0];
       expect(callArgs[0]).toBe('imageGen'); // node type（Y1c T1：媒体落点建点改传生产名常量）
-      expect(callArgs[2].fileId).toBe('img-1');
-      expect(callArgs[2].status).toBe('done');
+      expect(callArgs[2].mediaId).toBe('img-1');   // Y2 B3：作者放置只写 mediaId（status/fileId 禁键）
+      expect(callArgs[2].status).toBeUndefined();
+      expect(callArgs[2].fileId).toBeUndefined();
       expect(callArgs[2].mediaName).toBe('photo.jpg');
       expect(callArgs[2].mediaUrl).toBeUndefined(); // R2b-6 写入面清零（F37）：mediaUrl 不落 nodeData
       expect(callArgs[2].thumbnailUrl).toBe('https://example.com/thumb.jpg');
@@ -297,8 +298,8 @@ describe('CanvasView', () => {
       });
 
       expect(mockAddNode.mock.calls[0][0]).toBe('videoGen');
-      expect(mockAddNode.mock.calls[0][2].fileId).toBe('vid-1');
-      expect(mockAddNode.mock.calls[0][2].status).toBe('done');
+      expect(mockAddNode.mock.calls[0][2].mediaId).toBe('vid-1');   // Y2 B3：作者放置只写 mediaId
+      expect(mockAddNode.mock.calls[0][2].status).toBeUndefined();
     });
 
     it('clears pendingMediaFile after creating node', async () => {

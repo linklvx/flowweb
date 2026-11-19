@@ -11,8 +11,8 @@ const mockNodeData: ImageNodeData = {
   model: 'MJ V8.1',
   quality: '1k',
   ratio: '16:9',
-  fileId: 'img-001',
-  status: 'done',
+  mediaId: 'img-001',   // Y2 B3：作者键=mediaId（fileId/status 禁键）
+  status: 'done',       // 类型必填占位（Y2 B3：ns 面禁写禁读——渲染零消费）
   prompt: { text: '一只猫在花园里', html: '', json: [] },
 };
 
@@ -110,7 +110,7 @@ describe('ImageFullscreenViewer', () => {
       model: '',
       quality: '',
       ratio: '',
-      status: 'done',
+      status: 'done',   // 类型必填占位（Y2 B3：ns 面禁写禁读——渲染零消费）
       prompt: { text: '', html: '', json: [] },
     };
     render(

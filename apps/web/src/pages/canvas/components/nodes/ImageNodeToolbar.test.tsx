@@ -69,7 +69,8 @@ describe('ImageNodeToolbar', () => {
   // 2b
   it('renders toolbar when referenceImage exists (user-uploaded, no fileId)', () => {
     setupPortalTarget();
-    render(<ImageNodeToolbar {...defaultProps} fileId={undefined} referenceImage="ref-123" />);
+    // Y2 B3（spec D8）：referenceImage 不再独立兜底——用户上传图走作者键 mediaId（hasImage=解析值非空）
+    render(<ImageNodeToolbar {...defaultProps} fileId="ref-123" />);
     expect(screen.getByText('分离')).toBeInTheDocument();
     cleanupPortalTarget();
   });

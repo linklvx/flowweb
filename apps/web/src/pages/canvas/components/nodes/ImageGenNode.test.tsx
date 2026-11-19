@@ -398,7 +398,8 @@ describe('ImageGenNode', () => {
   });
 
   it('should render loading state', () => {
-    mockNodeData = { ...mockNodeData, status: 'loading' };
+    // Y2 B3：execStatus 只来自投影（data.status 回落删）——loading 态经 execStatusView 投影注入
+    mockExecStatus = new Map([['img1', { status: 'loading' }]]);
     renderNode();
     expect(screen.getByText(/生成中/i)).toBeInTheDocument();
   });
@@ -851,7 +852,8 @@ describe('ImageGenNode', () => {
     fireEvent.click(saveBtn!);
 
     await waitFor(() => {
-      expect(mockAddChildNode).toHaveBeenCalledWith('img1', { fileId: 'cropped-file-id', status: 'done' });
+      // Y2 B3（裁决 15）：裁剪产物=作者放置只写 mediaId（status/fileId 禁键）
+      expect(mockAddChildNode).toHaveBeenCalledWith('img1', { mediaId: 'cropped-file-id' });
     });
 
     // Should NOT replace original node's fileId
@@ -986,14 +988,14 @@ describe('ImageGenNode', () => {
       expect(saveBtn.disabled).toBe(false);
     });
 
-    it('成功 payload（T11 裁定：AI 生成物=服务端交付，客户端仅本地 UI）：applyDataPatchToStores({fileId}) + updateConfig({editMode:null}) + activeEditNodeId 清空', () => {
+    it('成功 payload（Y2 B3 裁决 9：AI 生成物=服务端交付——客户端 fileId 固化写退役）：仅 editMode 退出+activeEditNodeId 清空，applyDataPatchToStores 零调', () => {
       renderInEditMode();
       mockUpdateConfig.mockClear();
       mockSetActiveEditNodeId.mockClear();
       mockApplyDataPatchToStores.mockClear();
       fireEditResult({ nodeId: 'img1', failed: false, fileId: 'f1' });
-      // fileId=本地 UI 直写（doc 零写——服务端 commitImage 已交付，禁 replaceMedia 双写）
-      expect(mockApplyDataPatchToStores).toHaveBeenCalledWith('img1', { fileId: 'f1' });
+      // fileId 回填退役——doc 收敛归服务端投影经 Yjs 回流（禁 replaceMedia 双写同维持）
+      expect(mockApplyDataPatchToStores).not.toHaveBeenCalled();
       expect(mockReplaceNodeMedia).not.toHaveBeenCalled();
       // editMode 退出（ephemeral——doc 面本就禁入）
       expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { editMode: null });
@@ -1072,9 +1074,9 @@ describe('ImageGenNode', () => {
       expect(img.style.transform).toBe('');
 
       await act(async () => { cmd.resolve({ action: 'replace', rev: 4, mediaId: 'transformed-file-id' }); });
-      // 成功后一次性落库：fileId+清 referenceImage+清旋转变换（此刻才清理——裁定③）
+      // 成功后一次性落库：mediaId+清 referenceImage+清旋转变换（Y2 B3：变换产物=作者放置写 mediaId）
       expect(mockUpdateConfig).toHaveBeenCalledWith('img1', {
-        fileId: 'transformed-file-id', referenceImage: undefined,
+        mediaId: 'transformed-file-id', referenceImage: undefined,
         imageRotation: 0, flipH: false, flipV: false, transformMode: false,
       });
     });
@@ -1088,7 +1090,7 @@ describe('ImageGenNode', () => {
       await act(async () => { getSaveHandler()(); });
       expect(mockConfirmShow).not.toHaveBeenCalled();   // 无基线行≠冲突
       expect(mockReplaceNodeMedia).toHaveBeenCalledWith('p1', 'img1', 'transformed-file-id', { expectedRev: 0 });
-      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', expect.objectContaining({ fileId: 'transformed-file-id' }));
+      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', expect.objectContaining({ mediaId: 'transformed-file-id' }));
     });
 
     it('P1-1 槽位被他人清空（rev>0+mediaId:null）→ 真冲突弹窗（取消零处理零写）', async () => {
@@ -1128,7 +1130,7 @@ describe('ImageGenNode', () => {
       const last = mockReplaceNodeMedia.mock.calls.at(-1)!;
       expect(last[0]).toBe('p1'); expect(last[1]).toBe('img1'); expect(last[2]).toBe('transformed-file-id');
       expect(last[3]).toBeUndefined();
-      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', expect.objectContaining({ fileId: 'transformed-file-id' }));
+      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', expect.objectContaining({ mediaId: 'transformed-file-id' }));
     });
 
     it('409 取消：共享 store 零写+pending 预览撤掉（回落权威值渲染）+toast', async () => {
@@ -1196,7 +1198,7 @@ describe('ImageGenNode', () => {
       const cfg = getConfirm();
       await act(async () => { cfg.onPrimary(); });
       expect(mockReplaceNodeMedia).toHaveBeenCalledWith('p1', 'img1', 'transformed-file-id', { expectedRev: 6 });
-      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', expect.objectContaining({ fileId: 'transformed-file-id' }));
+      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', expect.objectContaining({ mediaId: 'transformed-file-id' }));
     });
 
     // —— 裁定③：op token——旧操作回调不能修改新操作 ——
@@ -1213,7 +1215,7 @@ describe('ImageGenNode', () => {
       renderNode(true);
       await act(async () => { getSaveHandler()(); });   // 保存①挂起于命令
       await act(async () => { getSaveHandler()(); });   // 保存②完整成功（t-2 落库）
-      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', expect.objectContaining({ fileId: 't-2' }));
+      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', expect.objectContaining({ mediaId: 't-2' }));
       const writesBefore = mockUpdateConfig.mock.calls.length;
       await act(async () => { cmd1.resolve({ action: 'replace', rev: 9, mediaId: 't-1' }); });
       // 保存①续段弃置：无新增共享写（旧回调禁写新态）
@@ -1223,7 +1225,7 @@ describe('ImageGenNode', () => {
 
     // —— 裁定③：edit-result 门——socket done 无版本直写不覆盖 pending 期间产物 ——
 
-    it('edit-result 在 pending 操作期间到达 → fileId 不被写；pending 清后到达 → 正常写', async () => {
+    it('edit-result 在 pending 操作期间到达 → 零写不变量维持；pending 清后到达 → 仅 editMode 退出（fileId 固化写退役）', async () => {
       mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', editMode: 'crop' };
       const cmd = deferred<{ action: 'clear'; rev: number; mediaId: null }>();
       mockClearNodeMedia.mockReturnValueOnce(cmd.promise as any);
@@ -1241,7 +1243,7 @@ describe('ImageGenNode', () => {
       await act(async () => { cmd.resolve({ action: 'clear', rev: 4, mediaId: null }); });
       expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { referenceImage: undefined, fileId: undefined });
       fireEditResult({ nodeId: 'img1', failed: false, fileId: 'f-edit2' });
-      expect(mockApplyDataPatchToStores).toHaveBeenCalledWith('img1', { fileId: 'f-edit2' });
+      expect(mockApplyDataPatchToStores).not.toHaveBeenCalledWith('img1', { fileId: 'f-edit2' });   // Y2 B3：客户端 fileId 回填退役（服务端交付+Yjs 回流）
     });
 
     // —— 裁定④：清空失败——referenceImage 清理延后到命令成功，失败保留原参考图 ——
@@ -1334,7 +1336,7 @@ describe('ImageGenNode', () => {
 
     // —— 评审 P2-1：node:status done 主通道同门 ——
 
-    it('P2-1 node:status done 在 pending 操作期间不写 fileId（setFileResult 同门）；status 提示面保留+结束后恢复', async () => {
+    it('P2-1 node:status done 在 pending 操作期间不写 fileId（socket 交付禁键同门）；socket 状态提示面零 store 写（B3 回填退役）', async () => {
       mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', editMode: 'crop' };
       const cmd = deferred<{ action: 'clear'; rev: number; mediaId: null }>();
       mockClearNodeMedia.mockReturnValueOnce(cmd.promise as any);
@@ -1346,11 +1348,12 @@ describe('ImageGenNode', () => {
       await act(async () => { getClearCallback().onReplaceCurrentNode('http://result.url'); });   // pending 期间
       fireStatus({ nodeId: 'img1', status: 'done', fileId: 'f-status' });
       expect(mockSetFileResult).not.toHaveBeenCalledWith('img1', 'f-status');
-      fireStatus({ nodeId: 'img1', status: 'loading' });   // 执行状态提示面保留（裁定③）
-      expect(mockSetStatus).toHaveBeenCalledWith('img1', 'loading');
+      fireStatus({ nodeId: 'img1', status: 'loading' });
+      // Y2 B3：socket 状态回填退役——loading 只承担执行提示（execStatus 投影面），零 store 写
+      expect(mockSetStatus).not.toHaveBeenCalledWith('img1', 'loading');
       await act(async () => { cmd.resolve({ action: 'clear', rev: 4, mediaId: null }); });
       fireStatus({ nodeId: 'img1', status: 'done', fileId: 'f-status2' });
-      expect(mockSetFileResult).toHaveBeenCalledWith('img1', 'f-status2');
+      expect(mockSetFileResult).not.toHaveBeenCalledWith('img1', 'f-status2');   // 固化写全程退役
     });
 
     // —— 评审 P2-4：入口取消清残留 pending（死操作产物不滞留预览层）——

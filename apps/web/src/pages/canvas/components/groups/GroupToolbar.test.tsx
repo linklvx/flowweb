@@ -164,13 +164,14 @@ describe('批量下载（组闭包复用 runBatchDownload）', () => {
   });
 
   it('组内含完成图片 → 点击以 collectDownloadables 结果调用 runBatchDownload', () => {
+    // Y2 B3：解析主槽有值即可下载（status+fileId 双门退役——data.mediaId 作者键）
     cs.nodes = [
       { id: 'g1', type: 'group', data: {} },
-      { id: 'i1', type: 'imageGen', parentId: 'g1', data: { status: 'done', fileId: 'f1', mediaName: '封面.png' } },
+      { id: 'i1', type: 'imageGen', parentId: 'g1', data: { mediaId: 'f1', mediaName: '封面.png' } },
     ];
     ns.state = {
       g1: { id: 'g1', type: 'group', data: {} },
-      i1: { id: 'i1', type: 'imageGen', data: { status: 'done', fileId: 'f1', mediaName: '封面.png' } },
+      i1: { id: 'i1', type: 'imageGen', data: { mediaId: 'f1', mediaName: '封面.png' } },
     };
     render(<GroupToolbar {...baseProps} />);
     const btn = screen.getByRole('button', { name: '批量下载' });

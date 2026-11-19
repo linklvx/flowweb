@@ -66,8 +66,9 @@ describe('StitchButton', () => {
     });
   });
 
-  it('fileIds 收集归一化：槽位节点无 fileId 有 referenceImage（上传图）时收集 referenceImage', async () => {
+  it('fileIds 收集归一化：槽位节点主槽=resolvePrimaryMediaId（作者键 mediaId；referenceImage 不再兜底）', async () => {
     // Y2 A5：cells 缓存退役——槽序读侧现算（membership=parentId；无 slot 首空格自愈按序）
+    // Y2 B3（spec D8）：拼接收集改解析单源——上传图作者键=mediaId、仅 referenceImage 的格子不再当有图
     setMockNodes([
       {
         id: 'g1', type: 'group', position: { x: 0, y: 0 },
@@ -76,9 +77,9 @@ describe('StitchButton', () => {
           storyboard: { aspectRatio: '16:9', gridRows: 1, gridCols: 3, showIndex: false },
         },
       },
-      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'done', fileId: 'gen-1' } },
-      { id: 'c2', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'idle', referenceImage: 'ref-2' } },
-      { id: 'c3', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { status: 'idle' } }, // 空位节点
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { mediaId: 'gen-1' } },
+      { id: 'c2', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { mediaId: 'ref-2' } },
+      { id: 'c3', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: {} }, // 空位节点
     ]);
     render(<StitchButton groupId="g1" resolution="2K" onResolutionChange={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /拼接/ }));
@@ -94,7 +95,7 @@ describe('StitchButton', () => {
     setMockNodes([
       { id: 'g1', type: 'group', position: { x: 0, y: 0 },
         data: { groupType: 'storyboard' } },                              // 无 storyboard
-      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { fileId: 'f1' } },  // 过 fileIds 空守卫
+      { id: 'c1', type: 'imageGen', parentId: 'g1', position: { x: 0, y: 0 }, data: { mediaId: 'f1' } },  // 过 fileIds 空守卫
     ]);
     render(<StitchButton groupId="g1" resolution="2K" onResolutionChange={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /拼接/ }));
