@@ -5,20 +5,20 @@
 
 **Goal:** 删 `/execution` socket.io 命名空间与五族 socket 通知——执行进度走 RuntimeFeed、三族任务改 REST 轮询单通道、余额改 REST 事件驱动刷新；先补 Feed 字段与扣费失败写入（第一笔），再双端同删（第二笔）。
 
-**Architecture:** 服务端 exec.status 载荷收口到 shared 一个允许清单组装器（八键+必填键定死+error 三档消毒兜底）；**Feed error 唯一出口=feedError(code,row|null)**——errorPatch 自由字符串第二参删除，句子只来自封闭句表；编辑成功信号=受理响应显式结局四档（replayed:false/intentId、delivered、voided、deduped）+投影（客户端只认 outcome）；客户端 edit 失败匹配=intentId 身份+版本严格大于基线；三族任务轮询钉发起者组件（3s/5s 单值+单调序号作废在途）；最后整体删除 EmitPort 端口族+ExecutionGateway+executionSocket 单例。
+**Architecture:** 服务端 exec.status 载荷收口到 shared 一个允许清单组装器（八键+必填键定死+error 封闭句等值检查兜底）；**Feed error 唯一出口=feedError(errorCode, sentence, row|null)**（进 shared——FeedSentenceId 闭枚举，句子与原因码分开：同码异句由调用点显式选 id）+组装器 error 只放行封闭句（全文等值否则整段「生成失败」——不截断）；编辑成功信号=受理响应显式结局四档（replayed:false/intentId、delivered、voided、deduped——联合类型进 shared）+投影（客户端只认 outcome——接住 withSyncRetry 泛型返回）；客户端 edit 失败匹配=intentId 身份+版本严格大于基线；三族任务轮询钉发起者组件（3s/5s 单值+单调序号作废在途）；最后整体删除 EmitPort 端口族+ExecutionGateway+executionSocket 单例。
 
 **Tech Stack:** NestJS (api/worker 双进程)、BullMQ、Prisma+PG、RuntimeFeed（RuntimeEvent 表+feed-hint stateless）、zustand (web)、vitest（三池：默认/heavy/int——int 须显式 `-c vitest.int.config.ts`）。
 
-**Spec:** `docs/superpowers/specs/2026-11-19-y3-protocol-retirement-design.md`（v2.5——本 plan 的一切裁决以 spec 为准，执行者读两份）。
+**Spec:** `docs/superpowers/specs/2026-11-19-y3-protocol-retirement-design.md`（v2.6——本 plan 的一切裁决以 spec 为准，执行者读两份）。
 
 ## Global Constraints
 
 - TypeScript strict；禁垫片/禁兼容层/禁「socket 优先 REST 兜底」双通道（spec 反目标）。
 - EVENT_KINDS 五值闭表零动；exec.status 补 `execSeq?`/`error?` 为该 kind 可选字段，非新 kind。
-- **Feed error 只用封闭句表（err.message 禁入 Feed——异常原文只进日志；发起者 HTTP 的 errors[].error 仍可带原文=请求响应非团队投影，「err.message 只进日志」不扩到响应体）**：扣费失败五码→现有词表（未命中「扣费失败，请重试」）；编辑通用失败→「AI 处理失败」(EDIT_FAILED)；节点执行通用失败→「生成失败」(实际码缺省 EXECUTION_FAILED)；超时回收→「生成已被系统回收（超时）——产物未投递」(INTENT_DEADLINE_EXCEEDED)；资金不变量→「生成结果暂缓交付（资金核销异常，待对账处理）」(FUNDS_INVARIANT_VIOLATION)；PLAN_MISSING→「节点缺少定价快照」（不拼节点 id）；TEXT_PROVIDER_UNKNOWN 已 markUnknown→「可能重复生成、不会重复扣费（请稍后查询或重试）」/mark 失败→「外呼结果不明，扣费状态待对账（请稍后查询或重试）」；reaper 两句维持现句。三档消毒留组装器当最后一道不代替封闭句。
-- **feedError(code, row | null) 是 Feed error 唯一出口**（errorPatch 删除）：有意图行写 intentId/attempts/`execSeq=row.execSeq.toString()`；**rearmable 统一规则：资金不变量与 INTENT_EXHAUSTED 为 false，其余 attempts<3——冻结路径与主路径同一规则**（现冻结 :946-948 写死 0/false=生产错误）。
-- 组装器八键恰：`status、attempts、execSeq、errorCode、artifactRev、intentId、rearmable、error`；必填键定死：status 非空字符串否则抛错；attempts 有限数字缺则 0 **始终写入**；execSeq 仅 `/^\d+$/` 字符串才写入；errorCode/intentId 非空字符串才写入；artifactRev 有限数字才写入；rearmable 布尔才写入；error 三档（先检 trim 后全文，再决定替换或截断——UTF-16 码元 200）。fileId/jobId/reason/nodeVersion/v/kind 一律不写；nodeVersion 只由 appendEventInTx 盖（runtime-feed.service.ts:134-136）。
-- **受理响应显式结局四档**（runGuarded/lighting 同一形状）：新建入队 `{replayed:false, intentId}`+现有入队字段；交付重放 `{replayed:true, outcome:'delivered', resultRef}`；作废重放 `{replayed:true, outcome:'voided'}`；打光去重 `{replayed:true, outcome:'deduped', taskId, status}`。客户端只认 outcome：delivered→退出+清基线/voided→保持/deduped→本批无画布消费者（LightingModal TODO 桩未接线——不进编辑工具条等待）。
+- **Feed error 只用封闭句表（err.message 禁入 Feed——异常原文只进日志；发起者 HTTP 的 errors[].error 仍可带原文=请求响应非团队投影，「err.message 只进日志」不扩到响应体）**：扣费失败五码→现有词表（未命中「扣费失败，请重试」）；编辑通用失败→「AI 处理失败」(EDIT_FAILED)；节点执行通用失败→「生成失败」(实际码缺省 EXECUTION_FAILED)；超时回收→「生成已被系统回收（超时）——产物未投递」(INTENT_DEADLINE_EXCEEDED)；资金不变量→「生成结果暂缓交付（资金核销异常，待对账处理）」(FUNDS_INVARIANT_VIOLATION)；PLAN_MISSING→「节点缺少定价快照」（不拼节点 id——仅主路径 planMap 缺失；冻结缺节点=FROZEN_INPUT_MISSING→「节点缺少冻结输入」）；TEXT_PROVIDER_UNKNOWN 已 markUnknown→「可能重复生成、不会重复扣费（请稍后查询或重试）」（id TEXT_UNKNOWN_HELD）/mark 失败→「外呼结果不明，扣费状态待对账（请稍后查询或重试）」（id TEXT_UNKNOWN_UNMARKED）；reaper 两句维持现句（id REAPER_DEADLINE/REAPER_STALE——事件码仍现两码）。组装器封闭句等值检查留最后一道（不代替封闭句——表外句整段换「生成失败」不截断）。
+- **feedError(errorCode, sentence, row | null) 是 Feed error 唯一出口**（放 packages/shared/src/collab/runtime-exec-status.ts；errorPatch 删除）：sentence=FeedSentenceId 闭枚举；有意图行写 intentId/attempts/`execSeq=row.execSeq.toString()`；**rearmable 按码与有无行**：无行档（主 PLAN_MISSING/冻结 FROZEN_INPUT_MISSING/claim 前失败）attempts 0+rearmable false+**不写 intentId/execSeq**；有行 TEXT_PROVIDER_UNKNOWN **恒 true**（UNKNOWN 冻结靠同 token rearm voidInTx 释放——写成 attempts<3 会让面板提前轮换铸新付费手势）；其余有行 FUNDS_INVARIANT_VIOLATION 与 INTENT_EXHAUSTED 为 false、其他 attempts<3。票上的 intentRowId=行 cuid 非事件 intentId。冻结输入缺节点（:796）=FROZEN_INPUT_MISSING「节点缺少冻结输入」（不拼 id）——PLAN_MISSING 句只给主路径 planMap 缺失。
+- 组装器八键恰：`status、attempts、execSeq、errorCode、artifactRev、intentId、rearmable、error`；必填键定死：status 非空字符串否则抛错；attempts 有限数字缺则 0 **始终写入**；execSeq 仅 `/^\d+$/` 字符串才写入；errorCode/intentId 非空字符串才写入；artifactRev 有限数字才写入；rearmable 布尔才写入；error **封闭句等值检查**（先 trim、全文必须等于封闭句表某句否则整段换「生成失败」——不截断不保留残段；表内句原样通过）。fileId/jobId/reason/nodeVersion/v/kind 一律不写；nodeVersion 只由 appendEventInTx 盖（runtime-feed.service.ts:134-136）。
+- **受理响应显式结局四档**（联合类型放 shared——api 与 web 都引）：新建入队 `{replayed:false, intentId}`+现有入队字段；交付重放 `{replayed:true, outcome:'delivered', resultRef}`；作废重放 `{replayed:true, outcome:'voided'}`；打光去重 `{replayed:true, outcome:'deduped', taskId, status}`。客户端只认 outcome：delivered→退出+清基线/voided→保持/deduped→本批无画布消费者（LightingModal TODO 桩未接线——不进编辑工具条等待）。
 - 客户端错误匹配三条件：ref 非空 ∧ `entry.intentId === ref.intentId` ∧ 版本（十进制 BigInt）严格大于基线；**基线禁 '0'**（nodeVersion=槽上合法十进制/无则 cursor.feedSeq/再无 null）。
 - intentId=GenerationIntent 行上 `intentId` 列（claim 时 randomUUID 铸）；**七处失败写入**（扣费/编辑通用/资金不变量/reaper projectReaped/lighting 资金分支/冻结路径各臂）都从意图行读 intentId/attempts/execSeq。
 - 缺 nodeVersion 的 exec.status 不算一条状态；共享投影函数只在键有值时拷贝、缺的可选键不写 undefined；**projectRuntimeExecToNodeStore 的 intentId 回落 execSeq 行删除**（两列非同一身份=垫片）。
@@ -28,10 +28,10 @@
 
 ## Review Focus
 
-1. **先截后检残段**：error 原文第 200 位后才出现 `https://`——截断把协议头切掉、残段绕过消毒档入库。测试：组装器单测「长前缀+尾部 URL」档（T1 Step 1——组装器面非写面）。
+1. **表外句子漏进 Feed**：err.message 无换行无 URL 时任何机械消毒（截断/关键词）都放行——供应商原文/参数回显直进全员投影。测试：T1 等值检查档（表外任意句含长前缀尾部 URL 与超长句→整段「生成失败」；表内「积分不足」原样通过）。
 2. **作废重放当成交付**：作废臂与交付臂返回同一个体（resultRef 都在）——按 resultRef 判定会把作废当成功关掉编辑。测试：T3 显式结局断言（voidRow 档 outcome='voided' 无 resultRef 键）+T7 客户端只认 outcome。
 3. **冻结路径写死 0/false**：attempts 0 使重试次数显示错；rearmable false 使面板把可免费 rearm 的失败当次数用尽铸新付费手势。测试：T3 冻结三臂断言（attempts=行值/rearmable=统一规则/资金不变量不 void 不 fail）。
-4. **供应商原文直进团队投影**：err.message 不带换行/URL 时三档消毒放行。测试：T3 断言所有 Feed error∈封闭句表枚举（PLAN_MISSING 档不拼节点 id 随附）。
+4. **供应商原文直进团队投影**：err.message 无换行无 URL 时机械消毒放行。测试：T3 断言所有 Feed error∈封闭句表枚举（PLAN_MISSING/FROZEN_INPUT_MISSING 档不拼节点 id 随附）。
 5. **迟到响应覆盖终态**：轮询终态后 interval 再起/在途序号迟归写旧态/超时后迟到 COMPLETED 再 spawn。测试：T5 单调序号+终态不建 interval+done 锁收迟到 COMPLETED。
 
 ---
@@ -58,12 +58,12 @@
 **Interfaces:**
 - Produces: `assembleExecStatusPayload(patch)`——必填键定死（Global Constraints 第五条）；**不写 nodeVersion/kind/v/fileId/jobId/reason**。
 - Produces: `execStatusSlotOfPayload(p: Record<string, unknown>): { execStatus: RuntimeProjectionExecStatusFact } | null`——p 缺合法 nodeVersion（非十进制 string）返回 null；键有值才拷。
-- Produces: `RESERVE_FAIL_SENTENCES`（五码词表）+`reserveFailSentence(code)`（未命中→「扣费失败，请重试」）+`GENERIC_EDIT_FAIL_MESSAGE='AI 处理失败'`+`GENERIC_EXEC_FAIL_MESSAGE='生成失败'`+`PLAN_MISSING_MESSAGE='节点缺少定价快照'`。
+- Produces: `FeedSentenceId` 闭枚举+`FEED_SENTENCES`（句子表单源——TEXT_UNKNOWN_HELD/TEXT_UNKNOWN_UNMARKED/REAPER_DEADLINE/REAPER_STALE/EDIT_FAILED/EXEC_GENERIC/FUNDS_HELD/扣费五码/超时/PLAN_MISSING/FROZEN_INPUT_MISSING 全部 id→句）+`feedError(errorCode, sentence, row|null): ExecStatusPatch`（rearmable 按码与有无行）+`reserveFailSentence(code)`+受理四档联合类型（discriminated union：replayed:false{intentId}/delivered{resultRef}/voided/deduped{taskId,status}）。
 
-- [ ] **Step 1: 写失败测试**（runtime-exec-status.spec.ts）——七组：①八键全值载荷恰含八键②必填键档：status 空串/非字符串→抛错；attempts 缺→0 始终在；execSeq 数字/非十进制串→键不出现③error 三档：`'积分不足'` 原样／`'see https://x'`/`'line1\nline2'`/`'a\r b'`/`'x ://y'`→`'生成失败'`／非字符串与空白→键不存在／**长前缀+尾部 URL**（`'x'.repeat(210)+' https://evil'`——先检后截→整句「生成失败」）④`'好'.repeat(300)` 按 UTF-16 码元截 200⑤词表五码+未命中码⑥execStatusSlotOfPayload：全值→Fact 八键+nodeVersion；缺 nodeVersion/`nodeVersion:'abc'`→null⑦fileId/jobId/reason/nodeVersion/v/kind 传入也不出现。
+- [ ] **Step 1: 写失败测试**（runtime-exec-status.spec.ts）——七组：①八键全值载荷恰含八键②必填键档：status 空串/非字符串→抛错；attempts 缺→0 始终在；execSeq 数字/非十进制串→键不出现③error **封闭句等值检查**：表内「积分不足」原样通过／表外任意句——`'see https://x'`、`'好'.repeat(300)`、**长前缀+尾部 URL**（`'x'.repeat(210)+' https://evil'`）——全档整段换「生成失败」（不截断）／非字符串与空白→键不存在④feedError：无行档→attempts 0+rearmable false+无 intentId/execSeq 键；有行 TEXT_UNKNOWN_HELD attempts=3→rearmable 仍 true；有行 EXEC_GENERIC attempts=2→true、FUNDS_HELD→false⑤词表五码+未命中码+句子 id 全枚举断言⑥execStatusSlotOfPayload：全值→Fact 八键+nodeVersion；缺 nodeVersion/`nodeVersion:'abc'`→null⑦fileId/jobId/reason/nodeVersion/v/kind 传入也不出现。
 
 - [ ] **Step 2: 跑测试确认红** — `cd /d/flowweb/packages/shared && pnpm vitest run src/collab/runtime-exec-status.spec.ts`，Expected: FAIL（文件不存在）。
-- [ ] **Step 3: 实现 runtime-exec-status.ts**——按 Interfaces+Global Constraints 第五条；三档先检 trim 后全文再决定替换或截断。
+- [ ] **Step 3: 实现 runtime-exec-status.ts**——按 Interfaces+Global Constraints 第五条；error 封闭句等值检查（trim 后全文等值表内句否则整段「生成失败」）。
 - [ ] **Step 4: 跑测试确认绿**（同 Step 2 命令，PASS）。
 - [ ] **Step 5: 契约类型两处扩键**（runtime-event.ts:31-44+runtime-projection.ts Fact）——`execSeq?: string`/`error?: string`。跑 `pnpm -C /d/flowweb/packages/shared test`（taxonomy 键集断言若红随批加两键）。
 
@@ -83,10 +83,10 @@
 - [ ] **Step 3: 实现三处改道**——writeExecStatus payload 体改调 `assembleExecStatusPayload`（nodeId 单独拼）；deliverArtifact ④段字面量改同调；runtime-feed slotOfEvent exec.status 分支改调 `execStatusSlotOfPayload(p)`（null→整事件跳过=unknown 计数）。
 - [ ] **Step 4: 绿确认**（同 Step 2；再跑 `pnpm -C /d/flowweb/apps/api vitest run src/modules/collab/`）。
 
-### Task 3: feedError 唯一出口+冻结路径补臂+受理响应显式结局（第一笔）
+### Task 3: feedError 全调用点改道+冻结 catch 内补臂+受理显式结局（第一笔）
 
 **Files:**
-- Modify: `apps/api/src/modules/execution/execution.service.ts`——errorPatch :167-172 **删除**改 `feedError(code, row|null)`；八调用点全改（主 :179/:358/:486/:582/:603/:625+冻结 :934/:947）；冻结路径补三臂（FundsInvariantError 分支插 :919 前——不 voidForExecutionRequestItem/不 void_/不 fail，行留 RUNNING 交对账；intent-stale :894-897 补 feedError 超时句；冻结 PLAN_MISSING :796 补 feedError）；TEXT_PROVIDER_UNKNOWN 两处 :599-603/:926-934 封闭句化（去 `${err.message}——` 前缀）+attempts 行读；PLAN_MISSING :358 改「节点缺少定价快照」不拼 id
+- Modify: `apps/api/src/modules/execution/execution.service.ts`——errorPatch :167-172 **删除**改调 shared `feedError(errorCode, sentence, row)`；八调用点全改（主 :179/:358/:486/:582/:603/:625+冻结 :934/:947——TEXT_PROVIDER_UNKNOWN 两处按 marked 分选 TEXT_UNKNOWN_HELD/TEXT_UNKNOWN_UNMARKED id）；PLAN_MISSING :358 改 PLAN_MISSING id（「节点缺少定价快照」不拼 id）；**冻结补臂**：FundsInvariantError 分支**插冻结 catch 内、AuthorSlotReleaseError 重抛（:920）之后、voidForExecutionRequestItem/void_/fail（:939-944）之前**（v3「:919 前」在 catch 外——错认账）——不 void 不 fail 行留 RUNNING+feedError('FUNDS_INVARIANT_VIOLATION','FUNDS_HELD',row)+continue；intent-stale :894-897 **保持现有 per-item void** 只补 Feed 执行链超时句；冻结 PLAN_MISSING :796 改 FROZEN_INPUT_MISSING id 补 Feed 写
 - Modify: `apps/api/src/modules/ai-image-edit/ai-image-edit.processor.ts:143-152/:336-346`（编辑扣费失败+通用失败行读封闭句）+`:309-320`（资金不变量补行读）
 - Modify: `apps/api/src/modules/execution/intent-reconcile.service.ts:529-536`（reaper projectReaped 补行 intentId/execSeq——现句维持）
 - Modify: `apps/api/src/modules/ai-image-edit/lighting/lighting.consumer.ts:252-258`（资金分支补行读）
@@ -96,11 +96,12 @@
 
 **Interfaces:**
 - Consumes: Task 1 全部常量。
-- Produces: `feedError(code: string, row: {intentId: string; attempts: number; execSeq: bigint} | null): ExecStatusPatch`（execution.service 私法——status:'error'+errorCode+封闭句+行读三元+rearmable 统一规则）；受理响应四档形状（T7 客户端消费）。
+- Consumes: Task 1 `feedError`/`FeedSentenceId`/受理联合类型（皆 shared）。
+- Produces: 全部 exec.status error 写入经 feedError（execution 八+processor 三+reaper+lighting 资金）；两控制器受理返回=shared 联合类型形状（T7 客户端消费）。
 
-- [ ] **Step 1: 写失败测试**——①编辑扣费失败（CREDIT_INSUFFICIENT）：Feed payload={errorCode:'CREDIT_INSUFFICIENT', error:'积分不足', intentId:行值, execSeq:row.execSeq.toString(), rearmable:attempts<3}+void_ 原因仍原因码②冻结 generic catch（err=new Error('boom http')）：Feed error='生成失败'/attempts=行值（非 0）/rearmable=attempts<3（非 false）/intentId=行值③冻结 FundsInvariantError：**不调 voidForExecutionRequestItem/void_/fail**+Feed=暂缓交付句+rearmable:false④冻结 intent-stale：补 Feed 超时句（此前零 Feed 写）⑤冻结 PLAN_MISSING：补 Feed 写（此前零 Feed 写）⑥主路径 PLAN_MISSING：Feed error='节点缺少定价快照'（无节点 id 子串）⑦TEXT_PROVIDER_UNKNOWN 两档：Feed=两句封闭句（无 err.message 前缀）+attempts=行值⑧runGuarded 三档+lighting 四档返回形状断言（作废档无 resultRef 键/去重档 outcome='deduped'）。
+- [ ] **Step 1: 写失败测试**——①编辑扣费失败（CREDIT_INSUFFICIENT）：Feed payload={errorCode:'CREDIT_INSUFFICIENT', error:'积分不足', intentId:行值, execSeq:row.execSeq.toString(), rearmable:attempts<3}+void_ 原因仍原因码②冻结 generic catch（err=new Error('boom http')）：Feed error='生成失败'/attempts=行值（非 0）/rearmable=attempts<3（非 false）/intentId=行值③冻结 FundsInvariantError：**不调 voidForExecutionRequestItem/void_/fail**+Feed=暂缓交付句+rearmable:false④冻结 intent-stale：per-item void 照旧调用+补 Feed 执行链超时句⑤冻结缺节点：Feed={errorCode:'FROZEN_INPUT_MISSING', error:'节点缺少冻结输入'}（此前零 Feed 写）⑥主路径 PLAN_MISSING：Feed error='节点缺少定价快照'（无节点 id 子串）+无行档 rearmable:false+无 intentId 键⑦TEXT_PROVIDER_UNKNOWN 两档：marked 选 TEXT_UNKNOWN_HELD/unmarked 选 TEXT_UNKNOWN_UNMARKED（无 err.message 前缀）+attempts=行值+rearmable 恒 true（attempts=3 档也 true）⑧reaper projectReaped 两句 id（REAPER_DEADLINE/REAPER_STALE——事件码仍现两码）+行 intentId/execSeq⑨runGuarded 三档+lighting 四档返回形状断言（作废档无 resultRef 键/去重档 outcome='deduped'）。
 - [ ] **Step 2: 红确认** — `pnpm -C /d/flowweb/apps/api vitest run src/modules/execution/ src/modules/ai-image-edit/`，Expected: 新断言 FAIL。
-- [ ] **Step 3: 实现**——feedError 私法+八调用点改道（各调用点 err.message 改 logger.warn/log 保留原文）；冻结三臂插入；两控制器显式结局返回。
+- [ ] **Step 3: 实现**——八调用点+processor 三处+reaper+lighting 改调 shared feedError（各调用点 err.message 改 logger.warn/log 保留原文；票 intentRowId≠事件 intentId）；冻结 catch 内 FundsInvariant 分支插 :920 后 :939 前；两控制器返回 shared 联合类型形状。
 - [ ] **Step 4: 绿确认**（同 Step 2 命令+`pnpm -C /d/flowweb/apps/api test` 默认池全量）。
 - [ ] **Step 5: api 侧类型门禁** — `pnpm -C /d/flowweb/apps/api exec tsc --noEmit`（0 错）+`pnpm -C /d/flowweb/apps/api lint`（0 error；存量 warning 不动）。
 
@@ -118,7 +119,7 @@
 - [ ] **Step 2: 红确认** — `cd /d/flowweb/apps/web && pnpm vitest run src/stores/runtimeStore.exec-status.spec.ts`。
 - [ ] **Step 3: 实现三处**——slotOfEventWire exec.status 分支改调 `execStatusSlotOfPayload(p)`；projectRuntimeExecToNodeStore 补 error 拷贝+删回落行；selectRuntimeEntry 类型补。
 - [ ] **Step 4: 绿确认**（Step 2 命令+`pnpm -C /d/flowweb/apps/web vitest run src/pages/canvas/components/nodes/ImageGenNode.test.tsx`）。
-- [ ] **Step 5: 第一笔提交**——`pnpm -C /d/flowweb/apps/api test`+`pnpm -C /d/flowweb/apps/web test`（全量绿）→`git add`第一笔全部文件→`git commit -m "feat(y3): exec.status 组装器+封闭句表+失败写入收口"`（body 凭证：CREDIT_INSUFFICIENT/「积分不足」/intentId=行上列/生成失败消毒档/冻结三臂/显式结局四档）。
+- [ ] **Step 5: 第一笔提交**——`pnpm -C /d/flowweb/apps/api test`+`pnpm -C /d/flowweb/apps/web test`（全量绿）→`git add`第一笔全部文件→`git commit -m "feat(y3): exec.status 组装器+封闭句表+失败写入收口"`（body 凭证：CREDIT_INSUFFICIENT/「积分不足」/intentId=行上列/表外句等值换「生成失败」/冻结 catch 内资金臂/无行档 rearmable false/TEXT_UNKNOWN 恒 true/显式结局四档）。
 
 ### Task 5: 三族轮询单通道+useStitchTask 重定（第二笔）
 
@@ -147,7 +148,7 @@
 ### Task 7: ImageGenNode 受理结局+投影读+删订阅（第二笔）
 
 **Files:**
-- Modify: `apps/web/src/pages/canvas/components/nodes/ImageGenNode.tsx:780-838`（handleGenerate：await 前写基线 ref 三元 {nodeVersion, mediaId, intentId:null}——nodeVersion=槽上合法十进制/无则 cursor.feedSeq/再无 null **禁 '0'**；响应分支**只认 outcome**：`replayed:true && outcome==='delivered'`→退出编辑+processing false+清基线/`outcome==='voided'`→保持编辑态与 processing/`replayed:false`→intentId 入 ref+**立刻读一次当前投影**〔Feed 可能先到〕；deduped 形态不进本工具条）、`:1071-1098`（subscribeNodeEditResult 段删→useRuntimeFeedStore 订阅+三条件匹配）、`:382-388`（node:status 订阅删）
+- Modify: `apps/web/src/pages/canvas/components/nodes/ImageGenNode.tsx:780-838`（handleGenerate：await 前写基线 ref 三元 {nodeVersion, mediaId, intentId:null}——nodeVersion=槽上合法十进制/无则 cursor.feedSeq/再无 null **禁 '0'**；响应分支=**接住 withSyncRetry 返回值**（泛型直通 executionApi:38-39）**只认 outcome**：`replayed:true && outcome==='delivered'`→退出编辑+processing false+清基线/`outcome==='voided'`→保持编辑态与 processing/`replayed:false`→intentId 入 ref+**立刻读一次当前投影**〔Feed 可能先到〕；deduped 形态不进本工具条）、`:1071-1098`（subscribeNodeEditResult 段删→useRuntimeFeedStore 订阅+三条件匹配）、`:382-388`（node:status 订阅删）
 - Modify: `AudioGenNode.tsx:62-68`、`VideoGenNode.tsx:368-374`（零副作用订阅删）
 - Test: `ImageGenNode.test.tsx` G2/G3 族翻新
 
