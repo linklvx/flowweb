@@ -1,0 +1,26 @@
+---
+description: 开发与修问题必须走 spec → plan → TDD，每阶段经用户确认；根因修复，不做存量数据兼容
+alwaysApply: true
+---
+
+# 开发流程（用户已确认，不可跳过）
+
+技能用 superpowers 7.0.2，目录是用户级 `~/.claude/skills/`（本机 `C:\Users\link\.claude\skills\`）。同时遵守仓库 `CLAUDE.md`。TypeScript `strict: true`。
+
+任何功能或问题处理按三阶段执行。上一阶段没有用户的明确确认，不得进入下一阶段，不得改生产代码。
+
+1. **spec** — 先读并遵循 `brainstorming`。规格写入 `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`，然后停下等确认。
+2. **plan** — 先读并遵循 `writing-plans`。计划写入 `docs/superpowers/plans/YYYY-MM-DD-<feature-name>.md`，然后停下等确认。
+3. **TDD 实现** — 先读并遵循 `test-driven-development`，再用 `executing-plans` 或 `subagent-driven-development`。先写失败测试，再写最小实现。
+
+缺陷先读 `systematic-debugging`，把根因写进 spec，再进入 plan 与 TDD。
+
+## 协作模型
+
+项目是 Yjs 画布协作。团队人数决定项目类型：单人团队是个人项目，多人团队是团队项目。不要另做一套个人/团队存储或权限分叉。
+
+## 修复原则
+
+开发测试阶段没有用户数据。不要为存量数据写迁移、兼容分支、垫片或绕行。从数据模型和同步协议上把问题修掉。
+
+每处改动只服务当前已确认的需求，并带有先失败的测试。
