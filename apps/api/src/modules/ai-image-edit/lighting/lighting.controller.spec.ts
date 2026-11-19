@@ -97,9 +97,9 @@ describe('LightingController', () => {
       },
     };
 
-    it('should return taskId and status on success（T6 信封清剿：裸值——拦截器单层包裹）', async () => {
+    it('should return taskId and status on success（T6 信封清剿：裸值；Y3 受理显式结局——新建档带行身份）', async () => {
       const result = await controller.createTask(body, mockReq());
-      expect(result).toEqual({ taskId: 'task-1', status: 'pending', jobId: 'job-9' });
+      expect(result).toMatchObject({ taskId: 'task-1', status: 'pending', jobId: 'job-9', replayed: false, intentId: 'i-1', execSeq: '1' });
     });
 
     it('Y1c T23 收口 I-1(spec)：claim 成功（created）→ observeNodeExecution({projectId,nodeId,execSeq}) 恒达（M-5 补接线）', async () => {
@@ -175,7 +175,7 @@ describe('LightingController', () => {
       expect(intentSvc.attachJob).not.toHaveBeenCalled();
     });
 
-    it('同 token 重放（claim created:false SUCCEEDED）→ createTask 零调用 + 裸值返回既有结果（T6 信封清剿）', async () => {
+    it('同 token 重放（claim created:false SUCCEEDED）→ createTask 零调用 + 裸值返回既有结果（T6 信封清剿；Y3 受理显式结局 outcome=delivered）', async () => {
       intentSvc.claim.mockResolvedValue({
         created: false,
         intent: { id: 'row-1', intentId: 'i-1', execSeq: 1n, status: 'SUCCEEDED', resultRef: 'media-old' },
@@ -183,7 +183,7 @@ describe('LightingController', () => {
       const result = await controller.createTask(body as any, mockReq());
       expect(service.createTask).not.toHaveBeenCalled();
       expect(intentSvc.attachJob).not.toHaveBeenCalled();
-      expect(result).toEqual({ replayed: true, resultRef: 'media-old' });
+      expect(result).toEqual({ replayed: true, outcome: 'delivered', resultRef: 'media-old' });
     });
 
     it('createTask 失败（积分不足等）→ fail 置 FAILED（防 RUNNING 孤儿锁节点）+ 异常透传', async () => {
@@ -193,12 +193,12 @@ describe('LightingController', () => {
       expect(intentSvc.attachJob).not.toHaveBeenCalled();
     });
 
-    it('createTask 命中 60s 去重（无新 job）→ fail 释放执行权 + 返回既有任务（replayed）', async () => {
+    it('createTask 命中 60s 去重（无新 job）→ fail 释放执行权 + 返回既有任务（replayed；Y3 受理显式结局 outcome=deduped）', async () => {
       service.createTask.mockResolvedValue({ taskId: 'existing-task', status: 'pending' }); // 无 jobId——去重分支
       const result = await controller.createTask(body as any, mockReq());
       expect(intentSvc.attachJob).not.toHaveBeenCalled();
       expect(intentSvc.fail).toHaveBeenCalledWith('row-1', expect.any(String), undefined, 1n);
-      expect(result).toEqual({ replayed: true, taskId: 'existing-task', status: 'pending' }); // T6 信封清剿：裸值
+      expect(result).toEqual({ replayed: true, outcome: 'deduped', taskId: 'existing-task', status: 'pending' }); // Y3：显式结局键
     });
   });
 
@@ -308,7 +308,7 @@ describe('LightingController', () => {
       });
     });
 
-    it('作废键命中（该代交付已作废）→ emit done 不带 fileId + 零释放 + 零 createTask', async () => {
+    it('作废键命中（该代交付已作废）→ emit done 不带 fileId + 零释放 + 零 createTask（Y3 受理显式结局：outcome=voided 无 resultRef 键）', async () => {
       prismaMock.artifactProjection.findUnique.mockResolvedValueOnce({ artifactId: 'author-void:row-1:1' });
       const result = await controller.createTask(replayBody as any, mockReq());
       expect(service.createTask).not.toHaveBeenCalled();
@@ -318,16 +318,77 @@ describe('LightingController', () => {
       expect(emitMock).toHaveBeenCalledWith('proj-1', expect.objectContaining({ nodeId: 'node-1', status: 'done' }));
       expect(emitMock).not.toHaveBeenCalledWith('proj-1', expect.objectContaining({ status: 'done', fileId: expect.anything() }));
       expect(authorSlotMock.releaseAuthorSlot).not.toHaveBeenCalled();
-      expect(result).toEqual({ replayed: true, resultRef: 'media-old' });
+      expect(result).toEqual({ replayed: true, outcome: 'voided' });
+      expect('resultRef' in (result as Record<string, unknown>)).toBe(false);
     });
 
-    it('作废键未命中（正常成功交付）→ emit done 带 fileId + releaseAuthorSlot 补释放', async () => {
+    it('作废键未命中（正常成功交付）→ emit done 带 fileId + releaseAuthorSlot 补释放（Y3 受理显式结局：outcome=delivered 带 resultRef）', async () => {
       prismaMock.artifactProjection.findUnique.mockResolvedValueOnce(null);
       const result = await controller.createTask(replayBody as any, mockReq());
       expect(authorSlotMock.releaseAuthorSlot).toHaveBeenCalledWith('proj-1', 'row-1');
       expect(emitMock).toHaveBeenCalledWith('proj-1', expect.objectContaining({ status: 'done', fileId: 'media-old' }));
       expect(service.createTask).not.toHaveBeenCalled();
-      expect(result).toEqual({ replayed: true, resultRef: 'media-old' });
+      expect(result).toEqual({ replayed: true, outcome: 'delivered', resultRef: 'media-old' });
     });
+  });
+
+  // ══════════ Y3 Task3（受理显式结局——controller ruling ⑨）：lighting 四档返回形状
+  //  （shared AdmissionOutcome——新建 {replayed:false,intentId,execSeq}/delivered/voided/deduped）══════════
+  describe('Y3 Task3：受理显式结局（shared 联合类型形状——先红）', () => {
+    const body = {
+      nodeId: 'node-1',
+      projectId: 'proj-1',
+      originalImageId: 'media-src',
+      stateVector: SV_OK,
+      params: { position: { x: 0, y: 0, z: 6 }, brightness: 50, colorTemperature: 5600, rimLight: false },
+    };
+
+    it('新建受理：return {...r, replayed:false, intentId:intent.intentId, execSeq:intent.execSeq.toString()}', async () => {
+      const result: any = await controller.createTask(body as any, mockReq());
+      expect(result).toMatchObject({ replayed: false, intentId: 'i-1', execSeq: '1' });
+      expect(result.jobId).toBe('job-9');   // 既有入队字段保留
+      expect(result.taskId).toBe('task-1');
+    });
+
+    it('交付重放：return {replayed:true, outcome:"delivered", resultRef:intent.resultRef}', async () => {
+      prismaMock.artifactProjection.findUnique.mockResolvedValueOnce(null);   // 作废键未命中=正常交付档
+      intentSvc.claim.mockResolvedValue({
+        created: false,
+        intent: { id: 'row-1', intentId: 'i-1', execSeq: 1n, status: 'SUCCEEDED', resultRef: 'media-old' },
+      });
+      const result: any = await controller.createTask(replayBodyOf(), mockReq());
+      expect(result).toEqual({ replayed: true, outcome: 'delivered', resultRef: 'media-old' });
+    });
+
+    it('作废重放：return {replayed:true, outcome:"voided"}——对象上没有 resultRef 键', async () => {
+      prismaMock.artifactProjection.findUnique.mockResolvedValueOnce({ artifactId: 'author-void:row-1:1' });   // 作废键命中
+      intentSvc.claim.mockResolvedValue({
+        created: false,
+        intent: { id: 'row-1', intentId: 'i-1', execSeq: 1n, status: 'SUCCEEDED', resultRef: 'media-old' },
+      });
+      const result: any = await controller.createTask(replayBodyOf(), mockReq());
+      expect(result).toEqual({ replayed: true, outcome: 'voided' });
+      expect('resultRef' in result).toBe(false);   // 作废档无 resultRef 键
+    });
+
+    it('去重档：return {replayed:true, outcome:"deduped", taskId, status}（60s 去重——刚 claim 的行已 fail 掉）', async () => {
+      service.createTask.mockResolvedValueOnce({ taskId: 'existing-task', status: 'pending' });   // 无 jobId——去重分支
+      const result: any = await controller.createTask(body as any, mockReq());
+      expect(result).toEqual({ replayed: true, outcome: 'deduped', taskId: 'existing-task', status: 'pending' });
+    });
+
+    /** 60s 去重档=lighting 控制器刚 claim 的行已 fail——去重档零 Feed 写。 */
+    it('去重档零 Feed 写（本 controller 零 writeExecStatus 面——维持）', async () => {
+      service.createTask.mockResolvedValueOnce({ taskId: 'existing-task', status: 'pending' });
+      await controller.createTask(body as any, mockReq());
+      expect(intentSvc.fail).toHaveBeenCalledWith('row-1', expect.any(String), undefined, 1n);   // fail 释放执行权（既有）
+    });
+
+    function replayBodyOf() {
+      return {
+        ...body,
+        regenToken: 'client-int-1',
+      } as any;
+    }
   });
 });

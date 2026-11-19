@@ -628,12 +628,15 @@ export class ArtifactCommitService {
       );
       if (gated !== 1) throw new IntentStaleSignal('intent CAS 0 命中（作废臂）');
       if (params.media) await this.registration.completeRegisteredInTx(tx, params.media);
+      // Y3 Task3：作废投影行初始态 pending（出站票据——终态归投影 poller 作废臂单写；commit 返回
+      // 仍 outcome:'superseded'——回填 mediaId 语义不变）。幂等短路按键查不动（idempotentOutcome
+      // 等值查按 [artifactId,artifactRev]——state 不参与判据）。
       await tx.artifactProjection.createMany({
         data: [{
           artifactId: authorVoidProjectionKey(params.intentRowId, params.execSeq), artifactRev: 0,
           projectId: params.projectId, nodeId: params.nodeId,
           targetField: targetFieldOfKind(params.kind), targetItemId: '',
-          mediaId: artifactMediaId, state: 'superseded',
+          mediaId: artifactMediaId, state: 'pending',
         }],
         skipDuplicates: true,   // [artifactId,artifactRev] 唯一——作废幂等
       });

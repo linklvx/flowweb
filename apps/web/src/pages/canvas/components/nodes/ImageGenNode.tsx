@@ -35,7 +35,7 @@ import { apiFetch } from '@/api/client';
 import { withSyncRetry } from '@/api/executionApi';
 import { canExecute } from '@/stores/syncStatus';
 import { getStateVector } from '@/stores/canvasCollabRuntime';
-import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
+import { gestureToken, storedToken, rotateToken, markGestureConsumed } from '@/utils/regen-token';
 import { transformImage } from '@/utils/imageTransform';
 import { cropImage, type CropRect } from '@/utils/imageCrop';
 import axios from 'axios';
@@ -788,6 +788,9 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       // Y0b-2 T6（Z79 编辑三入口恒手势）：每次应用=生成性重跑，恒带 token——held 优先（终态前重试
       // 复用同 token=免费 rearm，sessionStorage 跨刷新存活），无 held 铸造新 token（新意图照常扣费）
       body.regenToken = storedToken(body.projectId, id) ?? gestureToken(body.projectId, id);
+      // Y3 Task4（v3.1 合同二②）：真发受理请求的那一次——消费标记在案（渲染读不算消费；
+      // 编辑链同步 409 INTENT_EXHAUSTED 轮换走无 execSeq 旧形态=无行终态维持今天行为）
+      markGestureConsumed(body.projectId, id);
       // Y0b-2 T7：SV 支配门 body.stateVector（image-edit 受理端点同门——旧 SV 请求头已退役）
       body.stateVector = getStateVector();
 

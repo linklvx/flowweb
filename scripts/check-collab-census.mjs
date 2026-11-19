@@ -1877,6 +1877,7 @@ if (isMain()) {
       'apps/api/src/modules/project/project.service.ts': 1,                // cleanDrafts FOR UPDATE 选择（ACTIVE 谓词）
       'apps/api/src/modules/team/project-permission.service.ts': 1,        // lifecycleStateOf（auth fast-path 分义读——C4-b）
       'apps/api/src/modules/collab/collab-erasure-registry.service.ts': 5, // TD-33/C1b T9：registry 快照 SQL（CanvasProject 起点支 1+run 支两 EXISTS+purgeable NOT EXISTS 各 1+端点 live 复检 1——全只读判定面，无写）
+      'apps/api/src/modules/media-delivery/projection-outbox.poller.ts': 1, // Y3 T3 作废终态七步②：同事务 CanvasProject FOR SHARE 分义读（plan v3.0——行不在/lifecycleState≠ACTIVE=零事件行标 orphaned；delegate 读过滤见不到非 ACTIVE 行故 raw 必要）
     };
     const details = [];
     const occurrences = {};

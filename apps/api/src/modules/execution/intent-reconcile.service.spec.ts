@@ -552,4 +552,61 @@ describe('IntentReconcileService（F12/F13 两档收敛——T13 R3 重写后语
       }));
     });
   });
+
+  // ══════════ Y3 Task3：reaper 常驻门删+两句 id+行身份（断言⑧⑩——先红）══════════
+  //  ⑧ projectReaped 两句 id（REAPER_DEADLINE/REAPER_STALE——事件码仍现两码）+行 intentId/execSeq。
+  //  ⑩ 常驻门删：isDocResident=false 也写入（deferred 计数支删除——禁早退）。
+  describe('Y3 Task3：reaper 投影常驻门删+Feed 句 id 分立（先红）', () => {
+    it('⑧⑩ INTENT_STALE_REAPED：Feed={errorCode:"INTENT_STALE_REAPED", error:"生成心跳失联已被系统回收（进程/调度异常）", intentId:行值, execSeq:行值.toString()}——无连接（isDocResident=false）也写入', async () => {
+      collabDoc.isDocResident.mockReturnValue(false);   // 无人看——门删后仍须写
+      prisma.generationIntent.findMany.mockResolvedValue([intent({ execSeq: 5n, attempts: 1 })]);
+      prisma.$queryRaw.mockImplementation(async (tpl: any) => (String(tpl?.[0]).includes('r.*') ? [chargeRow()] : []));
+      teamCredit.rollbackRunning.mockResolvedValueOnce(true);
+
+      await service.verifyActive();
+
+      const feed = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.errorCode === 'INTENT_STALE_REAPED');
+      expect(feed).toBeTruthy();   // 红：isDocResident=false 早退 ⇒ 零 Feed 写
+      const patch = feed![2] as Record<string, unknown>;
+      expect(patch.error).toBe('生成心跳失联已被系统回收（进程/调度异常）');   // REAPER_STALE 句
+      expect(patch.status).toBe('error');
+      expect(patch.intentId).toBe('i1');   // 行身份（红：现载荷无 intentId）
+      expect(patch.execSeq).toBe('5');     // 行身份（红：现载荷无 execSeq）
+      expect(patch.attempts).toBe(1);
+      expect(patch.rearmable).toBe(true); // attempts<3 档
+    });
+
+    it('⑧ INTENT_DEADLINE_EXCEEDED（deadline 批）：Feed error="生成超时已被系统回收"（REAPER_DEADLINE 句）+行 intentId/execSeq——isDocResident=false 同样写入', async () => {
+      collabDoc.isDocResident.mockReturnValue(false);
+      // deadline 批直接命中（heartbeatAt 先于 deadline 停 ⇒ reapDeadline→convergeStale→charge 已扣腿）
+      prisma.generationIntent.findMany
+        .mockResolvedValueOnce([intent({ execSeq: 8n, attempts: 2, deadlineAt: new Date(Date.now() - 30 * 60_000), heartbeatAt: new Date(Date.now() - 40 * 60_000) })])   // 第一次 findMany=deadline 批（心跳先于 deadline 停）
+        .mockResolvedValue([]);   // 第二次=stale 批空
+      prisma.$queryRaw.mockImplementation(async (tpl: any) => (String(tpl?.[0]).includes('r.*') ? [chargeRow()] : []));
+      teamCredit.rollbackRunning.mockResolvedValueOnce(true);
+      queue.getJob.mockResolvedValue(null);   // jobId null ⇒ 直落 PG 收敛
+
+      await service.verifyActive();
+
+      const feed = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.errorCode === 'INTENT_DEADLINE_EXCEEDED');
+      expect(feed).toBeTruthy();
+      const patch = feed![2] as Record<string, unknown>;
+      expect(patch.error).toBe('生成超时已被系统回收');   // REAPER_DEADLINE 句
+      expect(patch.intentId).toBe('i1');
+      expect(patch.execSeq).toBe('8');
+      expect(patch.attempts).toBe(2);
+    });
+
+    it('⑩ deferred 计数支删除：isDocResident=false 早退不再计数（exec_projection_deferred_total 零增量）', async () => {
+      const { execProjectionDeferredTotal: deferred } = await import('./exec.metrics');
+      const totalOf = (m: any): number => Object.values(m.hashMap ?? {}).reduce((s: number, v: any) => s + (v.value ?? 0), 0);
+      collabDoc.isDocResident.mockReturnValue(false);
+      prisma.generationIntent.findMany.mockResolvedValue([intent({ execSeq: 6n })]);
+      prisma.$queryRaw.mockImplementation(async (tpl: any) => (String(tpl?.[0]).includes('r.*') ? [chargeRow()] : []));
+      teamCredit.rollbackRunning.mockResolvedValueOnce(true);
+      const before = totalOf(deferred);
+      await service.verifyActive();
+      expect(totalOf(deferred)).toBe(before);   // 红：现早退路径 inc ⇒ before+1
+    });
+  });
 });

@@ -301,10 +301,15 @@ export class GenerationIntentService {
 
   /** T9：rearm/takeover 事务内旧投影 superseded——该节点槽位一切非终态投影（pending/projecting）
    *  均属旧代（新代 finalize 才建新投影行）→ superseded 终态（六终态不可回退；T15 poller 前置接线，
-   *  当前写入点唯一=本处——行尚无来源时 no-op）。 */
+   *  当前写入点唯一=本处——行尚无来源时 no-op）。
+   *  Y3 Task3⑯：谓词排除 `author-void:` 前缀——作废票据（出站 pending 行，终态归 poller 单写）
+   *  非「旧代产物投影」，rearm/takeover 不得灭票。 */
   private async supersedeProjections(tx: Prisma.TransactionClient, projectId: string, nodeId: string): Promise<void> {
     await tx.artifactProjection.updateMany({
-      where: { projectId, nodeId, state: { in: ['pending', 'projecting'] } },
+      where: {
+        projectId, nodeId, state: { in: ['pending', 'projecting'] },
+        artifactId: { not: { startsWith: 'author-void:' } },
+      },
       data: { state: 'superseded' },
     });
   }

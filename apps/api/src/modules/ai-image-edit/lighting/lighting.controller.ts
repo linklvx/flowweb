@@ -11,6 +11,7 @@ import { paramsToPrompt } from './lighting.consumer';
 import { CollabDocumentService } from '../../collab/collab-document.service';
 import { assertSyncAdmitted } from '../../collab/sync-admission';
 import { WorkerPresenceService } from '../../worker-presence/worker-presence.service';
+import type { AdmissionOutcome } from '@flowweb/shared';   // Y3 Task3：受理显式结局（四档——T7 客户端 handleGenerate 只认 outcome）
 import { QUEUE_NAMES } from '../../../config/queue.constants';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { EmitPort } from '../../gateway/emit.port';
@@ -79,17 +80,18 @@ export class LightingController {
       // SUCCEEDED 幂等重放——零 enqueue 零扣费。Y2 B2d（v2.10 回放臂两档）：先查同代作废键——
       // 命中=该代交付已作废 ⇒ emit done 不带 fileId+零释放；未命中=正常成功交付 ⇒ 带 fileId
       // +releaseAuthorSlot 幂等补释放（提交后崩溃窗=release 补上）。
+      // Y3 Task3：受理显式结局——delivered/voided 两档（shared AdmissionOutcome 形状）。
       const voidKey = authorVoidProjectionKey(intent.id, intent.execSeq);
       const voidRow: unknown = await this.prisma.artifactProjection
         .findUnique({ where: { artifactId_artifactRev: { artifactId: voidKey, artifactRev: 0 } } })
         .catch(() => null);   // 查询失败=胜臂回放形态（作废键无行同判——fail-open 对齐 idempotentOutcome 先例）
       if (voidRow) {
         this.emitPort.emitNodeStatus(body.projectId, { nodeId: body.nodeId, status: 'done' });
-      } else {
-        await this.authorSlot.releaseAuthorSlot(body.projectId, intent.id);
-        this.emitPort.emitNodeStatus(body.projectId, { nodeId: body.nodeId, status: 'done', fileId: intent.resultRef ?? undefined });
+        return { replayed: true, outcome: 'voided' };
       }
-      return { replayed: true, resultRef: intent.resultRef };
+      await this.authorSlot.releaseAuthorSlot(body.projectId, intent.id);
+      this.emitPort.emitNodeStatus(body.projectId, { nodeId: body.nodeId, status: 'done', fileId: intent.resultRef ?? undefined });
+      return { replayed: true, outcome: 'delivered', resultRef: intent.resultRef };
     }
     // Y1c T23 收口 I-1(spec)：M-5 补接线——claim 后 NodeExecution 观测写（统一锚
     // GenerationIntentService.observeNodeExecution；观测位零副作用——读/写失败只计数不阻断入队）。
@@ -101,11 +103,14 @@ export class LightingController {
       const result = await this.service.createTask(body, userId, ticket);
       if (result.jobId) {
         await this.intentService.attachJob(intent.id, result.jobId);
-        return result;
+        // Y3 Task3：新建受理显式结局——既有入队字段外带 {replayed:false, intentId, execSeq}。
+        return { ...result, replayed: false, intentId: intent.intentId, execSeq: intent.execSeq.toString() };
       }
       // createTask 命中 60s 去重未入队——释放执行权（防 RUNNING 孤儿把节点锁死 15min），按重放返回既有任务
+      // Y3 Task3：去重档显式结局 {replayed:true,outcome:'deduped',taskId,status}（刚 claim 的行已
+      // fail 掉——零 Feed 写）。
       await this.intentService.fail(intent.id, '任务去重：60 秒内同参数任务已存在', undefined, intent.execSeq);
-      return { replayed: true, taskId: result.taskId, status: result.status };
+      return { replayed: true, outcome: 'deduped', taskId: result.taskId, status: result.status };
     } catch (e: any) {
       // createTask 失败（积分不足/项目不存在等）——防 RUNNING 孤儿锁节点（execution.service catch 先例）
       await this.intentService.fail(intent.id, String(e?.message ?? e), undefined, intent.execSeq);

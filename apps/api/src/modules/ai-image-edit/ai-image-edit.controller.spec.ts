@@ -100,7 +100,7 @@ describe('AiImageEditController', () => {
         'u1', 'proj1', 'node1', 'file-1', { x: -16, y: 0, width: 528, height: 512 }, 512, 512,
         { intentRowId: 'row-1', execSeq: '1', jobId: expect.stringMatching(/^[0-9a-f-]{36}$/), expectedRev: 0 },   // T10：票携 claimCapture 槽位 rev // T9 票
       );
-      expect(result).toEqual({ jobId: 'job-outpaint-1' });
+      expect(result).toMatchObject({ jobId: 'job-outpaint-1', replayed: false, intentId: 'i-1', execSeq: '1' });   // Y3 受理显式结局：新建档带行身份
     });
   });
 
@@ -119,7 +119,7 @@ describe('AiImageEditController', () => {
         'u1', 'proj1', 'node1', 'file-1', 'mask-1',
         { intentRowId: 'row-1', execSeq: '1', jobId: expect.stringMatching(/^[0-9a-f-]{36}$/), expectedRev: 0 },   // T10：票携 claimCapture 槽位 rev
       );
-      expect(result).toEqual({ jobId: 'job-erase-1' });
+      expect(result).toMatchObject({ jobId: 'job-erase-1', replayed: false, intentId: 'i-1', execSeq: '1' });   // Y3 受理显式结局
     });
   });
 
@@ -140,7 +140,7 @@ describe('AiImageEditController', () => {
         'u1', 'proj1', 'node1', 'file-1', 'mask-1', 'a beautiful sunset', 70,
         { intentRowId: 'row-1', execSeq: '1', jobId: expect.stringMatching(/^[0-9a-f-]{36}$/), expectedRev: 0 },   // T10：票携 claimCapture 槽位 rev
       );
-      expect(result).toEqual({ jobId: 'job-redraw-1' });
+      expect(result).toMatchObject({ jobId: 'job-redraw-1', replayed: false, intentId: 'i-1', execSeq: '1' });   // Y3 受理显式结局
     });
   });
 
@@ -220,7 +220,7 @@ describe('AiImageEditController', () => {
       expect(intentSvc.fail).not.toHaveBeenCalled(); // 未获执行权——不碰行
     });
 
-    it('同 token 重放（claim created:false SUCCEEDED）→ 零 enqueue 零扣费路径 + 裸值返回（T6 信封清剿——交全局拦截器单层包裹）', async () => {
+    it('同 token 重放（claim created:false SUCCEEDED）→ 零 enqueue 零扣费路径 + 裸值返回（T6 信封清剿；Y3 受理显式结局 outcome=delivered）', async () => {
       intentSvc.claim.mockResolvedValue({
         created: false,
         intent: { id: 'row-1', intentId: 'i-1', status: 'SUCCEEDED', resultRef: 'media-old' },
@@ -229,7 +229,7 @@ describe('AiImageEditController', () => {
       const result = await controller.outpaint({ ...outpaintBody, regenToken: 'i-1' }, req);
       expect(service.enqueueOutpaint).not.toHaveBeenCalled();
       expect(intentSvc.attachJob).not.toHaveBeenCalled();
-      expect(result).toEqual({ replayed: true, resultRef: 'media-old' });
+      expect(result).toEqual({ replayed: true, outcome: 'delivered', resultRef: 'media-old' });
     });
 
     it('enqueue 失败（队列宕）→ fail 置 FAILED（防 RUNNING 孤儿锁节点 15min）+ 异常透传', async () => {
@@ -364,7 +364,7 @@ describe('AiImageEditController', () => {
       });
     });
 
-    it('作废键命中（该代交付已作废）→ emit done 不带 fileId + 零释放 + 零 enqueue', async () => {
+    it('作废键命中（该代交付已作废）→ emit done 不带 fileId + 零释放 + 零 enqueue（Y3 受理显式结局 outcome=voided 无 resultRef 键）', async () => {
       prismaMock.artifactProjection.findUnique.mockResolvedValueOnce({ artifactId: 'author-void:row-1:1' });
       const req = { user: { id: 'u1' } } as any;
       const result = await controller.outpaint({ ...replayBody, regenToken: 'i-1' }, req);
@@ -375,17 +375,61 @@ describe('AiImageEditController', () => {
       expect(emitMock).toHaveBeenCalledWith('proj1', expect.objectContaining({ nodeId: 'node1', status: 'done' }));
       expect(emitMock).not.toHaveBeenCalledWith('proj1', expect.objectContaining({ status: 'done', fileId: expect.anything() }));
       expect(authorSlotMock.releaseAuthorSlot).not.toHaveBeenCalled();
-      expect(result).toEqual({ replayed: true, resultRef: 'media-old' });
+      expect(result).toEqual({ replayed: true, outcome: 'voided' });
+      expect('resultRef' in (result as Record<string, unknown>)).toBe(false);
     });
 
-    it('作废键未命中（正常成功交付）→ emit done 带 fileId + releaseAuthorSlot 补释放', async () => {
+    it('作废键未命中（正常成功交付）→ emit done 带 fileId + releaseAuthorSlot 补释放（Y3 受理显式结局 outcome=delivered）', async () => {
       prismaMock.artifactProjection.findUnique.mockResolvedValueOnce(null);
       const req = { user: { id: 'u1' } } as any;
       const result = await controller.outpaint({ ...replayBody, regenToken: 'i-1' }, req);
       expect(authorSlotMock.releaseAuthorSlot).toHaveBeenCalledWith('proj1', 'row-1');
       expect(emitMock).toHaveBeenCalledWith('proj1', expect.objectContaining({ status: 'done', fileId: 'media-old' }));
       expect(service.enqueueOutpaint).not.toHaveBeenCalled();
-      expect(result).toEqual({ replayed: true, resultRef: 'media-old' });
+      expect(result).toEqual({ replayed: true, outcome: 'delivered', resultRef: 'media-old' });
+    });
+  });
+
+  // ══════════ Y3 Task3（受理显式结局——controller ruling ⑨）：runGuarded 三档返回形状 ══════════
+  describe('Y3 Task3：受理显式结局（shared AdmissionOutcome——三档形状，先红）', () => {
+    const body = {
+      projectId: 'proj1',
+      nodeId: 'node1',
+      fileId: 'file-1',
+      rect: { x: 0, y: 0, width: 64, height: 64 },
+      imageWidth: 512,
+      imageHeight: 512,
+      stateVector: SV_OK,
+    };
+
+    it('新建受理：return {...r, replayed:false, intentId, execSeq}——execSeq=intent.execSeq.toString()', async () => {
+      const req = { user: { id: 'u1' } } as any;
+      const result: any = await controller.outpaint(body, req);
+      expect(result).toMatchObject({ replayed: false, intentId: 'i-1', execSeq: '1' });
+      expect(result.jobId).toBe('job-outpaint-1');   // 既有入队字段保留
+    });
+
+    it('交付重放：return {replayed:true, outcome:"delivered", resultRef}', async () => {
+      prismaMock.artifactProjection.findUnique.mockResolvedValueOnce(null);   // 作废键未命中=正常交付档
+      intentSvc.claim.mockResolvedValue({
+        created: false,
+        intent: { id: 'row-1', intentId: 'i-1', execSeq: 1n, status: 'SUCCEEDED', resultRef: 'media-old' },
+      });
+      const req = { user: { id: 'u1' } } as any;
+      const result: any = await controller.outpaint({ ...body, regenToken: 'i-1' }, req);
+      expect(result).toEqual({ replayed: true, outcome: 'delivered', resultRef: 'media-old' });
+    });
+
+    it('作废重放：return {replayed:true, outcome:"voided"}——对象上没有 resultRef 键', async () => {
+      prismaMock.artifactProjection.findUnique.mockResolvedValueOnce({ artifactId: 'author-void:row-1:1' });   // 作废键命中
+      intentSvc.claim.mockResolvedValue({
+        created: false,
+        intent: { id: 'row-1', intentId: 'i-1', execSeq: 1n, status: 'SUCCEEDED', resultRef: 'media-old' },
+      });
+      const req = { user: { id: 'u1' } } as any;
+      const result: any = await controller.outpaint({ ...body, regenToken: 'i-1' }, req);
+      expect(result).toEqual({ replayed: true, outcome: 'voided' });
+      expect('resultRef' in result).toBe(false);
     });
   });
 });

@@ -241,7 +241,7 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     const teamCredit: any = {
       rollbackDeliveryFailed: vi.fn(async () => true),
     };
-    return new ProjectionOutboxPoller(prisma as any, lease, docSvc, teamCredit, reconciler);
+    return new ProjectionOutboxPoller(prisma as any, lease, docSvc, teamCredit, reconciler, {} as never);   // Y3 T3：feed 第 6 依赖（本文件零 author-void 行——空桩）
   };
 
   it('场景 A（execSeq 代际→doc exec cache→投影新代赢串联）：takeover 后旧 worker 迟到 exec 写被拒（exec_seq_stale_rejected+新代胜出）+旧/新 artifactRev 同 pending 新代 projected 旧代 superseded', async () => {
@@ -255,9 +255,12 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     // 代次守卫随 doc 写面退役——迟到旧事件的丢弃归客户端 reducer nodeVersion 大者胜；服务端不再
     // 持 exec 条目=零孤儿面，exec_seq_stale_rejected 计数面退役）。
     await docSvc.writeExecStatus(PID, NODE, { status: 'loading', jobId: 'j-new', attempts: 2 });
+    // Y3 Task2：writeExecStatus 改调 shared 组装器——error 封闭句等值检查后『stale worker』（表外句）
+    // 整段落「生成失败」（FEED_SENTENCES.EXEC_GENERIC——err.message 禁入 Feed）。
     await docSvc.writeExecStatus(PID, NODE, { status: 'error', error: 'stale worker', attempts: 1 });
     const statusEvents = await prisma.runtimeEvent.findMany({ where: { projectId: PID, kind: 'exec.status' }, orderBy: { feedSeq: 'asc' } });
     expect(statusEvents.map((e) => (e.payload as { status: string }).status)).toEqual(['loading', 'error']);   // 两事件在档（新旧次序=feedSeq 单调）
+    expect((statusEvents[1]!.payload as { error?: string }).error).toBe('生成失败');   // 表外句整段换 EXEC_GENERIC（Y3 断言随批更新——原值 'stale worker' 修前可透传）
     const execSize = await residency.withSession(PID, (doc) => doc.getMap('exec').size, { mode: 'read' });
     expect(execSize).toBe(0);   // doc.exec 恒空（停写——不变量⑦）
 

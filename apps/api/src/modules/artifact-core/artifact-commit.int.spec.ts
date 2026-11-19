@@ -520,7 +520,7 @@ const restoreBalance = async () => {
 
   // ══════════ Y2 B2b：authorVoid 作废臂+两处精确键短路（先红）══════════
   describe('Y2 B2b authorVoid 作废臂（B2c/B2d 前机制面——不传=原样）', () => {
-    it('作废臂：authorVoid=true → 槽位零写（NodeArtifact 无行）+intent CAS SUCCEEDED+author-void 投影行（artifactRev=0）+Media 入素材库+settle 核销+outcome superseded 回填 mediaId', async () => {
+    it('作废臂：authorVoid=true → 槽位零写（NodeArtifact 无行）+intent CAS SUCCEEDED+author-void 投影行（artifactRev=0，Y3 T3：初始态 pending 出站票据——终态归 poller 单写）+Media 入素材库+settle 核销+outcome superseded 回填 mediaId', async () => {
       const c = await claimIntent({ jobId: 'y2b2b-void' });
       await teamCredit.reserve(UID, { intentRowId: c.intent.id, execSeq: c.intent.execSeq });
       const out = await commitFor(c, { authorVoid: true });
@@ -535,7 +535,7 @@ const restoreBalance = async () => {
       });
       expect(voidRow).not.toBeNull();
       expect(voidRow!.artifactRev).toBe(0);
-      expect(voidRow!.state).toBe('superseded');
+      expect(voidRow!.state).toBe('pending');   // Y3 T3：出站票据初始态 pending（poller 作废终态单写；commit 返回仍 outcome:'superseded'）
       expect(await ledgerRows(c.intent.id, 'settle')).toHaveLength(1);
     });
 

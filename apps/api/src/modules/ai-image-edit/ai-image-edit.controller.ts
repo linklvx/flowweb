@@ -9,6 +9,7 @@ import { normalizeIntentParams } from '../execution/normalize-intent-params';
 import { CollabDocumentService } from '../collab/collab-document.service';
 import { assertSyncAdmitted } from '../collab/sync-admission';
 import { WorkerPresenceService } from '../worker-presence/worker-presence.service';
+import type { AdmissionOutcome } from '@flowweb/shared';   // Y3 Task3：受理显式结局（T7 客户端 handleGenerate 只认 outcome）
 import { QUEUE_NAMES } from '../../config/queue.constants';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmitPort } from '../gateway/emit.port';
@@ -44,7 +45,10 @@ export class AiImageEditController {
    *  Y0b-1（E1）：claim 前解析 kind 级定价快照（编辑 4 kind=modelId IS NULL 规则，Z5）+ teamId（assertEditorWithTeam 零额外查询）。
    *  Y0b-2 T6（Z78/Z109）：body.regenToken=客户端手势 token（改名自 intentId 位——防新调用方拿它查
    *  intents 端点）；replayed 返回裸值交全局拦截器单层包裹（信封清剿）。
-   *  Y0b-2 T7：SV 支配门三端点同型（claim 之前零意图行——body.stateVector 必填，缺省 400）。 */
+   *  Y0b-2 T7：SV 支配门三端点同型（claim 之前零意图行——body.stateVector 必填，缺省 400）。
+   *  Y3 Task3：受理显式结局（shared AdmissionOutcome 形状——T7 客户端 handleGenerate 只认 outcome）：
+   *  新建 {...r, replayed:false, intentId, execSeq}；交付重放 {replayed:true,outcome:'delivered',resultRef}；
+   *  作废重放 {replayed:true,outcome:'voided'}（无 resultRef 键）。 */
   private async runGuarded(input: {
     projectId: string;
     nodeId: string;
@@ -55,7 +59,7 @@ export class AiImageEditController {
     kind: 'outpaint' | 'erase' | 'redraw';
     params: Record<string, unknown>;
     enqueue: (ticket: ExecutionTicket) => Promise<{ jobId: string }>;
-  }) {
+  }): Promise<AdmissionOutcome | ({ jobId: string; replayed: false; intentId: string; execSeq: string })> {
     await assertSyncAdmitted(this.collabDoc, input.projectId, input.stateVector);
     // Y0c T29-II（Z148②/F11 同源）：worker 准入门——定价快照/claim 之前拒 ⇒ 零意图行零冻结零退款
     // 义务（503 WORKER_ABSENT+Retry-After: 30）。覆盖 outpaint/erase/redraw 三 add 点（lighting 的
@@ -84,17 +88,18 @@ export class AiImageEditController {
       // 命中=该代交付已作废（作废臂已核销）⇒ emit done 不带 fileId+零释放；未命中=正常成功交付
       // ⇒ emit done 带 fileId+releaseAuthorSlot 幂等补释放（提交后崩溃窗=release 补上；释放幂等=
       // 宿主条件删键+置位）。idemKey 不含 userId=任何成员再点均触发本两档（裁决 13）。
+      // Y3 Task3：受理显式结局——delivered/voided 两档（shared 形状）。
       const voidKey = authorVoidProjectionKey(intent.id, intent.execSeq);
       const voidRow: unknown = await this.prisma.artifactProjection
         .findUnique({ where: { artifactId_artifactRev: { artifactId: voidKey, artifactRev: 0 } } })
         .catch(() => null);   // 查询失败=胜臂回放形态（作废键无行同判——fail-open 对齐 idempotentOutcome 先例）
       if (voidRow) {
         this.emitPort.emitNodeStatus(input.projectId, { nodeId: input.nodeId, status: 'done' });
-      } else {
-        await this.authorSlot.releaseAuthorSlot(input.projectId, intent.id);
-        this.emitPort.emitNodeStatus(input.projectId, { nodeId: input.nodeId, status: 'done', fileId: intent.resultRef ?? undefined });
+        return { replayed: true, outcome: 'voided' };
       }
-      return { replayed: true, resultRef: intent.resultRef };
+      await this.authorSlot.releaseAuthorSlot(input.projectId, intent.id);
+      this.emitPort.emitNodeStatus(input.projectId, { nodeId: input.nodeId, status: 'done', fileId: intent.resultRef ?? undefined });
+      return { replayed: true, outcome: 'delivered', resultRef: intent.resultRef };
     }
     // Y1c T23 收口 I-1(spec)：M-5 补接线——claim 后 NodeExecution 观测写（统一锚
     // GenerationIntentService.observeNodeExecution；观测位零副作用——读/写失败只计数不阻断入队）。
@@ -104,7 +109,8 @@ export class AiImageEditController {
     try {
       const r = await input.enqueue(ticket);
       await this.intentService.attachJob(intent.id, r.jobId);
-      return r;
+      // Y3 Task3：新建受理显式结局——既有入队字段外带 {replayed:false, intentId, execSeq}。
+      return { ...r, replayed: false, intentId: intent.intentId, execSeq: intent.execSeq.toString() };
     } catch (e) {
       await this.intentService.fail(intent.id, String(e), undefined, intent.execSeq);
       throw e;

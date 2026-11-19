@@ -25,9 +25,11 @@ export interface RuntimeProjectionExecStatusFact {
   /** 执行代际（GenerationIntent 代际——wire=string；#4 族分离） */
   execSeq?: string;
   /** T22 收口批 I-8（词表扩键同步）：intentId=手势 token 身份；rearmable=EXHAUSTED 判据
-   *  （客户端面板轮换档——payload 键与 exec.status taxonomy 同批扩） */
+   *  （客户端面板轮换档——payload 键与 exec.status taxonomy 同批扩）
+   *  Y3 Task1（spec §3——契约类型补 error；execSeq 已有）：error=封闭句（FeedSentenceId 词表单源）。 */
   intentId?: string;
   rearmable?: boolean;
+  error?: string;
   /** 该字段版本的比较基准（同字段 nodeVersion 大者胜） */
   nodeVersion: string;
 }
@@ -101,6 +103,27 @@ function mergeSlot<T extends { nodeVersion: string }>(current: T | undefined, in
   return seq(incoming.nodeVersion) > seq(current.nodeVersion) ? incoming : current;
 }
 
+/** execStatus 槽 execSeq 代际规则（Y3 Task1——折叠与客户端增量同源，execStatus 槽专用）：
+ *  两边都有十进制 execSeq→大的胜（BigInt 数值比较非字符串——"10" vs "9" 必须按数值）；
+ *  相同→比 nodeVersion；任一边缺→仍只比 nodeVersion（无行档不受影响——发布窗旧 worker
+ *  loading 不带 execSeq 形态）。rearm 同行换代不重铸 intentId——读行现值会把上一代 done 写成
+ *  新代序号，此规则挡旧代 done 盖新代 loading。 */
+function mergeExecStatusSlot(
+  current: RuntimeProjectionExecStatusFact | undefined,
+  incoming: RuntimeProjectionExecStatusFact | undefined,
+): RuntimeProjectionExecStatusFact | undefined {
+  if (incoming === undefined) return current;
+  if (current === undefined) return incoming;
+  const curSeq = typeof current.execSeq === 'string' && /^\d+$/.test(current.execSeq) ? BigInt(current.execSeq) : null;
+  const incSeq = typeof incoming.execSeq === 'string' && /^\d+$/.test(incoming.execSeq) ? BigInt(incoming.execSeq) : null;
+  if (curSeq !== null && incSeq !== null) {
+    if (incSeq > curSeq) return incoming;
+    if (incSeq < curSeq) return current;
+    return seq(incoming.nodeVersion) > seq(current.nodeVersion) ? incoming : current;   // 代际相同比 nodeVersion
+  }
+  return seq(incoming.nodeVersion) > seq(current.nodeVersion) ? incoming : current;   // 任一边缺——仍只比 nodeVersion
+}
+
 /** 墓碑是否 active（deletedAt 版本**严格大于**该节点全部在位字段版本——§6.4「deletedAt 版本大于
  *  任何字段版本则清空」；等值不清〔undo 重建同帧形态〕；无字段时 active）。
  *  T22 restored 槽：restored.nodeVersion ≥ deletedAt.nodeVersion ⇒ 失活（node.restored 复活——
@@ -136,7 +159,7 @@ export function mergeRuntimeProjection(current: RuntimeProjection, incoming: Run
       continue;
     }
     let merged: RuntimeNodeProjectionEntry = {
-      execStatus: mergeSlot(cur.execStatus, incEntry.execStatus),
+      execStatus: mergeExecStatusSlot(cur.execStatus, incEntry.execStatus),
       artifact: mergeSlot(cur.artifact, incEntry.artifact),
       deletedAt: mergeSlot(cur.deletedAt, incEntry.deletedAt),
       restored: mergeSlot(cur.restored, incEntry.restored),

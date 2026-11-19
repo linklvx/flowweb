@@ -20,6 +20,9 @@ export interface ExecStatusEntry {
   rearmable?: boolean;
   attempts?: number;
   reason?: string;
+  /** 执行代际（Y3 Task4——regen-token 轮换代际判据：有 execSeq 的终态传 rotateToken 第三参；
+   *  wire=string；投影器直拷 payload 真值，缺=无行档）。 */
+  execSeq?: string;
 }
 
 /** 合并视图读入 slice（nodeStore state 的结构子集——mock state 缺 exec 键可传；

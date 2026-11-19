@@ -736,4 +736,317 @@ describe('Y2 B2c 受理捕获+工作集封口+释放（先红）', () => {
     expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();
   });
 });
+
+// ══════════ Y3 Task3：feedError 全调用点改道（断言①②⑤⑥⑦+⑮——先红）══════════
+//    errorPatch :167 退役——一切 error 投影经 shared feedError（句子封闭+身份键恒写+rearmable 按码）；
+//    loading/skipped 补 execSeq（mergeSlot 代际规则生效前提）；作废臂零 done 写（归 poller）。
+describe('Y3 Task3：feedError 改道+execSeq 补臂+作废臂零 done 写（先红）', () => {
+  const n2Image = { id: 'n2', type: 'imageGen', data: { model: 'm1', resolution: 'r1' } };
+  const scopedToN2 = () => {
+    topology.getScope.mockReturnValue([n2Image]);
+    topology.sort.mockReturnValue([n2Image]);
+    collabDoc.readCanvas.mockResolvedValue({ nodes: [n2Image], edges: [] });
+  };
+
+  /** ⑤ 主路径 PLAN_MISSING：Feed error='节点缺少定价快照'（封闭句——无节点 id 拼接）+无行档
+   *  rearmable:false+无 intentId 键（feedError(code,'PLAN_MISSING',null)）。 */
+  it('⑤⑥ PLAN_MISSING：Feed={errorCode:"PLAN_MISSING",error:"节点缺少定价快照"} 封闭句（无节点 id 子串）+无行档 rearmable:false+无 intentId/execSeq 键', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    scopedToN2();
+    validation.validateAll.mockResolvedValue({
+      valid: true, errors: [], totalCost: 0,
+      plans: [{ nodeId: 'other', pricingRuleId: 'pr', modelId: null, resolutionId: null, durationId: null, creditCost: 5 }],
+    });
+    await service.execute('p1', 'n2', 'u1');
+    const planCall = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.errorCode === 'PLAN_MISSING');
+    expect(planCall).toBeTruthy();
+    const patch = planCall![2] as Record<string, unknown>;
+    expect(patch.error).toBe('节点缺少定价快照');   // 封闭句——旧句「节点 n2 无定价快照…」被整段替
+    expect(patch.error).not.toContain(n2Image.id);   // 不拼节点 id
+    expect(patch.rearmable).toBe(false);              // 无行档 rearmable:false（旧 attempts<3 默认值结构上仍 false——本断言钉形状）
+    expect(patch.attempts).toBe(0);
+    expect('intentId' in patch).toBe(false);          // 无行档不写身份键
+    expect('execSeq' in patch).toBe(false);
+    // errors[] 展示面（HTTP 响应非 Feed——原 msg 保留可拼 id）
+    // （errors[].error 保持原样——发起者响应体非团队投影面，零禁令）
+  });
+
+  /** ⑦ TEXT_PROVIDER_UNKNOWN 两档：marked 选 TEXT_UNKNOWN_HELD/unmarked 选 TEXT_UNKNOWN_UNMARKED
+   *  （无 err.message 前缀）+attempts=行值+rearmable 恒 true（attempts=3 档也 true）。 */
+  it('⑦ TEXT_PROVIDER_UNKNOWN 两档：marked→TEXT_UNKNOWN_HELD/unmarked→TEXT_UNKNOWN_UNMARKED（封闭句正文——无 err.message 前缀）+rearmable 恒 true', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    const { BusinessException: BE } = await import('../../common/exceptions/business.exception');
+    // marked=1 档（markUnknown 成功——可能重复生成句）
+    {
+      const textNode = { id: 'n1', type: 'textInput', data: { content: 'hi', model: 'm-text' } };
+      topology.getScope.mockReturnValue([textNode]);
+      topology.sort.mockReturnValue([textNode]);
+      collabDoc.readCanvas.mockResolvedValue({ nodes: [textNode], edges: [] });
+      topology.collectUpstreamData.mockResolvedValue({ textContents: [], imageMediaId: undefined });
+      apiCaller.callTextGen.mockRejectedValueOnce(new BE('TEXT_PROVIDER_UNKNOWN', 'boom http 原文', 504));
+      intentSvc.markUnknown.mockResolvedValueOnce(1);   // 停驻成功
+      intentSvc.claim.mockResolvedValueOnce({ created: true, result: 'new', artifactRev: 0, intent: { id: 'intent-1', intentId: 'i-1', execSeq: 4n, attempts: 3 } });
+      // catch 段 fence 读行——同代 RUNNING（execSeq 同步=4n：旧代让位早退不分流）
+      prisma.generationIntent.findUnique.mockResolvedValueOnce({ status: 'RUNNING', execSeq: 4n, attempts: 3 });
+      const result = await service.execute('p1', 'n1', 'u1');
+      const feedCall = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.errorCode === 'TEXT_PROVIDER_UNKNOWN');
+      expect(feedCall).toBeTruthy();
+      const patch = feedCall![2] as Record<string, unknown>;
+      expect(patch.error).toBe('可能重复生成、不会重复扣费（请稍后查询或重试）');   // 封闭句——无 boom 前缀
+      expect(patch.error).not.toContain('boom');
+      expect(patch.rearmable).toBe(true);   // 恒 true（attempts=3 档也 true）
+      expect(patch.attempts).toBe(3);
+      expect(patch.intentId).toBe('i-1');
+      expect(patch.execSeq).toBe('4');
+      expect(result.success).toBe(false);
+    }
+    // marked=0 档（markUnknown 落库失败——待对账句）
+    {
+      const textNode = { id: 'n1', type: 'textInput', data: { content: 'hi', model: 'm-text' } };
+      topology.getScope.mockReturnValue([textNode]);
+      topology.sort.mockReturnValue([textNode]);
+      collabDoc.readCanvas.mockResolvedValue({ nodes: [textNode], edges: [] });
+      apiCaller.callTextGen.mockRejectedValueOnce(new BE('TEXT_PROVIDER_UNKNOWN', 'boom http 原文', 504));
+      intentSvc.markUnknown.mockResolvedValueOnce(0);   // 停驻失败——中性文案
+      intentSvc.claim.mockResolvedValueOnce({ created: true, result: 'new', artifactRev: 0, intent: { id: 'intent-1', intentId: 'i-1', execSeq: 4n, attempts: 1 } });
+      prisma.generationIntent.findUnique.mockResolvedValueOnce({ status: 'RUNNING', execSeq: 4n, attempts: 1 });
+      await service.execute('p1', 'n1', 'u1');
+      const feedCall = collabDoc.writeExecStatus.mock.calls.filter((c: any[]) => c[2]?.errorCode === 'TEXT_PROVIDER_UNKNOWN').at(-1)!;
+      const patch = feedCall[2] as Record<string, unknown>;
+      expect(patch.error).toBe('外呼结果不明，扣费状态待对账（请稍后查询或重试）');   // 封闭句
+      expect(patch.error).not.toContain('boom');
+      expect(patch.rearmable).toBe(true);
+      expect(patch.attempts).toBe(1);
+    }
+  });
+
+  /** ② 冻结 generic catch（非冻结路径 FundsInvariantError 已有 spec；此处=冻结路径 generic 兜底档）：
+   *  Feed error='生成失败'/attempts=行值（非 0）/rearmable=attempts<3（非恒 false）/intentId=行值。
+   *  （冻结 catch 现写 errorPatch(code, err.message, 0, false, claimed?.intentId)——红锚=attempts 0+rearmable false。） */
+  it('② 冻结 generic catch：Feed error="生成失败"（err.message 不进 Feed）+attempts=行值非 0+rearmable=attempts<3+intentId=行值', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    const frozen = {
+      request: { id: 'req-1', requestId: 'REQ-generic', projectId: 'p1', generation: 0, state: 'EXECUTING', frozenDocSeq: 0n, planHash: 'h', inputHash: 'h', teamId: 't1', userId: 'u1', kind: 'text' },
+      plans: [{
+        requestId: 'req-1', nodeId: 'n2', order: 0, type: 'textInput', model: null, resolution: null, styleId: null,
+        pricingRuleId: 'pr', creditCost: 0, reservedCredit: 0, paramsHash: 'h', status: 'PENDING',
+        generationIntentId: null, execSeq: null, authorSlotFrozen: false, authorMediaId: null,
+      }],
+      input: { nodes: { n2: { kind: 'text', promptText: 'hi', upstreamTexts: [], args: {} } } },
+    };
+    const reqSvc = { loadForExecution: vi.fn().mockResolvedValue(frozen), transitionRequestTerminal: vi.fn().mockResolvedValue(undefined) };
+    // 冻结路径所需 prisma 面（updateMany CAS / findUnique 复读 / 行回写 / remaining count）
+    const prismaFrozen = {
+      ...prisma,
+      executionRequest: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUnique: vi.fn() },
+      executionNodePlan: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), count: vi.fn().mockResolvedValue(0) },
+      generationIntent: { update: vi.fn().mockResolvedValue({}), findUnique: vi.fn().mockResolvedValue({ status: 'RUNNING', execSeq: 7n }) },
+    };
+    // 直构冻结路径实例（构造参数顺序同主 fixture——ExecutionRequestService stub 注入；依赖面
+    // 全 mock 形态 as-cast（直构类型门——行为面消费 assertEditor 一方法））
+    const svc2 = new ExecutionService(
+      prismaFrozen as never, topology as never, validation as never, apiCaller as never, teamCredit as never,
+      permSvc as never, collabDoc as never, gateway as never, intentSvc as never,
+      { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } as never,
+      { finalizeText: vi.fn().mockRejectedValue(new Error('boom http')) } as never,
+      reqSvc as never,
+    );
+    apiCaller.callTextGen.mockResolvedValueOnce({ content: 'ok' });
+    intentSvc.claim.mockResolvedValueOnce({ created: true, result: 'new', artifactRev: 0, intent: { id: 'intent-1', intentId: 'i-fz', execSeq: 7n, attempts: 2 } });
+    collabDoc.writeExecStatus.mockClear();
+    await svc2.execute('p1', undefined, 'u1', undefined, undefined, undefined, undefined, undefined, 'REQ-generic');
+    const errCall = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.status === 'error' && c[1] === 'n2');
+    expect(errCall).toBeTruthy();
+    const patch = errCall![2] as Record<string, unknown>;
+    expect(patch.error).toBe('生成失败');   // 表外句整段换（err.message 不进 Feed——只进日志）
+    expect(patch.attempts).toBe(2);        // 行值（旧=0 红）
+    expect(patch.rearmable).toBe(true);    // attempts<3（旧=false 红）
+    expect(patch.intentId).toBe('i-fz');
+    expect(patch.execSeq).toBe('7');
+  });
+
+  // ══════════ Y3 Task3 review-fix（plan Review Focus 3：冻结三臂 pin 断言——组末提交前补）══════════
+  //  实现已正确（T3 主实现批）——本组为钉回归断言（与作废臂零 done 写同款 pinning-regression 处置：
+  //  写断言→期望即刻绿；若红=真实发现上报不强行绿）。
+  describe('Y3 T3 冻结三臂（review-fix pin：③资金/④intent-stale/⑤缺节点）', () => {
+    /** 冻结路径直构装置（② 测试同款——可定制 finalizeText 行为/冻结夹具/依赖桩记录器）。 */
+    const makeFrozenSvc = (over: {
+      frozen?: Record<string, unknown>;
+      finalizeText?: ReturnType<typeof vi.fn>;
+      reqState?: string;
+    } = {}) => {
+      const frozen = {
+        request: { id: 'req-1', requestId: 'REQ-fix', projectId: 'p1', generation: 0, state: over.reqState ?? 'EXECUTING', frozenDocSeq: 0n, planHash: 'h', inputHash: 'h', teamId: 't1', userId: 'u1', kind: 'text' },
+        plans: [{
+          requestId: 'req-1', nodeId: 'n2', order: 0, type: 'textInput', model: null, resolution: null, styleId: null,
+          pricingRuleId: 'pr', creditCost: 0, reservedCredit: 0, paramsHash: 'h', status: 'PENDING',
+          generationIntentId: null, execSeq: null, authorSlotFrozen: false, authorMediaId: null,
+        }],
+        input: { nodes: { n2: { kind: 'text', promptText: 'hi', upstreamTexts: [], args: {} } } },
+        ...(over.frozen ?? {}),
+      } as never;
+      const reqSvc = { loadForExecution: vi.fn().mockResolvedValue(frozen), transitionRequestTerminal: vi.fn().mockResolvedValue(undefined) };
+      const prismaFrozen = {
+        ...prisma,
+        executionRequest: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUnique: vi.fn() },
+        executionNodePlan: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), count: vi.fn().mockResolvedValue(0) },
+        generationIntent: { update: vi.fn().mockResolvedValue({}), findUnique: vi.fn().mockResolvedValue({ status: 'RUNNING', execSeq: 7n }) },
+      };
+      // 依赖桩记录器（资金/终态动作面——③ 断言「不 void 不 fail」的消费判据）
+      const teamCreditFrozen = {
+        ...teamCredit,
+        voidForExecutionRequestItem: vi.fn().mockResolvedValue(undefined),
+      };
+      const intentSvcFrozen = { ...intentSvc, fail: vi.fn().mockResolvedValue(undefined) };
+      const frozenSvc = new ExecutionService(
+        prismaFrozen as never, topology as never, validation as never, apiCaller as never, teamCreditFrozen as never,
+        permSvc as never, collabDoc as never, gateway as never, intentSvcFrozen as never,
+        { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } as never,
+        { finalizeText: over.finalizeText ?? vi.fn().mockResolvedValue({ outcome: 'committed' }) } as never,
+        reqSvc as never,
+      );
+      return { frozenSvc, teamCreditFrozen, intentSvcFrozen, reqSvc };
+    };
+
+    /** ③ 冻结资金臂（controller ruling 插入点）：FundsInvariantError ⇒ 不 voidForExecutionRequestItem/
+     *  不 void_/不 fail（行留 RUNNING+冻结原样交对账）+Feed=暂缓交付句（rearmable:false+行身份）。 */
+    it('③ 冻结 FundsInvariantError：不 voidForExecutionRequestItem/不 void_/不 fail+Feed=FUNDS_HELD 句（rearmable:false+行身份）', async () => {
+      prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+      const { frozenSvc, teamCreditFrozen, intentSvcFrozen } = makeFrozenSvc({
+        finalizeText: vi.fn().mockRejectedValue(new FundsInvariantError({
+          intentRowId: 'intent-1', execSeq: 7n, creditCost: 5, reservedCredits: 0, creditsConsumed: 0, reservedExecSeq: null,
+        })),
+      });
+      apiCaller.callTextGen.mockResolvedValueOnce({ content: 'ok' });
+      intentSvc.claim.mockResolvedValueOnce({ created: true, result: 'new', artifactRev: 0, intent: { id: 'intent-1', intentId: 'i-fz3', execSeq: 7n, attempts: 2 } });
+      collabDoc.writeExecStatus.mockClear();
+      const r = await frozenSvc.execute('p1', undefined, 'u1', undefined, undefined, undefined, undefined, undefined, 'REQ-fix');
+      // 资金禁自动动作三连（catch 内 AuthorSlotReleaseError 重抛之后、void 链之前的分支早退）
+      expect(teamCreditFrozen.voidForExecutionRequestItem).not.toHaveBeenCalled();
+      expect(teamCreditFrozen.void_).not.toHaveBeenCalled();
+      expect(intentSvcFrozen.fail).not.toHaveBeenCalled();
+      // Feed=暂缓交付句（FUNDS_HELD）+rearmable:false+行身份
+      const feed = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.errorCode === 'FUNDS_INVARIANT_VIOLATION' && c[1] === 'n2');
+      expect(feed).toBeTruthy();
+      const patch = feed![2] as Record<string, unknown>;
+      expect(patch.error).toBe('生成结果暂缓交付（资金核销异常，待对账处理）');
+      expect(patch.rearmable).toBe(false);
+      expect(patch.attempts).toBe(2);
+      expect(patch.intentId).toBe('i-fz3');
+      expect(patch.execSeq).toBe('7');
+      // errors[] 仍显式（HTTP 响应面）
+      expect(r.errors.find((e: any) => e.nodeId === 'n2')).toMatchObject({ status: 'error', errorCode: 'FUNDS_INVARIANT_VIOLATION' });
+    });
+
+    /** ④ 冻结 intent-stale：per-item void 照旧调用+补 Feed 执行链超时句（EXEC_DEADLINE——行身份）。 */
+    it('④ 冻结 intent-stale：per-item void 照旧+Feed=EXEC_DEADLINE 句（intentId/attempts/execSeq 行身份）', async () => {
+      prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+      const { frozenSvc, teamCreditFrozen } = makeFrozenSvc({
+        finalizeText: vi.fn().mockResolvedValue({ outcome: 'intent-stale' }),
+      });
+      apiCaller.callTextGen.mockResolvedValueOnce({ content: 'ok' });
+      intentSvc.claim.mockResolvedValueOnce({ created: true, result: 'new', artifactRev: 0, intent: { id: 'intent-1', intentId: 'i-fz4', execSeq: 7n, attempts: 2 } });
+      collabDoc.writeExecStatus.mockClear();
+      const r = await frozenSvc.execute('p1', undefined, 'u1', undefined, undefined, undefined, undefined, undefined, 'REQ-fix');
+      // per-item void 照旧（既有语义——:919 前置行）
+      expect(teamCreditFrozen.voidForExecutionRequestItem).toHaveBeenCalledWith({ executionRequestId: 'req-1', nodeId: 'n2' });
+      // Feed=执行链超时句（EXEC_DEADLINE——同码异句 id；行身份）
+      const feed = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.errorCode === 'INTENT_DEADLINE_EXCEEDED' && c[1] === 'n2');
+      expect(feed).toBeTruthy();
+      const patch = feed![2] as Record<string, unknown>;
+      expect(patch.error).toBe('生成已被系统回收（超时）——产物未投递');
+      expect(patch.intentId).toBe('i-fz4');
+      expect(patch.attempts).toBe(2);
+      expect(patch.execSeq).toBe('7');
+      // errors[] 照旧（HTTP 响应面）
+      expect(r.errors.find((e: any) => e.nodeId === 'n2')).toMatchObject({ status: 'error', errorCode: 'INTENT_DEADLINE_EXCEEDED' });
+    });
+
+    /** ⑤ 冻结缺节点：errors[] 码改 FROZEN_INPUT_MISSING+Feed={errorCode:'FROZEN_INPUT_MISSING',
+     *  error:'节点缺少冻结输入'} 无行档 shape（attempts 0/rearmable:false/无 intentId/execSeq 键——
+     *  plan Review Focus 4：封闭句枚举断言覆盖 FROZEN_INPUT_MISSING 档不拼节点 id）。 */
+    it('⑤ 冻结缺节点：errors[]+Feed 均码 FROZEN_INPUT_MISSING/句「节点缺少冻结输入」（无行档 shape——attempts 0/rearmable:false/无身份键）', async () => {
+      prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+      // 冻结输入缺节点：plans 含 n2，input.nodes 空
+      const { frozenSvc } = makeFrozenSvc({ frozen: { input: { nodes: {} } } });
+      collabDoc.writeExecStatus.mockClear();
+      const r = await frozenSvc.execute('p1', undefined, 'u1', undefined, undefined, undefined, undefined, undefined, 'REQ-fix');
+      // errors[]（HTTP 响应面）——码改 FROZEN_INPUT_MISSING+句不拼 PLAN_MISSING
+      expect(r.errors).toHaveLength(1);
+      expect(r.errors[0]).toMatchObject({ nodeId: 'n2', status: 'error', errorCode: 'FROZEN_INPUT_MISSING', error: '节点缺少冻结输入' });
+      // Feed 写（此前零 Feed 写——红锚面已被主实现批钉；此处锁形状）
+      const feed = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.errorCode === 'FROZEN_INPUT_MISSING' && c[1] === 'n2');
+      expect(feed).toBeTruthy();
+      const patch = feed![2] as Record<string, unknown>;
+      expect(patch.status).toBe('error');
+      expect(patch.error).toBe('节点缺少冻结输入');   // 封闭句（REVIEW FOCUS 4：不拼节点 id）
+      expect(patch.error).not.toContain('n2');          // 句面无节点 id 子串
+      expect(patch.attempts).toBe(0);                   // 无行档 attempts 0
+      expect(patch.rearmable).toBe(false);              // 无行档 rearmable:false
+      expect('intentId' in patch).toBe(false);          // 无行档不写身份键
+      expect('execSeq' in patch).toBe(false);
+      // 缺节点早退——claim 零触达（不烧意图行）
+      expect(intentSvc.claim).not.toHaveBeenCalled();
+    });
+  });
+
+  /** ⑮ loading/skipped 补 execSeq：:416/:865/:379/:430/:616 载荷含 execSeq（行 execSeq.toString()）。 */
+  it('⑮ loading 补 execSeq：claim 成功后的 loading 投影含 execSeq=行值.toString()（mergeSlot 代际前提）', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    scopedToN2();
+    intentSvc.claim.mockResolvedValueOnce({ created: true, result: 'new', artifactRev: 0, intent: { id: 'intent-1', intentId: 'i-1', execSeq: 6n, attempts: 1 } });
+    await service.execute('p1', 'n2', 'u1');
+    const loading = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.status === 'loading');
+    expect(loading).toBeTruthy();
+    expect((loading![2] as Record<string, unknown>).execSeq).toBe('6');   // 红：现载荷无 execSeq
+  });
+
+  it('⑮ skipped 两档补 execSeq：INTENT_SAME_JOB_ALIVE 档+INTENT_DUPLICATE_ATTEMPT 档载荷含 execSeq', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    scopedToN2();
+    // same-job-alive 档
+    intentSvc.claim.mockResolvedValueOnce({ created: false, result: 'same-job-alive', artifactRev: 0, intent: { id: 'intent-1', intentId: 'i-sja', execSeq: 9n, attempts: 1 } });
+    await service.execute('p1', 'n2', 'u1');
+    let skipped = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.status === 'skipped');
+    expect(skipped).toBeTruthy();
+    expect((skipped![2] as Record<string, unknown>).execSeq).toBe('9');   // 红：现载荷无 execSeq
+    // duplicate-attempt 档（reserve mayCall:false）
+    collabDoc.writeExecStatus.mockClear();
+    intentSvc.claim.mockResolvedValueOnce({ created: true, result: 'new', artifactRev: 0, intent: { id: 'intent-1', intentId: 'i-dup', execSeq: 10n, attempts: 1 } });
+    teamCredit.reserve.mockResolvedValueOnce({ success: true, mayCall: false });
+    await service.execute('p1', 'n2', 'u1');
+    skipped = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.status === 'skipped');
+    expect(skipped).toBeTruthy();
+    expect((skipped![2] as Record<string, unknown>).execSeq).toBe('10');
+  });
+
+  it('⑮ :616 NODE_BUSY skipped 补 execSeq（带 claimed intentId 档——claim 抛错档无行则无身份键）', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    scopedToN2();
+    intentSvc.claim.mockRejectedValueOnce(new NodeBusyError());
+    await service.execute('p1', 'n2', 'u1');
+    const skipped = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.status === 'skipped');
+    expect(skipped).toBeTruthy();
+    // claim 抛错=claimed null——无行档无 execSeq/intentId（裸项目档）
+    const patch = skipped![2] as Record<string, unknown>;
+    expect('execSeq' in patch).toBe(false);
+    expect('intentId' in patch).toBe(false);
+  });
+
+  /** 作废臂零 done 写（v2.8——作废终态归 poller，四臂只交 authorVoid）：主路径 deliverFileId 档
+   *  committed.outcome='committed'∧authorVoid=true ⇒ worker 零 done 投影（旧链写 done 不带 fileId——零写）。 */
+  it('作废臂零 done 写：authorVoid=true∧committed ⇒ writeExecStatus 零 done 调用（作废终态归 poller）', async () => {
+    prisma.canvasProject.findUnique.mockResolvedValue({ id: 'p1', teamId: 't1' });
+    scopedToN2();
+    collabDoc.readAuthorSlot.mockResolvedValueOnce({ nodeId: 'n2', kind: 'image', frozen: true, authorMediaId: 'm-a', liveMediaId: 'm-user-new' });   // 现场≠冻结 ⇒ authorVoid
+    artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'committed', mediaId: 'm-void', key: 'k' });
+    await service.execute('p1', 'n2', 'u1');
+    const doneCalls = collabDoc.writeExecStatus.mock.calls.filter((c: any[]) => c[2]?.status === 'done');
+    expect(doneCalls).toHaveLength(0);   // 作废臂零 done 写（旧链无 done 写本就满足——本断言钉回归）
+    // release 零调用（作废不释放）+emit 不携 fileId（既有语义维持）
+    expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();
+    const lastEmit = gateway.emitNodeStatus.mock.calls.at(-1) as any[];
+    expect(lastEmit[1].fileId).toBeUndefined();
+  });
+});
 });

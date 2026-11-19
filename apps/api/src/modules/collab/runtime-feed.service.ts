@@ -18,7 +18,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   EVENT_KINDS, RUNTIME_EVENT_PAYLOAD_MAX_BYTES,
-  runtimeEventPayloadPiiViolations, mergeRuntimeProjection,
+  runtimeEventPayloadPiiViolations, mergeRuntimeProjection, execStatusSlotOfPayload,
   type RuntimeEventKind, type RuntimeEventPayload,
   type RuntimeProjection, type RuntimeNodeProjectionEntry,
 } from '@flowweb/shared';
@@ -332,12 +332,14 @@ function mergeDelta(current: RuntimeProjection, nodes: Record<string, RuntimeNod
   });
 }
 
-/** payload → 单节点槽（unknown/非节点事件=null）。 */
+/** payload → 单节点槽（unknown/非节点事件=null）。
+ *  Y3 Task2（spec §3 S2）：exec.status 分支改调 shared execStatusSlotOfPayload（键有值才拷+
+ *  缺合法 nodeVersion→null=整事件跳过 unknown 计数——与客户端 slotOfEventWire 同调单源；
+ *  修前手拼字面量把缺键写成 undefined 值漂移面删除；fileId/jobId/reason/v/kind 不进 Fact）。 */
 export function slotOfEvent(p: RuntimeEventPayload): [string, RuntimeNodeProjectionEntry] | null {
   if (p.kind === 'exec.status') {
-    return [p.nodeId, {
-      execStatus: { status: p.status, errorCode: p.errorCode, attempts: p.attempts, artifactRev: p.artifactRev, intentId: p.intentId, rearmable: p.rearmable, nodeVersion: p.nodeVersion },
-    }];
+    const slot = execStatusSlotOfPayload(p as Record<string, unknown>);
+    return slot === null ? null : [p.nodeId, slot];
   }
   if (p.kind === 'exec.artifact') {
     return [p.nodeId, { artifact: { mediaId: p.mediaId, resultRef: p.resultRef, artifactRev: p.artifactRev, nodeVersion: p.nodeVersion } }];

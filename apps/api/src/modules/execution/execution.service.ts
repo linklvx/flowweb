@@ -9,12 +9,12 @@ import { ProjectPermissionService } from '../team/project-permission.service';
 import { EmitPort } from '../gateway/emit.port';
 import { isExecutableNode } from './is-executable-node';
 import { CollabWritePort, type WorkerWriteScope } from '../collab/collab-write.port';
-import { GenerationIntentService, ClaimPricing, NodeBusyError, IntentExhaustedError } from './generation-intent.service';
+import { GenerationIntentService, ClaimPricing, NodeBusyError } from './generation-intent.service';
 import { UpstreamMediaService } from './upstream-media.service';
 import { ArtifactCommitService, FundsInvariantError } from '../artifact-core/artifact-commit.service';
 import { normalizeIntentParams } from './normalize-intent-params';
 import { deadlineMsForKind, syncHardCapMs } from './intent-key.util';
-import { resolvePromptText } from '@flowweb/shared';   // Y1c T2（bug② 后半）：执行读点 prompt 解析单源（nodeExecutionUpdateAllowed 真值表等价断言住 execution-frozen.t21-c1.int.spec——本文件仅 SQL 注释锚）
+import { resolvePromptText, feedError } from '@flowweb/shared';   // Y1c T2（bug② 后半）：执行读点 prompt 解析单源（nodeExecutionUpdateAllowed 真值表等价断言住 execution-frozen.t21-c1.int.spec——本文件仅 SQL 注释锚）+Y3 T3：Feed error 唯一出口（errorPatch 退役；扣费五码句 id 与词表同名单源）
 import type { ExecutionNodePlanStatus, ExecutionRequestState } from '@flowweb/shared';   // Y1c T23（T21 移交⑦）：状态值域单源引用
 import { ExecutionRequestService, type LoadedExecution } from './execution-request.service';   // Y1c T21：受理冻结请求消费
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -162,21 +162,28 @@ export class ExecutionService {
     throw new AuthorSlotReleaseError(intentRowId, last);
   }
 
-  /** Y0b-2 T5（Z95/Z111）：终态 error 投影 patch——errorCode+rearmable+attempts 与 status:'error' 同 patch
-   *  （writeExecStatus 终态守卫约束事后补写会被吞；INTENT_EXHAUSTED 例外传 rearmable:false——客户端轮换判据单源）。 */
-  private errorPatch(errorCode: string, error: string, attempts: number, rearmable = attempts < 3, intentId?: string) {
-    return {
-      status: 'error', errorCode, error: String(error).slice(0, 200), rearmable, attempts,
-      ...(intentId ? { intentId } : {}),
-    };
+  /** Y3 T3：Feed error patch 构造（shared feedError 唯一出口——句子封闭/身份键恒写/rearmable 按码）。
+   *  errorPatch :167 退役——八调用点全经此改道；行参数=GenerationIntent 行（feedError 内部取
+   *  row.intentId/attempts/execSeq）；无行档传 null。 */
+  private feedRow(intent: any): { intentId: string; attempts: number; execSeq: bigint } | null {
+    if (!intent) return null;
+    const attempts: number = typeof intent.attempts === 'number' ? intent.attempts : 0;
+    return { intentId: intent.intentId, attempts, execSeq: intent.execSeq };
   }
 
   /** 批0.5-9 reserve 失败三连：意图置 VOIDED（零扣费终态——重试照常扣费，与 FAILED 分义不混：
-   *  FAILED=外呼失败且冻结已退；VOIDED=从未扣费）+ WS error + exec map error（best-effort）。 */
+   *  FAILED=外呼失败且冻结已退；VOIDED=从未扣费）+ WS error + Feed error（best-effort）。
+   *  Y3 T3：Feed=feedError(errorCode, reserveFailSentence(errorCode) 映射 id, 行)——扣费五码词表句
+   *  （未命中码兜底「扣费失败，请重试」）；errors[].error（HTTP 响应面）仍原文 msg。 */
   private async onReserveFail(projectId: string, node: any, intent: any, msg: string, errorCode: string) {
     await this.intentService.void_(intent.id, msg, intent.execSeq);
     this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
-    await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch(errorCode, msg, intent.attempts ?? 0, (intent.attempts ?? 0) < 3, intent.intentId), this.wscope(intent)).catch(countExecProjectionFailure);
+    // 扣费五码→FeedSentenceId 映射（reserveFailSentence 供调用点选句参考——五码恰同名 id 直用；
+    // 未命中码走 RESERVE_GATE_LOST 兜底句「扣费失败，请重试」）。
+    const sentence = (['CREDIT_INSUFFICIENT', 'QUOTA_EXCEEDED', 'NOT_MEMBER', 'TEAM_BALANCE_MISSING'] as const).includes(errorCode as never)
+      ? (errorCode as 'CREDIT_INSUFFICIENT' | 'QUOTA_EXCEEDED' | 'NOT_MEMBER' | 'TEAM_BALANCE_MISSING')
+      : 'RESERVE_GATE_LOST';
+    await this.collabDoc.writeExecStatus(projectId, node.id, feedError(errorCode, sentence, this.feedRow(intent)), this.wscope(intent)).catch(countExecProjectionFailure);
   }
 
   /** intentId 形参=客户端手势 token（Z109：wire 名不变、语义=gestureToken——行身份由 claim 铸造）。
@@ -355,7 +362,8 @@ export class ExecutionService {
       if (!plan) {
         artifactDiscardedTotal.inc({ cause: 'precall-miss' }); // 断言恒 0——非 0 即 pre-call 断言被绕过
         const msg = `节点 ${node.id} 无定价快照（validation/execution 节点集分叉？）`;
-        await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('PLAN_MISSING', msg, 0, false)).catch(countExecProjectionFailure); // 请求级投影传 0 代（0 代不得覆盖任何 ≥1 代）
+        // Y3 T3：PLAN_MISSING Feed=封闭句「节点缺少定价快照」（不拼 id）+无行档（attempts 0/rearmable false/不写身份键）
+        await this.collabDoc.writeExecStatus(projectId, node.id, feedError('PLAN_MISSING', 'PLAN_MISSING', null)).catch(countExecProjectionFailure);
         errors.push({ nodeId: node.id, status: 'error', error: msg, errorCode: 'PLAN_MISSING' });
         return;
       }
@@ -375,8 +383,9 @@ export class ExecutionService {
         // emit——交付归旧 worker；skipped 投影非终态=可观测面，Z88 在飞段 done 照常覆盖）；
         // errors 携 skipped 交 processor moveToDelayed 不 ack（return=completed 即「旧 worker 真死
         // 零交付」悬挂——结构性修复的信号位）。
+        // Y3 T3⑮：skipped 补 execSeq（mergeSlot 代际规则生效前提）。
         const attempts: number = typeof intent.attempts === 'number' ? intent.attempts : 0;
-        await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'skipped', reason: 'INTENT_SAME_JOB_ALIVE', attempts, intentId: intent.intentId }, this.wscope(intent)).catch(countExecProjectionFailure);
+        await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'skipped', reason: 'INTENT_SAME_JOB_ALIVE', attempts, intentId: intent.intentId, execSeq: intent.execSeq.toString() }, this.wscope(intent)).catch(countExecProjectionFailure);
         errors.push({ nodeId: node.id, status: 'skipped', error: 'INTENT_SAME_JOB_ALIVE', errorCode: 'INTENT_SAME_JOB_ALIVE' });
         return;
       }
@@ -413,7 +422,8 @@ export class ExecutionService {
       // 进 job.data（updateData 同步刷实例快照：同 process 代后续 throw 的 failed 钩子凭票过 fence）
       onClaimed?.({ nodeId: node.id, intentRowId: intent.id, execSeq: intent.execSeq.toString() });
       const attempts: number = typeof intent.attempts === 'number' ? intent.attempts : 0;
-      await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId, attempts }, this.wscope(intent)).catch(countExecProjectionFailure); // best-effort
+      // Y3 T3⑮：loading 补 execSeq（mergeSlot 代际规则生效前提——旧代 loading 不被新代 done 盖的判据键）。
+      await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId, attempts, execSeq: intent.execSeq.toString() }, this.wscope(intent)).catch(countExecProjectionFailure); // best-effort
       // Y1c T23（M-5 裁定=接线+收口 I-1(spec) 统一锚）：NodeExecution 当前行 claim 观测写——
       // 归 GenerationIntentService.observeNodeExecution（全部 claim 调用点统一：execution 双路径
       // +ai-image-edit/lighting 两链）；观测位零副作用三义见彼头注。
@@ -427,7 +437,8 @@ export class ExecutionService {
           // 投影 skipped 非终态（Z88）——在飞 worker 的 done 照常落地
           intentDuplicateAttemptTotal.inc();
           this.logger.warn(`[reserve] 意图 ${intent.intentId} 重复外呼企图——skipped 退出（悬挂收敛归 reconcile）`);
-          await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'skipped', reason: 'INTENT_DUPLICATE_ATTEMPT', attempts, intentId: intent.intentId }, this.wscope(intent)).catch(countExecProjectionFailure);
+          // Y3 T3⑮：skipped 补 execSeq。
+          await this.collabDoc.writeExecStatus(projectId, node.id, { status: 'skipped', reason: 'INTENT_DUPLICATE_ATTEMPT', attempts, intentId: intent.intentId, execSeq: intent.execSeq.toString() }, this.wscope(intent)).catch(countExecProjectionFailure);
           errors.push({ nodeId: node.id, status: 'skipped', error: 'INTENT_DUPLICATE_ATTEMPT' });
           return;
         }
@@ -483,7 +494,8 @@ export class ExecutionService {
       const failDeadlineVoided = async () => {
         artifactDiscardedTotal.inc({ cause: 'deadline-voided' });
         this.logger.warn(`[intent-reconcile] 意图 ${intent.intentId} 已被 VOIDED/换代——跳过产物写入（外呼产物留作证）`);
-        await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('INTENT_DEADLINE_EXCEEDED', '生成已被系统回收（超时）——产物未投递', attempts, attempts < 3, intent.intentId), this.wscope(intent)).catch(countExecProjectionFailure);
+        // Y3 T3：执行链超时句（EXEC_DEADLINE——事件码 INTENT_DEADLINE_EXCEEDED 维持）。
+        await this.collabDoc.writeExecStatus(projectId, node.id, feedError('INTENT_DEADLINE_EXCEEDED', 'EXEC_DEADLINE', this.feedRow(intent)), this.wscope(intent)).catch(countExecProjectionFailure);
         this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: '生成已被系统回收（超时）' });
         errors.push({ nodeId: node.id, status: 'error', error: '生成已被系统回收（超时）', errorCode: 'INTENT_DEADLINE_EXCEEDED' });
       };
@@ -578,8 +590,7 @@ export class ExecutionService {
           // 用户面暂缓交付提示；rearmable:false——重试=新代 claim 会 void 旧冻结，绕过对账裁决面。
           this.logger.error(`[funds-invariant] 意图 ${claimed.intentId} 资金不变量破缺（行留 RUNNING 交对账第四分支）: ${err.message}`);
           const msg = '生成结果暂缓交付（资金核销异常，待对账处理）';
-          const attempts: number = typeof claimed.attempts === 'number' ? claimed.attempts : 0;
-          await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('FUNDS_INVARIANT_VIOLATION', msg, attempts, false, claimed.intentId), this.wscope(claimed)).catch(countExecProjectionFailure);
+          await this.collabDoc.writeExecStatus(projectId, node.id, feedError('FUNDS_INVARIANT_VIOLATION', 'FUNDS_HELD', this.feedRow(claimed)), this.wscope(claimed)).catch(countExecProjectionFailure);
           this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
           errors.push({ nodeId: node.id, status: 'error', error: msg, errorCode: 'FUNDS_INVARIANT_VIOLATION' });
           return;
@@ -594,13 +605,15 @@ export class ExecutionService {
           // T23 收口 M-3：markUnknown 落库失败窗（行留 RUNNING=UNKNOWN 纪律该窗失效交 reaper 收敛）
           // ——文案分档：停驻成功才推「不会重复扣费」确定性承诺；失败=中性文案+遥测计数（禁在
           // 不确定态推确定性承诺——扣费状态待对账）。
+          // Y3 T3：Feed 句改 shared 封闭句（TEXT_UNKNOWN_HELD/UNMARKED——err.message 前缀删除，
+          // 原文只进日志）；errors[].error（HTTP 响应面）仍携原文。
           if (marked === 1) textUnknownTotal.inc();
           else textUnknownMarkFailedTotal.inc();
+          this.logger.warn(`[text-unknown] 意图 ${claimed.intentId} 外呼结果不明（marked=${marked}）: ${err?.message ?? err}`);
           const unknownMsg = marked === 1
             ? `${err.message}——可能重复生成、不会重复扣费（请稍后查询或重试）`
             : `${err.message}——外呼结果不明，扣费状态待对账（请稍后查询或重试）`;
-          const attempts: number = typeof claimed.attempts === 'number' ? claimed.attempts : 0;
-          await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch('TEXT_PROVIDER_UNKNOWN', unknownMsg, attempts, true, claimed.intentId), this.wscope(claimed)).catch(countExecProjectionFailure);
+          await this.collabDoc.writeExecStatus(projectId, node.id, feedError('TEXT_PROVIDER_UNKNOWN', marked === 1 ? 'TEXT_UNKNOWN_HELD' : 'TEXT_UNKNOWN_UNMARKED', this.feedRow(claimed)), this.wscope(claimed)).catch(countExecProjectionFailure);
           this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: unknownMsg });
           errors.push({ nodeId: node.id, status: 'error', error: unknownMsg, errorCode: 'TEXT_PROVIDER_UNKNOWN' });
           return;
@@ -609,20 +622,22 @@ export class ExecutionService {
           .catch((e) => this.logger.warn(`[reserve-settle] 意图 ${claimed.intentId} void_ 解冻失败（reconcile 超龄兜底）: ${e}`));
         await this.intentService.fail(claimed.id, String(err), undefined, claimed.execSeq);
       }
-      const attempts: number = typeof claimed?.attempts === 'number' ? claimed.attempts : 0;
       if (err instanceof NodeBusyError) {
         // Z99：NodeBusy=别处在飞非节点失败——投影 skipped+reason（禁 error）；不 fail 他人在飞行、不 void_
-        // （claim 抛错=claimed null——无 intent 行可绑，裸项目档 scope）
+        // （claim 抛错=claimed null——无 intent 行可绑，裸项目档 scope）。Y3 T3⑮：带 claimed 档补 execSeq。
         await this.collabDoc.writeExecStatus(projectId, node.id, {
-          status: 'skipped', reason: String(err?.message ?? err), attempts,
-          ...(claimed ? { intentId: claimed.intentId } : {}),
+          status: 'skipped', reason: String(err?.message ?? err), attempts: typeof claimed?.attempts === 'number' ? claimed.attempts : 0,
+          ...(claimed ? { intentId: claimed.intentId, execSeq: claimed.execSeq.toString() } : {}),
         }, claimed ? this.wscope(claimed) : undefined).catch(countExecProjectionFailure);
         errors.push({ nodeId: node.id, status: 'skipped', error: String(err?.message ?? err), errorCode: 'NODE_BUSY' });
         return;
       }
+      // Y3 T3：通用失败 Feed=封闭句「生成失败」（EXEC_GENERIC——err.message 只进日志；errors[].error
+      // HTTP 响应面仍原文）。无行档 attempts 0/rearmable false；有行档 rearmable=attempts<3（INTENT_EXHAUSTED
+      // 恒 false 由 feedError 按码承担）。
       const errorCode = err instanceof BusinessException ? err.errorCode : 'EXECUTION_FAILED';
-      const rearmable = err instanceof IntentExhaustedError ? false : attempts < 3; // INTENT_EXHAUSTED：rearmable:false（轮换判据单源）
-      await this.collabDoc.writeExecStatus(projectId, node.id, this.errorPatch(errorCode, err?.message ?? err, attempts, rearmable, claimed?.intentId), claimed ? this.wscope(claimed) : undefined).catch(countExecProjectionFailure); // error 展示不受门序限（无产物即无资损方向）——doc 写失败不吞原始错误
+      this.logger.warn(`[exec-failed] 节点 ${node.id} 执行失败（意图 ${claimed?.intentId ?? '无行'}）: ${err?.message ?? err}`);
+      await this.collabDoc.writeExecStatus(projectId, node.id, feedError(errorCode, 'EXEC_GENERIC', this.feedRow(claimed)), claimed ? this.wscope(claimed) : undefined).catch(countExecProjectionFailure); // error 展示不受门序限（无产物即无资损方向）——doc 写失败不吞原始错误
       this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: err?.message ?? String(err) });
       errors.push({ nodeId: node.id, status: 'error', error: String(err?.message ?? err), errorCode });
     }
@@ -793,7 +808,13 @@ export class ExecutionService {
     for (const plan of frozen.plans) {
       if (!isExecutableNode({ type: plan.type })) continue;
       const entry = frozen.input.nodes[plan.nodeId];
-      if (!entry) { errors.push({ nodeId: plan.nodeId, status: 'error', error: 'PLAN_MISSING（冻结输入缺节点）', errorCode: 'PLAN_MISSING' }); continue; }
+      if (!entry) {
+        // Y3 T3：冻结缺节点码改 FROZEN_INPUT_MISSING（「节点缺少冻结输入」——不拼 PLAN_MISSING 句）
+        // +补 Feed 写（此前零 Feed 写——无行档 attempts 0/rearmable false/不写身份键）。
+        errors.push({ nodeId: plan.nodeId, status: 'error', error: '节点缺少冻结输入', errorCode: 'FROZEN_INPUT_MISSING' });
+        await this.collabDoc.writeExecStatus(projectId, plan.nodeId, feedError('FROZEN_INPUT_MISSING', 'FROZEN_INPUT_MISSING', null)).catch(countExecProjectionFailure);
+        continue;
+      }
       this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'loading' });
       let claimed: any = null;
       try {
@@ -862,7 +883,8 @@ export class ExecutionService {
         });
         onClaimed?.({ nodeId: plan.nodeId, intentRowId: intent.id, execSeq: intent.execSeq.toString() });
         const attempts: number = typeof intent.attempts === 'number' ? intent.attempts : 0;
-        await this.collabDoc.writeExecStatus(projectId, plan.nodeId, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId, attempts }, this.wscope(intent)).catch(countExecProjectionFailure);
+        // Y3 T3⑮：loading 补 execSeq（mergeSlot 代际规则生效前提）。
+        await this.collabDoc.writeExecStatus(projectId, plan.nodeId, { status: 'loading', jobId: jobId ?? null, intentId: intent.intentId, attempts, execSeq: intent.execSeq.toString() }, this.wscope(intent)).catch(countExecProjectionFailure);
 
         // 资金：受理 per-item 预留在档——本路径跳过 intent reserve（双冻结防护）
         const reanchored = await this.intentService.reanchorDeadline(intent.id, entry.kind, intent.execSeq);
@@ -892,7 +914,9 @@ export class ExecutionService {
             ? await this.artifactCommit.finalizeVideo({ projectId, nodeId: plan.nodeId, teamId: frozen.request.teamId, userId, intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev, sourceUrl: outcome.resultRef, sourceMimeType: 'video/mp4', settlement, authorVoid })
             : await this.artifactCommit.commitImage({ projectId, nodeId: plan.nodeId, teamId: frozen.request.teamId, userId, intentRowId: intent.id, execSeq: intent.execSeq, expectedRev: artifactRev, sourceUrl: outcome.resultRef, originalNameBase: `ai-generated-${plan.nodeId}`, settlement, authorVoid });
         if (committed.outcome === 'intent-stale') {
+          // Y3 T3：per-item void 照旧（既有语义）+补 Feed 执行链超时句（EXEC_DEADLINE）。
           await this.teamCredit.voidForExecutionRequestItem({ executionRequestId: frozen.request.id, nodeId: plan.nodeId }).catch(() => {});
+          await this.collabDoc.writeExecStatus(projectId, plan.nodeId, feedError('INTENT_DEADLINE_EXCEEDED', 'EXEC_DEADLINE', this.feedRow(intent)), this.wscope(intent)).catch(countExecProjectionFailure);
           errors.push({ nodeId: plan.nodeId, status: 'error', error: '生成已被系统回收（超时）——产物未投递', errorCode: 'INTENT_DEADLINE_EXCEEDED' });
           continue;
         }
@@ -920,6 +944,19 @@ export class ExecutionService {
         // 释放发生在 commit 之后：行已 SUCCEEDED。void/fail 会把已核销成功翻成退款。
         // 上抛给 processor 有上限重排；回放臂补释放。
         if (err instanceof AuthorSlotReleaseError) throw err;
+        // ── Y3 T3 冻结资金臂（plan v9 裁定「:919 前在 catch 外」错认账修正）：插在 AuthorSlotReleaseError
+        //    重抛之后、voidForExecutionRequestItem/void_/fail 之前——FundsInvariantError=finalize 整体
+        //    回滚（per-item 预留未核销）且核销凭据不成立，per-item void 会把预留退回但意图行歧义态
+        //    禁终态化：不 void 不 fail 行留 RUNNING+冻结原样交对账第四分支；reaper 之后按 deadline
+        //    收敛这种 RUNNING 行（资金域既有行为——本批不改 reaper 扫描条件）。Feed=暂缓交付句
+        //    （FUNDS_HELD，rearmable:false）。 ──
+        if (err instanceof FundsInvariantError && claimed) {
+          this.logger.error(`[funds-invariant] 意图 ${claimed.intentId} 资金不变量破缺（冻结路径——行留 RUNNING 交对账第四分支）: ${err.message}`);
+          await this.collabDoc.writeExecStatus(projectId, plan.nodeId, feedError('FUNDS_INVARIANT_VIOLATION', 'FUNDS_HELD', this.feedRow(claimed)), this.wscope(claimed)).catch(countExecProjectionFailure);
+          this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'error', error: '生成结果暂缓交付（资金核销异常，待对账处理）' });
+          errors.push({ nodeId: plan.nodeId, status: 'error', error: '生成结果暂缓交付（资金核销异常，待对账处理）', errorCode: 'FUNDS_INVARIANT_VIOLATION' });
+          continue;
+        }
         if (err instanceof BusinessException && err.errorCode === 'TEXT_PROVIDER_UNKNOWN' && claimed) {
           // Y1c T23 UNKNOWN 纪律（冻结路径）：text 外呼结果不明≠确定失败——per-item 预留**保留**
           //（不 voidForExecutionRequestItem=「reserve 在 UNKNOWN 期间保留」）+markUnknown 替代 fail
@@ -928,10 +965,13 @@ export class ExecutionService {
           const marked = await this.intentService.markUnknown(claimed.id, String(err?.message ?? err), claimed.execSeq).catch(() => 0);
           if (marked === 1) textUnknownTotal.inc();
           else textUnknownMarkFailedTotal.inc();   // T23 收口 M-3：失败窗中性文案（同非冻结路径分档）
+          // Y3 T3：Feed 句改 shared 封闭句（TEXT_UNKNOWN_HELD/UNMARKED——err.message 前缀删除，原文只
+          // 进日志）；errors[].error（HTTP 响应面）仍携原文。
+          this.logger.warn(`[text-unknown] 意图 ${claimed.intentId} 外呼结果不明（冻结路径，marked=${marked}）: ${err?.message ?? err}`);
           const unknownMsg = marked === 1
             ? `${err?.message ?? err}——可能重复生成、不会重复扣费（请稍后查询或重试）`
             : `${err?.message ?? err}——外呼结果不明，扣费状态待对账（请稍后查询或重试）`;
-          await this.collabDoc.writeExecStatus(projectId, plan.nodeId, this.errorPatch('TEXT_PROVIDER_UNKNOWN', unknownMsg, 0, true, claimed.intentId), this.wscope(claimed)).catch(countExecProjectionFailure);
+          await this.collabDoc.writeExecStatus(projectId, plan.nodeId, feedError('TEXT_PROVIDER_UNKNOWN', marked === 1 ? 'TEXT_UNKNOWN_HELD' : 'TEXT_UNKNOWN_UNMARKED', this.feedRow(claimed)), this.wscope(claimed)).catch(countExecProjectionFailure);
           this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'error', error: unknownMsg });
           errors.push({ nodeId: plan.nodeId, status: 'error', error: unknownMsg, errorCode: 'TEXT_PROVIDER_UNKNOWN' });
           continue;
@@ -943,8 +983,11 @@ export class ExecutionService {
           await this.teamCredit.void_({ intentRowId: claimed.id, execSeq: claimed.execSeq }).catch(() => {});
           await this.intentService.fail(claimed.id, String(err), undefined, claimed.execSeq);
         }
+        // Y3 T3：通用失败 Feed=封闭句「生成失败」（EXEC_GENERIC——err.message 只进日志）；有行档
+        // attempts=行值/rearmable=attempts<3（旧行为 attempts 0+rearmable false 恒定即误导）。
         const errorCode = err instanceof BusinessException ? err.errorCode : 'EXECUTION_FAILED';
-        await this.collabDoc.writeExecStatus(projectId, plan.nodeId, this.errorPatch(errorCode, err?.message ?? err, 0, false, claimed?.intentId), claimed ? this.wscope(claimed) : undefined).catch(countExecProjectionFailure);
+        this.logger.warn(`[exec-failed] 节点 ${plan.nodeId} 执行失败（冻结路径，意图 ${claimed?.intentId ?? '无行'}）: ${err?.message ?? err}`);
+        await this.collabDoc.writeExecStatus(projectId, plan.nodeId, feedError(errorCode, 'EXEC_GENERIC', this.feedRow(claimed)), claimed ? this.wscope(claimed) : undefined).catch(countExecProjectionFailure);
         this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'error', error: err?.message ?? String(err) });
         errors.push({ nodeId: plan.nodeId, status: 'error', error: String(err?.message ?? err), errorCode });
       }

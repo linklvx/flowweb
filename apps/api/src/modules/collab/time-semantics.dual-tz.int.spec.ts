@@ -201,7 +201,7 @@ afterAll(async () => {
   it('projection-outbox（ProjectionOutboxPoller.claim）：nextAttemptAt 到期=两时区均认领；未来=零触碰', async () => {
     for (const tz of TZS) {
       const { client, projectId } = byTz[tz];
-      const poller = new ProjectionOutboxPoller(asPrisma(client), {} as never, {} as never, {} as never, {} as never);
+      const poller = new ProjectionOutboxPoller(asPrisma(client), {} as never, {} as never, {} as never, {} as never, {} as never)   // Y3 T3：feed 第 6 依赖（本用例零 author-void 行——空桩）;
       const seed = (suffix: string, nextAttemptAt: Date) => prisma.artifactProjection.create({ data: {
         artifactId: `tz-c14-${TID}-${suffix}-${randomUUID()}`, artifactRev: 1, projectId,
         nodeId: `outbox-${suffix}-${tz}`, targetField: 'mediaId', targetItemId: '',

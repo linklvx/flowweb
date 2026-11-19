@@ -2,6 +2,7 @@ import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Job, DelayedError } from 'bullmq';
 import { Inject, Logger } from '@nestjs/common';
 import * as Sentry from '@sentry/nestjs';
+import { feedError } from '@flowweb/shared';   // Y3 Task3：编辑链 Feed error 唯一出口（扣费五码句与 execution.service onReserveFail 同款映射）
 import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmitPort } from '../gateway/emit.port';
@@ -144,6 +145,15 @@ export class AiImageEditProcessor extends WorkerHost {
         const reason = reserveResult.reason ?? 'RESERVE_FAILED';
         this.logger.warn(`Edit credit-reserve failed for node ${nodeId}: ${reason}`);
         await this.intentService.void_(intentRowId, `扣费失败：${reason}`, execSeq); // 零扣费终态——重试照常扣费
+        // Y3 Task3：扣费失败 Feed=词表句（reserveFailSentence 五码同名单源；未命中码兜底
+        // RESERVE_GATE_LOST「扣费失败，请重试」）——行读身份键恒写（feedError 有行档）。
+        const sentence = (['CREDIT_INSUFFICIENT', 'QUOTA_EXCEEDED', 'NOT_MEMBER', 'TEAM_BALANCE_MISSING'] as const).includes(reason as never)
+          ? (reason as 'CREDIT_INSUFFICIENT' | 'QUOTA_EXCEEDED' | 'NOT_MEMBER' | 'TEAM_BALANCE_MISSING')
+          : 'RESERVE_GATE_LOST';
+        const row = await this.prisma.generationIntent.findUnique({
+          where: { id: intentRowId }, select: { intentId: true, attempts: true, execSeq: true },
+        }).catch(() => null);
+        await this.collabDoc.writeExecStatus(projectId, nodeId, feedError(reason, sentence, row ? { intentId: row.intentId, attempts: row.attempts, execSeq: row.execSeq ?? execSeq } : null), intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure);
         this.emitPort.emitNodeStatus(projectId, {
           nodeId,
           status: 'edit-failed',
@@ -237,7 +247,12 @@ export class AiImageEditProcessor extends WorkerHost {
         authorVoid,
       });
       if (committed.outcome === 'intent-stale') {
+        // Y3 T3⑪：intent-stale 返回前补 Feed 写（EXEC_DEADLINE 句+行身份——行读 closed 句表）。
         this.logger.warn(`[artifact-commit] 意图 ${intentLogId} finalize intent-stale（行终态/换代）——跳过产物写入（外呼产物留作证）`);
+        const staleRow = await this.prisma.generationIntent.findUnique({
+          where: { id: intentRowId }, select: { intentId: true, attempts: true, execSeq: true },
+        }).catch(() => null);
+        await this.collabDoc.writeExecStatus(projectId, nodeId, feedError('INTENT_DEADLINE_EXCEEDED', 'EXEC_DEADLINE', staleRow ? { intentId: staleRow.intentId, attempts: staleRow.attempts, execSeq: staleRow.execSeq ?? execSeq } : null), intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure);
         return { status: 'completed' };
       }
       const mediaId = committed.mediaId!;
@@ -307,14 +322,13 @@ export class AiImageEditProcessor extends WorkerHost {
       // 用户面=FUNDS_INVARIANT_VIOLATION error 投影（worker 侧 emit 降级 no-op——doc 投影为唯一
       // 持久面）+edit-failed emit。
       if (error instanceof FundsInvariantError && intentRowId) {
+        // Y3 T3：资金不变量 Feed 行读补行身份（feedError 有行档——intentId/attempts/execSeq 恒写）。
         this.logger.error(`[funds-invariant] 意图 ${intentLogId} 资金不变量破缺（行留 RUNNING 交对账第四分支）: ${error.message}`);
-        const attempts = (await this.prisma.generationIntent.findUnique({
-          where: { id: intentRowId }, select: { attempts: true },
-        }).catch(() => null))?.attempts ?? 0;
+        const fundsRow = await this.prisma.generationIntent.findUnique({
+          where: { id: intentRowId }, select: { intentId: true, attempts: true, execSeq: true },
+        }).catch(() => null);
         const msg = '生成结果暂缓交付（资金核销异常，待对账处理）';
-        await this.collabDoc.writeExecStatus(projectId, nodeId, {
-          status: 'error', errorCode: 'FUNDS_INVARIANT_VIOLATION', error: msg, attempts,
-        }, intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure);
+        await this.collabDoc.writeExecStatus(projectId, nodeId, feedError('FUNDS_INVARIANT_VIOLATION', 'FUNDS_HELD', fundsRow ? { intentId: fundsRow.intentId, attempts: fundsRow.attempts, execSeq: fundsRow.execSeq ?? execSeq } : null), intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure);
         this.emitPort.emitNodeStatus(projectId, { nodeId, status: 'edit-failed', error: msg });
         return { status: 'failed', reason: 'FUNDS_INVARIANT_VIOLATION' };
       }
@@ -326,16 +340,15 @@ export class AiImageEditProcessor extends WorkerHost {
         await this.intentService.fail(intentRowId, String(error?.message ?? error), undefined, execSeq);
       }
       if (projectId) {
-        // Z111：投影携 attempts（行已 fail 亦可读——attempts 不随终态变化；读失败按 0 代不挡原始错误上抛）
-        let attempts = 0;
-        if (intentRowId) {
-          try {
-            attempts = (await this.prisma.generationIntent.findUnique({ where: { id: intentRowId }, select: { attempts: true } }))?.attempts ?? 0;
-          } catch { /* attempts 读失败按 0 代——投影 best-effort */ }
-        }
-        await this.collabDoc.writeExecStatus(projectId, nodeId, {
-          status: 'error', error: String(error?.message ?? error).slice(0, 200), attempts,
-        }, intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure); // best-effort——doc 写失败不吞原始错误（Y0c T0：吞错加观测）
+        // Y3 T3：通用失败行读封闭句（EDIT_FAILED「AI 处理失败」——err.message 只进日志）；行读
+        // 身份键恒写（feedError 有行档——rearmable=attempts<3 由码承担）。
+        this.logger.warn(`[edit-failed] 节点 ${nodeId} 编辑失败（意图 ${intentLogId}）: ${error?.message ?? error}`);
+        const failRow = intentRowId
+          ? await this.prisma.generationIntent.findUnique({
+              where: { id: intentRowId }, select: { intentId: true, attempts: true, execSeq: true },
+            }).catch(() => null)
+          : null;
+        await this.collabDoc.writeExecStatus(projectId, nodeId, feedError('EXECUTION_FAILED', 'EDIT_FAILED', failRow ? { intentId: failRow.intentId, attempts: failRow.attempts, execSeq: failRow.execSeq ?? execSeq ?? 0n } : null), intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure); // best-effort——doc 写失败不吞原始错误（Y0c T0：吞错加观测）
       }
 
       // Push failure via WebSocket — do NOT deduct credit on failure

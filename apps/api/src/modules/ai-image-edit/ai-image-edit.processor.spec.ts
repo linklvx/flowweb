@@ -599,4 +599,102 @@ describe('AiImageEditProcessor', () => {
       expect(teamCredit.reserve).not.toHaveBeenCalled();
     });
   });
+
+  // ══════════ Y3 Task3：编辑链 Feed 封闭句改道（断言①+⑪——先红）══════════
+  //  ① 编辑扣费失败（CREDIT_INSUFFICIENT）：Feed payload={errorCode:'CREDIT_INSUFFICIENT',
+  //  error:'积分不足', intentId:行值, execSeq:row.execSeq.toString(), rearmable:attempts<3}——
+  //  现 processor 扣费失败只 emit edit-failed（零 Feed 写）=红锚；void_ 原因仍原因码。
+  //  ⑪ intent-stale：返回 completed 前有一条 Feed 写（EXEC_DEADLINE 句+行身份）。
+  //  通用失败行读封闭句：error='AI 处理失败'（err.message 只进日志）；资金不变量补行读
+  //  （intentId/execSeq 恒写——feedError 有行档）。
+  describe('Y3 Task3：编辑链 Feed 封闭句改道（先红）', () => {
+    const makeIntentJob = () =>
+      ({
+        data: {
+          taskType: 'outpaint',
+          userId: 'user1',
+          projectId: 'proj1',
+          nodeId: 'node1',
+          fileId: 'file-1',
+          rect: { x: 0, y: 0, width: 512, height: 512 },
+          imageWidth: 512,
+          imageHeight: 512,
+          intentRowId: 'row-9',
+          ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 },
+        },
+      }) as any as Job;
+    const mockResult = () => {
+      safeFetch.fetchBuffer.mockResolvedValue({ buffer: Buffer.from('fake-image-data'), contentType: 'image/png' });
+    };
+
+    it('① 编辑扣费失败（CREDIT_INSUFFICIENT）：Feed payload 封闭句「积分不足」+intentId/execSeq 身份键+rearmable:attempts<3；void_ 原因仍原因码', async () => {
+      teamCredit.reserve.mockResolvedValue({ success: false, reason: 'CREDIT_INSUFFICIENT' });
+      // 行读面（feedError 有行档——processor 扣费失败须读行铸 Feed）
+      prisma.generationIntent.findUnique.mockResolvedValueOnce({ status: 'RUNNING', execSeq: 9n, attempts: 2, intentId: 'i-row-9' });
+      mockResult();
+      const result = await processor.process(makeIntentJob());
+      expect(result.status).toBe('failed');
+      expect(result.reason).toBe('CREDIT_INSUFFICIENT');
+      // void_ 原因仍原因码（行为面不变）
+      expect(intentService.void_).toHaveBeenCalledWith('row-9', expect.stringContaining('CREDIT_INSUFFICIENT'), 9n);
+      // Feed 写（红：现状零 writeExecStatus）
+      const feed = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.errorCode === 'CREDIT_INSUFFICIENT');
+      expect(feed).toBeTruthy();
+      const patch = feed![2] as Record<string, unknown>;
+      expect(patch.error).toBe('积分不足');       // 封闭句（旧 emit 文案「扣费失败：…」不进 Feed）
+      expect(patch.intentId).toBe('i-row-9');     // 行 intentId 列
+      expect(patch.execSeq).toBe('9');            // row.execSeq.toString()
+      expect(patch.attempts).toBe(2);
+      expect(patch.rearmable).toBe(true);         // attempts<3
+      expect(patch.status).toBe('error');
+    });
+
+    it('⑪ intent-stale：返回 completed 前有一条 Feed 写（EXEC_DEADLINE 句「生成已被系统回收（超时）——产物未投递」+行身份）', async () => {
+      artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'intent-stale' });
+      prisma.generationIntent.findUnique.mockResolvedValue({ status: 'RUNNING', execSeq: 9n, attempts: 1, intentId: 'i-row-9' });
+      mockResult();
+      collabDoc.writeExecStatus.mockClear();
+      const result = await processor.process(makeIntentJob());
+      expect(result.status).toBe('completed');
+      const feed = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.errorCode === 'INTENT_DEADLINE_EXCEEDED');
+      expect(feed).toBeTruthy();   // 红：现状 intent-stale 返回零 Feed 写
+      const patch = feed![2] as Record<string, unknown>;
+      expect(patch.error).toBe('生成已被系统回收（超时）——产物未投递');
+      expect(patch.intentId).toBe('i-row-9');
+      expect(patch.execSeq).toBe('9');
+      expect(patch.attempts).toBe(1);
+      expect(patch.status).toBe('error');
+    });
+
+    it('通用失败行读封闭句：Feed error="AI 处理失败"（err.message 只进日志）+intentId/execSeq 恒写', async () => {
+      apiCaller.callOutpainting.mockRejectedValue(new Error('AI timeout'));
+      prisma.generationIntent.findUnique.mockResolvedValue({ status: 'RUNNING', execSeq: 9n, attempts: 1, intentId: 'i-row-9' });
+      await expect(processor.process(makeIntentJob())).rejects.toThrow('AI timeout');
+      const feed = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.status === 'error' && c[2]?.errorCode === 'EXECUTION_FAILED');
+      expect(feed).toBeTruthy();
+      const patch = feed![2] as Record<string, unknown>;
+      expect(patch.error).toBe('AI 处理失败');   // 封闭句——旧 err.message 原文进 Feed 即红
+      expect(patch.error).not.toContain('AI timeout');
+      expect(patch.intentId).toBe('i-row-9');   // 行身份（行读）
+      expect(patch.execSeq).toBe('9');
+      expect(patch.attempts).toBe(1);
+      expect(patch.rearmable).toBe(true);       // attempts<3
+    });
+
+    it('资金不变量（FUNDS_INVARIANT_VIOLATION）：Feed 行读补 intentId/execSeq（feedError 有行档——恒 false）', async () => {
+      artifactCommit.commitImage.mockRejectedValueOnce(new FundsInvariantError({
+        intentRowId: 'row-9', execSeq: 9n, creditCost: 5, reservedCredits: 0, creditsConsumed: 0, reservedExecSeq: null,
+      }));
+      prisma.generationIntent.findUnique.mockResolvedValue({ status: 'RUNNING', execSeq: 9n, attempts: 1, intentId: 'i-row-9' });
+      const result = await processor.process(makeIntentJob());
+      expect(result.status).toBe('failed');
+      const feed = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.errorCode === 'FUNDS_INVARIANT_VIOLATION');
+      expect(feed).toBeTruthy();
+      const patch = feed![2] as Record<string, unknown>;
+      expect(patch.error).toBe('生成结果暂缓交付（资金核销异常，待对账处理）');
+      expect(patch.intentId).toBe('i-row-9');   // 红：现状无身份键
+      expect(patch.execSeq).toBe('9');          // 红：现状无身份键
+      expect(patch.rearmable).toBe(false);      // FUNDS 恒 false
+    });
+  });
 });

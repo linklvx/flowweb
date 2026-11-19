@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger, Optional, ServiceUnavailableException, type OnApplicationShutdown } from '@nestjs/common';
 import * as Y from 'yjs';
-import { toReadModel, CANVAS_DOC_SCHEMA_VERSION, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, textDomainOf, type StoredNodeRecord, type DocEdgeRecord, type CanvasReadModel, type CanvasReadSnapshot } from '@flowweb/shared';
+import { toReadModel, CANVAS_DOC_SCHEMA_VERSION, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, textDomainOf, assembleExecStatusPayload, type StoredNodeRecord, type DocEdgeRecord, type CanvasReadModel, type CanvasReadSnapshot } from '@flowweb/shared';
 import { CollabGateway, isValidDocName } from './collab.gateway';
 import { canvasDocName } from './doc-name.util';
 import { CollabResidencyService, type WithSessionOptions } from './collab-residency.service';
@@ -13,12 +13,15 @@ import { SnapshotDocCache } from './snapshot-doc-cache';
 import { RuntimeFeedService } from './runtime-feed.service';
 import { CollabLifecycleObserverService } from './collab-lifecycle-observer.service';
 
-/** Z111：exec 投影 patch 类型——attempts 必填（编译级；请求级投影传 0 代："0 代不得覆盖任何 ≥1 代"）。 */
-export interface ExecStatusPatch {
+/** Z111：exec 投影 patch 类型——attempts 必填（编译级；请求级投影传 0 代："0 代不得覆盖任何 ≥1 代"）。
+ *  Y3 Task3：联合收 ExecStatusAssembledPayload（feedError/组装器产物——接口无隐式索引签名，
+ *  联合收编后调用方可直传产物形态；writeExecStatus 内仍过组装器八键面——幂等无二次变形）。 */
+import type { ExecStatusAssembledPayload, ExecStatusPayloadPatch } from '@flowweb/shared';
+export type ExecStatusPatch = {
   status: string;
   attempts: number;
   [key: string]: unknown;
-}
+} | ExecStatusAssembledPayload;
 
 /** Z44/Z64：writeNodeData 交付判据返回——written:false=节点已删/结构缺失（交付路径唯一退款凭据）；
  *  drain/租约 503 是抛错（走悬留闭环）非 written:false，两路径分义。 */
@@ -245,19 +248,15 @@ export class CollabDocumentService implements OnApplicationShutdown {
     // X9 写意图受理门 + Y0a-3 T8 租约档（R4）；Y0c T9 收编单点 assertWriteAdmitted（语义零变化）
     this.residency.assertWriteAdmitted();
     if (!this.feed) throw new Error('RUNTIME_FEED_NOT_CONFIGURED: writeExecStatus 需 RuntimeFeedService（T22 doc.exec 停写——禁回落 doc 写）');
-    const { attempts, status } = patch;
+    // Y3 Task2（spec §3 S2）：payload 体改调 shared 组装器（八键恰+error 封闭句等值检查——表外句
+    // 整段换「生成失败」不截断；fileId/jobId/reason 等禁写键一律丢弃）；nodeId 调用方单独拼、
+    // nodeVersion 由 appendEventInTx 单源盖（组装器禁写）。ExecStatusPatch 开放签名可直赋
+    // ExecStatusPayloadPatch（status 非空 string 抛错档=业务 bug 非静默）。
+    // Y3 Task3：assembled 形态（feedError 产物）经展开转开放签名（接口无隐式索引签名——展开
+    // 后对象字面量面幂等重过组装器，八键恰不变）。
     const r = await this.feed.appendEvent(projectId, 'exec.status', () => ({
       nodeId,
-      status: String(status),
-      attempts: typeof attempts === 'number' ? attempts : 0,
-      ...(typeof patch.execSeq === 'string' ? { execSeq: patch.execSeq } : {}),
-      ...(typeof patch.errorCode === 'string' ? { errorCode: patch.errorCode } : {}),
-      ...(typeof patch.artifactRev === 'number' ? { artifactRev: patch.artifactRev } : {}),
-      // T22 收口批 I-8（Controller 裁定扩词表根修）：intentId/rearmable 随事件投影落 feed
-      //（errorPatch 调用面既有传递——修前 payload 丢弃致 ImageConfigPanel/VideoConfigPanel
-      // entry.rearmable===false〔EXHAUSTED 判据〕结构性不可达；taxonomy 同批扩键 spec §7 v5.4⑭）
-      ...(typeof patch.intentId === 'string' ? { intentId: patch.intentId } : {}),
-      ...(typeof patch.rearmable === 'boolean' ? { rearmable: patch.rearmable } : {}),
+      ...assembleExecStatusPayload({ ...patch } as ExecStatusPayloadPatch),
     }));
     this.feed.notifyProject(projectId);   // 事务提交后通知（节流 ≤1/s——feed-hint 不带事件体）
     void r;
@@ -316,12 +315,13 @@ export class CollabDocumentService implements OnApplicationShutdown {
         ...(params.targetField === 'result' && typeof value === 'string' ? { resultRef: value } : {}),
         artifactRev,
       }));
-      // ④ exec.status done（attempt/errorCode 随 exec patch——键集同 EXEC_STATUS_KEYS 域）
+      // ④ exec.status done（改调 shared 组装器——Y3 Task2：execDonePatch 已带 intentId/execSeq，
+      //    修前手抄字面量只拷 status/attempts/errorCode 三键致两身份键被丢，组装器改道自然收口；
+      //    execDonePatch 本体零改（payload 键集同 EXEC_STATUS_KEYS 域——八键恰+error 封闭句等值检查）。
+      //    status done 兜底维持（exec.status 缺省语义非业务 bug——ExecStatusPatch.status 可缺）。
       await append('exec.status', () => ({
         nodeId,
-        status: String(exec.status ?? 'done'),
-        attempts: typeof exec.attempts === 'number' ? exec.attempts : 0,
-        ...(typeof exec.errorCode === 'string' ? { errorCode: exec.errorCode } : {}),
+        ...assembleExecStatusPayload({ ...exec, status: typeof exec.status === 'string' && exec.status !== '' ? exec.status : 'done' }),
       }));
       return { rejected: false as const };
     });

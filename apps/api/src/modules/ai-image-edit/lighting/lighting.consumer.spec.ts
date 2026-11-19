@@ -364,4 +364,54 @@ describe('LightingConsumer', () => {
       expect(failedUpdates).toHaveLength(0);
     });
   });
+
+  // ══════════ Y3 Task3：打光链 Feed 封闭句改道（断言⑪+资金行读+作废臂零 done——先红）══════════
+  describe('Y3 Task3：打光链 Feed 改道（先红）', () => {
+    const intent = { intentRowId: 'row-9', ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 } };
+
+    it('⑪ intent-stale：返回 completed 前有一条 Feed 写（EXEC_DEADLINE 句+行身份）', async () => {
+      artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'intent-stale' });
+      prisma.generationIntent.findUnique.mockResolvedValue({ status: 'RUNNING', execSeq: 9n, attempts: 1, intentId: 'i-row-9' });
+      mockDownloadResult();
+      collabDoc.writeExecStatus.mockClear();
+      const result = await consumer.handleLightingJob(makeJob('proj-1', intent), {});
+      expect(result.status).toBe('completed');
+      const feed = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.errorCode === 'INTENT_DEADLINE_EXCEEDED');
+      expect(feed).toBeTruthy();   // 红：现状 intent-stale 返回零 Feed 写
+      const patch = feed![2] as Record<string, unknown>;
+      expect(patch.error).toBe('生成已被系统回收（超时）——产物未投递');
+      expect(patch.intentId).toBe('i-row-9');
+      expect(patch.execSeq).toBe('9');
+      expect(patch.attempts).toBe(1);
+      expect(patch.status).toBe('error');
+    });
+
+    it('资金不变量（FUNDS_INVARIANT_VIOLATION）：Feed 行读补 intentId/execSeq（feedError 有行档恒 false）', async () => {
+      artifactCommit.commitImage.mockRejectedValueOnce(new FundsInvariantError({
+        intentRowId: 'row-9', execSeq: 9n, creditCost: 5, reservedCredits: 0, creditsConsumed: 0, reservedExecSeq: null,
+      }));
+      prisma.generationIntent.findUnique.mockResolvedValue({ status: 'RUNNING', execSeq: 9n, attempts: 1, intentId: 'i-row-9' });
+      const result = await consumer.handleLightingJob(makeJob('proj-1', intent), {});
+      expect(result.status).toBe('failed');
+      const feed = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.errorCode === 'FUNDS_INVARIANT_VIOLATION');
+      expect(feed).toBeTruthy();
+      const patch = feed![2] as Record<string, unknown>;
+      expect(patch.error).toBe('生成结果暂缓交付（资金核销异常，待对账处理）');
+      expect(patch.intentId).toBe('i-row-9');   // 红：现状无身份键
+      expect(patch.execSeq).toBe('9');          // 红：现状无身份键
+      expect(patch.rearmable).toBe(false);
+    });
+
+    it('作废臂零 done 写：authorVoid=true∧committed ⇒ writeExecStatus 零 done 调用（作废终态归 poller；去重档本就不写）', async () => {
+      collabDoc.readAuthorSlot.mockResolvedValueOnce({ nodeId: 'n1', kind: 'lighting', frozen: true, authorMediaId: 'm-a', liveMediaId: 'm-user-new' });   // 现场≠冻结 ⇒ authorVoid
+      artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'committed', mediaId: 'm-void', key: 'generated/key' });
+      prisma.generationIntent.findUnique.mockResolvedValue({ status: 'RUNNING', execSeq: 9n, attempts: 1, intentId: 'i-row-9' });
+      mockDownloadResult();
+      const r = await consumer.handleLightingJob(makeJob('proj-1', intent), {});
+      expect(r.status).toBe('completed');
+      const doneCalls = collabDoc.writeExecStatus.mock.calls.filter((c: any[]) => c[2]?.status === 'done');
+      expect(doneCalls).toHaveLength(0);   // 作废终态归 poller（本层零 done 写——钉回归）
+      expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();
+    });
+  });
 });

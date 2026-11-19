@@ -14,6 +14,9 @@ function makeService(reserveOk: boolean, nodes: any[]) {
     canvasProject: { findUnique: vi.fn().mockResolvedValue({ id: 'p1', teamId: 't1' }) },
     pricingRule: { findFirst: vi.fn().mockResolvedValue({ creditCost: 1 }) },
     style: { findMany: vi.fn().mockResolvedValue([]) },
+    // Y3 T3⑮：loading/skipped 投影补 execSeq（intent.execSeq.toString()——夹具行补 execSeq）；
+    // catch 段 fence 读行面（runNodeLifecycle 防御读——null=行灭失形态走通用分支）。
+    generationIntent: { findUnique: vi.fn().mockResolvedValue(null) },
   };
   const topology = {
     getScope: vi.fn().mockReturnValue(nodes),
@@ -47,7 +50,7 @@ function makeService(reserveOk: boolean, nodes: any[]) {
   };
   const gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（census 清零）
   const intentService = {
-    claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'intent-1', intentId: 'i-1' } }),
+    claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'intent-1', intentId: 'i-1', execSeq: 1n, attempts: 1 } }),   // Y3 T3⑮：execSeq 补（loading/skipped 投影键）
     complete: vi.fn().mockResolvedValue(1),
     fail: vi.fn().mockResolvedValue(undefined),
     void_: vi.fn().mockResolvedValue(undefined),

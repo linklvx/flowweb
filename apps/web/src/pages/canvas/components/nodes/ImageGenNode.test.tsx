@@ -755,6 +755,41 @@ describe('ImageGenNode', () => {
     fetchSpy.mockRestore();
   });
 
+  // ── Y3 Task4（v3.1 合同二）：ImageGenNode handleGenerate 真发受理请求处调 markGestureConsumed ──
+
+  it('Y3 Task4：真发受理请求那次 ⇒ markGestureConsumed 消费标记在案（token 铸造上送后即标记——渲染读不计）', async () => {
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => okEnvelope());
+    renderNode();
+    clickOutpaintGenerate();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const token = lastBodyToken(fetchSpy);
+    expect(token).toBeTruthy();
+    // 消费标记=受理请求真发面的证据（回滚三条件之条件三——token 未消费判据的单源）
+    await waitFor(() => {
+      expect(sessionStorage.getItem('flowweb:regen-consumed:p1:img1')).toBe('1');
+    });
+    fetchSpy.mockRestore();
+  });
+
+  it('Y3 Task4：INTENT_EXHAUSTED 同步 409 轮换走无 execSeq 旧形态（无行终态维持今天行为——零代际记录）', async () => {
+    mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'outpaint' };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ statusCode: 409, message: '重试次数已用尽', errorCode: 'INTENT_EXHAUSTED' }), { status: 409 })
+    );
+    renderNode();
+    clickOutpaintGenerate();
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    const sentToken = lastBodyToken(fetchSpy);
+    expect(sentToken).toBeTruthy();
+    await waitFor(() => {
+      expect(sessionStorage.getItem('flowweb:regen:p1:img1')).not.toBe(sentToken);   // 照常轮换（无 execSeq 两参形态）
+    });
+    // 两参旧形态不写代际记录（无行终态不参与 execSeq 代际窗口）
+    expect(sessionStorage.getItem('flowweb:regen-seq:p1:img1')).toBeNull();
+    fetchSpy.mockRestore();
+  });
+
   // ── Redraw mode: bottom toolbar + integrated prompt/strength ──
 
   it('renders EraseBottomToolbar below node when editMode is redraw', () => {

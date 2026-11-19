@@ -40,9 +40,11 @@ import { Prisma, type ArtifactProjection, type NodeArtifact } from '@prisma/clie
 import * as Sentry from '@sentry/nestjs';
 import { randomUUID } from 'node:crypto';
 import * as Y from 'yjs';
+import { assembleExecStatusPayload } from '@flowweb/shared';   // Y3 Task3：作废 done 载荷走八键组装器（不带 fileId——不复用 execDonePatch）
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabLeaseService } from '../collab/collab-lease.service';
 import { CollabDocumentService, type ExecStatusPatch } from '../collab/collab-document.service';
+import { RuntimeFeedService } from '../collab/runtime-feed.service';   // Y3 Task3：作废终态单写（appendEventTransaction 行级事务+notifyProject）
 import { SPOOL_DEADLINE_MS } from '../collab/collab-persistence.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { artifactProjectionOrphanRefundFailTotal, artifactProjectionOutcomeTotal, artifactProjectionPendingAgeSeconds } from './projection-outbox.metrics';
@@ -126,6 +128,9 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
      *  检测**（requestReconcile 仅入队 fire-and-forget——零阻塞投影循环；漂移处置=置 dirty+runner
      *  rebuild，本服务零 MediaBinding 写；spec :25 裁决③「poller mark 后 lazy」）。 */
     @Inject(BindingReconcileService) private readonly reconciler: BindingReconcileService,
+    /** Y3 Task3：作废终态单写面（author-void: 票据行——feed.appendEventTransaction 行级事务+
+     *  notifyProject；同模块 CollabModule exports 已含 RuntimeFeedService）。 */
+    @Inject(RuntimeFeedService) private readonly feed: RuntimeFeedService,
   ) {}
 
   /** dead 行 on-load reconcile（spec :91「dead 行加 on-load reconcile/admin retry 重驱」——启动
@@ -241,13 +246,26 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
     // ① fence 前置（claim→apply 段）：epoch 已动 ⇒ fencedBail 全量释放（不耗 attempts）
     if (fencedNow()) { await this.fencedBail(rows, inc); return { outcomes, fenced: true, appliedUnpersisted: 0 }; }
 
+    // ── Y3 Task3（v3.0 七步）：author-void: 票据行分岔——读 NodeArtifact 之前按前缀岔开；
+    //    票据行无 NodeArtifact 锚（artifactId=author-void:<rowId>:<seq> 非产物行 id），不进
+    //    deliverable/flushDocument 批次（兄弟行 flush 失败不卷进 fencedBail——票据行独立事务），
+    //    不触 refundOrphaned（settle 在 finalize 已核销——作废票无退款面）。 ──
+    const voidRows = rows.filter((r) => r.artifactId.startsWith('author-void:'));
+    const normalRows = rows.filter((r) => !r.artifactId.startsWith('author-void:'));
+    for (const row of voidRows) {
+      if (this.destroyed) break;
+      const outcome = await this.processVoidTicketRow(projectId, row, capturedEpoch, inc);
+      if (outcome === 'fenced') return { outcomes, fenced: true, appliedUnpersisted: 0 };
+    }
+    if (normalRows.length === 0) return { outcomes, fenced: false, appliedUnpersisted: 0 };
+
     // ② 读 NodeArtifact：rev≠投影锚 ⇒ superseded（终态不重试零 doc 写）
     const artifacts = await this.prisma.nodeArtifact.findMany({
-      where: { id: { in: rows.map((r) => r.artifactId) } },
+      where: { id: { in: normalRows.map((r) => r.artifactId) } },
     });
     const byId = new Map<string, NodeArtifact>(artifacts.map((a) => [a.id, a]));
     const survivors: Array<{ row: ArtifactProjection; artifact: NodeArtifact }> = [];
-    for (const row of rows) {
+    for (const row of normalRows) {
       const artifact = byId.get(row.artifactId);
       if (!artifact) {
         // 权威行灭失（保留矩阵守护下结构性不可达——防御终态：不重试不死循环）
@@ -375,6 +393,120 @@ export class ProjectionOutboxPoller implements OnModuleInit, OnApplicationShutdo
       this.reconciler.requestReconcile(projectId);
     }
     return { outcomes, fenced: false, appliedUnpersisted };
+  }
+
+  /** Y3 Task3（v3.0 七步）：author-void: 作废票据行终态单写（每行独立 appendEventTransaction——
+   *  事件写与行标同事务原子）。键解析 ^author-void:(.+):(\d+)$——末段=作废键 execSeq（行已被
+   *  rearm 换代时 done 载荷 execSeq 仍=键值非新代〔rearm 同行换代不重铸 intentId——mergeSlot
+   *  挡它盖新代 loading〕）。
+   *  ⓪ 事务前 assertWriteAdmitted（租约/spool 不可写=fencedBail 回 pending 零事件）；
+   *  ① 事务内再查 epoch（失守=本行+同批未终态作废行回 pending——已 projected 不进 bail）；
+   *  ② 同事务读 CanvasProject FOR SHARE（判据行非争用行；行不在或 lifecycleState≠ACTIVE=零事件
+   *    行标 orphaned——不用 flush deletedProjects、不把 fence 未注册/fence-stale/节点已删当项目没了）；
+   *  ③ SELECT … FROM "ArtifactProjection" WHERE id=$rowId FOR UPDATE（串行锁=投影行非 fence——
+   *    fence 行锁在未注册档锁 0 行锁不住）；零行=防御档结束事务；
+   *  ④ 锁后按 nodeId+作废键 execSeq+status=done 查重（命中只跳插入仍标 projected）；
+   *  ⑤ 键读 GenerationIntent（行在：intentId/attempts/execSeq——**execSeq=键末段非行上现值**；
+   *    行没了：日志+attempts 0+不写 intentId+execSeq 仍用键值照写）；
+   *  ⑥ 行标 projected 同事务 WHERE id=$rowId 不走 mark() runId CAS（0 行更新=回滚——防御档）；
+   *  ⑦ 提交后 notifyProject。载荷走 assembleExecStatusPayload（带 intentId/execSeq、无 fileId——
+   *  不复用 execDonePatch 不撞 0 代幂等键）。 */
+  private async processVoidTicketRow(
+    projectId: string,
+    row: ArtifactProjection,
+    capturedEpoch: bigint,
+    inc: (k: OutcomeLabel) => void,
+  ): Promise<'done' | 'fenced'> {
+    // ⓪ 事务前受理门（租约/spool 不可写=行回 pending 零事件——fenced 语义）
+    try {
+      this.docs.assertWriteAdmitted();
+    } catch (e) {
+      this.logger.warn(`[projection] author-void 行=${row.id} assertWriteAdmitted 拒（fencedBail 回 pending）: ${(e as Error).message}`);
+      await this.fencedBail([row], inc);
+      return 'fenced';
+    }
+    const m = /^author-void:(.+):(\d+)$/.exec(row.artifactId);
+    if (!m) {
+      // 键形态烂（防御档）——orphaned 终态不重试
+      await this.mark(row, { state: 'orphaned', lastError: 'void-key-malformed' });
+      inc('orphaned');
+      return 'done';
+    }
+    const intentRowId = m[1]!;
+    const keyExecSeq = m[2]!;
+    try {
+      const verdict = await this.feed.appendEventTransaction(projectId, async (tx, append) => {
+        // ① 事务内再查 epoch（失守=回 pending——本行未终态化进 bail）
+        if (this.lease.currentEpoch() !== capturedEpoch) return { fenced: true as const };
+        // ② CanvasProject FOR SHARE——判据行非争用行（行不在/lifecycleState≠ACTIVE=orphaned 零事件）
+        const projectRows = await tx.$queryRaw<{ lifecycleState: string }[]>`
+          SELECT "lifecycleState" FROM "CanvasProject" WHERE "id" = ${projectId}::text FOR SHARE`;
+        if (projectRows.length !== 1 || projectRows[0]!.lifecycleState !== 'ACTIVE') {
+          return { orphaned: true as const };
+        }
+        // ③ 投影行 FOR UPDATE（串行锁——零行=防御档结束事务）
+        const rowRows = await tx.$queryRaw<{ id: string }[]>`
+          SELECT "id" FROM "ArtifactProjection" WHERE "id" = ${row.id}::text FOR UPDATE`;
+        if (rowRows.length !== 1) return { missing: true as const };
+        // ④ 锁后按 nodeId+作废键 execSeq+status=done 查重（命中只跳插入仍标 projected）
+        const dup = await tx.$queryRaw<{ id: string }[]>`
+          SELECT "id" FROM "RuntimeEvent"
+          WHERE "projectId" = ${projectId}::text AND "kind" = 'exec.status'
+            AND payload->>'nodeId' = ${row.nodeId}::text
+            AND payload->>'execSeq' = ${keyExecSeq}::text
+            AND payload->>'status' = 'done'
+          LIMIT 1`;
+        if (dup.length === 0) {
+          // ⑤ 键读 GenerationIntent（execSeq=键末段非行上现值；行没了 attempts 0+不写 intentId）
+          const intent = await tx.generationIntent.findUnique({
+            where: { id: intentRowId },
+            select: { intentId: true, attempts: true },
+          });
+          if (!intent) this.logger.warn(`[projection] author-void 行=${row.id} 意图行 ${intentRowId} 灭失（attempts 0+不写 intentId+execSeq 仍用键值）`);
+          const payload = {
+            nodeId: row.nodeId,
+            ...assembleExecStatusPayload(intent
+              ? { status: 'done', attempts: intent.attempts, intentId: intent.intentId, execSeq: keyExecSeq }
+              : { status: 'done', attempts: 0, execSeq: keyExecSeq }),
+          };
+          await append('exec.status', () => payload);
+        }
+        // ⑥ 行标 projected 同事务 WHERE id 非 runId CAS（0 行更新=回滚——防御档）
+        const marked = await tx.artifactProjection.updateMany({
+          where: { id: row.id },
+          data: { state: 'projected', projectedAt: new Date(), leaseUntil: null, runId: null, lastError: null },
+        });
+        if (marked.count !== 1) throw new Error('VOID_ROW_MARK_MISS');
+        return { duplicate: dup.length > 0 } as const;
+      });
+
+      if ('fenced' in verdict) {
+        await this.fencedBail([row], inc);
+        return 'fenced';
+      }
+      if ('orphaned' in verdict) {
+        await this.mark(row, { state: 'orphaned', lastError: 'project-gone' });
+        inc('orphaned');
+        return 'done';
+      }
+      if ('missing' in verdict) {
+        // ③ 零行防御档——行已被并发终态化（结构性不可达）：打日志即终（不重投）
+        this.logger.warn(`[projection] author-void 行=${row.id} FOR UPDATE 0 行（防御档——并发终态化）`);
+        inc('projected');
+        return 'done';
+      }
+      // ⑦ 提交后通知（节流 ≤1/s——feed-hint 不带事件体）
+      this.feed.notifyProject(projectId);
+      inc('projected');
+      return 'done';
+    } catch (e) {
+      const err = e as Error;
+      // 事务回滚（含 VOID_ROW_MARK_MISS 防御档/查询失败）=行回 pending（不耗 attempts——非业务失败；
+      // runId CAS 失败形态=回滚后行仍 projecting 供次轮重投，此处 releaseRows 按 runId 释放同款幂等）
+      this.logger.warn(`[projection] author-void 行=${row.id} 事务失败回 pending: ${err.message}`);
+      await this.fencedBail([row], inc);
+      return 'done';
+    }
   }
 
   /** 行级 mark（runId CAS——lease 过期被新代 reclaim 后 0 行放弃，不污染新代状态机）。

@@ -3,7 +3,7 @@ import { useViewport } from '@xyflow/react';
 import { useNodeStore, isImageNode } from '@/stores/nodeStore';
 import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
+import { gestureToken, storedToken, rotateToken, markGestureConsumed } from '@/utils/regen-token';
 import { ModelSelector } from './config-panel/ModelSelector';
 import { RatioResolutionPopover } from './config-panel/RatioResolutionPopover';
 import type { RatioOption } from './config-panel/RatioResolutionPopover';
@@ -59,12 +59,14 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   // ⇒ 丢弃持有——判据单源=投影 entry（T22 收口批 I-8 同步选型：nodeStore.execStatus ← runtime
   // 投影〔projectRuntimeExecToNodeStore〕，intentId/rearmable 随 exec.status 事件 payload 落键
   // ——修前 payload 丢键致本判据 rearmable===false 档结构性不可达；词表扩键=spec §7 v5.4⑭ 同批）
+  // Y3 Task4（v3.1 合同二——轮换代际）：有 execSeq 的终态必传 entry.execStatus.execSeq（同 execSeq
+  // 只轮换一次+更小忽略——旧代 done 迟到不再丢新持有）；无 execSeq 无行终态维持两参旧形态。
   useEffect(() => {
     if (entry?.status === 'done' || (entry?.status === 'error' && entry.rearmable === false)) {
       const pid = useCanvasStore.getState().projectId;
-      if (pid) rotateToken(pid, nodeId);
+      if (pid) rotateToken(pid, nodeId, entry.execSeq);
     }
-  }, [entry?.status, entry?.rearmable, nodeId]);
+  }, [entry?.status, entry?.rearmable, entry?.execSeq, nodeId]);
 
   // Load image models
   useEffect(() => {
@@ -111,6 +113,9 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
       const held = storedToken(projectId, nodeId);
       const token = held
         ?? ((status === 'done' || entry?.rearmable === false) ? gestureToken(projectId, nodeId) : undefined);
+      // Y3 Task4（v3.1 合同二②）：真发受理请求的那一次——消费标记在案（渲染读 token 不算消费；
+      // 回滚三条件之条件三〔本轮换出 token 未被消费〕的判据单源）
+      if (token) markGestureConsumed(projectId, nodeId);
       await imageNodeApi.submitGeneration(nodeId, { projectId, ...(token ? { regenToken: token } : {}) });
     } catch {
       // 异步链（enqueue）失败态由服务端 exec 投影接管（error 三件 errorCode/rearmable/attempts——

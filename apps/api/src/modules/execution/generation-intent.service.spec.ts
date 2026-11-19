@@ -229,8 +229,11 @@ describe('GenerationIntentService claim 状态机（F13→Y0b-2 Z82 idemKey 化�
 
       expect(r.created).toBe(true);
       expect(teamCredit.voidInTx).toHaveBeenCalledWith(expect.anything(), { intentRowId: existing.id, execSeq: 5n }); // 只释放旧代冻结
-      expect(prisma.artifactProjection.updateMany).toHaveBeenCalledWith(expect.objectContaining({ // 旧投影 superseded
-        where: { projectId: 'p1', nodeId: 'n1', state: { in: ['pending', 'projecting'] } },
+      expect(prisma.artifactProjection.updateMany).toHaveBeenCalledWith(expect.objectContaining({ // 旧投影 superseded（Y3 T3⑯：排除 author-void: 前缀——pending 作废票据不灭）
+        where: {
+          projectId: 'p1', nodeId: 'n1', state: { in: ['pending', 'projecting'] },
+          artifactId: { not: { startsWith: 'author-void:' } },
+        },
       }));
       const takeoverCall = prisma.generationIntent.updateMany.mock.calls.at(-1)![0];
       expect(takeoverCall.where).toEqual({ id: existing.id, status: 'RUNNING', jobId: 'job-1', execSeq: 5n }); // 代际 CAS——并发收敛败者 NodeBusy
@@ -820,5 +823,22 @@ describe('Y2 B1 冻结两列（先红）', () => {
     const src = readFileSync(join(__dirname, 'generation-intent.service.ts'), 'utf8');
     expect(src).not.toMatch(/result\s*===\s*['"]rearm['"]/);   // 禁事后补写（列只在 rearm updateMany/createMany 内联写）
     expect(src).not.toMatch(/readCanvas|Y\.Doc|getMap\(/);     // claim 禁现读（doc 读只存在于受理三入口/execute 存活过滤——他文件）
+  });
+
+  // ══════════ Y3 Task3⑯：supersedeProjections 谓词排除 author-void: 前缀（先红）══════════
+  //  rearm/takeover 事务内旧投影 superseded 会灭 pending 作废票据（author-void: 行=出站票据——
+  //  poller 单写终态归它）；谓词加 artifactId not startsWith 'author-void:' ⇒ 票据存活。
+  it('Y3 T3⑯：supersedeProjections 排除 author-void: 前缀——rearm/takeover 后 author-void pending 行不被置 superseded', async () => {
+    // FAILED 行 rearm（覆盖 supersedeProjections 调用点第二处——takeover 点已被上方断言钉形状）
+    prisma.generationIntent.findUnique
+      .mockResolvedValueOnce(row({ status: 'FAILED', attempts: 1, execSeq: 5n }))
+      .mockResolvedValueOnce(row({ status: 'RUNNING', attempts: 2, jobId: 'job-1' }));
+    prisma.generationIntent.updateMany.mockResolvedValue({ count: 1 });
+    await service.claim(input({ jobId: 'job-1' }));
+    const sup = prisma.artifactProjection.updateMany.mock.calls.at(-1)![0] as {
+      where: { state: { in: string[] }; artifactId?: { not?: { startsWith?: string } } };
+    };
+    expect(sup.where.state).toEqual({ in: ['pending', 'projecting'] });
+    expect(sup.where.artifactId).toEqual({ not: { startsWith: 'author-void:' } });   // 红：现谓词无排除
   });
 });

@@ -10,7 +10,7 @@ import { regenerateNode } from '@/api/videoProjectApi';
 import { useNodeStore, NODE_TYPES } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
-import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
+import { gestureToken, storedToken, rotateToken, markGestureConsumed } from '@/utils/regen-token';
 
 export function PreviewPlayer() {
   const { message, modal } = AntdApp.useApp(); // 批1-2：静态 Modal.confirm/message（portal body z-index 2010 被壳盖不可见）→ 壳内上下文实例
@@ -44,12 +44,13 @@ export function PreviewPlayer() {
   // Y0b-2 T6（Z79）：重拍=恒手势 token（retakeId 语义重定位）；轮换判据单源=源节点 doc 投影
   //（done/EXHAUSTED ⇒ 丢弃 held——下一击=新手势；error 可 rearm ⇒ 保留 held 免费重试）
   const retakeEntry = useNodeStore(s => sourceNodeId != null ? selectExecEntry(s, sourceNodeId) : undefined);
+  // Y3 Task4（v3.1 合同二）：有 execSeq 的终态必传（同 execSeq 只轮换一次+更小忽略）；无 execSeq 维持旧形态
   useEffect(() => {
     if (sourceNodeId && (retakeEntry?.status === 'done' || (retakeEntry?.status === 'error' && retakeEntry.rearmable === false))) {
       const pid = useCanvasStore.getState().projectId;
-      if (pid) rotateToken(pid, sourceNodeId);
+      if (pid) rotateToken(pid, sourceNodeId, retakeEntry.execSeq);
     }
-  }, [retakeEntry?.status, retakeEntry?.rearmable, sourceNodeId]);
+  }, [retakeEntry?.status, retakeEntry?.rearmable, retakeEntry?.execSeq, sourceNodeId]);
   // R4-7：排除产物节点（type 同为 videoGen，但 origin='video-edit' 无 prompt/model）——后端 regenerate 只校验类型
   // （video-project.service.ts），放行会空 prompt 触发一次真实生成/莫名失败；产物节点是终点不参与重拍（验收 13 口径）
   const canRetake = retakeSource?.type === NODE_TYPES.VIDEO_GEN
@@ -64,6 +65,8 @@ export function PreviewPlayer() {
         // Y0b-2 T6（Z79）：重拍=恒手势——held 优先（error 后同 token 重试=免费 rearm，跨刷新存活），
         // 无 held 铸造新 token（新重拍照常扣费）；retakeId DTO 字段名保持（语义=手势 token）
         const retakeId = storedToken(workflowId, retakeSource.id) ?? gestureToken(workflowId, retakeSource.id);
+        // Y3 Task4（v3.1 合同二②）：真发受理请求的那一次——消费标记在案（渲染读不算消费）
+        markGestureConsumed(workflowId, retakeSource.id);
         try {
           const { result } = await regenerateNode({ workflowId, sourceNodeId: retakeSource.id, kind: 'video', retakeId });
           // 批5-1：返回体含 execute 结果——早失败（校验/扣费）在 HTTP 往返内已 emit+写 exec map（订阅必错过），直读 result 反馈

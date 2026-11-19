@@ -108,7 +108,13 @@ function makePoller(over: {
   // T16：post-apply 触发桩——requestReconcile 仅入队（零 IO），poller 循环对其零内部依赖；
   // 返回桩供触发点断言（spec 评审 P2#3——projected/orphaned 两触发点禁裸奔）
   const reconciler: any = { requestReconcile: vi.fn() };
-  return { poller: new ProjectionOutboxPoller(prisma, lease, docs, teamCredit, reconciler), tx, reconciler, docs, prisma };
+  // Y3 T3：作废终态单写面桩（本文件用例零 author-void 行——桩仅供构造签名完整）
+  const feed: any = {
+    appendEvent: vi.fn(async () => ({ feedSeq: 1n, generation: 0, docSeq: 0n })),
+    appendEventTransaction: vi.fn(async (_p: string, body: any) => body(tx, async () => {})),
+    notifyProject: vi.fn(),
+  };
+  return { poller: new ProjectionOutboxPoller(prisma, lease, docs, teamCredit, reconciler, feed), tx, reconciler, docs, prisma };
 }
 
 describe('T15 onModuleDestroy（停 claim+等在飞有界）', () => {

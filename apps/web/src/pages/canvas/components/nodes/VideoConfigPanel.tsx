@@ -8,7 +8,7 @@ import PromptInput, { type PromptInputRef } from './prompt-input/PromptInput';
 import { ImageThumbnailBar } from './prompt-input/ImageThumbnailBar';
 import { useImageUpload } from './prompt-input/useImageUpload';
 import { enqueueWorkflow } from '@/api/executionApi';
-import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
+import { gestureToken, storedToken, rotateToken, markGestureConsumed } from '@/utils/regen-token';
 import type { CommandItem } from './prompt-input/types';
 
 interface ModelInfo {
@@ -78,12 +78,13 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
   // Y0b-2 T6（Z95 轮换）：投影 done 或 error∧rearmable:false ⇒ 丢弃持有（判据单源=投影 entry；
   // T22 收口批 I-8 同步选型：rearmable/intentId 随 exec.status feed 事件 payload 落 runtime 投影
   // →nodeStore.execStatus——修前丢键致本档不可达；ImageConfigPanel 同批）
+  // Y3 Task4（v3.1 合同二）：有 execSeq 的终态必传（同 execSeq 只轮换一次+更小忽略）；无 execSeq 维持旧形态
   useEffect(() => {
     if (entry?.status === 'done' || (entry?.status === 'error' && entry.rearmable === false)) {
       const pid = useCanvasStore.getState().projectId;
-      if (pid) rotateToken(pid, nodeId);
+      if (pid) rotateToken(pid, nodeId, entry.execSeq);
     }
-  }, [entry?.status, entry?.rearmable, nodeId]);
+  }, [entry?.status, entry?.rearmable, entry?.execSeq, nodeId]);
 
   useEffect(() => {
     if (!modelOpen) return;
@@ -207,6 +208,8 @@ function VideoConfigPanelComponent({ nodeId }: Props) {
       const held = storedToken(projectId, nodeId);
       const token = held
         ?? ((status === 'done' || entry?.rearmable === false) ? gestureToken(projectId, nodeId) : undefined);
+      // Y3 Task4（v3.1 合同二②）：真发受理请求的那一次——消费标记在案（渲染读不算消费）
+      if (token) markGestureConsumed(projectId, nodeId);
       const { jobId } = await enqueueWorkflow({ projectId, nodeId, ...(token ? { regenToken: token } : {}) });
       console.log('[VideoPanel] enqueued job:', jobId);
     } catch {

@@ -417,4 +417,50 @@ describe('ImageConfigPanel', () => {
     expect(lastToken()).toMatch(/^[0-9a-f-]{36}$/); // 新 token（同 token rearm 会 409 自锁根堵）
     expect(lastToken()).not.toBe('exhausted-tok');
   });
+
+  // ── Y3 Task4（v3.1 合同二）：面板轮换代际——done 携 execSeq 轮换/同代一次/旧代忽略/无 execSeq 维持 ──
+
+  it('done 携 execSeq ⇒ rotateToken 三参轮换（代际记录在案）；更高 execSeq 的新 done 照常轮换', async () => {
+    // 第一代 done（execSeq=5）——轮换
+    setExec({ status: 'done', attempts: 1, execSeq: '5' });
+    sessionStorage.setItem('flowweb:regen:real-pid:img1', 'gen5-tok');
+    render(<ImageConfigPanel nodeId="img1" />);
+    await vi.waitFor(() => {
+      expect(sessionStorage.getItem('flowweb:regen:real-pid:img1')).toBeNull(); // 轮换+代际记录 seq=5
+    });
+    // 用户点击新"重新生成"铸新 token——旧代 done 事件重放（execSeq=5 再触发）不二次丢弃
+    sessionStorage.setItem('flowweb:regen:real-pid:img1', 'new-gesture-tok');
+    setExec({ status: 'done', attempts: 1, execSeq: '5' });   // 同 execSeq（依赖未变/重放）
+    await act(async () => { /* 触发 useEffect 重评估（依赖值等价不重渲——直接断言持有仍在） */ });
+    expect(sessionStorage.getItem('flowweb:regen:real-pid:img1')).toBe('new-gesture-tok'); // 同 execSeq 只轮换一次
+    // 更高 execSeq 的新一代 done——照常轮换
+    setExec({ status: 'done', attempts: 1, execSeq: '9' });
+    render(<ImageConfigPanel nodeId="img1" />);
+    await vi.waitFor(() => {
+      expect(sessionStorage.getItem('flowweb:regen:real-pid:img1')).toBeNull(); // 9>5 新代轮换
+    });
+  });
+
+  it('done 无 execSeq（发布窗旧 worker 形态）⇒ 维持今天行为照常轮换', async () => {
+    setExec({ status: 'done', attempts: 1 });   // 无 execSeq——无行/旧形态
+    sessionStorage.setItem('flowweb:regen:real-pid:img1', 'legacy-tok');
+    render(<ImageConfigPanel nodeId="img1" />);
+    await vi.waitFor(() => {
+      expect(sessionStorage.getItem('flowweb:regen:real-pid:img1')).toBeNull(); // 无 execSeq 照常轮换
+    });
+  });
+
+  it('受理请求真发那次 ⇒ markGestureConsumed 消费标记在案（渲染读不计——token 上送后标记）', async () => {
+    setExec({ status: 'done', attempts: 1, execSeq: '5' });
+    render(<ImageConfigPanel nodeId="img1" />);
+    await vi.waitFor(() => {
+      expect(sessionStorage.getItem('flowweb:regen:real-pid:img1')).toBeNull();
+    });
+    await generate();
+    await vi.waitFor(() => expect(mockSubmitGeneration).toHaveBeenCalledTimes(1));
+    // 真发受理请求的那一次——消费标记在案（回滚三条件之条件三的证据面）
+    await vi.waitFor(() => {
+      expect(sessionStorage.getItem('flowweb:regen-consumed:real-pid:img1')).toBe('1');
+    });
+  });
 });

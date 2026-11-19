@@ -241,13 +241,13 @@ const statusOf = async (nodeId: string) =>
     }
   }, 30_000);
 
-  it('Z106/Z112 投影分治①：无连接项目（doc 非常驻）deadline 收敛 ⇒ 退款成立∧writeExecStatus 零调用∧exec_projection_deferred_total+1（改前红=withDoc 批量装载）', async () => {
+  it('Z106/Z112 投影分治①：无连接项目（doc 非常驻）deadline 收敛 ⇒ 退款成立∧**Y3 T3⑩ 翻新：Feed 写仍达（常驻门删）**∧deferred 计数零增量', async () => {
     const nodeId = `n1-${randomUUID().slice(0, 6)}`;
     const { intent } = await intentSvc.claim({
       projectId: PID, nodeId, userId: UID, gestureToken: `eps-pj-${randomUUID().slice(0, 8)}`,
       kind: 'image', paramsHash: `h-${randomUUID().slice(0, 8)}`, teamId: TID,
       pricing: PAID,
-    
+
     authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
     authorMediaId: null,});
     await teamCredit.reserve(UID, { intentRowId: intent.id });
@@ -266,17 +266,21 @@ const statusOf = async (nodeId: string) =>
     const before = totalOf(execProjectionDeferredTotal);
     await reconcile.verifyActive();
     expect((await prisma.generationIntent.findUnique({ where: { id: intent.id } }))!.status).toBe('VOIDED'); // 退款成立
-    expect(writeExecStatus).not.toHaveBeenCalled(); // doc 未装载——UX 投影不得成为装载源
-    expect(totalOf(execProjectionDeferredTotal)).toBe(before + 1); // deferred 计数
+    // Y3 T3⑩ 常驻门删：无人看也写入（feedError 有行档——行身份恒写；doc 非常驻=写面仍达）
+    expect(writeExecStatus).toHaveBeenCalledWith(PID, nodeId, expect.objectContaining({
+      status: 'error', errorCode: 'INTENT_DEADLINE_EXCEEDED', error: '生成超时已被系统回收',
+      intentId: (intent as { intentId: string }).intentId, execSeq: String(intent.execSeq),
+    }));
+    expect(totalOf(execProjectionDeferredTotal)).toBe(before); // deferred 计数支删除（零增量）
   }, 30_000);
 
-  it('Z106/Z112 投影分治②：doc 常驻 ⇒ 投影 error 即时可见（errorCode=INTENT_DEADLINE_EXCEEDED+rearmable+attempts 同 patch）', async () => {
+  it('Z106/Z112 投影分治②：doc 常驻 ⇒ 投影 error 即时可见（Y3 T3 翻新：errorCode+封闭句 REAPER_DEADLINE+行 intentId/execSeq）', async () => {
     const nodeId = `n2-${randomUUID().slice(0, 6)}`;
     const { intent } = await intentSvc.claim({
       projectId: PID, nodeId, userId: UID, gestureToken: `eps-pj2-${randomUUID().slice(0, 8)}`,
       kind: 'image', paramsHash: `h-${randomUUID().slice(0, 8)}`, teamId: TID,
       pricing: PAID,
-    
+
     authorSlotFrozen: false,   // Y2 B1：B1~B2 占位（D8 禁现读）
     authorMediaId: null,});
     await teamCredit.reserve(UID, { intentRowId: intent.id });
@@ -293,9 +297,10 @@ const statusOf = async (nodeId: string) =>
     );
     await reconcile.verifyActive();
     expect((await prisma.generationIntent.findUnique({ where: { id: intent.id } }))!.status).toBe('VOIDED');
-    expect(writeExecStatus).toHaveBeenCalledWith(PID, nodeId, {
+    expect(writeExecStatus).toHaveBeenCalledWith(PID, nodeId, expect.objectContaining({
       status: 'error', errorCode: 'INTENT_DEADLINE_EXCEEDED', rearmable: true, attempts: intent.attempts,
-      error: expect.any(String),
-    });
+      error: '生成超时已被系统回收',
+      intentId: (intent as { intentId: string }).intentId, execSeq: String(intent.execSeq),
+    }));
   }, 30_000);
 });

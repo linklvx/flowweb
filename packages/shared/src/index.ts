@@ -149,6 +149,10 @@ export * from './collab/draft-envelope';
 export * from './collab/recovery-flow';
 export * from './collab/save-driver';
 export * from './collab/runtime-projection';
+// Y3 Task 1（plan 2026-11-19-y3-protocol-retirement 第一笔——spec §3 S2）：exec.status 八键组装器
+// +投影函数+FEED_SENTENCES 封闭句表+feedError 唯一出口+受理四档联合类型（api/web 双端同源——
+// /execution socket.io 退役→RuntimeFeed 收口面）；契约测试=collab/runtime-exec-status.spec.ts。
+export * from './collab/runtime-exec-status';
 // Y1c T16：xml-schema 单表+L1 扫描器自 collab/ 迁 canvas/ 同族（Controller 指令——非冻结区；
 // 与 text-domains/doc-schema-v4 同族——XML 域词表/L1 扫描共用 DOC_SCHEMA_V4 单源）。
 export * from './canvas/xml-schema';

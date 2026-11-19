@@ -39,9 +39,13 @@ export type RuntimeEventPayload =
       artifactRev?: number;
       /** T22 收口批 I-8（Controller 裁定扩词表根修）：intentId=手势 token/意图身份（errorPatch 既有
        *  传递面——客户端 ExecStatusEntry.intentId 轮换判据）；rearmable=EXHAUSTED 判据
-       *  （ImageConfigPanel/VideoConfigPanel entry.rearmable===false 档——修前永不可达）。 */
+       *  （ImageConfigPanel/VideoConfigPanel entry.rearmable===false 档——修前永不可达）。
+       *  Y3 Task1（spec §3——类型滞后勘正）：execSeq=已在落库的执行代际（wire=string #4 族）；
+       *  error=封闭句（组装器等值检查后落 Feed——err.message 禁入）。 */
       intentId?: string;
       rearmable?: boolean;
+      execSeq?: string;
+      error?: string;
       nodeVersion: string;
     }
   | {

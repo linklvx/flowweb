@@ -32,7 +32,7 @@ import { CanvasDocUpdateRepository } from '../collab/canvas-doc-update.repositor
 import { collabFlushDocumentOutcomeTotal } from '../collab/store.metrics';
 import { ProjectionOutboxPoller, PROJECTION_MAX_ATTEMPTS } from './projection-outbox.poller';
 import { artifactProjectionOutcomeTotal } from './projection-outbox.metrics';
-import { ensureProjectFixture, cleanupProjectFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
+import { ensureProjectFixture, cleanupProjectFixture, restoreLeaseRow, FIXTURE_USER, FIXTURE_TEAM } from '../../test-utils/db-fixtures';
 import { pollUntil } from '../../test-utils/poll-until';
 
 const hasDb = !!process.env.DATABASE_URL;
@@ -51,6 +51,7 @@ let gateway: CollabGateway;
 let residency: CollabResidencyService;
 let docSvc: CollabDocumentService;
 let lease: CollabLeaseService;
+let feedSvc: RuntimeFeedService;   // Y3 T3：作废终态单写面（poller 第 6 依赖——真 feed）
 let spoolDir: string;
 let poller: ProjectionOutboxPoller;
 /** 退款 stub（orphaned 幂等退款断言面——资金链全真归 deliver-refund int spec）。 */
@@ -155,9 +156,9 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     residency = new CollabResidencyService(gateway);
     // Y1c T22（G5 切交付）：deliverArtifact 改 PG 写——真 RuntimeFeedService+真 lifecycle observer
     // （fence 权威=deliveryFenceCheckInTx；node 无 fence 行=unregistered fail-closed 拒档=orphaned 流）
-    const feed = new RuntimeFeedService(prisma as any);
+    feedSvc = new RuntimeFeedService(prisma as any);   // Y3 T3：poller 作废终态单写面（真 feed——行级事务）
     const observer = new CollabLifecycleObserverService(prisma as any);
-    docSvc = new CollabDocumentService(gateway, repo, residency, feed, observer);
+    docSvc = new CollabDocumentService(gateway, repo, residency, feedSvc, observer);
   }, 60_000);
 
   afterAll(async () => {
@@ -182,7 +183,7 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     };
     // T16：post-apply 触发桩（requestReconcile 仅入队——int 用例不驱动 reconcile drain）
     const reconciler: any = { requestReconcile: vi.fn() };
-    poller = new ProjectionOutboxPoller(prisma as any, lease, docSvc, teamCredit, reconciler);
+    poller = new ProjectionOutboxPoller(prisma as any, lease, docSvc, teamCredit, reconciler, feedSvc);
   });
   afterEach(() => { vi.restoreAllMocks(); });
 
@@ -443,7 +444,7 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     const { projectionId } = await seedArtifact(PID, 'n1', { mediaId: 'm-dual' });
     const teamCredit: any = { rollbackDeliveryFailed: vi.fn(async () => true) };
     const reconcilerB: any = { requestReconcile: vi.fn() };   // T16 post-apply 触发桩
-    const pollerB = new ProjectionOutboxPoller(prisma as any, lease, docSvc, teamCredit, reconcilerB);
+    const pollerB = new ProjectionOutboxPoller(prisma as any, lease, docSvc, teamCredit, reconcilerB, feedSvc);
     const [a, b] = await Promise.all([poller.tick(), pollerB.tick()]);
     expect(a.claimed + b.claimed).toBe(1);   // SKIP LOCKED——并发双 claim 恰一
     expect((await projectionRow(projectionId))?.state).toBe('projected');
@@ -482,4 +483,209 @@ d('T15 ArtifactProjection 投影 poller（真双端：六终态+fencing+fast pat
     expect((textEvents[1]?.payload as any).status).toBe('done');
     await teardownProject(PID);
   }, 60_000);
+
+  // ══════════ Y3 Task3⑫：作废终态 poller 单写（v3.0 七步——先红）══════════
+  //  processProject ② 段读 NodeArtifact 之前按 `author-void:` 前缀岔开（键解析 ^author-void:(.+):(\d+)$）
+  //  不进 deliverable/flushDocument 批次、不被兄弟行 flush 失败卷进 fencedBail；事务前 assertWriteAdmitted
+  //  （租约/spool 不可写=作废行 fencedBail 回 pending）；每行单独 appendEventTransaction——
+  //  ①再查 epoch ②CanvasProject FOR SHARE ③投影行 FOR UPDATE（串行锁）④锁后按 nodeId+作废键 execSeq+
+  //  status=done 查重（命中只跳插入仍标 projected）⑤键读 GenerationIntent（execSeq=键末段非行上现值；
+  //  行没了 attempts 0+不写 intentId）⑥行标 projected WHERE id 非 runId CAS（runId CAS 失败只打日志）
+  //  ⑦提交后 notifyProject；载荷走 assembleExecStatusPayload（无 fileId——不复用 execDonePatch）。
+  describe('Y3 T3⑫：author-void 作废终态单写（v3.0 七步）', () => {
+    /** 种作废票据行（author-void:<intentRowId>:<execSeq> 键——state pending）。幂等：先行清（前轮
+     *  失败残留防御——GenerationIntent.execSeq 全局唯一/投影键唯一会撞）。 */
+    const seedVoidTicket = async (pid: string, nodeId: string, intentRowId: string, execSeq: number, opts: { intentRow?: Record<string, unknown> | null } = {}) => {
+      await prisma.generationIntent.deleteMany({ where: { id: intentRowId } }).catch(() => undefined);
+      await prisma.artifactProjection.deleteMany({ where: { artifactId: `author-void:${intentRowId}:${execSeq}` } }).catch(() => undefined);
+      const projection = await prisma.artifactProjection.create({
+        data: {
+          artifactId: `author-void:${intentRowId}:${execSeq}`, artifactRev: 0, projectId: pid, nodeId,
+          targetField: 'mediaId', targetItemId: '', mediaId: null, resultText: null, state: 'pending', attempts: 0,
+        },
+      });
+      let intentId: string | undefined;
+      if (opts.intentRow !== null) {
+        const intent = await prisma.generationIntent.create({
+          data: {
+            id: intentRowId, projectId: pid, nodeId, userId: FIXTURE_USER, teamId: FIXTURE_TEAM,
+            intentId: `ivk-${intentRowId}`, kind: 'image', paramsHash: `h-${intentRowId}`, status: 'SUCCEEDED',
+            creditCost: 1, creditsConsumed: 1, attempts: 2, execSeq: BigInt(execSeq),
+            heartbeatAt: new Date(), deadlineAt: new Date(), idemKey: `idem-${intentRowId}`,
+            authorSlotFrozen: false, authorSlotReleased: false,
+            ...(opts.intentRow ?? {}),
+          },
+        });
+        intentId = intent.intentId;
+      }
+      return { projectionId: projection.id, intentId };
+    };
+
+    it('主链：作废票据 pending→恰一条 exec.status done（intentId=行 intentId 列/execSeq=作废键末段/attempts=行值/error 键不在）+零 exec.artifact+行变 projected+settle 行数不变；重跑幂等（仍一条事件+行仍 projected）', async () => {
+      const PID = 'y3t3-void-main';
+      await seedProject(PID);
+      await seedNode(PID, 'n-void-main');
+      const { projectionId, intentId } = await seedVoidTicket(PID, 'n-void-main', 'iv-row-main', 7);
+      const settleBefore = await prisma.teamCreditTransaction.count();
+      const summary = await poller.tick();
+      expect(summary.outcomes.projected ?? 0).toBeGreaterThan(0);   // 作废行也走 projected 标记（无 exec.artifact 事件）
+      const row = await projectionRow(projectionId);
+      expect(row?.state).toBe('projected');   // 行标 projected（出站票据收敛）
+      // 恰一条 exec.status done——零 exec.artifact 事件（作废无产物交付面）
+      const events = await prisma.runtimeEvent.findMany({ where: { projectId: PID }, orderBy: { feedSeq: 'asc' } });
+      expect(events.map((e) => e.kind)).toEqual(['exec.status']);   // 无 exec.artifact
+      const payload = events[0]!.payload as Record<string, unknown>;
+      expect(payload.status).toBe('done');
+      expect(payload.intentId).toBe(intentId);   // 行 intentId 列（键读行）
+      expect(payload.execSeq).toBe('7');          // 作废键末段
+      expect(payload.attempts).toBe(2);           // 行值
+      expect('error' in payload).toBe(false);
+      expect('fileId' in payload).toBe(false);    // 载荷无 fileId 键（不复用 execDonePatch）
+      // settle 结算行数不变（作废票不触资金——settle 在 finalize 已核销）
+      expect(await prisma.teamCreditTransaction.count()).toBe(settleBefore);
+      // 重跑幂等：仍只有一条事件且行仍标 projected（查重命中只跳插入不漏标）
+      const again = await poller.tick();
+      expect(again.claimed).toBe(0);   // projected 终态不再 claim
+      expect(await prisma.runtimeEvent.count({ where: { projectId: PID } })).toBe(1);
+      expect((await projectionRow(projectionId))?.state).toBe('projected');
+      await teardownProject(PID);
+      await prisma.generationIntent.deleteMany({ where: { id: 'iv-row-main' } }).catch(() => {});
+    }, 60_000);
+
+    it('CanvasProject 灭失 ⇒ 零事件行标 orphaned（不用 flush deletedProjects——判据行非争用行）', async () => {
+      const PID = 'y3t3-void-gone';
+      await seedProject(PID);
+      const { projectionId } = await seedVoidTicket(PID, 'n-void-gone', 'iv-row-gone', 3, { intentRow: null });
+      await cleanupProjectFixture(prisma, PID);   // 删 CanvasProject（行灭失——判据行不在）
+      const summary = await poller.tick();
+      expect(summary.outcomes.orphaned ?? 0).toBeGreaterThan(0);
+      expect((await projectionRow(projectionId))?.state).toBe('orphaned');
+      expect(await prisma.runtimeEvent.count({ where: { projectId: PID } })).toBe(0);   // 零事件
+      await prisma.artifactProjection.deleteMany({ where: { projectId: PID } }).catch(() => {});
+      await prisma.generationIntent.deleteMany({ where: { id: 'iv-row-gone' } }).catch(() => {});
+    }, 60_000);
+
+    it('CanvasProject lifecycleState≠ACTIVE ⇒ 零事件行标 orphaned', async () => {
+      const PID = 'y3t3-void-deleting';
+      await seedProject(PID);
+      const { projectionId } = await seedVoidTicket(PID, 'n-void-del', 'iv-row-del', 3, { intentRow: null });
+      await prisma.canvasProject.update({ where: { id: PID }, data: { lifecycleState: 'DELETING' } });
+      const summary = await poller.tick();
+      expect(summary.outcomes.orphaned ?? 0).toBeGreaterThan(0);
+      expect((await projectionRow(projectionId))?.state).toBe('orphaned');
+      expect(await prisma.runtimeEvent.count({ where: { projectId: PID } })).toBe(0);
+      await teardownProject(PID);
+      await prisma.generationIntent.deleteMany({ where: { id: 'iv-row-del' } }).catch(() => {});
+    }, 60_000);
+
+    it('fence 未注册/fence-stale 档照写 done（作废分支不参与 fence——node 删后照写收口）', async () => {
+      const PID = 'y3t3-void-nofence';
+      await seedProject(PID);
+      // n-void-nf 不种 fence/nodeLifecycle 行（seedNode 会种——这里手工种 node 只为可读性：作废分支不查 fence）
+      await prisma.artifactProjection.deleteMany({ where: { projectId: PID } }).catch(() => {});
+      const { projectionId, intentId } = await seedVoidTicket(PID, 'n-void-nf', 'iv-row-nf', 4);
+      const summary = await poller.tick();
+      expect(summary.outcomes.projected ?? 0).toBeGreaterThan(0);
+      expect((await projectionRow(projectionId))?.state).toBe('projected');
+      const events = await prisma.runtimeEvent.findMany({ where: { projectId: PID } });
+      expect(events).toHaveLength(1);
+      expect((events[0]!.payload as Record<string, unknown>).intentId).toBe(intentId);   // 照写（fence 不参与分支）
+      await teardownProject(PID);
+      await prisma.generationIntent.deleteMany({ where: { id: 'iv-row-nf' } }).catch(() => {});
+    }, 60_000);
+
+    it('assertWriteAdmitted 拒（租约失守）⇒ 作废行 fencedBail 回 pending 零事件（不耗 attempts）', async () => {
+      const PID = 'y3t3-void-fenced';
+      await seedProject(PID);
+      const { projectionId } = await seedVoidTicket(PID, 'n-void-fenced', 'iv-row-fenced', 5);
+      // 注入：claim 已捕获 epoch 后、七步事务前租约失守——作废分支事务前 assertWriteAdmitted 拒
+      // （epoch 已动窗内一切错误按失守处置）。作废行不触 deliverArtifact（注入面=appendEventTransaction）。
+      const realAppendTx = feedSvc.appendEventTransaction.bind(feedSvc);
+      vi.spyOn(feedSvc, 'appendEventTransaction').mockImplementation(async (projectId: string, body: any) => {
+        await lease.release();   // 事务前失守（owner NULL+epoch null ⇒ assertWriteAdmitted 503）
+        return realAppendTx(projectId, body);
+      });
+      const summary = await poller.tick();
+      expect(summary.fenced).toBe(true);
+      const row = await projectionRow(projectionId);
+      expect(row?.state).toBe('pending');   // fencedBail 回 pending
+      expect(row?.attempts).toBe(0);       // 不耗 attempts
+      expect(await prisma.runtimeEvent.count({ where: { projectId: PID } })).toBe(0);   // 零事件
+      await ensureLeaseHeld();
+      vi.restoreAllMocks();
+      // 租约复得后收敛（重 claim→七步写达）
+      await pollUntil(async () => {
+        await poller.tick();
+        return (await projectionRow(projectionId))?.state === 'projected';
+      }, 15_000, 500);
+      await teardownProject(PID);
+      await prisma.generationIntent.deleteMany({ where: { id: 'iv-row-fenced' } }).catch(() => {});
+    }, 60_000);
+
+    it('并发双 poller 同作废行 ⇒ 恰一条事件（查重在投影行锁后——TOCTOU 负控）', async () => {
+      const PID = 'y3t3-void-dual';
+      await seedProject(PID);
+      const { projectionId } = await seedVoidTicket(PID, 'n-void-dual', 'iv-row-dual', 6);
+      const teamCreditB: any = { rollbackDeliveryFailed: vi.fn(async () => true) };
+      const reconcilerB: any = { requestReconcile: vi.fn() };
+      const pollerB = new ProjectionOutboxPoller(prisma as any, lease, docSvc, teamCreditB, reconcilerB, feedSvc);
+      const [a, b] = await Promise.all([poller.tick(), pollerB.tick()]);
+      expect(a.claimed + b.claimed).toBe(1);   // SKIP LOCKED——恰一 claim
+      expect((await projectionRow(projectionId))?.state).toBe('projected');
+      expect(await prisma.runtimeEvent.count({ where: { projectId: PID } })).toBe(1);   // 恰一事件（行锁后查重吸收）
+      await teardownProject(PID);
+      await prisma.generationIntent.deleteMany({ where: { id: 'iv-row-dual' } }).catch(() => {});
+    }, 60_000);
+
+    it('行没了（intent 灭失）：日志+attempts 0+不写 intentId+execSeq 仍用键值照写（作废键自持身份）', async () => {
+      const PID = 'y3t3-void-rowless';
+      await seedProject(PID);
+      const { projectionId } = await seedVoidTicket(PID, 'n-void-rowless', 'iv-row-rl', 11, { intentRow: null });
+      const summary = await poller.tick();
+      expect(summary.outcomes.projected ?? 0).toBeGreaterThan(0);
+      expect((await projectionRow(projectionId))?.state).toBe('projected');
+      const events = await prisma.runtimeEvent.findMany({ where: { projectId: PID } });
+      expect(events).toHaveLength(1);
+      const payload = events[0]!.payload as Record<string, unknown>;
+      expect(payload.status).toBe('done');
+      expect(payload.execSeq).toBe('11');   // 键末段照写
+      expect('intentId' in payload).toBe(false);   // 行没了不写 intentId
+      expect(payload.attempts).toBe(0);
+      await teardownProject(PID);
+      await prisma.generationIntent.deleteMany({ where: { id: 'iv-row-rl' } }).catch(() => {});
+    }, 60_000);
+
+    it('rearm 换代负控：作废票 pending 期间同节点 rearm ⇒ 票不被 supersedeProjections 灭+poller 写出的 done execSeq=旧代键值', async () => {
+      const PID = 'y3t3-void-rearm';
+      await seedProject(PID);
+      // 作废票：键 execSeq=3（旧代）
+      const { projectionId } = await seedVoidTicket(PID, 'n-void-rearm', 'iv-row-rearm', 3);
+      // 同节点旧代投影行（rearm 的 supersedeProjections 谓词消费者——author-void 前缀排除后票据不灭）
+      // 真链验证：走 supersedeProjections（GenerationIntentService 直构——真库 claim rearm 换代）
+      const intentSvc = new (await import('../execution/generation-intent.service')).GenerationIntentService(
+        prisma as any,
+        { voidInTx: async () => undefined, settleInTx: async () => ({ success: true, settled: true }), void_: async () => undefined, settle: async () => undefined, reserve: async () => undefined } as any,
+        new (await import('../artifact-core/node-artifact.service')).NodeArtifactService(),
+      );
+      // rearm：FAILED 行同键 claim（真库链——新代 execSeq=nextval）
+      await prisma.generationIntent.update({ where: { id: 'iv-row-rearm' }, data: { status: 'FAILED' } });
+      const rule = await prisma.pricingRule.findFirst({ where: { active: true } });
+      await intentSvc.claim({
+        projectId: PID, nodeId: 'n-void-rearm', userId: FIXTURE_USER, gestureToken: `y3-${Date.now()}`,
+        kind: 'image', paramsHash: `h-rearm-${Date.now()}`, teamId: FIXTURE_TEAM,
+        pricing: { pricingRuleId: rule!.id, modelId: null, resolutionId: null, durationId: null, creditCost: 0 },
+        authorSlotFrozen: false, authorMediaId: null,
+      }).catch(() => undefined);   // 允许 NodeBusy 等（不相关——本用例只观察票据存活）
+      const row = await projectionRow(projectionId);
+      expect(row?.state).toBe('pending');   // 红：旧谓词会灭 pending 作废票据（superseded）
+      // poller 写出的 done：execSeq=作废键末段（旧代 3——非行上新代）
+      const summary = await poller.tick();
+      expect(summary.outcomes.projected ?? 0).toBeGreaterThan(0);
+      const events = await prisma.runtimeEvent.findMany({ where: { projectId: PID } });
+      const done = events.find((e) => (e.payload as Record<string, unknown>).execSeq === '3');
+      expect(done).toBeTruthy();   // 旧代键值写出（mergeSlot 挡它盖新代 loading）
+      await teardownProject(PID);
+      await prisma.generationIntent.deleteMany({ where: { projectId: PID } }).catch(() => {});
+    }, 60_000);
+  });
 });

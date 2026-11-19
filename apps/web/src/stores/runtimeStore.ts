@@ -15,6 +15,7 @@
 // （「到达序」无关紧要，cursor 有序）。
 import { create } from 'zustand';
 import {
+  execStatusSlotOfPayload,
   mergeRuntimeProjection, resolveRuntimeStoreFreshness,
   RUNTIME_STORE_TTL_MS,
   type RuntimeProjection, type RuntimeProjectionUpdate,
@@ -38,11 +39,15 @@ export function projectRuntimeExecToNodeStore(): void {
       if (st !== 'loading' && st !== 'done' && st !== 'error' && st !== 'skipped') continue;
       m.set(id, {
         status: st,
-        // T22 收口批 I-8：intentId 真键随 payload 落投影（execSeq=执行代际族——旧 fallback 兜底保留）
-        ...(entry.execStatus?.intentId !== undefined ? { intentId: entry.execStatus.intentId }
-          : entry.execStatus?.execSeq !== undefined ? { intentId: entry.execStatus.execSeq } : {}),
+        // Y3 Task4：intentId 真键直拷无回落（旧 execSeq 回落垫片已删——execSeq-only 载荷 intentId=undefined，
+        // 无行身份键不冒充手势 token；rearm 轮换代际判据单源=execSeq 真键）
+        ...(entry.execStatus?.intentId !== undefined ? { intentId: entry.execStatus.intentId } : {}),
         ...(entry.execStatus?.errorCode !== undefined ? { errorCode: entry.execStatus.errorCode } : {}),
         ...(entry.execStatus?.attempts !== undefined ? { attempts: entry.execStatus.attempts } : {}),
+        // Y3 Task4（spec §3）：error 封闭句随槽拷（T7 工具条读 entry.error）
+        ...(entry.execStatus?.error !== undefined ? { error: entry.execStatus.error } : {}),
+        // Y3 Task4：execSeq 直拷（regen-token 轮换代际判据——面板 rotateToken 第三参单源）
+        ...(entry.execStatus?.execSeq !== undefined ? { execSeq: entry.execStatus.execSeq } : {}),
         // T22 收口批 I-8：rearmable=EXHAUSTED 判据（ImageConfigPanel/VideoConfigPanel
         // entry.rearmable===false 轮换档——修前 payload 丢键致该档结构性不可达）
         ...(entry.execStatus?.rearmable !== undefined ? { rearmable: entry.execStatus.rearmable } : {}),
@@ -170,22 +175,17 @@ export function applyEventsToProjection(
   return { projection, appliedSeq: cursorSeq.toString(), gap, buffered, unknown, needsSnapshot };
 }
 
-/** 事件 → 节点槽（shared slotOfEvent 镜像——wire payload 形状）。 */
+/** 事件 → 节点槽（shared slotOfEvent 镜像——wire payload 形状）。
+ *  Y3 Task4：exec.status 分支改调 shared execStatusSlotOfPayload——缺合法 nodeVersion 返回 null
+ *  （?? e.feedSeq 伪造兜底已删——缺合法 nodeVersion 的事件=unknown 计数、不产槽）；八键有值才拷。 */
 function slotOfEventWire(e: RuntimeEventWireRow): [string, Record<string, unknown>] | null {
   const p = e.payload as Record<string, unknown>;
-  const nodeVersion = String(p.nodeVersion ?? e.feedSeq);
   if (e.kind === 'exec.status') {
-    return [String(p.nodeId), { execStatus: {
-      status: String(p.status), attempts: typeof p.attempts === 'number' ? p.attempts : 0,
-      ...(p.errorCode !== undefined ? { errorCode: String(p.errorCode) } : {}),
-      ...(p.artifactRev !== undefined ? { artifactRev: Number(p.artifactRev) } : {}),
-      ...(p.execSeq !== undefined ? { execSeq: String(p.execSeq) } : {}),
-      // T22 收口批 I-8：intentId/rearmable（词表扩键——EXHAUSTED 判据客户端可达）
-      ...(p.intentId !== undefined ? { intentId: String(p.intentId) } : {}),
-      ...(p.rearmable !== undefined ? { rearmable: p.rearmable === true } : {}),
-      nodeVersion,
-    } }];
+    const slot = execStatusSlotOfPayload(p);
+    if (slot === null) return null;   // 缺合法 nodeVersion——不算一条状态（unknown 计数面）
+    return [String(p.nodeId), slot as Record<string, unknown>];
   }
+  const nodeVersion = String(p.nodeVersion ?? e.feedSeq);
   if (e.kind === 'exec.artifact') {
     return [String(p.nodeId), { artifact: {
       ...(p.mediaId !== undefined ? { mediaId: String(p.mediaId) } : {}),
@@ -204,8 +204,9 @@ function slotOfEventWire(e: RuntimeEventWireRow): [string, Record<string, unknow
 
 // ── selectors（消费面）────────────────────────────────────────────────────────────────
 
-/** 节点运行时投影槽（无投影=null——unknown≠idle）。 */
-export function selectRuntimeEntry(nodeId: string): { execStatus?: { status: string; errorCode?: string; attempts?: number; execSeq?: string; intentId?: string; rearmable?: boolean }; artifact?: { mediaId?: string; resultRef?: string; artifactRev: number }; deletedAt?: unknown } | null {
+/** 节点运行时投影槽（无投影=null——unknown≠idle）。
+ *  Y3 Task4：类型补 error/nodeVersion（T7 工具条读 entry.execStatus?.error/.intentId——封闭句随槽可达）。 */
+export function selectRuntimeEntry(nodeId: string): { execStatus?: { status: string; errorCode?: string; attempts?: number; execSeq?: string; intentId?: string; rearmable?: boolean; error?: string; nodeVersion: string }; artifact?: { mediaId?: string; resultRef?: string; artifactRev: number }; deletedAt?: unknown } | null {
   const s = useRuntimeFeedStore.getState();
   return s.projection?.nodes[nodeId] ?? null;
 }

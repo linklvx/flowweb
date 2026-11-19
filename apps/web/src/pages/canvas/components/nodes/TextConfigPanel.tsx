@@ -6,7 +6,7 @@ import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { canExecute } from '@/stores/syncStatus';
 import { enqueueWorkflow } from '@/api/executionApi';
-import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
+import { gestureToken, storedToken, rotateToken, markGestureConsumed } from '@/utils/regen-token';
 
 interface ModelInfo {
   id: string; name: string;
@@ -49,12 +49,13 @@ function TextConfigPanelComponent({ nodeId }: Props) {
   const model = nodeData?.model ?? '';
 
   // Y0b-2 T6（Z95 轮换）：投影 done 或 error∧rearmable:false ⇒ 丢弃持有（判据单源=doc 投影）
+  // Y3 Task4（v3.1 合同二）：有 execSeq 的终态必传（同 execSeq 只轮换一次+更小忽略）；无 execSeq 维持旧形态
   useEffect(() => {
     if (entry?.status === 'done' || (entry?.status === 'error' && entry.rearmable === false)) {
       const pid = useCanvasStore.getState().projectId;
-      if (pid) rotateToken(pid, nodeId);
+      if (pid) rotateToken(pid, nodeId, entry.execSeq);
     }
-  }, [entry?.status, entry?.rearmable, nodeId]);
+  }, [entry?.status, entry?.rearmable, entry?.execSeq, nodeId]);
   const selectedModel = models.find((m) => m.id === model);
 
   // Close model dropdown on outside click
@@ -172,6 +173,8 @@ function TextConfigPanelComponent({ nodeId }: Props) {
       const held = storedToken(projectId, nodeId);
       const token = held
         ?? ((status === 'done' || entry?.rearmable === false) ? gestureToken(projectId, nodeId) : undefined);
+      // Y3 Task4（v3.1 合同二②）：真发受理请求的那一次——消费标记在案（渲染读不算消费）
+      if (token) markGestureConsumed(projectId, nodeId);
       const { jobId } = await enqueueWorkflow({ projectId, nodeId, ...(token ? { regenToken: token } : {}) });
       console.log('[TextPanel] enqueued job:', jobId);
       // Socket.io will update status → done/error with AI response（失败态由服务端 exec 投影接管——轮换 useEffect 单源）

@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, OnApplicationShutdown, OnModuleInit } from 
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import type { GenerationIntent, Prisma } from '@prisma/client';
+import { feedError } from '@flowweb/shared';   // Y3 Task3：reaper Feed error 唯一出口（常驻门删+两句 id 分立）
 import { PrismaService } from '../../prisma/prisma.service';
 import { CollabWritePort } from '../collab/collab-write.port';
 import { CreditLedgerService } from '../team/credit-ledger.service';
@@ -15,7 +16,7 @@ import {
   orphanReleaseTotal, orphanUnreleasableTotal,
   reconcileAutoConvergedTotal, reconcileManualRequiredTotal, reconcileInvariantViolation,
 } from './intent-reconcile.metrics';
-import { intentDeadlineExceededTotal, execProjectionDeferredTotal, authorSlotReleaseExhaustedTotal } from './exec.metrics';
+import { intentDeadlineExceededTotal, authorSlotReleaseExhaustedTotal } from './exec.metrics';
 
 /** RUNNING 孤儿判龄阈值（档一）——claim/rearm/外呼心跳都刷新 heartbeatAt，超龄即进程/调度异常嫌疑
  *  （Y0b-2 T4 判据单源：updatedAt→heartbeatAt——外呼 tick 不刷 updatedAt，旧判据会误收长任务）。 */
@@ -520,22 +521,18 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     }).catch((e) => this.logger.warn(`[R3] 意图行 ${intentRowId} 审计行落账失败（动作已执行——审计 best-effort）: ${e}`));
   }
 
-  /** Y0b-2 T5（Z106/Z112）→Y0c T20（Z105）：reaper 终态投影分治——UX 投影不得成为装载源：
-   *  isDocResident=hasActiveWsConnection 才写 error 投影；无人看跳过+exec_projection_deferred_total
-   *  计数。drain 503 best-effort 记 warn（不因投影失败回滚资金）。 */
+  /** Y0b-2 T5（Z106/Z112）→Y3 Task3：reaper 终态投影——**常驻门删**（isDocResident 早退+deferred
+   *  计数支删——Feed 写不成为装载源的结构证明已由 RuntimeFeed PG 事务承担：无人看也写=重连后
+   *  游标追平必达）。Feed=shared feedError（REAPER_DEADLINE/REAPER_STALE 两句 id 分立——事件码
+   *  仍现两码；行 intentId/attempts/execSeq 恒写——rearmable 有行 attempts<3 由 feedError 按码承担）。
+   *  drain 503 best-effort 记 warn（不因投影失败回滚资金）。 */
   private async projectReaped(row: GenerationIntent, errorCode: 'INTENT_DEADLINE_EXCEEDED' | 'INTENT_STALE_REAPED'): Promise<void> {
     try {
-      if (!this.collabDoc.isDocResident(row.projectId)) {
-        execProjectionDeferredTotal.inc();
-        return;
-      }
-      await this.collabDoc.writeExecStatus(row.projectId, row.nodeId, {
-        status: 'error',
+      await this.collabDoc.writeExecStatus(row.projectId, row.nodeId, feedError(
         errorCode,
-        error: errorCode === 'INTENT_DEADLINE_EXCEEDED' ? '生成超时已被系统回收' : '生成心跳失联已被系统回收（进程/调度异常）',
-        rearmable: row.attempts < 3,
-        attempts: row.attempts,
-      });
+        errorCode === 'INTENT_DEADLINE_EXCEEDED' ? 'REAPER_DEADLINE' : 'REAPER_STALE',
+        { intentId: row.intentId, attempts: row.attempts, execSeq: row.execSeq },
+      ));
     } catch (e) {
       this.logger.warn(`[reaper-projection] 意图 ${row.intentId} 投影失败（drain/租约 503 best-effort——不回滚资金）: ${(e as Error).message}`);
     }

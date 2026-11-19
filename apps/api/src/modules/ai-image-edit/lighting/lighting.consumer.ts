@@ -1,6 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import * as Sentry from '@sentry/nestjs';
+import { feedError } from '@flowweb/shared';   // Y3 Task3：打光链 Feed error 唯一出口
 import { PrismaService } from '../../../prisma/prisma.service';
 import { getOwnerTeamId } from '../../team/team.util';
 import { MinioService } from '../../minio/minio.service';
@@ -181,7 +182,12 @@ export class LightingConsumer {
         authorVoid,
       });
       if (committed.outcome === 'intent-stale') {
+        // Y3 T3⑪：intent-stale 返回前补 Feed 写（EXEC_DEADLINE 句+行身份——行读 closed 句表）。
         this.logger.warn(`[artifact-commit] 意图 ${intentLogId} finalize intent-stale（行终态/换代）——跳过产物写入（外呼产物留作物证）`);
+        const staleRow = await this.prisma.generationIntent.findUnique({
+          where: { id: intentRowId! }, select: { intentId: true, attempts: true, execSeq: true },
+        }).catch(() => null);
+        await this.collabDoc.writeExecStatus(projectId || '', nodeId, feedError('INTENT_DEADLINE_EXCEEDED', 'EXEC_DEADLINE', staleRow ? { intentId: staleRow.intentId, attempts: staleRow.attempts, execSeq: staleRow.execSeq ?? execSeq! } : null), intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure);
         return { status: 'completed' };
       }
       const mediaId = committed.mediaId!;
@@ -245,14 +251,13 @@ export class LightingConsumer {
       // void_/fail+onFailed 钩子置 FAILED）：意图行留 RUNNING+冻结原样，交对账第四分支裁决（任务
       // 状态收敛归裁决面）。用户面=FUNDS_INVARIANT_VIOLATION error 投影+lighting-failed emit。
       if (error instanceof FundsInvariantError && intentRowId) {
+        // Y3 T3：资金不变量 Feed 行读补行身份（feedError 有行档——intentId/attempts/execSeq 恒写）。
         this.logger.error(`[funds-invariant] 意图 ${intentLogId} 资金不变量破缺（行留 RUNNING 交对账第四分支）: ${error.message}`);
-        const attempts = (await this.prisma.generationIntent.findUnique({
-          where: { id: intentRowId }, select: { attempts: true },
-        }).catch(() => null))?.attempts ?? 0;
+        const fundsRow = await this.prisma.generationIntent.findUnique({
+          where: { id: intentRowId }, select: { intentId: true, attempts: true, execSeq: true },
+        }).catch(() => null);
         const msg = '生成结果暂缓交付（资金核销异常，待对账处理）';
-        await this.collabDoc.writeExecStatus(projectId || '', nodeId, {
-          status: 'error', errorCode: 'FUNDS_INVARIANT_VIOLATION', error: msg, attempts,
-        }, intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure);
+        await this.collabDoc.writeExecStatus(projectId || '', nodeId, feedError('FUNDS_INVARIANT_VIOLATION', 'FUNDS_HELD', fundsRow ? { intentId: fundsRow.intentId, attempts: fundsRow.attempts, execSeq: fundsRow.execSeq ?? execSeq! } : null), intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure);
         this.emitPort.emitNodeStatus(projectId || '', { nodeId, status: 'lighting-failed', error: msg } as any);
         return { status: 'failed', reason: 'FUNDS_INVARIANT_VIOLATION' };
       }

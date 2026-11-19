@@ -200,6 +200,27 @@
       ]
     },
     {
+      "path": "docs/superpowers/plans/2026-11-19-y3-protocol-retirement.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/api/src/modules/collab/collab-document.exec-map.spec.ts",
+          "line": 90,
+          "text": "// ── Y3 Task 2（plan 2026-11-19-y3-protocol-retirement 第二件服务端半）：两写面改调 shared 组装器──"
+        },
+        {
+          "src": "apps/web/src/utils/regen-token.generation.spec.ts",
+          "line": 1,
+          "text": "// apps/web/src/utils/regen-token.generation.spec.ts —— Y3 Task 4（plan 2026-11-19-y3-protocol-retirement"
+        },
+        {
+          "src": "packages/shared/src/collab/runtime-exec-status.spec.ts",
+          "line": 2,
+          "text": "// Y3 Task 1（plan 2026-11-19-y3-protocol-retirement 第一笔——spec §3 S2/词表表）：shared 组装器+"
+        }
+      ]
+    },
+    {
       "path": "docs/superpowers/plans/collab-e2e-gate-checklist.md",
       "criteria": "C1",
       "evidence": [
