@@ -4,7 +4,7 @@ import { StoryboardController } from './storyboard.controller';
 import { StoryboardService } from './storyboard.service';
 import { StitchConsumer } from './stitch.consumer';
 import { STORYBOARD_STITCH_QUEUE } from './storyboard.constants';
-import { ExecutionCoreModule } from '../execution/execution-core.module';   // Y0c T25：模块拆分改道（EmitPort 导出——StitchConsumer T25 三族改道消费）
+import { ExecutionCoreModule } from '../execution/execution-core.module';   // Y0c T25：模块拆分改道（Y3 T8 起零 WS 面——StitchConsumer 依赖解析）
 import { TeamModule } from '../team/team.module';
 
 @Module({

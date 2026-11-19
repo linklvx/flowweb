@@ -1233,9 +1233,7 @@ if (isMain()) {
     'apps/api/src/modules/execution/api-caller.service.ts': {   // 方法内（onModuleInit 预算锁+submit/poll 超时族）
       EXEC_SYNC_HARD_CAP: 1, EXEC_SUBMIT_TIMEOUT_MS: 2, EXEC_POLL_TIMEOUT_MS: 3,
     },
-    'apps/api/src/modules/execution/execution-core.module.ts': {   // uF装配期（EmitPort 工厂 COLLAB_ROLE）
-      COLLAB_ROLE: 1,
-    },
+    // Y3 T8：execution-core.module.ts 的 COLLAB_ROLE 装配期读点随 EmitPort 工厂删除核销（模块本体零 env 读）。
     'apps/api/src/modules/execution/execution-daemon.module.ts': {   // uF装配期（register() 静态方法体 COLLAB_ROLE）
       COLLAB_ROLE: 1,
     },
@@ -1252,9 +1250,7 @@ if (isMain()) {
     'apps/api/src/modules/execution/video-trim.processor.ts': {   // 构造器（ffmpegConfig 类字段初始化=DI 构造期）
       VIDEO_TRIM_ENCODER: 1, VIDEO_TRIM_PRESET: 1, VIDEO_TRIM_CRF: 1,
     },
-    'apps/api/src/modules/gateway/execution.gateway.ts': {   // T34 整改：装饰器回调（cors origin 函数形态——请求期读 CORS_ORIGIN）
-      CORS_ORIGIN: 1,
-    },
+    // Y3 T8：execution.gateway.ts 随 /execution 命名空间退役删除——CORS_ORIGIN 装饰器回调读点随之核销。
     'apps/api/src/modules/media-process/media-process.service.ts': {   // T34 整改：函数内（ffmpegPath/ffprobePath 惰性）
       FFMPEG_PATH: 1, FFPROBE_PATH: 1,
     },

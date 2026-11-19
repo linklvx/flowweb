@@ -797,7 +797,7 @@
     "title": "⑦ 39 裸 `project:${pid}` docName 构造",
     "conclusion": "实测=39 处（生产代码——与 plan v1.7 声称精确一致）；另有 29 处测试（spec/test 文件）。",
     "productionBreakdown": {
-      "total": 24,
+      "total": 19,
       "yjsDocAddressing": [
         {
           "file": "apps/api/src/modules/collab/collab-persistence.service.ts",
@@ -877,20 +877,7 @@
           "classification": "server·captureCollabException docName 字段"
         }
       ],
-      "socketIoRooms_notYjsDocNames": [
-        {
-          "file": "apps/api/src/modules/gateway/execution.gateway.ts",
-          "lines": [
-            78,
-            89,
-            102,
-            113,
-            127
-          ],
-          "classification": "server·Socket.IO room 名 ×5（join/to().emit——非 Yjs docName 但同字面模式；:102/:113 用 workflowId）",
-          "note": "socketio-retirement-assessment.md 评估中的退役面"
-        }
-      ],
+      "socketIoRooms_notYjsDocNames": [],
       "comments": [
         {
           "file": "apps/api/src/modules/collab/collab-document.service.ts",

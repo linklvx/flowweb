@@ -1,383 +1,439 @@
 {
-  "comment": "叙述性豁免（v1.2 §5.3）：canonical 文档合法提及死符号/已删文件的窄通道。键=file:line:symbol（行漂移即失效迫使复核）；expires_at 绝对日期 ≤90 天；独立通道不进棘轮。第七轮剪枝：Spec B 两份+DELETED 升 frozen 类（职能豁免——决策记录/登记表体裁），98 条行级豁免随类移除；剩余=活权威文档的叙述性提及。",
-  "items": [
-    {
-      "file": "docs/superpowers/plans/2026-09-18-css-base-layer-theme-plan.md",
-      "line": 46,
-      "symbol": "Keycloak",
-      "reason": "技术栈历史注记（登录=Better Auth 现行，Keycloak 为被否方案）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-09-18-css-base-layer-theme-plan.md",
-      "line": 88,
-      "symbol": "Keycloak",
-      "reason": "技术栈历史注记（登录=Better Auth 现行，Keycloak 为被否方案）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 65,
-      "symbol": "isHydrating",
-      "reason": "完成记录表叙述 isHydrating 删除锚（批 2-1/4b-2 记录）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 1927,
-      "symbol": "isHydrating",
-      "reason": "完成记录表叙述 isHydrating 删除锚（批 2-1/4b-2 记录）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 1934,
-      "symbol": "isHydrating",
-      "reason": "完成记录表叙述 isHydrating 删除锚（批 2-1/4b-2 记录）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 1936,
-      "symbol": "isHydrating",
-      "reason": "完成记录表叙述 isHydrating 删除锚（批 2-1/4b-2 记录）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 1955,
-      "symbol": "isHydrating",
-      "reason": "完成记录表叙述 isHydrating 删除锚（批 2-1/4b-2 记录）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md",
-      "line": 226,
-      "symbol": "Keycloak",
-      "reason": "技术栈历史注记（登录=Better Auth 现行，Keycloak 为被否方案）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md",
-      "line": 273,
-      "symbol": "Keycloak",
-      "reason": "技术栈历史注记（登录=Better Auth 现行，Keycloak 为被否方案）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 122,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 123,
-      "symbol": "pickStructNodes",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 131,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 191,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 191,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 214,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 461,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 475,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 521,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 1954,
-      "symbol": "isHydrating",
-      "reason": "完成记录表叙述删除锚",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 130,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
-      "line": 130,
-      "symbol": "isHydrating",
-      "reason": "现行 collab 权威 spec 的删除判据记录（退役叙述=机制决策本体）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 1180,
-      "symbol": "canvasHistory",
-      "reason": "完成记录表叙述 canvasHistory 删除锚（setState 白名单历史清单）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 929,
-      "symbol": "apps/web/src/pages/canvas/video-editor/persist/autosave.spec.ts",
-      "reason": "批 0d 历史记录（该 spec 路径随编辑器重构移位）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 1180,
-      "symbol": "canvasHistory.ts",
-      "reason": "同上——删除锚的文件形态提及",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 2048,
-      "symbol": "apps/web/src/utils/normalizeCanvasRecord.ts",
-      "reason": "批 4a 历史记录（读归一单源后随重构移位/更名）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/tech-debt.md",
-      "line": 112,
-      "symbol": "deleteRefs",
-      "reason": "TD 台账已清账行的历史记录（退役指针已落地）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/tech-debt.md",
-      "line": 113,
-      "symbol": "syncNodes",
-      "reason": "TD-1 清账行的历史记录（REST 批量同步已随画布 REST 链路退役）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/tech-debt.md",
-      "line": 113,
-      "symbol": "syncEdges",
-      "reason": "TD-1 清账行的历史记录（同上）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/tech-debt.md",
-      "line": 117,
-      "symbol": "isHydrating",
-      "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针已落地）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/tech-debt.md",
-      "line": 118,
-      "symbol": "isHydrating",
-      "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针已落地）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/tech-debt.md",
-      "line": 118,
-      "symbol": "isHydrating",
-      "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针已落地）",
-      "expires_at": "2027-01-02"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-10-08-y0b-funds-and-access-design.md",
-      "line": 522,
-      "symbol": "shared/constants/collab-close-code.ts",
-      "reason": "Y0b-3 交付物前向引用（spec §5.2 规范性点名新建文件——未实现期临时豁免，文件落地后豁免自然空转）",
-      "expires_at": "2027-01-06"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-10-08-y0b-funds-and-access-design.md",
-      "line": 628,
-      "symbol": "scripts/check-collab-health.mjs",
-      "reason": "Y0b-5 交付物前向引用（spec §5.8⑥ 规范性点名巡检脚本——未实现期临时豁免）",
-      "expires_at": "2027-01-06"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 1199,
-      "symbol": "apps/web/src/utils/intentRecord.ts",
-      "reason": "批 0.5 历史记录（客户端意图记录创建步骤——T6 regenToken 协议落地时整文件退役）",
-      "expires_at": "2027-01-06"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "line": 1587,
-      "symbol": "apps/web/src/utils/intentRecord.ts",
-      "reason": "批 0.5 历史记录（实现步骤锚——T6 regenToken 协议落地时整文件退役）",
-      "expires_at": "2027-01-06"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-10-08-y0b-funds-and-access-design.md",
-      "line": 487,
-      "symbol": "utils/intentRecord.ts",
-      "reason": "Y0b 设计决策历史依据（v2.4 §runId 未决窗口制引旧范式为对照——旧文件 T6 已删，现行=regenToken 协议；v2.9 §0.4d 插入后行号 465→487 平移）",
-      "expires_at": "2027-01-06"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-12-y0b-5-terminal-and-observability.md",
-      "line": 43,
-      "symbol": "profile/projection.ts",
-      "reason": "裁定 23⑳ 驳回清单历史记录（projection.ts 拆分=登记后续批次未实现——T18 出口随 plan 晋升 canonical 首次入检）",
-      "expires_at": "2027-01-06"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-10-12-y0b-5-terminal-and-observability.md",
-      "line": 866,
-      "symbol": "apps/api/scripts/tmp-pricing-probe.mjs",
-      "reason": "T18 Step 5 清理目标的历史记录性提及（未跟踪探针已删——清理动作留痕，文件本身从未入库）",
-      "expires_at": "2027-01-06"
-    },
-    {
-      "file": "docs/superpowers/tech-debt.md",
-      "line": 59,
-      "symbol": "apps/web/src/utils/intentRecord.ts",
-      "reason": "TD 台账防重做登记的历史记录（批 0.5 已落地物——T6 regenToken 协议落地时整文件退役）",
-      "expires_at": "2027-01-06"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "symbol": "apps/api/src/modules/execution/execution.module.ts",
-      "reason": "Y0c T25 模块拆分删除旧聚合模块（Core/Http 分离）——历史 plan 记录性提及",
-      "expires_at": "2027-01-13",
-      "line": 1198
-    },
-    {
-      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "symbol": "apps/api/src/modules/execution/execution.module.ts",
-      "reason": "Y0c T25 模块拆分删除旧聚合模块（Core/Http 分离）——历史 plan 记录性提及",
-      "expires_at": "2027-01-13",
-      "line": 184
-    },
-    {
-      "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
-      "symbol": "apps/api/src/modules/ai-image-edit/ai-image-edit.module.ts",
-      "reason": "Y0c T25 模块拆分删除旧聚合模块（Core/Http 分离）——历史 plan 记录性提及",
-      "expires_at": "2027-01-13",
-      "line": 177
-    },
-    {
-      "file": "docs/superpowers/full-stack-backup.md",
-      "line": 131,
-      "symbol": "backups/vX.X/db/flowweb_plain.sql",
-      "reason": "手动全栈快照恢复步骤的模板性路径（vX.X=版本占位符，backups/ 产物在快照仪式执行时才生成——非仓内代码文件引用；T38 首次入检；卡② K3 §5 拆两段行移位 129→131 同步）",
-      "expires_at": "2027-01-14"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-11-16-collab-closing-bag.md",
-      "line": 128,
-      "symbol": "apps/api/src/modules/collab/dto/collect-media-refs.dto.ts",
-      "reason": "卡② K8 Delete 清单的历史记录性提及（media-refs 端点随活 doc 扫描链退役——文件已删，plan 为执行记录）",
-      "expires_at": "2027-02-14"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-11-16-collab-closing-bag.md",
-      "line": 128,
-      "symbol": "apps/api/src/modules/collab/project-erasure.media-refs.c4c1.spec.ts",
-      "reason": "卡② K8 Delete 清单的历史记录性提及（同上——spec 文件已删）",
-      "expires_at": "2027-02-14"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-11-16-collab-closing-bag-design.md",
-      "line": 111,
-      "symbol": "dto/collect-media-refs.dto.ts",
-      "reason": "卡② K8 删除清单的历史记录性提及（缩写 token——机制记录非文件引用）",
-      "expires_at": "2027-02-14"
-    },
-    {
-      "file": "docs/superpowers/specs/2026-11-16-collab-closing-bag-design.md",
-      "line": 111,
-      "symbol": "project-erasure.media-refs.c4c1.spec.ts",
-      "reason": "卡② K8 删除清单的历史记录性提及（缩写 token——机制记录非文件引用）",
-      "expires_at": "2027-02-14"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-11-16-collab-closing-bag.md",
-      "line": 45,
-      "symbol": "apps/api/src/x.spec.ts",
-      "reason": "卡② K2 红测内联示例路径（scanSource 纯函数用例字面量——非真实文件引用）",
-      "expires_at": "2027-02-14"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
-      "line": 135,
-      "symbol": "apps/api/src/modules/collab/author-slot.service.ts",
-      "reason": "Y2 B2a 将创建的文件（批内前瞻引用——创建后 dead-path 自然不再命中）",
-      "expires_at": "2027-02-15"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
-      "line": 197,
-      "symbol": "apps/api/src/modules/collab/slot-write.port.ts",
-      "reason": "Y2 D3t 将创建的文件（批内前瞻引用——创建后 dead-path 自然不再命中）",
-      "expires_at": "2027-02-15"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
-      "line": 121,
-      "symbol": "apps/api/src/modules/collab/author-slot.service.ts",
-      "reason": "Y2 B2a 将创建的文件（批内前瞻引用）",
-      "expires_at": "2027-02-15"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
-      "line": 121,
-      "symbol": "packages/shared/src/canvas/resolvePrimaryMediaId.ts",
-      "reason": "Y2 B2a 将创建的文件（批内前瞻引用）",
-      "expires_at": "2027-02-15"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
-      "line": 85,
-      "symbol": "apps/web/src/stores/geometryTrap.ts",
-      "reason": "Y2 A3 reconcile 退役批删除的文件——plan 文件表历史记录性提及（行级锚）",
-      "expires_at": "2027-02-15"
-    },
-    {
-      "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
-      "line": 85,
-      "symbol": "packages/shared/src/canvas/geometryWriterRegistry.ts",
-      "reason": "Y2 A3 reconcile 退役批删除的文件——plan 文件表历史记录性提及（行级锚）",
-      "expires_at": "2027-02-15"
-    }
-  ]
+ "comment": "叙述性豁免（v1.2 §5.3）：canonical 文档合法提及死符号/已删文件的窄通道。键=file:line:symbol（行漂移即失效迫使复核）；expires_at 绝对日期 ≤90 天；独立通道不进棘轮。第七轮剪枝：Spec B 两份+DELETED 升 frozen 类（职能豁免——决策记录/登记表体裁），98 条行级豁免随类移除；剩余=活权威文档的叙述性提及。",
+ "items": [
+  {
+   "file": "docs/superpowers/plans/2026-09-18-css-base-layer-theme-plan.md",
+   "line": 46,
+   "symbol": "Keycloak",
+   "reason": "技术栈历史注记（登录=Better Auth 现行，Keycloak 为被否方案）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-18-css-base-layer-theme-plan.md",
+   "line": 88,
+   "symbol": "Keycloak",
+   "reason": "技术栈历史注记（登录=Better Auth 现行，Keycloak 为被否方案）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "line": 65,
+   "symbol": "isHydrating",
+   "reason": "完成记录表叙述 isHydrating 删除锚（批 2-1/4b-2 记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "line": 1927,
+   "symbol": "isHydrating",
+   "reason": "完成记录表叙述 isHydrating 删除锚（批 2-1/4b-2 记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "line": 1934,
+   "symbol": "isHydrating",
+   "reason": "完成记录表叙述 isHydrating 删除锚（批 2-1/4b-2 记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "line": 1936,
+   "symbol": "isHydrating",
+   "reason": "完成记录表叙述 isHydrating 删除锚（批 2-1/4b-2 记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "line": 1955,
+   "symbol": "isHydrating",
+   "reason": "完成记录表叙述 isHydrating 删除锚（批 2-1/4b-2 记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md",
+   "line": 226,
+   "symbol": "Keycloak",
+   "reason": "技术栈历史注记（登录=Better Auth 现行，Keycloak 为被否方案）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-18-css-base-layer-theme-design.md",
+   "line": 273,
+   "symbol": "Keycloak",
+   "reason": "技术栈历史注记（登录=Better Auth 现行，Keycloak 为被否方案）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+   "line": 122,
+   "symbol": "isHydrating",
+   "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+   "line": 123,
+   "symbol": "pickStructNodes",
+   "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+   "line": 131,
+   "symbol": "isHydrating",
+   "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+   "line": 191,
+   "symbol": "isHydrating",
+   "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+   "line": 191,
+   "symbol": "isHydrating",
+   "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+   "line": 214,
+   "symbol": "isHydrating",
+   "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+   "line": 461,
+   "symbol": "isHydrating",
+   "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+   "line": 475,
+   "symbol": "isHydrating",
+   "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+   "line": 521,
+   "symbol": "isHydrating",
+   "reason": "现行 collab 权威 spec 的删除判据记录（isHydrating 等符号的退役叙述=机制决策本体）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "line": 1954,
+   "symbol": "isHydrating",
+   "reason": "完成记录表叙述删除锚",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+   "line": 130,
+   "symbol": "isHydrating",
+   "reason": "现行 collab 权威 spec 的删除判据记录（退役叙述=机制决策本体）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+   "line": 130,
+   "symbol": "isHydrating",
+   "reason": "现行 collab 权威 spec 的删除判据记录（退役叙述=机制决策本体）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "line": 1180,
+   "symbol": "canvasHistory",
+   "reason": "完成记录表叙述 canvasHistory 删除锚（setState 白名单历史清单）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "line": 929,
+   "symbol": "apps/web/src/pages/canvas/video-editor/persist/autosave.spec.ts",
+   "reason": "批 0d 历史记录（该 spec 路径随编辑器重构移位）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "line": 1180,
+   "symbol": "canvasHistory.ts",
+   "reason": "同上——删除锚的文件形态提及",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "line": 2048,
+   "symbol": "apps/web/src/utils/normalizeCanvasRecord.ts",
+   "reason": "批 4a 历史记录（读归一单源后随重构移位/更名）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/tech-debt.md",
+   "line": 112,
+   "symbol": "deleteRefs",
+   "reason": "TD 台账已清账行的历史记录（退役指针已落地）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/tech-debt.md",
+   "line": 113,
+   "symbol": "syncNodes",
+   "reason": "TD-1 清账行的历史记录（REST 批量同步已随画布 REST 链路退役）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/tech-debt.md",
+   "line": 113,
+   "symbol": "syncEdges",
+   "reason": "TD-1 清账行的历史记录（同上）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/tech-debt.md",
+   "line": 117,
+   "symbol": "isHydrating",
+   "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针已落地）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/tech-debt.md",
+   "line": 118,
+   "symbol": "isHydrating",
+   "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针已落地）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/tech-debt.md",
+   "line": 118,
+   "symbol": "isHydrating",
+   "reason": "TD 台账已清账行的历史记录（TD-4/5/6/15 指针已落地）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-10-08-y0b-funds-and-access-design.md",
+   "line": 522,
+   "symbol": "shared/constants/collab-close-code.ts",
+   "reason": "Y0b-3 交付物前向引用（spec §5.2 规范性点名新建文件——未实现期临时豁免，文件落地后豁免自然空转）",
+   "expires_at": "2027-01-06"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-10-08-y0b-funds-and-access-design.md",
+   "line": 628,
+   "symbol": "scripts/check-collab-health.mjs",
+   "reason": "Y0b-5 交付物前向引用（spec §5.8⑥ 规范性点名巡检脚本——未实现期临时豁免）",
+   "expires_at": "2027-01-06"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "line": 1199,
+   "symbol": "apps/web/src/utils/intentRecord.ts",
+   "reason": "批 0.5 历史记录（客户端意图记录创建步骤——T6 regenToken 协议落地时整文件退役）",
+   "expires_at": "2027-01-06"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "line": 1587,
+   "symbol": "apps/web/src/utils/intentRecord.ts",
+   "reason": "批 0.5 历史记录（实现步骤锚——T6 regenToken 协议落地时整文件退役）",
+   "expires_at": "2027-01-06"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-10-08-y0b-funds-and-access-design.md",
+   "line": 487,
+   "symbol": "utils/intentRecord.ts",
+   "reason": "Y0b 设计决策历史依据（v2.4 §runId 未决窗口制引旧范式为对照——旧文件 T6 已删，现行=regenToken 协议；v2.9 §0.4d 插入后行号 465→487 平移）",
+   "expires_at": "2027-01-06"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-10-12-y0b-5-terminal-and-observability.md",
+   "line": 43,
+   "symbol": "profile/projection.ts",
+   "reason": "裁定 23⑳ 驳回清单历史记录（projection.ts 拆分=登记后续批次未实现——T18 出口随 plan 晋升 canonical 首次入检）",
+   "expires_at": "2027-01-06"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-10-12-y0b-5-terminal-and-observability.md",
+   "line": 866,
+   "symbol": "apps/api/scripts/tmp-pricing-probe.mjs",
+   "reason": "T18 Step 5 清理目标的历史记录性提及（未跟踪探针已删——清理动作留痕，文件本身从未入库）",
+   "expires_at": "2027-01-06"
+  },
+  {
+   "file": "docs/superpowers/tech-debt.md",
+   "line": 59,
+   "symbol": "apps/web/src/utils/intentRecord.ts",
+   "reason": "TD 台账防重做登记的历史记录（批 0.5 已落地物——T6 regenToken 协议落地时整文件退役）",
+   "expires_at": "2027-01-06"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "symbol": "apps/api/src/modules/execution/execution.module.ts",
+   "reason": "Y0c T25 模块拆分删除旧聚合模块（Core/Http 分离）——历史 plan 记录性提及",
+   "expires_at": "2027-01-13",
+   "line": 1198
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "symbol": "apps/api/src/modules/execution/execution.module.ts",
+   "reason": "Y0c T25 模块拆分删除旧聚合模块（Core/Http 分离）——历史 plan 记录性提及",
+   "expires_at": "2027-01-13",
+   "line": 184
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "symbol": "apps/api/src/modules/ai-image-edit/ai-image-edit.module.ts",
+   "reason": "Y0c T25 模块拆分删除旧聚合模块（Core/Http 分离）——历史 plan 记录性提及",
+   "expires_at": "2027-01-13",
+   "line": 177
+  },
+  {
+   "file": "docs/superpowers/full-stack-backup.md",
+   "line": 131,
+   "symbol": "backups/vX.X/db/flowweb_plain.sql",
+   "reason": "手动全栈快照恢复步骤的模板性路径（vX.X=版本占位符，backups/ 产物在快照仪式执行时才生成——非仓内代码文件引用；T38 首次入检；卡② K3 §5 拆两段行移位 129→131 同步）",
+   "expires_at": "2027-01-14"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-16-collab-closing-bag.md",
+   "line": 128,
+   "symbol": "apps/api/src/modules/collab/dto/collect-media-refs.dto.ts",
+   "reason": "卡② K8 Delete 清单的历史记录性提及（media-refs 端点随活 doc 扫描链退役——文件已删，plan 为执行记录）",
+   "expires_at": "2027-02-14"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-16-collab-closing-bag.md",
+   "line": 128,
+   "symbol": "apps/api/src/modules/collab/project-erasure.media-refs.c4c1.spec.ts",
+   "reason": "卡② K8 Delete 清单的历史记录性提及（同上——spec 文件已删）",
+   "expires_at": "2027-02-14"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-11-16-collab-closing-bag-design.md",
+   "line": 111,
+   "symbol": "dto/collect-media-refs.dto.ts",
+   "reason": "卡② K8 删除清单的历史记录性提及（缩写 token——机制记录非文件引用）",
+   "expires_at": "2027-02-14"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-11-16-collab-closing-bag-design.md",
+   "line": 111,
+   "symbol": "project-erasure.media-refs.c4c1.spec.ts",
+   "reason": "卡② K8 删除清单的历史记录性提及（缩写 token——机制记录非文件引用）",
+   "expires_at": "2027-02-14"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-16-collab-closing-bag.md",
+   "line": 45,
+   "symbol": "apps/api/src/x.spec.ts",
+   "reason": "卡② K2 红测内联示例路径（scanSource 纯函数用例字面量——非真实文件引用）",
+   "expires_at": "2027-02-14"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
+   "line": 135,
+   "symbol": "apps/api/src/modules/collab/author-slot.service.ts",
+   "reason": "Y2 B2a 将创建的文件（批内前瞻引用——创建后 dead-path 自然不再命中）",
+   "expires_at": "2027-02-15"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
+   "line": 197,
+   "symbol": "apps/api/src/modules/collab/slot-write.port.ts",
+   "reason": "Y2 D3t 将创建的文件（批内前瞻引用——创建后 dead-path 自然不再命中）",
+   "expires_at": "2027-02-15"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
+   "line": 121,
+   "symbol": "apps/api/src/modules/collab/author-slot.service.ts",
+   "reason": "Y2 B2a 将创建的文件（批内前瞻引用）",
+   "expires_at": "2027-02-15"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
+   "line": 121,
+   "symbol": "packages/shared/src/canvas/resolvePrimaryMediaId.ts",
+   "reason": "Y2 B2a 将创建的文件（批内前瞻引用）",
+   "expires_at": "2027-02-15"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
+   "line": 85,
+   "symbol": "apps/web/src/stores/geometryTrap.ts",
+   "reason": "Y2 A3 reconcile 退役批删除的文件——plan 文件表历史记录性提及（行级锚）",
+   "expires_at": "2027-02-15"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
+   "line": 85,
+   "symbol": "packages/shared/src/canvas/geometryWriterRegistry.ts",
+   "reason": "Y2 A3 reconcile 退役批删除的文件——plan 文件表历史记录性提及（行级锚）",
+   "expires_at": "2027-02-15"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "line": 181,
+   "symbol": "apps/api/src/modules/gateway/execution.gateway.ts",
+   "reason": "Y3 T8 protocol-retirement 批删除的文件——canonical 文档历史记录性提及（行级锚）",
+   "expires_at": "2027-02-17"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "line": 187,
+   "symbol": "apps/api/src/modules/gateway/execution.gateway.spec.ts",
+   "reason": "Y3 T8 protocol-retirement 批删除的文件——canonical 文档历史记录性提及（行级锚）",
+   "expires_at": "2027-02-17"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-19-y3-protocol-retirement.md",
+   "line": 179,
+   "symbol": "apps/api/src/modules/gateway/emit.port.ts",
+   "reason": "Y3 T8 protocol-retirement 批删除的文件——canonical 文档历史记录性提及（行级锚）",
+   "expires_at": "2027-02-17"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-19-y3-protocol-retirement.md",
+   "line": 179,
+   "symbol": "apps/web/src/services/executionSocket.ts",
+   "reason": "Y3 T8 protocol-retirement 批删除的文件——canonical 文档历史记录性提及（行级锚）",
+   "expires_at": "2027-02-17"
+  },
+  {
+   "file": "docs/superpowers/plans/socketio-retirement-assessment.md",
+   "line": 11,
+   "symbol": "apps/api/src/modules/gateway/execution.gateway.ts",
+   "reason": "Y3 T8 protocol-retirement 批删除的文件——canonical 文档历史记录性提及（行级锚）",
+   "expires_at": "2027-02-17"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+   "line": 464,
+   "symbol": "apps/web/src/services/executionSocket.ts",
+   "reason": "Y3 T8 protocol-retirement 批删除的文件——canonical 文档历史记录性提及（行级锚）",
+   "expires_at": "2027-02-17"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+   "line": 464,
+   "symbol": "apps/api/src/modules/gateway/execution.gateway.ts",
+   "reason": "Y3 T8 protocol-retirement 批删除的文件——canonical 文档历史记录性提及（行级锚）",
+   "expires_at": "2027-02-17"
+  },
+  {
+   "file": "docs/superpowers/tech-debt.md",
+   "line": 80,
+   "symbol": "93/execution.gateway.ts",
+   "reason": "Y3 T8 protocol-retirement 批删除的文件——canonical 文档历史记录性提及（行级锚）",
+   "expires_at": "2027-02-17"
+  }
+ ]
 }

@@ -299,8 +299,7 @@ const agePastGrace = async (id: string) =>
         teamCredit,
         perm,
         collabDoc as any,
-        { emitNodeStatus: vi.fn() } as any,
-        intentSvc,
+        intentSvc,   // Y3 T8：emit 形参随 /execution 退役删除
         { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
         makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）,
       undefined as never,   // Y1c T21：ExecutionRequestService（spec 不触达）
@@ -376,7 +375,6 @@ const agePastGrace = async (id: string) =>
       buildKey: () => 'generated/key',
       upload: async () => {},
     };
-    const gateway: any = { emitNodeStatus: vi.fn() };
     const apiCaller: any = { callRelighting: vi.fn(async () => ({ url: 'https://ai/relit.png' })) };
     // Y2 B2d：读槽/释放面 stub（claim 占位 frozen:false——读槽胜臂恒 live=author=null 走 committed 释放）
     const collabDoc: any = {
@@ -387,11 +385,11 @@ const agePastGrace = async (id: string) =>
     };
     const { artifactCommit } = makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc);   // T10：lighting 全链 finalize（真资金链）
     const consumer = new LightingConsumer(
-      prisma as unknown as PrismaService, minio, gateway, apiCaller,
+      prisma as unknown as PrismaService, minio, apiCaller,
       teamCredit, collabDoc, intentSvc, safeFetchStub, artifactCommit,
     );
     const processor = new AiImageEditProcessor(
-      prisma as unknown as PrismaService, minio, gateway, apiCaller,
+      prisma as unknown as PrismaService, minio, apiCaller,
       teamCredit, collabDoc, consumer, intentSvc, safeFetchStub, artifactCommit,
     );
     // 队列入口 job（lighting.service.createTask 真实形态——无 fileId 键）

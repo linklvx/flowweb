@@ -321,8 +321,20 @@ export function handleFeedHint(latestFeedSeq: string): void {
   void syncRuntimeFeed();
 }
 
-/** 全量快照应用（首连/换代/游标失效——#10 全量替换+统一 cursor）。 */
-export async function fetchRuntimeSnapshot(projectId: string): Promise<void> {
+/** 拉取用途（Y3 D1 信号恰一次）：init=首次快照不发信号；resync=四回落（游标低水位/historyId
+ *  不符/doc.vacuumed/缺口）各派发一次 credits:update。必填无默认——调用点恰五（init 一+回落四）。 */
+export type RuntimeSnapshotPurpose = 'init' | 'resync';
+
+/** 终态信号派发（Y3 D1）：事件名 credits:update、detail 为空。runtimeStore 不引用 creditsStore、
+ *  不判个人/团队余额——消费侧（CanvasTopBar）按挂载 scope 自行重拉。jsdom/Node 侧 window 缺席=不派发。 */
+function dispatchCreditsSignal(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('credits:update'));
+}
+
+/** 全量快照应用（首连/换代/游标失效——#10 全量替换+统一 cursor）。
+ *  Y3 D1：purpose 必填——'resync'（四回落）派发一次空 detail 信号；'init' 零派发。 */
+export async function fetchRuntimeSnapshot(projectId: string, purpose: RuntimeSnapshotPurpose): Promise<void> {
   const fetcher = runtimeFeedFetchers.snapshot;
   if (!fetcher) return;
   const env = await fetcher(projectId);
@@ -335,35 +347,50 @@ export async function fetchRuntimeSnapshot(projectId: string): Promise<void> {
     projectId, generation: env.snapshot.generation, feedSeq: env.snapshot.feedSeq,
     pgSeq: env.snapshot.pgSeq, projection: env.snapshot, fetchedAt: Date.now(),
   });
+  if (purpose === 'resync') dispatchCreditsSignal();   // Y3 D1：回落重拉读到已入账余额——通知消费侧重拉
 }
 
 /** 增量追平循环（单飞；I-7：缺口→全量快照（不推进 cursor）；cursor<minRetained 或 historyId
- *  不匹配→全量快照；连续未追平→下轮续拉 ≤200×10）。 */
+ *  不匹配→全量快照；连续未追平→下轮续拉 ≤200×10）。
+ *  Y3 D1 信号恰一次：本轮调用里出现过 exec.status(done|error) 或 exec.artifact → 结束（追上或
+ *  轮次用尽）时恰派发一次 credits:update；中途改走快照只由该次 'resync' 派发一次、累加标记清掉、
+ *  被弃批不另算。loading/skipped/删除/换代本身不触发。 */
 export async function syncRuntimeFeed(): Promise<void> {
   const s0 = useRuntimeFeedStore.getState();
   if (s0.syncing || !s0.projectId || !runtimeFeedFetchers.events) return;
   useRuntimeFeedStore.setState({ syncing: true });
+  let terminalSeen = false;   // 终态标记跨轮累加（一次函数调用只派发一次）
   try {
     for (let round = 0; round < 10; round += 1) {   // 追平有界（≤200×10=2000 事件/轮次）
       const s = useRuntimeFeedStore.getState();
       if (!s.projectId || !s.cursor) return;
       if (BigInt(s.cursor.feedSeq) < BigInt(s.minRetainedSeq)) {
-        await fetchRuntimeSnapshot(s.projectId);   // 游标过期（保留期已回收）→全量
+        await fetchRuntimeSnapshot(s.projectId, 'resync');   // 游标过期（保留期已回收）→全量
         return;
       }
       const env = await runtimeFeedFetchers.events!(s.projectId, s.cursor.feedSeq, 200);
       if (env.historyId !== s.cursor.historyId) {
-        await fetchRuntimeSnapshot(s.projectId);   // historyId 不匹配（PITR/换代）→全量+清投影
+        await fetchRuntimeSnapshot(s.projectId, 'resync');   // historyId 不匹配（PITR/换代）→全量+清投影
         return;
       }
       const current = s.projection ?? { projectId: s.projectId, generation: s.cursor.generation, feedSeq: s.cursor.feedSeq, pgSeq: '0', nodes: {} };
       const r = applyEventsToProjection(current, s.cursor, env.events);
       dispatchNewArtifacts(env.events);   // 产物事件 → media-facts 定向拉取（尺寸回写链删除后的触发面）
-      if (r.needsSnapshot) { await fetchRuntimeSnapshot(s.projectId); return; }   // doc.vacuumed——换代全量
+      if (r.needsSnapshot) { await fetchRuntimeSnapshot(s.projectId, 'resync'); return; }   // doc.vacuumed——换代全量
       // T22 收口批 I-7：缺口=不推进 cursor 直接全量快照（原「越洞应用+appliedSeq 推到末位+gap∧
       // caughtUp 直接 return」=洞内事件永久丢——retention 清扫窗形态可达：cursor 落在已回收区间时
       // 首批必 gap 且 caughtUp，旧径直接 return=漏事件；快照档服务端折叠全量=最重但必正确）
-      if (r.gap) { await fetchRuntimeSnapshot(s.projectId); return; }
+      if (r.gap) { await fetchRuntimeSnapshot(s.projectId, 'resync'); return; }
+      // Y3 D1 终态标记：本批出现 exec.status(done|error) 或 exec.artifact——跨轮累加（一代隔离
+      // 的事件不属终态，标记不判投影只判本批事件原文；doc.vacuumed 已在上方回落 return）。
+      if (!terminalSeen) {
+        for (const e of env.events) {
+          if (e.kind === 'exec.artifact') { terminalSeen = true; break; }
+          if (e.kind !== 'exec.status') continue;
+          const st = (e.payload as { status?: unknown }).status;
+          if (st === 'done' || st === 'error') { terminalSeen = true; break; }
+        }
+      }
       const caughtUp = BigInt(env.latestFeedSeq) <= BigInt(r.appliedSeq);
       useRuntimeFeedStore.setState({
         projection: r.projection,
@@ -380,9 +407,12 @@ export async function syncRuntimeFeed(): Promise<void> {
             pgSeq: snap.pgSeq, projection: snap, fetchedAt: Date.now(),
           });
         }
+        if (terminalSeen) dispatchCreditsSignal();   // Y3 D1：追上结束——整批合成一次
         return;
       }
     }
+    // 轮次用尽（10 轮未追平）——本批出现终态仍派发一次（下次 hint/心跳续拉不再重发这批）
+    if (terminalSeen) dispatchCreditsSignal();
   } finally {
     useRuntimeFeedStore.setState({ syncing: false });
   }
@@ -408,7 +438,7 @@ export async function initRuntimeFeed(projectId: string, serverHistoryId?: strin
     syncing: false,
   });
   projectRuntimeExecToNodeStore();
-  await fetchRuntimeSnapshot(projectId);   // 首连恒快照（统一 cursor+真 historyId——缓存投影作离线兜底展示）
+  await fetchRuntimeSnapshot(projectId, 'init');   // 首连恒快照（统一 cursor+真 historyId——缓存投影作离线兜底展示）；Y3 D1：首次快照不发 credits:update
 }
 
 /** 会话终点（teardown）：清内存态（IDB 保留——下次会话离线兜底）。 */

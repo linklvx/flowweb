@@ -20,7 +20,7 @@ import { AI_IMAGE_EDIT_JOB_OPTIONS } from './ai-image-edit.queue-options';
   imports: [
     ArtifactCoreModule,   // T10：NodeArtifactService（claimCapture）+ArtifactCommitService（T10 processor/consumer 改道）
     CollabModule,
-    ExecutionCoreModule,   // Y0c T25：ExecutionModule 拆分改道（EmitPort 导出面）
+    ExecutionCoreModule,   // Y0c T25：ExecutionModule 拆分改道（Y3 T8 起零 WS 面——processor/consumer 依赖经本导入解析）
     TeamModule,
     BullModule.registerQueue({
       name: AI_IMAGE_EDIT_QUEUE_NAME,

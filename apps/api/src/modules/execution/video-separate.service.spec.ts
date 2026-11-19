@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { VideoSeparateService } from './video-separate.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
-import { EmitPort } from '../gateway/emit.port';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { getQueueToken } from '@nestjs/bullmq';
 import { VIDEO_SEPARATE_QUEUE } from './video-separate.constants';
@@ -14,7 +13,6 @@ describe('VideoSeparateService', () => {
   let mockRedis: any;
   let mockQueue: any;
   let mockMinio: any;
-  let mockGateway: any;
 
   beforeEach(async () => {
     mockRedis = {
@@ -39,10 +37,6 @@ describe('VideoSeparateService', () => {
     };
     mockQueue = { add: vi.fn() };
     mockMinio = { generatePresignedGetUrl: vi.fn() };
-    mockGateway = {
-      emitSeparateStatus: vi.fn(),
-      emitNodeStatus: vi.fn(),
-    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -51,7 +45,6 @@ describe('VideoSeparateService', () => {
         { provide: 'REDIS_CLIENT', useValue: mockRedis },
         { provide: getQueueToken(VIDEO_SEPARATE_QUEUE), useValue: mockQueue },
         { provide: MinioService, useValue: mockMinio },
-        { provide: EmitPort, useValue: mockGateway },   // Y0c T25（F1 补面）：emitSeparateStatus 消费改道 emit 端口
       ],
     }).compile();
 
@@ -299,7 +292,7 @@ describe('VideoSeparateService', () => {
   });
 
   describe('handleTaskCompleted', () => {
-    it('should update task and push Socket event', async () => {
+    it('should update task（Y3 T8：emit 通道退役——终态读面=REST 轮询）', async () => {
       mockPrisma.videoSeparateTask.update.mockResolvedValue({
         workflowId: 'wf-1',
         nodeId: 'node-1',
@@ -310,13 +303,6 @@ describe('VideoSeparateService', () => {
       expect(mockPrisma.videoSeparateTask.update).toHaveBeenCalledWith({
         where: { id: 'task-1' },
         data: { status: 'done', videoFileId: 'vid-1', audioFileId: 'aud-1', finishedAt: expect.any(Date) },
-      });
-      expect(mockGateway.emitSeparateStatus).toHaveBeenCalledWith('wf-1', {
-        nodeId: 'node-1',
-        taskId: 'task-1',
-        status: 'done',
-        videoFileId: 'vid-1',
-        audioFileId: 'aud-1',
       });
     });
   });
@@ -343,7 +329,7 @@ describe('VideoSeparateService', () => {
   });
 
   describe('setTaskProcessing', () => {
-    it('should update status to processing and push Socket event', async () => {
+    it('should update status to processing（Y3 T8：emit 通道退役）', async () => {
       mockPrisma.videoSeparateTask.update.mockResolvedValue({
         workflowId: 'wf-1',
         nodeId: 'node-1',
@@ -354,11 +340,6 @@ describe('VideoSeparateService', () => {
       expect(mockPrisma.videoSeparateTask.update).toHaveBeenCalledWith({
         where: { id: 'task-1' },
         data: { status: 'processing' },
-      });
-      expect(mockGateway.emitSeparateStatus).toHaveBeenCalledWith('wf-1', {
-        nodeId: 'node-1',
-        taskId: 'task-1',
-        status: 'processing',
       });
     });
   });

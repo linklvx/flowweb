@@ -3,7 +3,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AiImageEditProcessor } from './ai-image-edit.processor';
 import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { EmitPort } from '../gateway/emit.port';
 import { ApiCallerService } from '../execution/api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { CollabWritePort } from '../collab/collab-write.port';
@@ -17,7 +16,6 @@ describe('AiImageEditProcessor', () => {
   let processor: AiImageEditProcessor;
   let prisma: any;
   let minio: any;
-  let gateway: any;
   let apiCaller: any;
   let teamCredit: any;
   let collabDoc: any;
@@ -40,9 +38,7 @@ describe('AiImageEditProcessor', () => {
       buildKey: vi.fn().mockReturnValue('results/user1/proj1/node1/2026-06-10/uuid.png'),
       generatePresignedGetUrl: vi.fn().mockResolvedValue('https://minio.local/bucket/key?token=abc'),
     };
-    gateway = {
-      emitNodeStatus: vi.fn(),
-    };
+    // Y3 T8：/execution emit 面删除（gateway fixture 退役——emit 断言随批删/翻）
     // T6：结果下载经 SafeRemoteFetch（SSRF 四门+限长）——axios 直连退役
     safeFetch = {
       fetchBuffer: vi.fn().mockResolvedValue({ buffer: Buffer.from('fake-image-data'), contentType: 'image/png' }),
@@ -85,7 +81,6 @@ describe('AiImageEditProcessor', () => {
         AiImageEditProcessor,
         { provide: PrismaService, useValue: prisma },
         { provide: MinioService, useValue: minio },
-        { provide: EmitPort, useValue: gateway },
         { provide: ApiCallerService, useValue: apiCaller },
         { provide: TeamCreditService, useValue: teamCredit },
         { provide: CollabWritePort, useValue: collabDoc },
@@ -140,14 +135,7 @@ describe('AiImageEditProcessor', () => {
       expect(teamCredit.settle).not.toHaveBeenCalled();
       expect(teamCredit.reserve.mock.invocationCallOrder[0]).toBeLessThan(apiCaller.callOutpainting.mock.invocationCallOrder[0]);
       expect(apiCaller.callOutpainting.mock.invocationCallOrder[0]).toBeLessThan(artifactCommit.commitImage.mock.invocationCallOrder[0]);
-      expect(gateway.emitNodeStatus).toHaveBeenCalledWith(
-        'proj1',
-        expect.objectContaining({
-          nodeId: 'node1',
-          status: 'edit-result',
-          fileId: 'media-new',
-        }),
-      );
+      // Y3 T8：emit edit-result 断言随 emit 面删除（编辑成功 UX=受理响应 outcome+投影 poller）。
     });
 
     it('should erase with mask, reserve→settle, and emit edit-result', async () => {
@@ -176,10 +164,7 @@ describe('AiImageEditProcessor', () => {
       );
       expect(teamCredit.reserve).toHaveBeenCalledWith('user1', { intentRowId: 'row-9', execSeq: 9n });
       expect(artifactCommit.commitImage).toHaveBeenCalledTimes(1);
-      expect(gateway.emitNodeStatus).toHaveBeenCalledWith(
-        'proj1',
-        expect.objectContaining({ status: 'edit-result' }),
-      );
+      // Y3 T8：emit edit-result 断言随 emit 面删除。
     });
 
     it('生成物归属 = project.teamId（非 getOwnerTeamId 反推）', async () => {
@@ -282,16 +267,7 @@ describe('AiImageEditProcessor', () => {
       expect(teamCredit.reserve).toHaveBeenCalledTimes(1);
       expect(teamCredit.void_).toHaveBeenCalledWith({ intentRowId: 'row-9', execSeq: 9n });
       expect(intentService.fail).toHaveBeenCalledWith('row-9', expect.stringContaining('API timeout'), undefined, 9n);
-
-      // Must emit failure status
-      expect(gateway.emitNodeStatus).toHaveBeenCalledWith(
-        'proj1',
-        expect.objectContaining({
-          nodeId: 'node1',
-          status: 'edit-failed',
-          error: 'API timeout',
-        }),
-      );
+      // Y3 T8：emit edit-failed 断言随 emit 面删除（失败 UX 归 Feed 投影「AI 处理失败」句）。
     });
   });
 
@@ -380,39 +356,29 @@ describe('AiImageEditProcessor', () => {
       expect(teamCredit.reserve).not.toHaveBeenCalled();
     });
 
-    it('T15 finalize committed：交付归投影 poller（worker 零 data 写——writeNodeData 零调用+O0b-2 信封面零触碰）+emit 照发（complete 门序归 finalize 内 intent CAS）', async () => {
+    it('T15 finalize committed：交付归投影 poller（worker 零 data 写——writeNodeData 零调用+O0b-2 信封面零触碰；complete 门序归 finalize 内 intent CAS）', async () => {
       mockResult();
       const result = await processor.process(makeIntentJob());
       expect(artifactCommit.commitImage).toHaveBeenCalledWith(expect.objectContaining({ intentRowId: 'row-9', execSeq: 9n }));
       expect(intentService.complete).not.toHaveBeenCalled();   // intent CAS 归 finalize 单事务（processor 直调退役）
       expect(collabDoc.writeNodeData).not.toHaveBeenCalled();   // T15：fileId=投影 poller deliverArtifact 专写（pending 行随 finalize 落）
-      expect(gateway.emitNodeStatus).toHaveBeenCalledWith('proj1', expect.objectContaining({ status: 'edit-result', fileId: 'media-new' }));
       expect(result.status).toBe('completed');
     });
 
-    it('T10 finalize intent-stale（行终态/换代——旧 complete 门序闭面）：writeNodeData/emit 零调用（F13 看到产物⇒意图仍有效）', async () => {
+    it('T10 finalize intent-stale（行终态/换代——旧 complete 门序闭面）：writeNodeData 零调用（F13 看到产物⇒意图仍有效）', async () => {
       artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'intent-stale' });
       mockResult();
       const result = await processor.process(makeIntentJob());
       expect(collabDoc.writeNodeData).not.toHaveBeenCalled();
-      expect(gateway.emitNodeStatus).not.toHaveBeenCalledWith(
-        'proj1', expect.objectContaining({ status: 'edit-result' }),
-      );
       expect(result.status).toBe('completed'); // job 本身成功——产物留作物证，仅不投递
     });
 
-    it('T10 资金独立判：finalize superseded → 照常 completed，doc 不覆盖用户值（writeNodeData 零调用；Y2 B2d emit 收窄——superseded 不携 fileId 零释放）', async () => {
+    it('T10 资金独立判：finalize superseded → 照常 completed，doc 不覆盖用户值（writeNodeData 零调用；superseded 零释放——Y3 T8：emit 收窄断言随 emit 面删）', async () => {
       artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'superseded', mediaId: 'media-x' });
       mockResult();
       const result = await processor.process(makeIntentJob());
       expect(collabDoc.writeNodeData).not.toHaveBeenCalled();   // 用户在飞替换值保留
       expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();   // Y2 B2d：仅 committed 才释放
-      expect(gateway.emitNodeStatus).toHaveBeenCalledWith(
-        'proj1', expect.objectContaining({ status: 'edit-result' }),
-      );
-      expect(gateway.emitNodeStatus).not.toHaveBeenCalledWith(
-        'proj1', expect.objectContaining({ status: 'edit-result', fileId: expect.anything() }),
-      );   // Y2 B2d emit 收窄：作废/未释放面不投递产物引用
       expect(result.status).toBe('completed');
     });
 
@@ -480,14 +446,10 @@ describe('AiImageEditProcessor', () => {
       // error 级打点（携带意图行 id——资金不变量破缺=对账介入信号）
       expect(loggerSpy).toHaveBeenCalled();
       expect(String(loggerSpy.mock.calls.at(-1)![0])).toContain('row-9');
-      // 用户面持久投影（worker emit 降级 no-op——doc 投影为唯一可达面）
+      // 用户面持久投影（Y3 T8：emit 降级面已删——doc 投影为唯一可达面）
       expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('proj1', 'node1', expect.objectContaining({
         status: 'error', errorCode: 'FUNDS_INVARIANT_VIOLATION', error: expect.stringContaining('资金核销异常'),
       }), { intentRowId: 'row-9', execSeq: '9' });
-      // 即时 UX 面（api 形态有效）
-      expect(gateway.emitNodeStatus).toHaveBeenCalledWith('proj1', expect.objectContaining({
-        nodeId: 'node1', status: 'edit-failed',
-      }));
     });
   });
 
@@ -515,7 +477,7 @@ describe('AiImageEditProcessor', () => {
       safeFetch.fetchBuffer.mockResolvedValue({ buffer: Buffer.from('fake-image-data'), contentType: 'image/png' });
     };
 
-    it('A 挡 B 修复主红测（spec e 条 v3）：节点已有 mediaId（受理冻结=现场）→ 完成点读槽→commitImage 携 authorVoid:false→committed→release 删旧键→emit 携新产物 fileId', async () => {
+    it('A 挡 B 修复主红测（spec e 条 v3）：节点已有 mediaId（受理冻结=现场）→ 完成点读槽→commitImage 携 authorVoid:false→committed→release 删旧键', async () => {
       mockDownload();
       const result = await processor.process(makeSlotJob());
       expect(result.status).toBe('completed');
@@ -525,17 +487,14 @@ describe('AiImageEditProcessor', () => {
       expect(artifactCommit.commitImage).toHaveBeenCalledWith(expect.objectContaining({ authorVoid: false }));
       // 三段之三：仅 committed 且非 void 才释放（经端口进程内直调——worker 形态 HMAC）
       expect(collabDoc.releaseAuthorSlot).toHaveBeenCalledWith('proj1', 'row-9');
-      expect(gateway.emitNodeStatus).toHaveBeenCalledWith('proj1', expect.objectContaining({ status: 'edit-result', fileId: 'media-new' }));
     });
 
-    it('用户已换图（现场≠冻结值）→ authorVoid 传入 commitImage（作废臂——不删用户槽）→ 零释放 + emit 不携 fileId', async () => {
+    it('用户已换图（现场≠冻结值）→ authorVoid 传入 commitImage（作废臂——不删用户槽）→ 零释放', async () => {
       collabDoc.readAuthorSlot.mockResolvedValueOnce({ nodeId: 'node1', kind: 'outpaint', frozen: true, authorMediaId: 'm-author', liveMediaId: 'm-user-new' });
       mockDownload();
       const result = await processor.process(makeSlotJob());
       expect(artifactCommit.commitImage).toHaveBeenCalledWith(expect.objectContaining({ authorVoid: true }));
       expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();   // 作废臂不删用户槽键
-      expect(gateway.emitNodeStatus).toHaveBeenCalledWith('proj1', expect.objectContaining({ status: 'edit-result' }));
-      expect(gateway.emitNodeStatus).not.toHaveBeenCalledWith('proj1', expect.objectContaining({ status: 'edit-result', fileId: expect.anything() }));
       expect(result.status).toBe('completed');
     });
 
@@ -549,21 +508,19 @@ describe('AiImageEditProcessor', () => {
       expect(intentService.fail).not.toHaveBeenCalled();
     });
 
-    it('emit 收窄：superseded → 零释放+emit 无 fileId', async () => {
+    it('superseded → 零释放（Y3 T8：emit 收窄断言随 emit 面删）', async () => {
       artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'superseded', mediaId: 'media-x' });
       mockDownload();
       const result = await processor.process(makeSlotJob());
       expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();   // 仅 committed 才释放
-      expect(gateway.emitNodeStatus).not.toHaveBeenCalledWith('proj1', expect.objectContaining({ status: 'edit-result', fileId: expect.anything() }));
       expect(result.status).toBe('completed');
     });
 
-    it('intent-stale → 零释放零 emit fileId（旧代产物不投递）', async () => {
+    it('intent-stale → 零释放（旧代产物不投递——Y3 T8：emit 断言随 emit 面删）', async () => {
       artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'intent-stale' });
       mockDownload();
       const result = await processor.process(makeSlotJob());
       expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();
-      expect(gateway.emitNodeStatus).not.toHaveBeenCalledWith('proj1', expect.objectContaining({ status: 'edit-result', fileId: expect.anything() }));
       expect(result.status).toBe('completed');
     });
 

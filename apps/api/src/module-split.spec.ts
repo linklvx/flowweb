@@ -20,7 +20,6 @@ import { ExecutionProcessor } from './modules/execution/execution.processor';
 import { VideoTrimService } from './modules/execution/video-trim.service';
 import { VideoSeparateService } from './modules/execution/video-separate.service';
 import { IntentReconcileService } from './modules/execution/intent-reconcile.service';
-import { EmitPort } from './modules/gateway/emit.port';
 import { AiImageEditCoreModule } from './modules/ai-image-edit/ai-image-edit-core.module';
 import { AiImageEditHttpModule } from './modules/ai-image-edit/ai-image-edit-http.module';
 import { AiImageEditService } from './modules/ai-image-edit/ai-image-edit.service';
@@ -50,19 +49,19 @@ function providerSymbols(mod: ModuleClass): unknown[] {
 }
 
 describe('Y0c T25 模块拆分（Z42④/Z139）——Execution Core/Http', () => {
-  it('ExecutionCoreModule：零 controller；service+processor+EmitPort 工厂全在；不含 IntentReconcileService（归 DaemonModule——Z98）', () => {
+  it('ExecutionCoreModule：零 controller；service+processor 装配面全在（Y3 T8：EmitPort 工厂随 /execution 退役删除）；不含 IntentReconcileService（归 DaemonModule——Z98）', () => {
     expect(controllersOf(ExecutionCoreModule)).toEqual([]);
     const syms = providerSymbols(ExecutionCoreModule);
-    for (const s of [ExecutionService, ExecutionProcessor, VideoTrimService, VideoSeparateService, EmitPort]) {
+    for (const s of [ExecutionService, ExecutionProcessor, VideoTrimService, VideoSeparateService]) {
       expect(syms, `providers 应含 ${s?.name}`).toContain(s);
     }
     expect(syms, 'IntentReconcileService 归 ExecutionDaemonModule（Z98——worker 装 Core 不得双倍回收钱）')
       .not.toContain(IntentReconcileService);
   });
 
-  it('ExecutionCoreModule：exports 面=Http 子模块 controller 消费闭包（Video 两 service+BullModule 队列再导出）', () => {
+  it('ExecutionCoreModule：exports 面=Http 子模块 controller 消费闭包（Video 两 service+BullModule 队列再导出——Y3 T8：ExecutionGateway/EmitPort 出 exports）', () => {
     const exp = exportsOf(ExecutionCoreModule);
-    for (const s of [ExecutionService, VideoTrimService, VideoSeparateService, EmitPort, GenerationIntentService, BullModule]) {
+    for (const s of [ExecutionService, VideoTrimService, VideoSeparateService, GenerationIntentService, BullModule]) {
       expect(exp, `exports 应含 ${s?.name}`).toContain(s);
     }
   });

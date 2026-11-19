@@ -22,9 +22,7 @@ function setArtifactProjection(nodeId: string, mediaId?: string) {
   });
 }
 
-const { subscribeNodeStatusMock, getMockNodeData, setMockNodeData, getStoreSetStatus, getStoreSetFileResult, getMockExecStatus, setMockExecStatus } = vi.hoisted(() => {
-  // 声明 handler 参数使 mock.calls[0][0] 类型为处理器本身（测试经此触发 node:status）
-  const subscribeNodeStatusMock = vi.fn((_handler: (p: any) => void) => () => {});
+const { getMockNodeData, setMockNodeData, getStoreSetStatus, getStoreSetFileResult, getMockExecStatus, setMockExecStatus } = vi.hoisted(() => {
   let mockNodeData: any = { fileId: undefined, status: 'idle', model: '', referenceVideo: undefined };
   let storeSetStatus = vi.fn();
   let storeSetFileResult = vi.fn();
@@ -32,7 +30,6 @@ const { subscribeNodeStatusMock, getMockNodeData, setMockNodeData, getStoreSetSt
   let mockExecStatus: Map<string, any> = new Map();
 
   return {
-    subscribeNodeStatusMock,
     getMockNodeData: () => mockNodeData,
     setMockNodeData: (d: any) => { mockNodeData = d; },
     getStoreSetStatus: () => storeSetStatus,
@@ -123,13 +120,6 @@ vi.mock('@/stores/canvasStore', () => ({
       getState: () => ({ projectId: mockCanvasProjectId(), nodes: [] as any[] }),
     },
   ),
-}));
-
-vi.mock('@/services/executionSocket', () => ({
-  subscribeNodeStatus: subscribeNodeStatusMock,
-  subscribeNodeEditResult: vi.fn(() => () => {}),
-  ensureExecutionSocket: vi.fn(() => ({ once: vi.fn(), off: vi.fn(), on: vi.fn(), connected: false })),
-  teardownExecutionSocket: vi.fn(),
 }));
 
 vi.mock('@/api/storageApi', () => ({
@@ -357,43 +347,8 @@ describe('VideoGenNode', () => {
     expect(screen.queryByText('替换')).not.toBeInTheDocument();
   });
 
-  // ─── Socket.io real-time status updates（经 executionSocket 单例 subscribeNodeStatus 触发）───
-  // Y2 B3：socket 状态回填退役（data.status/fileId 均禁键——交付唯一 owner=服务端投影 poller）。
-  // 订阅面保持 nodeId 过滤不变量：本节点事件被吞（零 store 写）、它节点事件早退。
-
-  it('node:status loading → 零 store 写（socket 回填退役——execStatus 只来自投影）', () => {
-    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
-    renderNode();
-    expect(subscribeNodeStatusMock).toHaveBeenCalledWith(expect.any(Function));
-    const statusHandler = subscribeNodeStatusMock.mock.calls[0][0];
-    statusHandler({ nodeId: 'v1', status: 'loading' });
-    expect(getStoreSetStatus()).not.toHaveBeenCalled();
-  });
-
-  it('node:status done（携 fileId）→ 零 store 写（setFileResult 固化写退役——产物经投影到达）', () => {
-    setMockNodeData({ fileId: undefined, status: 'loading', model: '', referenceVideo: undefined });
-    renderNode();
-    const statusHandler = subscribeNodeStatusMock.mock.calls[0][0];
-    statusHandler({ nodeId: 'v1', status: 'done', fileId: 'gen-vid-456' });
-    expect(getStoreSetFileResult()).not.toHaveBeenCalled();
-  });
-
-  it('node:status error → 零 store 写（socket 回填退役——错误态经投影到达）', () => {
-    setMockNodeData({ fileId: undefined, status: 'loading', model: '', referenceVideo: undefined });
-    renderNode();
-    const statusHandler = subscribeNodeStatusMock.mock.calls[0][0];
-    statusHandler({ nodeId: 'v1', status: 'error' });
-    expect(getStoreSetStatus()).not.toHaveBeenCalled();
-  });
-
-  it('should ignore socket events for other nodes', () => {
-    setMockNodeData({ fileId: undefined, status: 'idle', model: '', referenceVideo: undefined });
-    renderNode();
-    const statusHandler = subscribeNodeStatusMock.mock.calls[0][0];
-    getStoreSetStatus().mockClear();
-    statusHandler({ nodeId: 'other-node', status: 'loading' });
-    expect(getStoreSetStatus()).not.toHaveBeenCalled();
-  });
+  // ─── Y3 T7/T8：socket 订阅退役锚×2（node:status 零挂钩——状态/产物/错误均经投影 poller 单通道；
+  //     T8 随 executionSocket 模块删除——「零订阅」由「无 import」结构性承担，此锚保留为形态档案） ───
 
   // ─── Ratio-based default sizing ───
 

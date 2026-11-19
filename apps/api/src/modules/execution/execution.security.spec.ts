@@ -48,7 +48,6 @@ function makeService(reserveOk: boolean, nodes: any[]) {
     writeNodeData: vi.fn().mockResolvedValue({ kind: 'business', written: true }),   // T13 typed outcome——business 档（transient/permanent=悬留档）, // Y0b-2 T5：交付判据类型化 {written,reason}
     writeExecStatus: vi.fn().mockResolvedValue(undefined),
   };
-  const gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（census 清零）
   const intentService = {
     claim: vi.fn().mockResolvedValue({ created: true, intent: { id: 'intent-1', intentId: 'i-1', execSeq: 1n, attempts: 1 } }),   // Y3 T3⑮：execSeq 补（loading/skipped 投影键）
     complete: vi.fn().mockResolvedValue(1),
@@ -61,7 +60,7 @@ function makeService(reserveOk: boolean, nodes: any[]) {
     touchHeartbeat: vi.fn().mockResolvedValue(undefined),
   };
   const svc: any = new (ExecutionService as any)(
-    prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, gateway, intentService,
+    prisma, topology, validation, apiCaller, teamCredit, perm, collabDoc, intentService,   // Y3 T8：emit 形参随 /execution 退役删除
     { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) },   // Y1a T8 upstreamMedia（本夹具无上游）
     { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t10' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }) },   // T10 artifactCommit
   );

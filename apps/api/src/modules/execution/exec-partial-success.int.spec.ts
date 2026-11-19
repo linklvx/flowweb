@@ -80,8 +80,7 @@ function makeExec(nodes: any[], collabOverrides: Record<string, unknown> = {}) {
     teamCredit,
     perm,
     collabDoc,
-    { emitNodeStatus: vi.fn() } as any,
-    intentSvc,
+    intentSvc,   // Y3 T8：emit 形参随 /execution 退役删除
     { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
     makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）,
   undefined as never,   // Y1c T21：ExecutionRequestService（spec 不触达）
@@ -179,7 +178,7 @@ const statusOf = async (nodeId: string) =>
           bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } },
         }),
       } as any,
-      { emitNodeStatus: vi.fn() } as any, intentSvc,
+      intentSvc,   // Y3 T8：emit 形参随 /execution 退役删除
       { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia
       makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）,
     undefined as never,   // Y1c T21：ExecutionRequestService（spec 不触达）

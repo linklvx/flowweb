@@ -6,7 +6,6 @@ import { ValidationService } from './validation.service';
 import { ApiCallerService } from './api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
-import { EmitPort } from '../gateway/emit.port';
 import { isExecutableNode } from './is-executable-node';
 import { CollabWritePort, type WorkerWriteScope } from '../collab/collab-write.port';
 import { GenerationIntentService, ClaimPricing, NodeBusyError } from './generation-intent.service';
@@ -89,17 +88,14 @@ export class ExecutionService {
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @Inject(ProjectPermissionService) private readonly perm: ProjectPermissionService,
     @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
-    @Inject(EmitPort) private readonly emitPort: EmitPort,   // Y0c T24（Z101）：emitNodeStatus 8 调用点改道 emit 端口（api=Direct 委托 gateway/worker=降级 no-op）
     @Inject(GenerationIntentService) private readonly intentService: GenerationIntentService,
     @Inject(UpstreamMediaService) private readonly upstreamMedia: UpstreamMediaService,   // Y1a T8：上游身份读源/URL 解析
     @Inject(ArtifactCommitService) private readonly artifactCommit: ArtifactCommitService,   // Y1a T10：image/text 腿 finalize 单事务（NodeArtifact CAS+intent CAS+settle+投影）
     @Inject(ExecutionRequestService) private readonly executionRequests: ExecutionRequestService,   // Y1c T21：冻结请求执行路径（零 doc 读）
   ) {}
 
-  /** D1：余额推送统一完整三字段对象（原文本节点推 total、图片/视频只推 credits，口径不一） */
-  private balancePayload(bal: { credits: number; subscriptionCredits: number; total: number } | null | undefined) {
-    return bal ? { credits: bal.credits, subscriptionCredits: bal.subscriptionCredits, total: bal.total } : undefined;
-  }
+  /** Y3 T8：余额推送三字段载荷随 /execution WS 面删除（原唯一消费=done 通知的 credits 搭车——
+   *  余额刷新归 D1 REST 事件驱动：终态 Feed→credits:update 空信号→CanvasTopBar 静默重拉）。 */
 
   /** Y0b-2 T4→Y1a T9：onTick 双职回调（Z69）——pollLoop 每 tick 经 tickFence 单源：
    *  ①touchHeartbeat 续生命线（代际 CAS）②读 {status,execSeq}——reaper 已收敛（终态）或
@@ -177,7 +173,6 @@ export class ExecutionService {
    *  （未命中码兜底「扣费失败，请重试」）；errors[].error（HTTP 响应面）仍原文 msg。 */
   private async onReserveFail(projectId: string, node: any, intent: any, msg: string, errorCode: string) {
     await this.intentService.void_(intent.id, msg, intent.execSeq);
-    this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
     // 扣费五码→FeedSentenceId 映射（reserveFailSentence 供调用点选句参考——五码恰同名 id 直用；
     // 未命中码走 RESERVE_GATE_LOST 兜底句「扣费失败，请重试」）。
     const sentence = (['CREDIT_INSUFFICIENT', 'QUOTA_EXCEEDED', 'NOT_MEMBER', 'TEAM_BALANCE_MISSING'] as const).includes(errorCode as never)
@@ -317,7 +312,6 @@ export class ExecutionService {
     // 加了会把 504"回执丢失"退化成"工作丢失但仍扣费"；断连恢复对齐归 exec 投影/intents 读面。
     for (const node of orderedNodes) {
       if (!isExecutableNode(node)) continue; // 防剪辑/产物节点闪 loading 与误执行（批5-1 删信箱后无影子直调例外——regenerate 直连真实节点，白名单单判据）
-      this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'loading' });
       await this.runNodeLifecycle({
         projectId, node, userId, gestureToken: intentId, jobId, traceId, onClaimed,
         teamId: project.teamId, planMap, styleTextOf, authorTable,
@@ -392,12 +386,12 @@ export class ExecutionService {
       if (!created) {
         // SUCCEEDED 幂等重放——零外呼零扣费，回放既有产物引用（幂等组②）
         // T15 收口：回放 doc 写整体移除（fileId+exec done 均归投影 poller deliverArtifact——投影行
-        // 已随原 finalize 事务落 PG，poller 按 pending 行交付；emit 保留即时 UX）。R3 projection-backfill
+        // 已随原 finalize 事务落 PG，poller 按 pending 行交付）。R3 projection-backfill
         // 兜「SUCCEEDED∧锚行在∧投影行缺」的崩溃窗；text resultRef 截断占位禁写 doc 的旧约束随写面
         // 移除自然消解（交付值=NodeArtifact.resultText 权威）。
-        // Y2 B2c（v2.9 ①/v2.10 回放臂两档）：先查精确作废键——命中=该代交付已作废（产物不投递，
-        // 作废臂已核销）⇒ emit done 不带 fileId+零释放；未命中=正常成功交付 ⇒ 带 fileId+幂等补释放
-        // （提交后崩溃=release 补上；release 失败非 2xx 上抛交 processor 重排）。
+        // Y2 B2c（v2.9 ①/v2.10 回放臂两档）→Y3 T8：done 通知删除后 voidRow 探测只服务释放门
+        // （命中作废档零释放直接 return；未命中档幂等补释放——提交后崩溃=release 补上，
+        // release 失败非 2xx 上抛交 processor 重排）。
         const voidKey = `author-void:${intent.id}:${intent.execSeq}`;
         let voidRow: unknown = null;
         try {
@@ -407,14 +401,10 @@ export class ExecutionService {
         } catch {
           voidRow = null;
         }
-        if (voidRow) {
-          this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'done' });
-          return;
-        }
+        if (voidRow) return;
         if (claimPack.kind !== 'text') {
           await this.releaseAuthorSlotOrThrow(projectId, intent.id, !jobId);
         }
-        this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'done', fileId: intent.resultRef ?? undefined });
         return;
       }
       claimed = intent;
@@ -496,7 +486,6 @@ export class ExecutionService {
         this.logger.warn(`[intent-reconcile] 意图 ${intent.intentId} 已被 VOIDED/换代——跳过产物写入（外呼产物留作证）`);
         // Y3 T3：执行链超时句（EXEC_DEADLINE——事件码 INTENT_DEADLINE_EXCEEDED 维持）。
         await this.collabDoc.writeExecStatus(projectId, node.id, feedError('INTENT_DEADLINE_EXCEEDED', 'EXEC_DEADLINE', this.feedRow(intent)), this.wscope(intent)).catch(countExecProjectionFailure);
-        this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: '生成已被系统回收（超时）' });
         errors.push({ nodeId: node.id, status: 'error', error: '生成已被系统回收（超时）', errorCode: 'INTENT_DEADLINE_EXCEEDED' });
       };
       {
@@ -536,26 +525,19 @@ export class ExecutionService {
       //    （api 进程；pending 行已随 finalize 事务落 PG）。worker 本段零 doc 写：fileId/result 与
       //    exec done 均为 poller deliverArtifact 复合 op 专写面；node 删除观察（旧 written:false 即时
       //    orphaned+退款）移交 poller apply 存在性守卫（权威观察点）+orphaned 幂等退款——资金语义
-      //    不变、观察时点异步化。emit done 保留即时 UX（乐观收敛：poller 投影 lag=秒级）。 ──
+      //    不变、观察时点异步化。 ──
 
-      // ── 结果行+余额推送（交付归投影链——本段零 doc 写零交付判定） ──
+      // ── 结果行（交付归投影链——本段零 doc 写零交付判定） ──
       // T12：ai-result-download 入队面整体退役（video=finalize-first——Media(processing) 行即队列，
       //   MaterializeJob DB poller 按 mediaId claim；MinIO 归档在 materialize 链内）。
-      // 两附带步骤 best-effort（T6 审查 Important①）：余额读已 .catch 兜底（null 即跳过推送）——
-      // 本段残余 throw 落 B-1 时行已 SUCCEEDED（T15：防御观测档零资金动作）。
+      // Y3 T8：done WS 通知+credits 搭车删除（载荷构造函数随删——余额刷新归 D1 REST 事件驱动：
+      //   终态 Feed→credits:update 空信号→CanvasTopBar 静默重拉；getBalanceView 读点随之退役）。
       if (outcome.resultRow) results.push(outcome.resultRow);
       // Y2 B2c（v2.10 新鲜出口）：仅 committed→释放（superseded=intent-stale 不释放——作者键保留）；
-      // release 先于 emit（失败上抛 processor 重排——禁 emit 假 done）；superseded 不携 fileId。
+      // release 失败上抛 processor 重排；superseded 不释放。
       if (claimPack.kind !== 'text' && deliverFileId !== undefined && !authorVoid) {
         await this.releaseAuthorSlotOrThrow(projectId, intent.id, !jobId);
       }
-      const bal = await Promise.resolve(this.teamCredit.getBalanceView(teamId, userId))
-        .catch(() => null);
-      this.emitPort.emitNodeStatus(projectId, {
-        nodeId: node.id, status: 'done',
-        ...(deliverFileId !== undefined && !authorVoid ? { fileId: deliverFileId } : {}),
-        credits: bal ? this.balancePayload(bal) : undefined,
-      });
     } catch (err: any) {
       // Y2 B2c（裁决 14）：释放失败专型首行 re-throw（禁吞入防御观测档——否则 emit 假 done 且槽键
       // 永不释放；processor moveToDelayed 有上限重排 3 次后 completed+对账补释放臂接管）。
@@ -591,7 +573,6 @@ export class ExecutionService {
           this.logger.error(`[funds-invariant] 意图 ${claimed.intentId} 资金不变量破缺（行留 RUNNING 交对账第四分支）: ${err.message}`);
           const msg = '生成结果暂缓交付（资金核销异常，待对账处理）';
           await this.collabDoc.writeExecStatus(projectId, node.id, feedError('FUNDS_INVARIANT_VIOLATION', 'FUNDS_HELD', this.feedRow(claimed)), this.wscope(claimed)).catch(countExecProjectionFailure);
-          this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: msg });
           errors.push({ nodeId: node.id, status: 'error', error: msg, errorCode: 'FUNDS_INVARIANT_VIOLATION' });
           return;
         }
@@ -614,7 +595,6 @@ export class ExecutionService {
             ? `${err.message}——可能重复生成、不会重复扣费（请稍后查询或重试）`
             : `${err.message}——外呼结果不明，扣费状态待对账（请稍后查询或重试）`;
           await this.collabDoc.writeExecStatus(projectId, node.id, feedError('TEXT_PROVIDER_UNKNOWN', marked === 1 ? 'TEXT_UNKNOWN_HELD' : 'TEXT_UNKNOWN_UNMARKED', this.feedRow(claimed)), this.wscope(claimed)).catch(countExecProjectionFailure);
-          this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: unknownMsg });
           errors.push({ nodeId: node.id, status: 'error', error: unknownMsg, errorCode: 'TEXT_PROVIDER_UNKNOWN' });
           return;
         }
@@ -638,7 +618,6 @@ export class ExecutionService {
       const errorCode = err instanceof BusinessException ? err.errorCode : 'EXECUTION_FAILED';
       this.logger.warn(`[exec-failed] 节点 ${node.id} 执行失败（意图 ${claimed?.intentId ?? '无行'}）: ${err?.message ?? err}`);
       await this.collabDoc.writeExecStatus(projectId, node.id, feedError(errorCode, 'EXEC_GENERIC', this.feedRow(claimed)), claimed ? this.wscope(claimed) : undefined).catch(countExecProjectionFailure); // error 展示不受门序限（无产物即无资损方向）——doc 写失败不吞原始错误
-      this.emitPort.emitNodeStatus(projectId, { nodeId: node.id, status: 'error', error: err?.message ?? String(err) });
       errors.push({ nodeId: node.id, status: 'error', error: String(err?.message ?? err), errorCode });
     }
   }
@@ -815,7 +794,6 @@ export class ExecutionService {
         await this.collabDoc.writeExecStatus(projectId, plan.nodeId, feedError('FROZEN_INPUT_MISSING', 'FROZEN_INPUT_MISSING', null)).catch(countExecProjectionFailure);
         continue;
       }
-      this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'loading' });
       let claimed: any = null;
       try {
         // M2/M-5（幂等域收口）：paramsHash 直读 plan.paramsHash（受理时铸造一次——「只读不重算」
@@ -848,8 +826,8 @@ export class ExecutionService {
                 .catch((e) => this.logger.warn(`[frozen-replay] item settle ${plan.nodeId}: ${e}`));
             }
           }
-          // Y2 B2c（v2.10 回放臂两档——冻结链同构）：作废键命中→emit 不带 fileId 零释放 /
-          // 未命中→带 fileId+幂等补释放
+          // Y2 B2c（v2.10 回放臂两档——冻结链同构）→Y3 T8：done 通知删除后 voidRow 探测只服务释放门
+          // （命中作废档零释放；未命中档幂等补释放——提交后崩溃=release 补上）。
           const voidKey = `author-void:${intent.id}:${intent.execSeq}`;
           let voidRow: unknown = null;
           try {
@@ -859,12 +837,7 @@ export class ExecutionService {
           } catch {
             voidRow = null;
           }
-          if (voidRow) {
-            this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'done' });
-          } else {
-            if (entry.kind !== 'text') await this.releaseAuthorSlotOrThrow(projectId, intent.id, !jobId);
-            this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'done', fileId: intent.resultRef ?? undefined });
-          }
+          if (!voidRow && entry.kind !== 'text') await this.releaseAuthorSlotOrThrow(projectId, intent.id, !jobId);
           continue;
         }
         claimed = intent;
@@ -932,14 +905,10 @@ export class ExecutionService {
         }
         if (outcome.resultRow) results.push(outcome.resultRow);
         // Y2 B2c（v2.10）：仅 committed→释放（superseded/intent-stale 不释放——作者键保留）；
-        // release 先于 emit（失败上抛处理器重排）；superseded 不携 fileId。
+        // release 失败上抛处理器重排；superseded 不释放。
         if (entry.kind !== 'text' && committed.outcome === 'committed' && !authorVoid) {
           await this.releaseAuthorSlotOrThrow(projectId, intent.id, !jobId);
         }
-        this.emitPort.emitNodeStatus(projectId, {
-          nodeId: plan.nodeId, status: 'done',
-          ...(committed.outcome === 'committed' && !authorVoid && committed.mediaId ? { fileId: committed.mediaId } : {}),
-        });
       } catch (err: any) {
         // 释放发生在 commit 之后：行已 SUCCEEDED。void/fail 会把已核销成功翻成退款。
         // 上抛给 processor 有上限重排；回放臂补释放。
@@ -953,7 +922,6 @@ export class ExecutionService {
         if (err instanceof FundsInvariantError && claimed) {
           this.logger.error(`[funds-invariant] 意图 ${claimed.intentId} 资金不变量破缺（冻结路径——行留 RUNNING 交对账第四分支）: ${err.message}`);
           await this.collabDoc.writeExecStatus(projectId, plan.nodeId, feedError('FUNDS_INVARIANT_VIOLATION', 'FUNDS_HELD', this.feedRow(claimed)), this.wscope(claimed)).catch(countExecProjectionFailure);
-          this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'error', error: '生成结果暂缓交付（资金核销异常，待对账处理）' });
           errors.push({ nodeId: plan.nodeId, status: 'error', error: '生成结果暂缓交付（资金核销异常，待对账处理）', errorCode: 'FUNDS_INVARIANT_VIOLATION' });
           continue;
         }
@@ -972,7 +940,6 @@ export class ExecutionService {
             ? `${err?.message ?? err}——可能重复生成、不会重复扣费（请稍后查询或重试）`
             : `${err?.message ?? err}——外呼结果不明，扣费状态待对账（请稍后查询或重试）`;
           await this.collabDoc.writeExecStatus(projectId, plan.nodeId, feedError('TEXT_PROVIDER_UNKNOWN', marked === 1 ? 'TEXT_UNKNOWN_HELD' : 'TEXT_UNKNOWN_UNMARKED', this.feedRow(claimed)), this.wscope(claimed)).catch(countExecProjectionFailure);
-          this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'error', error: unknownMsg });
           errors.push({ nodeId: plan.nodeId, status: 'error', error: unknownMsg, errorCode: 'TEXT_PROVIDER_UNKNOWN' });
           continue;
         }
@@ -988,7 +955,6 @@ export class ExecutionService {
         const errorCode = err instanceof BusinessException ? err.errorCode : 'EXECUTION_FAILED';
         this.logger.warn(`[exec-failed] 节点 ${plan.nodeId} 执行失败（冻结路径，意图 ${claimed?.intentId ?? '无行'}）: ${err?.message ?? err}`);
         await this.collabDoc.writeExecStatus(projectId, plan.nodeId, feedError(errorCode, 'EXEC_GENERIC', this.feedRow(claimed)), claimed ? this.wscope(claimed) : undefined).catch(countExecProjectionFailure);
-        this.emitPort.emitNodeStatus(projectId, { nodeId: plan.nodeId, status: 'error', error: err?.message ?? String(err) });
         errors.push({ nodeId: plan.nodeId, status: 'error', error: String(err?.message ?? err), errorCode });
       }
     }

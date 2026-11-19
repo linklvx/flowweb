@@ -148,8 +148,7 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
       teamCredit,
       perm,
       collabDoc as any,
-      { emitNodeStatus: () => {} } as any, // Y0b-2 T5：execution:complete emit 已删（census 清零）
-      intentService,
+      intentService,   // Y3 T8：emit 形参随 /execution 退役删除
       { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
       makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentService).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）,
     undefined as never,   // Y1c T21：ExecutionRequestService（spec 不触达）
@@ -195,8 +194,7 @@ async function resolverTotalOf(nodes: { id: string; type: string; data?: Record<
       teamCredit,
       perm,
       collabDoc as any,
-      { emitNodeStatus: () => {} } as any, // Y0b-2 T5：execution:complete emit 已删（census 清零）
-      intentService,
+      intentService,   // Y3 T8：emit 形参随 /execution 退役删除
       { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
       makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentService).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）,
     undefined as never,   // Y1c T21：ExecutionRequestService（spec 不触达）

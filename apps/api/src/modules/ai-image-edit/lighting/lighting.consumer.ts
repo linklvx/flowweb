@@ -5,7 +5,6 @@ import { feedError } from '@flowweb/shared';   // Y3 Task3：打光链 Feed erro
 import { PrismaService } from '../../../prisma/prisma.service';
 import { getOwnerTeamId } from '../../team/team.util';
 import { MinioService } from '../../minio/minio.service';
-import { EmitPort } from '../../gateway/emit.port';
 import { ApiCallerService, type EditCallOpts } from '../../execution/api-caller.service';
 import { TeamCreditService } from '../../team/team-credit.service';
 import { CollabWritePort } from '../../collab/collab-write.port';
@@ -83,7 +82,6 @@ export class LightingConsumer {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
-    @Inject(EmitPort) private readonly emitPort: EmitPort,   // Y0c T24（Z101）：emitNodeStatus 2 调用点改道 emit 端口（api=Direct/worker=降级 no-op）
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
@@ -218,13 +216,8 @@ export class LightingConsumer {
 
       // 10. T15 收口：doc 交付写移除——fileId 归 ArtifactProjection 投影 poller（finalize 已落 pending
       //     行；worker 通道 writeNodeData 已 403——旧 Z44 nodeAlive 守卫/typed 悬留计数面随直写退役，
-      //     node 删除观察=poller apply 存在性守卫〔orphaned〕）。socket 仅进度通知（即时 UX）。
-      //     Y2 B2d emit 收窄：仅 committed∧非 void 携 fileId/resultUrl（作废/未释放面不投递产物引用）。
-      this.emitPort.emitNodeStatus(projectId || '', {
-        nodeId,
-        status: 'lighting-result',
-        ...(deliverMedia ? { fileId: mediaId, resultUrl: presignedResultUrl } : {}),
-      } as any);
+      //     node 删除观察=poller apply 存在性守卫〔orphaned〕）。
+      //     Y3 T8：socket lighting-result emit 删除（打光成功 UX=受理响应 outcome+投影 poller）。 ──
 
       this.logger.log(`Lighting complete: task ${taskId}, media ${mediaId}`);
       return { status: 'completed', fileId: deliverMedia ? mediaId : undefined };
@@ -256,9 +249,7 @@ export class LightingConsumer {
         const fundsRow = await this.prisma.generationIntent.findUnique({
           where: { id: intentRowId }, select: { intentId: true, attempts: true, execSeq: true },
         }).catch(() => null);
-        const msg = '生成结果暂缓交付（资金核销异常，待对账处理）';
         await this.collabDoc.writeExecStatus(projectId || '', nodeId, feedError('FUNDS_INVARIANT_VIOLATION', 'FUNDS_HELD', fundsRow ? { intentId: fundsRow.intentId, attempts: fundsRow.attempts, execSeq: fundsRow.execSeq ?? execSeq! } : null), intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure);
-        this.emitPort.emitNodeStatus(projectId || '', { nodeId, status: 'lighting-failed', error: msg } as any);
         return { status: 'failed', reason: 'FUNDS_INVARIANT_VIOLATION' };
       }
       // 批0.5-9：失败先 void_ 解冻（约束②——冻结退还；无冻结/已结算幂等零动作）。
@@ -281,12 +272,7 @@ export class LightingConsumer {
         },
       });
 
-      // Push failure via WebSocket
-      this.emitPort.emitNodeStatus(projectId || '', {
-        nodeId,
-        status: 'lighting-failed',
-        error: error.message,
-      } as any);
+      // Y3 T8：socket lighting-failed emit 删除（失败 UX 归 Feed 投影「生成失败」句）。
 
       // Re-throw to trigger BullMQ retry
       throw error;

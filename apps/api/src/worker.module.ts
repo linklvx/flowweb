@@ -12,8 +12,7 @@
 //  ②MetricsCoreModule（Z139——collectDefaultMetrics 全仓唯一调用点=MetricsService 构造器，进程内
 //    恰一次；worker 不装则 3002 无 process_*/nodejs_* 族）；
 //  ③端口形态令牌（T32 起单令牌）：CollabWritePort=HttpCollabWritePort（baseUrl/token env 读——
-//    WORKER_READ 门同源 loopback；
-//    EmitPort=WorkerEmitPort（Z101 降级 no-op）；
+//    WORKER_READ 门同源 loopback；Y3 T8：WS emit 端口令牌已随 /execution 退役删除）；
 //  ④资金/基础设施依赖平铺（PAYMENT_PROVIDER 工厂=RechargeModule 同款 verbatim——close-expired/
 //    active-query 消费面非空转）。
 // 零 controller（census ⑰ 承担充分性：本文件出发的 import 传递闭包 ∩ {*HttpModule,*Controller}=∅）。
@@ -59,7 +58,7 @@ import { SafeRemoteFetchService } from './modules/media/safe-remote-fetch.servic
 // 仅 worker 进程装配——API 进程不注册〔spec §3.1 进程拓扑〕；依赖=Prisma/Minio 均已 import）
 import { MediaProbePoller } from './modules/media/media-probe.poller';
 // T12：video materialize DB poller（MaterializeJob——ai-download processor/队列整体退役后的接替面；
-// 同 probe 形态：仅 worker 进程装配；依赖=Prisma/Minio/SafeRemoteFetch/TeamCredit/StorageQuota/EmitPort 均已 import）
+// 同 probe 形态：仅 worker 进程装配；依赖=Prisma/Minio/SafeRemoteFetch/TeamCredit/StorageQuota 均已 import）
 import { MaterializeJob } from './modules/artifact-core/materialize-job.service';
 // Y1c T23（迁移三）：ObjectManifest delete-claim 面（MaterializeJob 上传前 claim/锚定后 release+
 // 有界 orphan sweep——worker 进程装配：GC 保护对象=materialize 产物，api 进程不双开定时器）
@@ -93,7 +92,6 @@ import { CollabWritePort, HttpCollabWritePort } from './modules/collab/collab-wr
 //    baseUrl/token env 读；闭包=deletion-barrier.port→service→oracle-worker/media-reference 族，
 //    零 controller/HttpModule 面，census ⑰ 不破） ──
 import { DeletionBarrierPort, HttpDeletionBarrierPort } from './modules/collab/deletion-barrier.port';
-import { EmitPort, WorkerEmitPort } from './modules/gateway/emit.port';
 // ── Y1c T11：compact 轮询 DB poller（worker 进程——重放在 worker；MediaProbePoller/MaterializeJob
 //    同款平铺先例；闭包纯净=repo 族〔canvas-doc.factory/sentry-scrub/store.metrics〕零 controller/
 //    Http 面，census ⑰ 不破。API 进程不注册——compact 触发面在 api 侧经 maybeCompact 原位承接） ──
@@ -271,7 +269,7 @@ const env = validateEnv();
     },
     // Y1c T32：HttpCollabDocWriter（writeBatch worker 令牌）随 write-batch 端点退役删除——worker
     // 通道唯一写面=HttpCollabWritePort.writeExecStatus（exec-status 端点，RuntimeEvent feed 写）。
-    { provide: EmitPort, useValue: new WorkerEmitPort() },
+    // Y3 T8：WS emit 端口令牌随 /execution 命名空间退役删除（emit 面零消费）。
     { provide: REDIS_CLIENT, useFactory: () => createManagedRedis() },   // 批3-2 B6 受管工厂（video-separate 链消费）
   ],
 })

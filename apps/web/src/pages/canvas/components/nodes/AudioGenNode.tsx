@@ -1,8 +1,7 @@
-import { memo, useEffect, useState, useCallback, useRef } from 'react';
+import { memo, useState, useCallback, useRef } from 'react';
 import { type NodeProps } from '@xyflow/react';
 import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
-import { subscribeNodeStatus } from '@/services/executionSocket';
 import { useNodeStore } from '@/stores/nodeStore';
 import { selectExecStatus } from '@/stores/execStatusView';
 import { AudioConfigPanel } from './AudioConfigPanel';
@@ -55,16 +54,6 @@ function AudioGenNodeComponent({ id, selected }: NodeProps) {
   }, [label]);
 
   const titleText = label || 'Audio';
-
-  // Real-time audio generation status updates — 订阅 /execution 单例（连接/join/credits 转发归单例与 page 生命周期）
-  // Y2 B3：socket 状态回填退役——data.status/fileId 均禁键（交付唯一 owner=服务端投影 poller）。
-  useEffect(() => {
-    const off = subscribeNodeStatus((data) => {
-      if (data.nodeId !== id) return;
-      void data;
-    });
-    return off;
-  }, [id]);
 
   // ---- Floating upload button ----
 

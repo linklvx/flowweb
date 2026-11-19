@@ -43,11 +43,11 @@ describe('StitchConsumer', () => {
       ),
       upload: vi.fn().mockResolvedValue(undefined),
     };
-    const emitPort = { emitStitchStatus: vi.fn() };   // Y0c T25（F1 补面）：emitStitchStatus 消费改道 emit 端口（直构位置参数形态不变）
 
     // StitchConsumer 构造函数无 @Inject 显式 token，vitest（esbuild）不生成
     // design:paramtypes 元数据，Nest DI 解析不到 → 直接实例化注入 mock
-    consumer = new StitchConsumer(prisma as any, minio as any, emitPort as any);
+    // Y3 T8：emitPort 形参随 /execution 退役删除——两参直构。
+    consumer = new StitchConsumer(prisma as any, minio as any);
   });
 
   it('生成物归属 = project.teamId（非 getOwnerTeamId 反推）', async () => {
@@ -69,7 +69,7 @@ describe('StitchConsumer', () => {
     expect(prisma.team.findFirst).not.toHaveBeenCalled();
   });
 
-  it('ctor 形参数=3（v5 arity 锚：现状 4 必红，实现后 3 长效——加参即红，可进 CI 的结构断言）', () => {
-    expect(StitchConsumer.length).toBe(3);
+  it('ctor 形参数=2（Y3 T8 arity 锚：emitPort 形参随 /execution 退役删除——现状 3 必红，实现后 2 长效——加参即红，可进 CI 的结构断言）', () => {
+    expect(StitchConsumer.length).toBe(2);
   });
 });

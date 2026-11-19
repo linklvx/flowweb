@@ -3,7 +3,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LightingConsumer } from './lighting.consumer';
 import { MinioService } from '../../minio/minio.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { EmitPort } from '../../gateway/emit.port';
 import { ApiCallerService } from '../../execution/api-caller.service';
 import { TeamCreditService } from '../../team/team-credit.service';
 import { CollabWritePort } from '../../collab/collab-write.port';
@@ -18,7 +17,6 @@ describe('LightingConsumer', () => {
   let minio: any;
   let teamCredit: any;
   let apiCaller: any;
-  let emitMock: ReturnType<typeof vi.fn>;
   let collabDoc: any;
   let intentService: any;
   let safeFetch: any;
@@ -44,8 +42,7 @@ describe('LightingConsumer', () => {
     safeFetch = {
       fetchBuffer: vi.fn().mockResolvedValue({ buffer: Buffer.from('img'), contentType: 'image/png' }),
     };
-    const gateway = { emitNodeStatus: vi.fn() };
-    emitMock = gateway.emitNodeStatus;
+    // Y3 T8：/execution emit 面删除（gateway fixture 退役——emit 断言随批删/翻）
     apiCaller = { callRelighting: vi.fn().mockResolvedValue({ url: 'https://ai.result/r.png' }) };
     teamCredit = {
       reserve: vi.fn().mockResolvedValue({ success: true, mayCall: true }),
@@ -74,7 +71,6 @@ describe('LightingConsumer', () => {
         LightingConsumer,
         { provide: PrismaService, useValue: prisma },
         { provide: MinioService, useValue: minio },
-        { provide: EmitPort, useValue: gateway },
         { provide: ApiCallerService, useValue: apiCaller },
         { provide: TeamCreditService, useValue: teamCredit },
         { provide: CollabWritePort, useValue: collabDoc },
@@ -202,11 +198,13 @@ describe('LightingConsumer', () => {
       expect(apiCaller.callRelighting).not.toHaveBeenCalled();
     });
 
-    it('step9 已置 SUCCESS 后残余段抛错（T15：emit 注入——doc 交付写已移除）→ FAILED 覆写须清产物字段（不留 SUCCESS 残留 URL）', async () => {
-      emitMock.mockImplementation((() => { throw new Error('emit boom'); }) as any);
+    it('step9 已置 SUCCESS 后残余段抛错（T15→Y3 T8：emit 注入位随 emit 面删除——残余段注入改 prisma.lightingTask.update 抛错）→ FAILED 覆写须清产物字段（不留 SUCCESS 残留 URL）', async () => {
+      prisma.lightingTask.update
+        .mockResolvedValueOnce({})   // step9 SUCCESS 写
+        .mockRejectedValueOnce(new Error('task update boom'));   // 残余段（SUCCESS 写后的下一写）抛错
       mockDownloadResult();
 
-      await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 } }), {})).rejects.toThrow('emit boom');
+      await expect(consumer.handleLightingJob(makeJob('proj-1', { intentRowId: 'row-9', ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 } }), {})).rejects.toThrow('task update boom');
 
       // SUCCESS 已落库（resultImageUrl/resultMediaId 已写）→ catch 覆写 FAILED 时必须同笔清空，
       // 否则 FAILED 行残留产物 URL（getTask 可取）——状态与产物矛盾
@@ -278,14 +276,10 @@ describe('LightingConsumer', () => {
       // error 级打点（携带意图行 id——资金不变量破缺=对账介入信号）
       expect(loggerSpy).toHaveBeenCalled();
       expect(String(loggerSpy.mock.calls.at(-1)![0])).toContain('row-9');
-      // 用户面持久投影（worker emit 降级 no-op——doc 投影为唯一可达面）
+      // 用户面持久投影（Y3 T8：emit 降级面已删——doc 投影为唯一可达面）
       expect(collabDoc.writeExecStatus).toHaveBeenCalledWith('proj-1', 'n1', expect.objectContaining({
         status: 'error', errorCode: 'FUNDS_INVARIANT_VIOLATION', error: expect.stringContaining('资金核销异常'),
       }), { intentRowId: 'row-9', execSeq: '9' });
-      // 即时 UX 面（api 形态有效）
-      expect(emitMock).toHaveBeenCalledWith('proj-1', expect.objectContaining({
-        nodeId: 'n1', status: 'lighting-failed',
-      }));
     });
   });
 
@@ -294,25 +288,22 @@ describe('LightingConsumer', () => {
   describe('Y2 B2d：作者槽链（读槽三段+释放+emit 收窄）', () => {
     const intent = { intentRowId: 'row-9', ticket: { intentRowId: 'row-9', execSeq: '9', jobId: 'job-9', expectedRev: 0 } };
 
-    it('胜臂：现场=冻结值 → commitImage 携 authorVoid:false → committed → release → SUCCESS 回填+emit 携 fileId', async () => {
+    it('胜臂：现场=冻结值 → commitImage 携 authorVoid:false → committed → release → SUCCESS 回填（Y3 T8：emit 断言随 emit 面删）', async () => {
       mockDownloadResult();
       const r = await consumer.handleLightingJob(makeJob('proj-1', intent), {});
       expect(collabDoc.readAuthorSlot).toHaveBeenCalledWith('proj-1', 'row-9');
       expect(artifactCommit.commitImage).toHaveBeenCalledWith(expect.objectContaining({ authorVoid: false }));
       expect(collabDoc.releaseAuthorSlot).toHaveBeenCalledWith('proj-1', 'row-9');
       expect(prisma.lightingTask.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'success', resultMediaId: 'media-1' }) }));
-      expect(emitMock).toHaveBeenCalledWith('proj-1', expect.objectContaining({ status: 'lighting-result', fileId: 'media-1' }));
       expect(r.status).toBe('completed');
     });
 
-    it('用户已换图（现场≠冻结值）→ authorVoid:true 传入 + 零释放 + emit 不携 fileId/resultUrl', async () => {
+    it('用户已换图（现场≠冻结值）→ authorVoid:true 传入 + 零释放', async () => {
       collabDoc.readAuthorSlot.mockResolvedValueOnce({ nodeId: 'n1', kind: 'lighting', frozen: true, authorMediaId: 'm-author', liveMediaId: 'm-user-new' });
       mockDownloadResult();
       const r = await consumer.handleLightingJob(makeJob('proj-1', intent), {});
       expect(artifactCommit.commitImage).toHaveBeenCalledWith(expect.objectContaining({ authorVoid: true }));
       expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();   // 作废臂不删用户槽键
-      expect(emitMock).toHaveBeenCalledWith('proj-1', expect.objectContaining({ status: 'lighting-result' }));
-      expect(emitMock).not.toHaveBeenCalledWith('proj-1', expect.objectContaining({ status: 'lighting-result', fileId: expect.anything() }));
       expect(r.status).toBe('completed');
     });
 
@@ -328,21 +319,19 @@ describe('LightingConsumer', () => {
       );
     });
 
-    it('emit 收窄：superseded → 零释放 + SUCCESS 回填不带 resultMediaId 语义不变（产物已核销入素材库）+ emit 无 fileId', async () => {
+    it('superseded → 零释放 + SUCCESS 回填不带 resultMediaId 语义不变（产物已核销入素材库——Y3 T8：emit 断言随删）', async () => {
       artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'superseded', mediaId: 'media-x', key: 'generated/key' });
       mockDownloadResult();
       const r = await consumer.handleLightingJob(makeJob('proj-1', intent), {});
       expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();   // 仅 committed 才释放
-      expect(emitMock).not.toHaveBeenCalledWith('proj-1', expect.objectContaining({ status: 'lighting-result', fileId: expect.anything() }));
       expect(r.status).toBe('completed');
     });
 
-    it('intent-stale → 零释放零 emit fileId（旧代产物不投递）', async () => {
+    it('intent-stale → 零释放（旧代产物不投递——Y3 T8：emit 断言随删）', async () => {
       artifactCommit.commitImage.mockResolvedValueOnce({ outcome: 'intent-stale' });
       mockDownloadResult();
       const r = await consumer.handleLightingJob(makeJob('proj-1', intent), {});
       expect(collabDoc.releaseAuthorSlot).not.toHaveBeenCalled();
-      expect(emitMock).not.toHaveBeenCalledWith('proj-1', expect.objectContaining({ status: 'lighting-result', fileId: expect.anything() }));
       expect(r.status).toBe('completed');
     });
 

@@ -46,7 +46,6 @@ describe('TopActionBar', () => {
       subscriptionCreditsExpiry: null,
       fetchBalance: vi.fn().mockResolvedValue(undefined),
       fetchTeamBalance: vi.fn(),
-      applyBalance: vi.fn(),
       isSubscriptionActive: () => true,
     });
   });

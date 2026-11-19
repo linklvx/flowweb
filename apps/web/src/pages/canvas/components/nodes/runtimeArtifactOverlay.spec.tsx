@@ -66,12 +66,6 @@ vi.mock('@/stores/canvasStore', () => ({
   ),
 }));
 
-vi.mock('@/services/executionSocket', () => ({
-  subscribeNodeStatus: vi.fn(() => () => {}),
-  subscribeNodeEditResult: vi.fn(() => () => {}),
-  ensureExecutionSocket: vi.fn(() => ({ once: vi.fn(), off: vi.fn() })),
-}));
-
 vi.mock('@/api/storageApi', () => ({
   presignUpload: vi.fn().mockResolvedValue({ fileId: 'f', uploadUrl: 'http://minio/f', key: 'k', fields: {} }),
   confirmUpload: vi.fn().mockResolvedValue({ fileId: 'f' }),

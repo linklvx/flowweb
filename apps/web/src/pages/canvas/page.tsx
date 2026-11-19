@@ -23,7 +23,6 @@ import { useMenuStore } from '@/stores/menuStore';
 import { CanvasTopBar } from './components/CanvasTopBar';
 import { ProjectTitle } from './components/ProjectTitle';
 import { bindViewportPersistence } from '@/utils/viewportPersistence';
-import { ensureExecutionSocket, teardownExecutionSocket } from '@/services/executionSocket';
 import { useSessionKeepalive } from '@/hooks/useSessionKeepalive';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useNodeStore } from '@/stores/nodeStore';
@@ -289,12 +288,6 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
   useEffect(() => {
     if (!projectId) return;
     return bindViewportPersistence(projectId);
-  }, [projectId]);
-
-  // /execution socket 单例生命周期挂画布 page（mount ensure / unmount teardown；节点组件只 subscribe 不建连）
-  useEffect(() => {
-    ensureExecutionSocket(projectId);
-    return () => teardownExecutionSocket();
   }, [projectId]);
 
   // 批3-3 F8：15min 静默 me 探活——session 滑动续期（DB touch + cookie 重发）的唯一 HTTP 载体

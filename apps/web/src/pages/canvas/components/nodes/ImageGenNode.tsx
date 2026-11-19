@@ -2,7 +2,6 @@ import { memo, useEffect, useState, useCallback, useRef } from 'react';
 import { NodeResizeControl, useReactFlow, useInternalNode, useViewport, type NodeProps } from '@xyflow/react';
 import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
-import { subscribeNodeEditResult, subscribeNodeStatus } from '@/services/executionSocket';
 import { useNodeStore, NODE_TYPES } from '@/stores/nodeStore';   // Y2 B3：applyDataPatchToStores 调用方归零随删
 import { replaceNodeMedia, clearNodeMedia, getMediaSlot, MediaRevConflictError } from '@/api/collabApi';
 import { selectExecStatus } from '@/stores/execStatusView';
@@ -35,7 +34,7 @@ import { apiFetch } from '@/api/client';
 import { withSyncRetry } from '@/api/executionApi';
 import { canExecute } from '@/stores/syncStatus';
 import { getStateVector } from '@/stores/canvasCollabRuntime';
-import { gestureToken, storedToken, rotateToken, markGestureConsumed } from '@/utils/regen-token';
+import { gestureToken, storedToken, rotateToken, markGestureConsumed, restoreRotatedToken, isGestureConsumed } from '@/utils/regen-token';
 import { transformImage } from '@/utils/imageTransform';
 import { cropImage, type CropRect } from '@/utils/imageCrop';
 import axios from 'axios';
@@ -44,10 +43,13 @@ import { RESIZE_CONFIG, HANDLE_STYLE, CORNERS } from '@/utils/resizeUtils';
 import { calcConstrainedSize, ratioDimensions, applyIntrinsicFit, type SizeBounds } from '@flowweb/shared';
 // B6-1（Spec B）：handle 可用性单源谓词——编辑中（editMode 或 transformMode）双侧无（删 !editMode 直判防双轨）
 import { getAvailableHandles, resolvePrimaryMediaId } from '@flowweb/shared';
+// Y3 T7：受理显式结局联合类型（withSyncRetry 泛型直通——响应分支只认 outcome）
+import type { AdmissionOutcome } from '@flowweb/shared';
 import { reportNodeSize } from '@/stores/canvasIntents';
 // Y1c T22 收口批（C-2）：runtime 投影 artifact 槽 overlay 读径——data.fileId 服务端停写后产物身份
 // 读点=useMediaUrl(pendingPreview?.mediaId ?? runtimeMediaIdOf(id) ?? fileId)（四节点同型）
-import { runtimeMediaIdOf } from '@/stores/runtimeStore';
+// Y3 T7：投影收场订阅/响应后立刻读共用该 store（selectRuntimeEntry=现值读；useRuntimeFeedStore=订阅 selector）
+import { runtimeMediaIdOf, selectRuntimeEntry, useRuntimeFeedStore } from '@/stores/runtimeStore';
 import { toFlowaiUrl } from '@/api/mediaApi';
 
 const MAX_WIDTH = 548;
@@ -75,6 +77,43 @@ function confirmMediaOverwrite(title: string, content: string, primaryText: stri
       onPrimary: () => { done('primary'); },
     });
   });
+}
+
+// ── Y3 T7（v3.1 合同一）：编辑收场三闸三分支的基线读取/版本比较纯函数（组件外单源） ──
+
+/** 十进制串判据（wire 纪律——BigInt 比较前提）。 */
+const isDecString = (v: string | undefined): v is string =>
+  typeof v === 'string' && /^\d+$/.test(v);
+
+/** ⓓ 版本闸：槽上 nodeVersion 严格大于基线（基线 null 时合法十进制视为大于；非十进制按不大于——
+ *  BigInt 比较兜 try/catch）。 */
+function decVersionGreaterThan(slotV: string, baselineV: string | null): boolean {
+  if (!isDecString(slotV)) return false;
+  try {
+    if (baselineV === null) return true;
+    if (!isDecString(baselineV)) return false;
+    return BigInt(slotV) > BigInt(baselineV);
+  } catch {
+    return false;   // BigInt 构造不可达兜（合法十进制已过滤）——按不大于处理
+  }
+}
+
+/** 基线 nodeVersion 读取（await 前）：槽上合法十进制 → 无则 cursor.feedSeq → 再无 null（**禁 '0'**——
+ *  历史后续 error 的版本严格大于 '0' 会把上一次失败当这一次弹）。媒体基线读源=runtime 投影 artifact
+ *  槽（runtimeMediaIdOf——非 Yjs 节点 mediaId），由调用方直取。 */
+function readEditBaselineNodeVersion(nodeId: string): string | null {
+  const slotV = selectRuntimeEntry(nodeId)?.execStatus?.nodeVersion;
+  if (isDecString(slotV) && slotV !== '0') return slotV;
+  const cursorV = useRuntimeFeedStore.getState().cursor?.feedSeq;
+  if (isDecString(cursorV) && cursorV !== '0') return cursorV;
+  return null;
+}
+
+/** 收场函数入参（selectRuntimeEntry 与 useRuntimeFeedStore 投影 selector 两读源的公共结构子集——
+ *  T7 只读 execStatus 六键+artifact.mediaId；两读源类型各自宽窄不一，此处按消费面取窄）。 */
+interface EditSettleEntry {
+  execStatus?: { status: string; intentId?: string; execSeq?: string; rearmable?: boolean; error?: string; nodeVersion: string };
+  artifact?: { mediaId?: string };
 }
 
 function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
@@ -259,6 +298,10 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   const [eraseCanRedo, setEraseCanRedo] = useState(false);
   const [isProcessing, setProcessing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  // Y3 T7（v3.1 合同一）：编辑收场基线 ref——await 前写 {nodeVersion, mediaId}（nodeVersion=槽上
+  // 合法十进制/cursor.feedSeq/再无 null 禁 '0'；mediaId=当前 Runtime 投影 artifact 槽非 Yjs 节点
+  // mediaId），intentId/execSeq 先 null、replayed:false 响应落键；ⓔ/delivered/退出编辑/卸载清。
+  const editBaselineRef = useRef<{ nodeVersion: string | null; mediaId: string | undefined; intentId: string | null; execSeq: string | null } | null>(null);
   const cropRectRef = useRef<CropRect>({ x: 0.1, y: 0.1, width: 0.8, height: 0.8 });
   const [outpaintRect, setOutpaintRect] = useState<OutpaintRect>({ x: 0, y: 0, width: 0, height: 0 });
   const [redrawPrompt, setRedrawPrompt] = useState('');
@@ -374,17 +417,6 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   const previewTransform = transformMode && !pendingPreview
     ? `rotate(${imageRotation}deg) scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1})`
     : undefined;
-
-  // Real-time image generation status updates — 订阅 /execution 单例（连接/join/credits 转发归单例与 page 生命周期）
-  // Y2 B3：socket 状态回填退役——data.status/fileId 均禁键（交付唯一 owner=服务端投影 poller，
-  // doc 收敛经 Yjs 回流+runtime 投影面；本订阅面清空=纯执行提示通道归 execStatusView 投影）。
-  useEffect(() => {
-    const off = subscribeNodeStatus((data) => {
-      if (data.nodeId !== id) return;
-      void data;
-    });
-    return off;
-  }, [id]);
 
   // ---- Floating upload button ----
 
@@ -653,6 +685,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
     setEditError(null);
     if (isProcessing) return;
     if (useNodeStore.getState().getEditOverlayDragging()) return;
+    editBaselineRef.current = null;   // Y3 T7 ⑦：退出编辑清基线（实际退出路径——在飞点击/拖拽中不清）
     updateConfig(id, { editMode: null });
     useNodeStore.getState().setActiveEditNodeId(null);
     setEraseCanUndo(false);
@@ -777,6 +810,50 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
     }
   }, [id, displayUrl, updateConfig]);
 
+  // Y3 T7（v3.1 合同一）：收场函数——三闸先于三分支、命中即返回；投影订阅 effect 与「响应到达后
+  // 立刻读」共用。ⓐ基线空或身份未落（响应未回）→ 不动；ⓑ槽上 intentId≠ref.intentId（别的意图的
+  // 终态不收场——上一代的图照常按 nodeVersion 换上）；ⓒ两边 execSeq 非同一十进制串（同 intentId
+  // 换代——旧代 done 先落槽；槽上缺 execSeq 也算对不上）→ 不动。三分支：ⓓerror∧槽上 nodeVersion
+  // 合法十进制∧严格大于基线 → 投影句（空缺句→「AI 处理失败」）+processing false；ⓔdone∧投影
+  // artifact 槽 mediaId 相对基线变非空 → 退出编辑+清基线；ⓕdone∧未变或空 → processing false 留
+  // 编辑态不弹错（上一代的图照常换上）。产物槽照旧按 nodeVersion 换上——收场不为产物槽做事。
+  const settleEditOutcome = useCallback((entry: EditSettleEntry) => {
+    const ref = editBaselineRef.current;
+    if (ref === null || ref.intentId === null) return;   // 闸ⓐ
+    const st = entry.execStatus;
+    if (!st) return;
+    if (st.intentId !== ref.intentId) return;   // 闸ⓑ
+    if (st.execSeq !== ref.execSeq) return;   // 闸ⓒ（缺也算对不上）
+    if (st.status !== 'error' && st.status !== 'done') return;   // loading/skipped 非终态——不收场
+    // Y3 T7（v3.1 合同二③生产接线）：终态分支携槽上 {status, rearmable?, execSeq}+消费标记读取
+    // （回滚三条件按 regen-token API 原样判——legacy 两参轮换窗口残留无特例：无消费即无恢复）。
+    const pid = canvasProjectId();
+    if (pid) {
+      restoreRotatedToken(pid, id, {
+        status: st.status,
+        ...(st.rearmable !== undefined ? { rearmable: st.rearmable } : {}),
+        ...(st.execSeq !== undefined ? { execSeq: st.execSeq } : {}),
+        tokenConsumed: isGestureConsumed(pid, id),
+      });
+    }
+    if (st.status === 'error') {
+      // ⓓ 版本闸：非十进制/≤基线按不大于处理（decVersionGreaterThan 单源）
+      if (!decVersionGreaterThan(st.nodeVersion, ref.nodeVersion)) return;
+      setEditError(st.error != null && st.error !== '' ? st.error : 'AI 处理失败');
+      setProcessing(false);
+      return;
+    }
+    // done：ⓔ mediaId 变非空 → 退出+清基线；ⓕ 未变或空 → processing false 留编辑态不弹错
+    if (entry.artifact?.mediaId != null && entry.artifact.mediaId !== ref.mediaId) {
+      updateConfig(id, { editMode: null });
+      useNodeStore.getState().setActiveEditNodeId(null);
+      setProcessing(false);
+      editBaselineRef.current = null;
+    } else {
+      setProcessing(false);
+    }
+  }, [id, updateConfig]);
+
   const handleGenerate = useCallback(async () => {
     // Y0b-2 T7：canExecute 硬态门（编辑三 toolbar 共用漏斗——视觉禁用态归 ConfigPanel 族，此处唯一拦截）
     if (!canExecute(useCanvasStore.getState())) return;
@@ -785,6 +862,15 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
     try {
       let endpoint = '';
       const body: any = { fileId, nodeId: id, projectId: canvasProjectId() };   // Y2 B3：fileId 值=resolvePrimaryMediaId 解析值（线字段名不动）
+      // Y3 T7：await 前写基线 ref（身份判据的基线半——nodeVersion=槽上合法十进制/cursor.feedSeq/
+      // 再无 null 禁 '0'；mediaId=当前 Runtime 投影 artifact 槽非 Yjs 节点 mediaId；intentId/execSeq
+      // 先 null，replayed:false 响应落键）
+      editBaselineRef.current = {
+        nodeVersion: readEditBaselineNodeVersion(id),
+        mediaId: runtimeMediaIdOf(id),
+        intentId: null,
+        execSeq: null,
+      };
       // Y0b-2 T6（Z79 编辑三入口恒手势）：每次应用=生成性重跑，恒带 token——held 优先（终态前重试
       // 复用同 token=免费 rearm，sessionStorage 跨刷新存活），无 held 铸造新 token（新意图照常扣费）
       body.regenToken = storedToken(body.projectId, id) ?? gestureToken(body.projectId, id);
@@ -823,8 +909,31 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
         }
       }
 
-      // Y0b-2 T7：SYNC_PENDING 反应式重发（withSyncRetry 单源——execute/enqueue 同款）
-      await withSyncRetry(() => apiFetch(endpoint, { method: 'POST', body: JSON.stringify(body) }));
+      // Y0b-2 T7：SYNC_PENDING 反应式重发（withSyncRetry 单源——execute/enqueue 同款）。
+      // Y3 T7：接住 withSyncRetry 返回值（泛型直通 executionApi:38-39）——受理显式结局只认 outcome：
+      // delivered→直接退出编辑+processing false+清基线（产物点击前已在槽上、不走「变了才退出」）；
+      // voided→保持编辑态+processing false（重放不写新事件——不能拿版本大于基线等已存在的 done）；
+      // replayed:false→intentId+execSeq 入 ref+立刻调收场函数（Feed 可能先到——响应前投影已含该
+      // intentId 的 error 也要弹）；deduped 形态不进本工具条（outcome 字段缺席即忽略）。
+      const res = await withSyncRetry(() => apiFetch<AdmissionOutcome>(endpoint, { method: 'POST', body: JSON.stringify(body) }));
+      if (res.replayed === true) {
+        if (res.outcome === 'delivered') {
+          updateConfig(id, { editMode: null });
+          useNodeStore.getState().setActiveEditNodeId(null);
+          setProcessing(false);
+          editBaselineRef.current = null;
+        } else if (res.outcome === 'voided') {
+          setProcessing(false);
+        }
+      } else if (res.replayed === false) {
+        const ref = editBaselineRef.current;
+        if (ref !== null) {
+          ref.intentId = res.intentId;
+          ref.execSeq = res.execSeq;
+          const entry = selectRuntimeEntry(id);
+          if (entry) settleEditOutcome(entry);
+        }
+      }
     } catch (err: any) {
       console.error('AI 编辑失败:', err);
       // Y0b-2 T6：编辑链同步 409 无 exec 投影（runNodeLifecycle 不在链上）——EXHAUSTED 需 web 侧
@@ -838,7 +947,7 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
       setEditError('提交失败，请重试');
       setProcessing(false);
     }
-  }, [id, editMode, fileId, imgSize, baseWidth, outpaintRect, redrawPrompt, strength]);
+  }, [id, editMode, fileId, imgSize, baseWidth, outpaintRect, redrawPrompt, strength, settleEditOutcome]);
 
   // ── Effects ──
 
@@ -1071,34 +1180,19 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
     return () => clearInterval(timer);
   }, [editMode, updateEraseUndoRedo]);
 
-  // AI 编辑回填：edit-result/edit-failed 是 node:status 的 status 值（原独立事件名 node:edit-result
-  // 从未被 emit——坏监听，回填现修复为经单例 subscribeNodeEditResult 按 status 值分流）
+  // AI 编辑收场（Y3 T7）：原对象引用 selector 订阅 useRuntimeFeedStore 投影槽（merge 未触本节点保持
+  // 原引用不误触发）——订阅 effect 与「响应到达后立刻读」共用 settleEditOutcome（三闸三分支）。
+  const editProjectionEntry = useRuntimeFeedStore((s) => (editMode ? s.projection?.nodes[id] : undefined));
+  useEffect(() => {
+    if (!editMode || !editProjectionEntry) return;
+    settleEditOutcome(editProjectionEntry);
+  }, [editMode, editProjectionEntry, settleEditOutcome]);
+
+  // Y3 T7 ⑦：退出编辑/卸载清基线（editMode 离开非空或组件卸载——ref 组件私有，清后闸ⓐ 拦投影迟到事件）
   useEffect(() => {
     if (!editMode) return;
-    const off = subscribeNodeEditResult((p) => {
-      if (p.nodeId !== id) return;
-      if (p.failed) {
-        setEditError(p.error || 'AI 处理失败');
-        setProcessing(false);
-      } else if (p.fileId) {
-        // Y1a T11 裁定（不变量：每个用户可见 fileId 变更恰一次权威写入）：AI 生成物=服务端
-        // commitImage 交付（T10 ai-image-edit.processor finalize 直写 doc fileId+NodeArtifact
-        // rev+1）——客户端仅本地 UI（fileId 本地渲染态，doc 零写——服务端写经 Yjs 回流收敛）。
-        // 禁再走 replaceMedia：顺序场景 GET 恰取 finalize 后新 rev → POST CAS 胜出 → NodeArtifact
-        // rev 再 +1=同一变更第二次权威写入（恰一次不变量破）；交错场景（GET 先于 finalize）则
-        // expectedRev 过期 409——两形态皆错，非仅 409 面问题
-        // F2（用户裁定③）：本节点存在进行中的媒体命令操作（activeMediaOp 未清）时，socket 产物
-        // 回填不写 fileId——无版本直写不得覆盖 pending 期间产物展示，socket done 只承担执行状
-        // 态提示（setProcessing/setEditError 面保留）；无 pending 时行为不变
-        // Y2 B3：AI 编辑产物固化写消除（裁决 9——B2d 服务端 commitImage 交付链已接；
-        // 客户端本地 fileId 回填随禁键面退役，doc 收敛归服务端投影经 Yjs 回流）
-        updateConfig(id, { editMode: null });
-        useNodeStore.getState().setActiveEditNodeId(null);
-        setProcessing(false);
-      }
-    });
-    return off;
-  }, [editMode, id, updateConfig]);
+    return () => { editBaselineRef.current = null; };
+  }, [editMode]);
 
   const showReplaceButton = !resultUrl && !!referenceImage && !!displayUrl && !editMode;
 

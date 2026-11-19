@@ -10,7 +10,6 @@ import { ApiCallerService } from './api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabWritePort } from '../collab/collab-write.port';
-import { EmitPort } from '../gateway/emit.port';
 import { GenerationIntentService } from './generation-intent.service';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
@@ -22,7 +21,6 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
   let apiCaller: any;
   let teamCredit: any;
   let collabDoc: any;
-  let gateway: any;
 
   beforeEach(async () => {
     prisma = {
@@ -54,8 +52,7 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
       callVideoGen: vi.fn(),
       callAudioGen: vi.fn(),
     };
-    teamCredit = { reserve: vi.fn().mockResolvedValue({ success: true }), settle: vi.fn().mockResolvedValue({ success: true, settled: true }), void_: vi.fn().mockResolvedValue(undefined), getBalanceView: vi.fn().mockResolvedValue({ total: 100 }) };
-    gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（census 清零）
+    teamCredit = { reserve: vi.fn().mockResolvedValue({ success: true }), settle: vi.fn().mockResolvedValue({ success: true, settled: true }), void_: vi.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -68,7 +65,6 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
         { provide: TeamCreditService, useValue: teamCredit },
         { provide: ProjectPermissionService, useValue: { resolve: vi.fn().mockResolvedValue('PROJECT_EDITOR'), assertEditor: vi.fn().mockResolvedValue('PROJECT_EDITOR') } },
         { provide: CollabWritePort, useValue: collabDoc },
-        { provide: EmitPort, useValue: gateway },
         { provide: UpstreamMediaService, useValue: { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } },
         // 批0.5-6 最小装置：意图服务默认放行（created:true）+ complete 默认过门（count=1）
         { provide: GenerationIntentService, useValue: { claim: vi.fn().mockResolvedValue({ created: true, result: 'new', intent: { id: 'intent-1', intentId: 'i-1', execSeq: 1n, attempts: 1 } }), complete: vi.fn().mockResolvedValue(1), fail: vi.fn().mockResolvedValue(undefined), void_: vi.fn().mockResolvedValue(undefined), reanchorDeadline: vi.fn().mockResolvedValue(1), touchHeartbeat: vi.fn().mockResolvedValue(undefined), ensureProviderRequestId: vi.fn().mockResolvedValue('rid'), recordProviderTaskId: vi.fn(), tickFence: vi.fn(), observeNodeExecution: vi.fn().mockResolvedValue(undefined) } },
@@ -92,8 +88,9 @@ describe('ExecutionService with nodeIds（整组执行）', () => {
 
     const sorted = topology.sort.mock.calls[0][0] as any[];
     expect(sorted.map((n) => n.id)).not.toContain('outside');
-    // Each node emits loading + done = 4 calls total for 2 nodes
-    expect(gateway.emitNodeStatus).toHaveBeenCalledTimes(4);
+    // Y3 T8：emit 计数断言随 emit 面删除——组内执行覆盖面由 loading Feed 写钉守（每节点恰 1 条）
+    const loadings = collabDoc.writeExecStatus.mock.calls.filter((c: any[]) => c[2]?.status === 'loading');
+    expect(loadings).toHaveLength(2);
   });
 
   it('collectUpstreamData 收到全量节点（组外上游可读）', async () => {

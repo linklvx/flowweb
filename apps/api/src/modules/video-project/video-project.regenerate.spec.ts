@@ -112,7 +112,6 @@ describe('批5 评审 H1：retake 幂等闭环（retakeId 归目标节点 + 上�
       readAuthorSlot: vi.fn().mockResolvedValue({ nodeId: 'vg1', kind: 'video', frozen: true, authorMediaId: null, liveMediaId: null }),
       releaseAuthorSlot: vi.fn().mockResolvedValue({ released: true, deletedSlot: false, bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } } }),
     };
-    const gateway = { emitNodeStatus: vi.fn() }; // Y0b-2 T5：execution:complete emit 已删（census 清零）
     const succeeded = new Map<string, string>(); // "nodeId:intentId" -> resultRef（complete 落地）
     const intentService = {
       claim: vi.fn(async (input: any) => {
@@ -133,7 +132,7 @@ describe('批5 评审 H1：retake 幂等闭环（retakeId 归目标节点 + 上�
       tickFence: vi.fn().mockResolvedValue(undefined),              // T9 onTick 双职+代际
     };
     const execSvc: any = new (ExecutionService as any)(
-      prisma, topology, validation, apiCaller, teamCredit, perm, collab, gateway, intentService,
+      prisma, topology, validation, apiCaller, teamCredit, perm, collab, intentService,   // Y3 T8：emit 形参随 /execution 退役删除
       { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) },   // upstreamMedia（Y1a T8——regenerate 上游 textInput 不触 reader）
       { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t12' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }), finalizeVideo: vi.fn(async (p: any) => { succeeded.set(`${p.nodeId}:${undefined}`, p.sourceUrl); return { outcome: 'committed', mediaId: `media:${p.nodeId}` }; }) },   // T12：video finalize-first（replay 幂等闭环锚——resultRef=mediaId）
     );

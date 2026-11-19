@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useAuth } from '@/components/AuthProvider';
 import { ThemeToggleButton } from '@/components/theme/ThemeToggleButton';
@@ -40,32 +40,37 @@ export function CanvasTopBar({ projectId }: Props) {
 
   const teamId = useCanvasStore((s) => s.teamId);
 
-  // 画布初始余额：经 project.teamId 判 scope（D2——不只依赖 Socket 推送）
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!teamId) {
-        store.fetchBalance();
-        return;
-      }
+  // Y3 D1：默认团队比较结果 ref 化——挂载时判一次，终态信号不再每次请求默认团队。
+  // teamId 变化时重置（null=未判），随下方挂载 effect 重算。
+  const teamIsPersonalRef = useRef<boolean | null>(null);
+
+  // Y3 D1：统一刷新函数——挂载（显 loading）与空 detail 信号（静默）共用。
+  // 判定收拢：无 teamId →个人；默认团队→个人；非默认团队→团队池 fetchTeamBalance(teamId)。
+  const refreshBalance = useCallback(async (opts: { silent?: boolean }): Promise<void> => {
+    if (!teamId) { void store.fetchBalance(opts); return; }
+    if (teamIsPersonalRef.current === null) {
       const def = await getDefaultTeam().catch(() => null);
-      if (cancelled) return;
-      if (def && teamId !== def.id) store.fetchTeamBalance(teamId);
-      else store.fetchBalance();
-    })();
-    return () => { cancelled = true; };
+      teamIsPersonalRef.current = def ? teamId === def.id : true;
+    }
+    if (teamIsPersonalRef.current) void store.fetchBalance(opts);
+    else void store.fetchTeamBalance(teamId, opts);
   }, [teamId]);
 
-  // Socket 扣费推送：node:status credits 为完整余额对象（D1）
+  // 画布初始余额：经 project.teamId 判 scope（D2——不只依赖 Socket 推送）；挂载拉取显 loading。
+  // refreshBalance 键随 teamId 变——effect 重跑时 ref 重置重判（拉取幂等+序号防覆盖，不设取消短路）。
   useEffect(() => {
-    const handler = (e: Event) => {
-      const ce = e as CustomEvent;
-      const d = ce.detail;
-      if (d && typeof d === 'object' && 'credits' in d) store.applyBalance(d);
-    };
+    teamIsPersonalRef.current = null;   // teamId 变化重置（挂载档重判默认团队）
+    void refreshBalance({});
+  }, [refreshBalance]);
+
+  // Y3 D1：credits:update 空 detail=终态信号（runtimeStore 四回落/增量终批恰一次派发）——按挂载
+  // 已定的 scope 静默重拉（团队项目余额=团队池，每个成员 Feed 都会到、各自重拉正确）。旧
+  // node:status credits 携完整对象的 applyBalance 档已随 D1 删除（不再信任推送值——REST 真值单源）。
+  useEffect(() => {
+    const handler = () => { void refreshBalance({ silent: true }); };
     window.addEventListener('credits:update', handler);
     return () => window.removeEventListener('credits:update', handler);
-  }, []);
+  }, [refreshBalance]);
 
   const displayName = user?.name || user?.email || '?';
   const firstLetter = displayName.charAt(0).toUpperCase();

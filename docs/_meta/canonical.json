@@ -419,11 +419,6 @@
           "src": "apps/api/src/app.module.ts",
           "line": 117,
           "text": "// Y0c T36 核销（原「部署前提 tech-debt：反代后 req.ip 全是代理 IP」注释失实）：trust proxy"
-        },
-        {
-          "src": "apps/api/src/modules/gateway/execution.gateway.ts",
-          "line": 15,
-          "text": "*    或自定义 tracker（已登记 tech-debt）。 */"
         }
       ]
     },

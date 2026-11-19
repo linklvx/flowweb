@@ -126,6 +126,7 @@ const {
       triggerCancelTransform,
       activeEditNodeId: null as string | null,
       setActiveEditNodeId,
+      getEditOverlayDragging: vi.fn(() => false),   // Y3 T7 ⑦：handleEditCancel 退出路径可读（默认无拖拽）
       triggerCancelEdit: vi.fn(),
       saveHandlers: {} as Record<string, () => Promise<void>>,
       registerSaveHandler,
@@ -266,21 +267,6 @@ vi.mock('axios', () => ({
   },
 }));
 
-const { subscribeNodeEditResultMock, subscribeNodeStatusMock } = vi.hoisted(() => ({
-  subscribeNodeEditResultMock: vi.fn((_h: (p: any) => void) => () => {}),
-  subscribeNodeStatusMock: vi.fn((_h: (d: any) => void) => () => {}),   // F2 P2-1：node:status handler 捕获
-}));
-
-vi.mock('@/services/executionSocket', async (importOriginal) => {
-  const actual = await importOriginal<any>();
-  return {
-    ...actual,
-    // 组件挂订阅的两个入口 mock 掉（handler 由测试捕获注入）；ensure/teardown 走真实导出（本测试图内无人调用）
-    subscribeNodeStatus: subscribeNodeStatusMock,
-    subscribeNodeEditResult: subscribeNodeEditResultMock,
-  };
-});
-
 // Mock ImageThumbnailBar to avoid dnd-kit dependency in tests
 vi.mock('./prompt-input/ImageThumbnailBar', () => ({
   ImageThumbnailBar: () => null,
@@ -296,6 +282,11 @@ vi.mock('@/stores/mediaFactsRuntime', async (importOriginal) => {
 const { mockDownloadMediaFile } = vi.hoisted(() => ({ mockDownloadMediaFile: vi.fn() }));
 vi.mock('@/utils/mediaDownload', () => ({ downloadMediaFile: mockDownloadMediaFile }));
 
+// Y3 T7：投影收场测试面——真实 useRuntimeFeedStore（组件订阅 selector/响应后立刻读共用该 store 实例）；
+// regen-token 真模块（restoreRotatedToken 接线断言经 sessionStorage 终态面）。
+import { useRuntimeFeedStore, resetRuntimeFeed } from '@/stores/runtimeStore';
+import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
+
 describe('ImageGenNode', () => {
   beforeEach(() => {
     const el = document.createElement('div');
@@ -307,6 +298,7 @@ describe('ImageGenNode', () => {
     document.querySelectorAll('#node-toolbar-portal').forEach((el) => el.remove());
     sessionStorage.clear();
     vi.clearAllMocks();
+    resetRuntimeFeed();   // Y3 T7：投影收场测试面跨用例清零（cursor/projection 归 null）
     mockNodeData = { status: 'idle', fileId: undefined, style: '写实', model: 'SD XL', quality: 'standard', ratio: '1:1', prompt: { text: '', html: '', referencedImageIds: [] } };
     mockExecStatus = new Map();
     mockActiveNodeId = null;
@@ -993,57 +985,326 @@ describe('ImageGenNode', () => {
     expect(document.querySelector('#node-toolbar-portal [role="toolbar"]')).not.toBeNull();
   });
 
-  // ── edit-result 回填订阅（组件级钉子：editMode 真值才挂订阅，handler 按 nodeId 过滤后分流）──
-  // 夹具取最小路径：直接给 nodeData 配 editMode: 'crop'（既有 crop 测试同款），组件挂载即触发订阅
+  // ── Y3 T7：受理显式结局+投影收场（G2/G3 族随批翻新——node:status/edit-result 双 socket 通道退役， ──
+  // 订阅与响应后立刻读共用收场函数：v3.1 三闸三分支命中即返回）。夹具=editMode 'outpaint'（EditToolbar
+  // 生成按钮 data-testid="outpaint-generate"——与恒手势族同款）；投影槽经真实 useRuntimeFeedStore 注入。
 
-  describe('edit-result 回填订阅', () => {
+  describe('Y3 T7 受理结局+投影收场', () => {
+    const portal = () => document.getElementById('node-toolbar-portal')!;
+    const genBtn = () => portal().querySelector('[data-testid="outpaint-generate"]') as HTMLButtonElement | null;
     const renderInEditMode = () => {
-      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'cat-file-id', editMode: 'crop' };
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', editMode: 'outpaint' };
       renderNode();
     };
-
-    const fireEditResult = (payload: any) => {
-      expect(subscribeNodeEditResultMock).toHaveBeenCalled();
-      const calls = subscribeNodeEditResultMock.mock.calls;
-      act(() => calls[calls.length - 1][0](payload));
+    const clickGenerate = () => {
+      const btn = genBtn();
+      expect(btn).toBeTruthy();
+      fireEvent.click(btn!);
+    };
+    // 投影槽注入（真 store——订阅 selector/响应后立刻读直读该面；cursorSeq 兼作基线 nodeVersion 回落档）
+    const setSlot = (entry: Record<string, unknown> | null, cursorSeq = '1') => {
+      act(() => {
+        useRuntimeFeedStore.setState({
+          projectId: 'p1',
+          cursor: { historyId: 'h', generation: 0, feedSeq: cursorSeq },
+          projection: entry === null ? null : {
+            projectId: 'p1', generation: 0, feedSeq: cursorSeq, pgSeq: '0',
+            nodes: { img1: entry as any },
+          },
+          fetchedAtMs: Date.now(),
+        });
+      });
+    };
+    const admitEnvelope = (intentId: string, execSeq: string) => new Response(
+      JSON.stringify({ code: 0, data: { jobId: 'job-1', replayed: false, intentId, execSeq }, message: 'ok' }), { status: 200 });
+    const deliveredEnvelope = () => new Response(
+      JSON.stringify({ code: 0, data: { replayed: true, outcome: 'delivered', resultRef: 'ref-1' } }), { status: 200 });
+    const voidedEnvelope = () => new Response(
+      JSON.stringify({ code: 0, data: { replayed: true, outcome: 'voided' } }), { status: 200 });
+    const deferredResponse = () => {
+      let resolve!: (v: Response) => void;
+      const promise = new Promise<Response>((res) => { resolve = res; });
+      return { promise, resolve };
     };
 
-    it('failed payload：editError 置位（文案上屏）且 processing 复位', () => {
+    it('无 socket 订阅锚：node:status/edit-result 双通道均不挂（投影订阅+响应后立刻读单通道——T8 随 executionSocket 模块删除，「零订阅」由「无 import」结构性承担）', () => {
       renderInEditMode();
-      expect(subscribeNodeEditResultMock).toHaveBeenCalledTimes(1);
-      fireEditResult({ nodeId: 'img1', failed: true, error: 'boom' });
-      const portalRoot = document.getElementById('node-toolbar-portal')!;
-      expect(portalRoot.textContent).toContain('boom');
-      // processing false 的可观测代理：crop 保存按钮未进入「保存中...」禁用态
-      const saveBtn = Array.from(portalRoot.querySelectorAll('button')).find(
-        (b) => b.textContent?.includes('保存')
-      ) as HTMLButtonElement;
-      expect(saveBtn).toBeTruthy();
-      expect(saveBtn.textContent).not.toContain('保存中');
-      expect(saveBtn.disabled).toBe(false);
     });
 
-    it('成功 payload（Y2 B3 裁决 9：AI 生成物=服务端交付——客户端 fileId 固化写退役）：仅 editMode 退出+activeEditNodeId 清空，applyDataPatchToStores 零调', () => {
+    it('① delivered → 直接退出编辑+processing false（产物点击前已在槽上——不走「变了才退出」）', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => deliveredEnvelope());
       renderInEditMode();
+      // 槽上已是别的 intentId 的 done 且 mediaId 未变——delivered 仍直接退出（不走收场函数比较）
+      setSlot({ execStatus: { status: 'done', nodeVersion: '50', intentId: 'i1', execSeq: '6' } });
       mockUpdateConfig.mockClear();
       mockSetActiveEditNodeId.mockClear();
-      mockApplyDataPatchToStores.mockClear();
-      fireEditResult({ nodeId: 'img1', failed: false, fileId: 'f1' });
-      // fileId 回填退役——doc 收敛归服务端投影经 Yjs 回流（禁 replaceMedia 双写同维持）
-      expect(mockApplyDataPatchToStores).not.toHaveBeenCalled();
-      expect(mockReplaceNodeMedia).not.toHaveBeenCalled();
-      // editMode 退出（ephemeral——doc 面本就禁入）
-      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { editMode: null });
+      clickGenerate();
+      await waitFor(() => expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { editMode: null }));
       expect(mockSetActiveEditNodeId).toHaveBeenCalledWith(null);
+      expect((genBtn() as HTMLButtonElement).disabled).toBe(false);   // processing false
+      fetchSpy.mockRestore();
     });
 
-    it('其它 nodeId：无任何状态变化（nodeId 过滤）', () => {
+    it('② voided → processing false+保持编辑态不弹错（重放不写新事件——不能拿版本大于基线等已存在的 done）', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => voidedEnvelope());
       renderInEditMode();
       mockUpdateConfig.mockClear();
       mockSetActiveEditNodeId.mockClear();
-      fireEditResult({ nodeId: 'other', failed: false, fileId: 'f9' });
-      expect(mockUpdateConfig).not.toHaveBeenCalled();
-      expect(mockSetActiveEditNodeId).not.toHaveBeenCalled();
+      clickGenerate();
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      await act(async () => {});   // 响应分支 flush
+      expect((genBtn() as HTMLButtonElement).disabled).toBe(false);
+      expect(mockUpdateConfig).not.toHaveBeenCalledWith('img1', { editMode: null });
+      expect(portal().textContent).not.toContain('AI 处理失败');
+      fetchSpy.mockRestore();
+    });
+
+    it('③ 新建成功（replayed:false）→ intentId/execSeq 入 ref+立刻调收场函数（Feed 先到——响应前投影已含该 intentId 的 error 也要弹）', async () => {
+      const d = deferredResponse();
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => d.promise);
+      renderInEditMode();
+      clickGenerate();
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      // Feed 先到（响应未回——ref.intentId 尚 null）：订阅收场闸ⓐ 拦下不弹
+      setSlot({ execStatus: { status: 'error', nodeVersion: '50', intentId: 'i2', execSeq: '7', error: '积分不足' } });
+      expect(portal().textContent).not.toContain('积分不足');
+      // 响应到达：intentId+execSeq 入 ref+立刻读投影——同一条 error 收场弹句
+      await act(async () => { d.resolve(admitEnvelope('i2', '7')); });
+      expect(portal().textContent).toContain('积分不足');
+      expect((genBtn() as HTMLButtonElement).disabled).toBe(false);
+      fetchSpy.mockRestore();
+    });
+
+    it('④-1 闸ⓐ：ref 空或 intentId null → 不动（未点击时投影 error 不弹；点击后响应未回也拦）', async () => {
+      renderInEditMode();
+      // 未点击（ref 空）
+      setSlot({ execStatus: { status: 'error', nodeVersion: '50', intentId: 'i9', execSeq: '9', error: '积分不足' } });
+      expect(portal().textContent).not.toContain('积分不足');
+      // 点击但响应未回（ref.intentId 仍 null——闸ⓐ 拦下订阅收场）
+      const d = deferredResponse();
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => d.promise);
+      clickGenerate();
+      setSlot({ execStatus: { status: 'error', nodeVersion: '51', intentId: 'i2', execSeq: '7', error: '本月额度已用尽' } });
+      expect(portal().textContent).not.toContain('本月额度已用尽');
+      fetchSpy.mockRestore();
+    });
+
+    it('④-2 闸ⓓ：error∧intentId 同∧execSeq 同∧nodeVersion 严格大于基线 → 投影句+processing false（空缺句→「AI 处理失败」）', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => admitEnvelope('i2', '7'));
+      renderInEditMode();
+      // 点击时投影已含本节点旧状态——基线 nodeVersion='40'（槽上合法十进制优先）
+      setSlot({ execStatus: { status: 'loading', nodeVersion: '40', intentId: 'old', execSeq: '1' } });
+      clickGenerate();
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      await act(async () => {});   // replayed:false——ref 落键+立刻读（槽 loading 非终态——不动）
+      setSlot({ execStatus: { status: 'error', nodeVersion: '50', intentId: 'i2', execSeq: '7', error: '积分不足' } });
+      await act(async () => {});
+      expect(portal().textContent).toContain('积分不足');
+      expect((genBtn() as HTMLButtonElement).disabled).toBe(false);
+      // 空缺句 → 「AI 处理失败」（缺键与空串同档）
+      setSlot({ execStatus: { status: 'error', nodeVersion: '51', intentId: 'i2', execSeq: '7' } });
+      await act(async () => {});
+      expect(portal().textContent).toContain('AI 处理失败');
+      fetchSpy.mockRestore();
+    });
+
+    it('④-3 闸ⓑ：entry.intentId≠ref.intentId → 不动（error 档——别的 intentId 的 error 不收场；done 档见⑧）', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => admitEnvelope('i2', '7'));
+      renderInEditMode();
+      clickGenerate();
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      await act(async () => {});
+      setSlot({ execStatus: { status: 'error', nodeVersion: '55', intentId: 'other', execSeq: '7', error: '积分不足' } });
+      await act(async () => {});
+      expect(portal().textContent).not.toContain('积分不足');
+      expect((genBtn() as HTMLButtonElement).disabled).toBe(true);   // processing 保持（等这一次）
+      fetchSpy.mockRestore();
+    });
+
+    it('④-4 版本闸：nodeVersion≤基线/非十进制 → 不动（槽上合法十进制基线优先于 cursor 回落）', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => admitEnvelope('i2', '7'));
+      renderInEditMode();
+      // 基线=槽上 '40'（优先于 cursor '1'）
+      setSlot({ execStatus: { status: 'loading', nodeVersion: '40', intentId: 'old', execSeq: '1' } });
+      clickGenerate();
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      await act(async () => {});
+      // 版本相等（≤）→ 不动
+      setSlot({ execStatus: { status: 'error', nodeVersion: '40', intentId: 'i2', execSeq: '7', error: '积分不足' } });
+      await act(async () => {});
+      expect(portal().textContent).not.toContain('积分不足');
+      // 非十进制 → 不大于 → 不动
+      setSlot({ execStatus: { status: 'error', nodeVersion: 'x51', intentId: 'i2', execSeq: '7', error: '积分不足' } });
+      await act(async () => {});
+      expect(portal().textContent).not.toContain('积分不足');
+      expect((genBtn() as HTMLButtonElement).disabled).toBe(true);
+      fetchSpy.mockRestore();
+    });
+
+    it('④-4b 基线 null（无槽无 cursor）→ 合法十进制视为大于；cursor=\'0\' 禁采 → 基线仍 null（槽版本 \'0\' 可弹=判别基线非 \'0\'）', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => admitEnvelope('i2', '7'));
+      renderInEditMode();
+      // 投影空+cursor '0'（禁采档）——基线 nodeVersion 须为 null 而非 '0'（历史 error 严格大于 '0' 会把上一次失败当这一次弹）
+      setSlot(null, '0');
+      clickGenerate();
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      await act(async () => {});
+      setSlot({ execStatus: { status: 'error', nodeVersion: '0', intentId: 'i2', execSeq: '7', error: '积分不足' } }, '0');
+      await act(async () => {});
+      // 槽版本 '0' 合法十进制——基线 null ⇒ 弹；若基线误采 '0' 则 0≤0 不弹（判别基线非 '0'）
+      expect(portal().textContent).toContain('积分不足');
+      fetchSpy.mockRestore();
+    });
+
+    it('⑤ done∧mediaId 相对基线变且非空 → 退出编辑+清基线（读源=投影 artifact 槽非 Yjs 节点 mediaId）', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => admitEnvelope('i2', '7'));
+      renderInEditMode();
+      mockUpdateConfig.mockClear();
+      mockSetActiveEditNodeId.mockClear();
+      clickGenerate();
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      setSlot({
+        execStatus: { status: 'done', nodeVersion: '50', intentId: 'i2', execSeq: '7' },
+        artifact: { mediaId: 'new-file-id', artifactRev: 1, nodeVersion: '51' },
+      });
+      await waitFor(() => expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { editMode: null }));
+      expect(mockSetActiveEditNodeId).toHaveBeenCalledWith(null);
+      expect((genBtn() as HTMLButtonElement).disabled).toBe(false);
+      // 清基线：随后同 intentId 的 error 落槽不弹错（闸ⓐ ref null——不清则三闸全过会弹）
+      setSlot({ execStatus: { status: 'error', nodeVersion: '52', intentId: 'i2', execSeq: '7', error: '积分不足' } });
+      expect(portal().textContent).not.toContain('积分不足');
+      fetchSpy.mockRestore();
+    });
+
+    it('⑥ done∧mediaId 未变/空 → processing false+留编辑态不弹错（作废终态=poller 单写那条 done 的收场）', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => admitEnvelope('i2', '7'));
+      renderInEditMode();
+      mockUpdateConfig.mockClear();
+      mockSetActiveEditNodeId.mockClear();
+      clickGenerate();
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      // mediaId 未变（=基线 orig-file-id）→ ⓕ 不退出；空档（artifact 槽无）同判
+      setSlot({
+        execStatus: { status: 'done', nodeVersion: '50', intentId: 'i2', execSeq: '7' },
+        artifact: { mediaId: 'orig-file-id', artifactRev: 1, nodeVersion: '51' },
+      });
+      await act(async () => {});
+      expect((genBtn() as HTMLButtonElement).disabled).toBe(false);
+      expect(mockUpdateConfig).not.toHaveBeenCalledWith('img1', { editMode: null });
+      expect(portal().textContent).not.toContain('AI 处理失败');
+      // artifact 槽空档同判（作废 done 零 exec.artifact）
+      setSlot({ execStatus: { status: 'done', nodeVersion: '53', intentId: 'i2', execSeq: '7' } });
+      await act(async () => {});
+      expect((genBtn() as HTMLButtonElement).disabled).toBe(false);
+      expect(mockUpdateConfig).not.toHaveBeenCalledWith('img1', { editMode: null });
+      fetchSpy.mockRestore();
+    });
+
+    it('⑦ 退出编辑 → ref 清（ⓕ 终态后退出——随后同 intentId 同代 error 不再收场）', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => admitEnvelope('i2', '7'));
+      renderInEditMode();
+      // 基线=槽上 '40'
+      setSlot({ execStatus: { status: 'loading', nodeVersion: '40', intentId: 'old', execSeq: '1' } });
+      clickGenerate();
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      await act(async () => {});
+      // ⓕ 作废终态：processing false 留编辑态（ref.intentId='i2' 在案）
+      setSlot({ execStatus: { status: 'done', nodeVersion: '50', intentId: 'i2', execSeq: '7' } });
+      await act(async () => {});
+      expect((genBtn() as HTMLButtonElement).disabled).toBe(false);
+      // 退出编辑（处理已清——退出按钮可达）
+      const exitBtn = Array.from(portal().querySelectorAll('button')).find(
+        (b) => b.textContent?.includes('退出'),
+      ) as HTMLButtonElement;
+      expect(exitBtn).toBeTruthy();
+      fireEvent.click(exitBtn);
+      expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { editMode: null });
+      // 退出清基线：同 intentId 同代 error 落槽 → 闸ⓐ 拦下不弹（不清则 ⓓ 版本 51>40 会弹——判别）
+      setSlot({ execStatus: { status: 'error', nodeVersion: '51', intentId: 'i2', execSeq: '7', error: '积分不足' } });
+      await act(async () => {});
+      expect(portal().textContent).not.toContain('积分不足');
+      fetchSpy.mockRestore();
+    });
+
+    it('⑧ 槽上已是别的 intentId 的 done：响应 replayed:false 后立刻读投影——编辑态与 processing 都不变（闸ⓑ）', async () => {
+      const d = deferredResponse();
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => d.promise);
+      renderInEditMode();
+      clickGenerate();
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      // Feed 先到：上一代 done+产物换新图（nodeVersion 大于基线）——闸ⓑ（intentId≠ref）拦下
+      setSlot({
+        execStatus: { status: 'done', nodeVersion: '50', intentId: 'i1', execSeq: '6' },
+        artifact: { mediaId: 'prev-gen-file', artifactRev: 1, nodeVersion: '51' },
+      });
+      // 响应回来：ref=i2——立刻读投影：i1≠i2 闸ⓑ → 不动
+      await act(async () => { d.resolve(admitEnvelope('i2', '7')); });
+      expect(mockUpdateConfig).not.toHaveBeenCalledWith('img1', { editMode: null });
+      expect((genBtn() as HTMLButtonElement).disabled).toBe(true);   // processing 不清（继续等这一次）
+      fetchSpy.mockRestore();
+    });
+
+    it('⑨ 上一代 artifact 使 mediaId 相对基线变化、但当前 execStatus.intentId 不是这一次 → 不退出编辑（上一代的图照常换上、工具条继续等这一次）', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => admitEnvelope('i2', '7'));
+      renderInEditMode();
+      clickGenerate();
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      await act(async () => {});   // ref：intentId='i2'/execSeq='7' 在案
+      // Feed 到达（订阅路径）：上一代 artifact 事件换上新图，execStatus 槽仍持别的 intentId 的 done
+      setSlot({
+        execStatus: { status: 'done', nodeVersion: '50', intentId: 'i1', execSeq: '6' },
+        artifact: { mediaId: 'prev-gen-file', artifactRev: 1, nodeVersion: '51' },
+      });
+      await act(async () => {});
+      expect(mockUpdateConfig).not.toHaveBeenCalledWith('img1', { editMode: null });
+      expect((genBtn() as HTMLButtonElement).disabled).toBe(true);   // 继续等这一次
+      fetchSpy.mockRestore();
+    });
+
+    it('⑩ 同 intentId 换代档：execStatus.execSeq≠ref.execSeq → processing 不清、编辑态不动（ⓒ闸在 ⓔⓕ 分支前命中即返回——缺 execSeq 也算对不上）', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => admitEnvelope('i2', '7'));
+      renderInEditMode();
+      clickGenerate();
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      await act(async () => {});   // ref：intentId='i2'/execSeq='7'
+      // 旧代 done 先落槽：同 intentId、execSeq=5（≠7）+ mediaId 变非空——顺序断言：done∧mediaId 变∧execSeq 不匹配也不退出
+      setSlot({
+        execStatus: { status: 'done', nodeVersion: '50', intentId: 'i2', execSeq: '5' },
+        artifact: { mediaId: 'gen-5-file', artifactRev: 1, nodeVersion: '51' },
+      });
+      await act(async () => {});
+      expect(mockUpdateConfig).not.toHaveBeenCalledWith('img1', { editMode: null });
+      expect((genBtn() as HTMLButtonElement).disabled).toBe(true);   // processing 不被旧代 done 清掉
+      // 槽缺 execSeq 也算对不上（同 intentId 无代际键——无行终态不冒充本次代）
+      setSlot({
+        execStatus: { status: 'done', nodeVersion: '52', intentId: 'i2' },
+        artifact: { mediaId: 'gen-5-file', artifactRev: 1, nodeVersion: '53' },
+      });
+      await act(async () => {});
+      expect((genBtn() as HTMLButtonElement).disabled).toBe(true);
+      fetchSpy.mockRestore();
+    });
+
+    it('restoreRotatedToken 生产接线：终态分支携槽上 {status,rearmable,execSeq}+消费标记读取（回滚三条件按 API 原样）', async () => {
+      // 轮换窗口预置（面板效应形态——M4 legacy 窗口残留同判）：持有 T1 轮换丢弃（prev 快照=T1、seq='3'）
+      gestureToken('p1', 'img1');
+      const prevToken = storedToken('p1', 'img1');
+      expect(prevToken).toBeTruthy();
+      rotateToken('p1', 'img1', '3');
+      expect(storedToken('p1', 'img1')).toBeNull();
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => admitEnvelope('i2', '7'));
+      renderInEditMode();
+      clickGenerate();
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      // 点击侧 markGestureConsumed 在案（消费标记读取面）；测试构造资格成立档：清标记模拟「本轮换出 token 未消费」
+      expect(sessionStorage.getItem('flowweb:regen-consumed:p1:img1')).toBe('1');
+      sessionStorage.removeItem('flowweb:regen-consumed:p1:img1');
+      // ⓓ 可 rearm error（非终态）+槽 execSeq 7>已轮换 3+未消费 → 恢复轮换前值（旧 token 回持）
+      setSlot({ execStatus: { status: 'error', rearmable: true, nodeVersion: '50', intentId: 'i2', execSeq: '7', error: '积分不足' } });
+      await act(async () => {});
+      expect(portal().textContent).toContain('积分不足');
+      expect(storedToken('p1', 'img1')).toBe(prevToken);   // settle 终态分支的生产调用点生效
+      fetchSpy.mockRestore();
     });
   });
 
@@ -1258,27 +1519,36 @@ describe('ImageGenNode', () => {
       expect(mockApplyDataPatchToStores).not.toHaveBeenCalled();
     });
 
-    // —— 裁定③：edit-result 门——socket done 无版本直写不覆盖 pending 期间产物 ——
+    // —— 裁定③（Y3 T7 随批翻新）：edit-result socket 通道退役——投影更新到达不写共享产物面 ——
 
-    it('edit-result 在 pending 操作期间到达 → 零写不变量维持；pending 清后到达 → 仅 editMode 退出（fileId 固化写退役）', async () => {
+    it('投影更新在 pending 媒体操作期间到达 → 零共享写不变量维持；pending 清后到达 → 编辑收场同样零固化写', async () => {
       mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', editMode: 'crop' };
       const cmd = deferred<{ action: 'clear'; rev: number; mediaId: null }>();
       mockClearNodeMedia.mockReturnValueOnce(cmd.promise as any);
       renderNode(true);
-      const fireEditResult = (payload: any) => {
-        const calls = subscribeNodeEditResultMock.mock.calls;
-        act(() => calls[calls.length - 1][0](payload));
-      };
+      const bumpSlot = (mediaId?: string) => act(() => {
+        useRuntimeFeedStore.setState({
+          projectId: 'p1',
+          cursor: { historyId: 'h', generation: 0, feedSeq: '1' },
+          projection: {
+            projectId: 'p1', generation: 0, feedSeq: '1', pgSeq: '0',
+            nodes: { img1: { ...(mediaId ? { artifact: { mediaId, artifactRev: 1, nodeVersion: '2' } } : {}), execStatus: { status: 'done', nodeVersion: '2' } } as any },
+          },
+          fetchedAtMs: Date.now(),
+        });
+      });
       await act(async () => { getClearCallback().onReplaceCurrentNode('http://result.url'); });   // clear 挂起=pending 期间
-      fireEditResult({ nodeId: 'img1', failed: false, fileId: 'f-edit' });
+      bumpSlot('f-edit');   // 投影终态到达（pending 期间）——共享产物面零写
       expect(mockApplyDataPatchToStores).not.toHaveBeenCalledWith('img1', { fileId: 'f-edit' });
+      expect(mockSetFileResult).not.toHaveBeenCalled();
       // 裁定④：清空延后——命令 resolve 前 referenceImage/fileId 不动
       expect(configCallsWith('referenceImage')).toHaveLength(0);
 
       await act(async () => { cmd.resolve({ action: 'clear', rev: 4, mediaId: null }); });
       expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { referenceImage: undefined, fileId: undefined });
-      fireEditResult({ nodeId: 'img1', failed: false, fileId: 'f-edit2' });
-      expect(mockApplyDataPatchToStores).not.toHaveBeenCalledWith('img1', { fileId: 'f-edit2' });   // Y2 B3：客户端 fileId 回填退役（服务端交付+Yjs 回流）
+      bumpSlot('f-edit2');   // pending 清后投影再到达——fileId 固化写仍全链退役
+      expect(mockApplyDataPatchToStores).not.toHaveBeenCalled();
+      expect(mockSetFileResult).not.toHaveBeenCalled();
     });
 
     // —— 裁定④：清空失败——referenceImage 清理延后到命令成功，失败保留原参考图 ——
@@ -1369,26 +1639,37 @@ describe('ImageGenNode', () => {
       expect(vi.mocked(reportNodeSize)).toHaveBeenCalledWith('img1', 274, 548);
     });
 
-    // —— 评审 P2-1：node:status done 主通道同门 ——
+    // —— 评审 P2-1（Y3 T7 随批翻新）：node:status socket 通道退役——投影收场零共享产物写 ——
 
-    it('P2-1 node:status done 在 pending 操作期间不写 fileId（socket 交付禁键同门）；socket 状态提示面零 store 写（B3 回填退役）', async () => {
-      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', editMode: 'crop' };
-      const cmd = deferred<{ action: 'clear'; rev: number; mediaId: null }>();
-      mockClearNodeMedia.mockReturnValueOnce(cmd.promise as any);
-      renderNode(true);
-      const fireStatus = (payload: any) => {
-        const calls = subscribeNodeStatusMock.mock.calls;
-        act(() => calls[calls.length - 1][0](payload));
-      };
-      await act(async () => { getClearCallback().onReplaceCurrentNode('http://result.url'); });   // pending 期间
-      fireStatus({ nodeId: 'img1', status: 'done', fileId: 'f-status' });
-      expect(mockSetFileResult).not.toHaveBeenCalledWith('img1', 'f-status');
-      fireStatus({ nodeId: 'img1', status: 'loading' });
-      // Y2 B3：socket 状态回填退役——loading 只承担执行提示（execStatus 投影面），零 store 写
-      expect(mockSetStatus).not.toHaveBeenCalledWith('img1', 'loading');
-      await act(async () => { cmd.resolve({ action: 'clear', rev: 4, mediaId: null }); });
-      fireStatus({ nodeId: 'img1', status: 'done', fileId: 'f-status2' });
-      expect(mockSetFileResult).not.toHaveBeenCalledWith('img1', 'f-status2');   // 固化写全程退役
+    it('P2-1 投影收场（done∧mediaId 变）零共享产物写——setFileResult/setStatus/applyDataPatchToStores 全零调（收场仅编辑态面）', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(
+        JSON.stringify({ code: 0, data: { jobId: 'job-1', replayed: false, intentId: 'i2', execSeq: '7' } }), { status: 200 }));
+      mockNodeData = { ...mockNodeData, status: 'done', fileId: 'orig-file-id', editMode: 'outpaint' };
+      renderNode();
+      const portalRoot = document.getElementById('node-toolbar-portal')!;
+      const btn = portalRoot.querySelector('[data-testid="outpaint-generate"]') as HTMLElement;
+      fireEvent.click(btn);
+      await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      act(() => {
+        useRuntimeFeedStore.setState({
+          projectId: 'p1',
+          cursor: { historyId: 'h', generation: 0, feedSeq: '1' },
+          projection: {
+            projectId: 'p1', generation: 0, feedSeq: '1', pgSeq: '0',
+            nodes: { img1: {
+              execStatus: { status: 'done', nodeVersion: '50', intentId: 'i2', execSeq: '7' },
+              artifact: { mediaId: 'new-file-id', artifactRev: 1, nodeVersion: '51' },
+            } as any },
+          },
+          fetchedAtMs: Date.now(),
+        });
+      });
+      await waitFor(() => expect(mockUpdateConfig).toHaveBeenCalledWith('img1', { editMode: null }));   // ⓔ 编辑态收场
+      expect(mockSetFileResult).not.toHaveBeenCalled();
+      expect(mockSetStatus).not.toHaveBeenCalledWith('img1', 'done');
+      expect(mockApplyDataPatchToStores).not.toHaveBeenCalled();
+      expect(mockReplaceNodeMedia).not.toHaveBeenCalled();   // 交付唯一 owner=服务端投影（Y2 B3 维持）
+      fetchSpy.mockRestore();
     });
 
     // —— 评审 P2-4：入口取消清残留 pending（死操作产物不滞留预览层）——

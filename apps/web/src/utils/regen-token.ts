@@ -57,6 +57,11 @@ export function markGestureConsumed(projectId: string, nodeId: string): void {
   sessionStorage.setItem(consumedKeyOf(projectId, nodeId), '1');
 }
 
+/** 消费标记读取（restoreRotatedToken 调用面的 tokenConsumed 判据单源——Y3 T7 收场函数接线）：
+ *  在案=本轮持有 token 真发过受理请求（markGestureConsumed 所写；gestureToken 再铸清零=新生命周期）。 */
+export const isGestureConsumed = (projectId: string, nodeId: string): boolean =>
+  sessionStorage.getItem(consumedKeyOf(projectId, nodeId)) === '1';
+
 /** 回滚三条件读面（restoreRotatedToken 入参——当前投影槽）。 */
 export interface RotationRollbackSlot {
   /** 槽状态（非终态判据：非 done 且非 error∧rearmable===false——可 rearm error=可重试非终态） */

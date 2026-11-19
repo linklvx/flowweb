@@ -96,8 +96,7 @@ function makeExec(nodes: any[], collabOverrides: Record<string, unknown> = {}) {
     teamCredit,
     perm,
     collabDoc,
-    { emitNodeStatus: vi.fn() } as any,
-    intentSvc,
+    intentSvc,   // Y3 T8：emit 形参随 /execution 退役删除
     { readUpstreamMediaId: async () => null, canonicalizeMediaRef: async (v?: string) => v || undefined, resolveCallUrl: async (v?: string) => v || undefined } as any,   // Y1a T8 upstreamMedia（本夹具无上游产物/手工 URL——行为与真实服务空场景等价）
     makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T10：image/text finalize（真资金链——MinIO/fetch 注入）,
   undefined as never,   // Y1c T21：ExecutionRequestService（spec 不触达）
@@ -449,11 +448,9 @@ const rowsOf = async (nodeId: string) =>
     expect(led2.refund).toBe(0);
   });
 
-  it('T15 B-1 形态迁移：finalize 后残余段抛错（emit 注入——交付已归投影链）⇒ 行 SUCCEEDED 保持+零退款（防御观测档：投影行在案=交付有 owner）', async () => {
+  it('T15 B-1 形态迁移：finalize 后正常收敛（Y3 T8：emit 注入位随 emit 面删除——残余段仅 results 记账，无注入面）⇒ 行 SUCCEEDED 保持+零退款（防御观测档：投影行在案=交付有 owner）', async () => {
     const n = nid('b1'); const nodes = [imageNode(n)];
-    const emitThrow = vi.fn(((_p: string, payload: any) => { if (payload?.status === 'done') throw new Error('emit pipe down'); }) as any);
     const e = makeExec(nodes);
-    (e.svc as any).emitPort.emitNodeStatus = emitThrow;   // finalize 后残余段（done emit 位）抛错注入（早段 emit 不受扰）
     const r = await e.svc.execute(PID, undefined, UID, [n]);
     expect(r.success).toBe(true);   // 交付不阻塞 worker 判定（旧 NODE_DELIVERY_FAILED 面退役）
     const row = (await rowsOf(n))[0];

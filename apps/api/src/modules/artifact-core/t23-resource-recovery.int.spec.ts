@@ -352,7 +352,7 @@ const balanceFrozenOf = async () => {
     const job = new MaterializeJob(
       prisma as unknown as PrismaService, fakeMinio as any,
       { fetchBuffer: vi.fn(async () => { throw new Error('download boom'); }) } as any,
-      teamCredit, fakeQuota as any, { emitNodeStatus: vi.fn() } as any,
+      teamCredit, fakeQuota as any,   // Y3 T8：emit 形参随 /execution 退役删除（六参→五参）
     );
     const claimed1 = await job.claim();
     expect(claimed1.map((r) => r.id)).toContain(media.id);

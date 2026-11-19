@@ -1,6 +1,5 @@
-// useStitchTask.ts — Socket 优先 + 5s 轮询兜底；产物节点生成（doc 同步自动入 undo 栈）
+// useStitchTask.ts — REST 轮询单通道（先请求一次+5s 后续）；产物节点生成（doc 同步自动入 undo 栈）
 import { useCallback, useRef } from 'react';
-import { ensureExecutionSocket } from '@/services/executionSocket';
 import { createStitchTask, getStitchTask, type StitchParams } from '@/api/stitchApi';
 import { useCanvasStore } from '@/stores/canvasStore';
 
@@ -48,15 +47,15 @@ export function useStitchTask(projectId: string) {
         const { taskId } = await createStitchTask(projectId, params);
         await new Promise<void>((resolve) => {
           let done = false;
-          // 统一结算：done 保护 + 清理两个定时器 + spawn —— Socket 与轮询双完成路径
-          // 只会结算一次，产物节点不会重复生成（socket 完成后未清 timer 的双 spawn 缺陷修复）
+          // 统一结算：done 保护 + 清理两个定时器 + spawn —— 单一完成路径只结算一次
+          //（超时结算后迟到 COMPLETED 走同一把 done 锁——不得再 spawnResultNode）
           const settle = (
             r: typeof outcome,
             result?: { fileId: string; url?: string; width?: number; height?: number; failedCount?: number }
           ) => {
             if (done) return;
             done = true;
-            clearInterval(timer);
+            if (timer !== null) clearInterval(timer);
             clearTimeout(timeoutId);
             if (r === 'COMPLETED' && result) {
               failedCount = result.failedCount;
@@ -65,37 +64,43 @@ export function useStitchTask(projectId: string) {
             outcome = r;
             resolve();
           };
-          // Socket 快路径：单例 ensure 直接返回 Socket 实例；once 注册保持在 start() 内部
-          //（回调闭包 taskId/settle；消耗型 once 未触发时残留至下次命中 taskId 早退——与现状一致）
-          const socket = ensureExecutionSocket(projectId);
-          socket.once('storyboard:stitch:completed', (evt: any) => {
-            if (evt.taskId !== taskId) return;
-            if (evt.status === 'COMPLETED' && evt.fileId) {
-              settle('COMPLETED', { fileId: evt.fileId, url: evt.url, width: evt.width, height: evt.height, failedCount: evt.failedCount });
-            } else {
+          const checkStatus = (r: {
+            status: string;
+            fileId?: string;
+            url?: string;
+            width?: number;
+            height?: number;
+            failedCount?: number;
+          }) => {
+            if (done) return; // done 锁外早退：超时结算后迟到响应不再触发 settle
+            if (r.status === 'COMPLETED' && r.fileId) {
+              settle('COMPLETED', { fileId: r.fileId, url: r.url, width: r.width, height: r.height, failedCount: r.failedCount });
+            } else if (r.status === 'FAILED') {
               settle('FAILED');
             }
-          });
-          // 5s 轮询兜底（Socket 断线/事件未达）
-          const timer = setInterval(async () => {
+          };
+          const poll = async (): Promise<boolean> => {
             try {
-              const r = await getStitchTask(projectId, taskId);
-              if (r.status === 'COMPLETED' && r.fileId) {
-                settle('COMPLETED', { fileId: r.fileId, url: r.url, width: r.width, height: r.height, failedCount: r.failedCount });
-              }
-              if (r.status === 'FAILED') {
-                settle('FAILED');
-              }
+              checkStatus(await getStitchTask(projectId, taskId));
             } catch {
               /* 单次轮询失败（网络抖动）→ 等待下一轮 */
             }
-          }, 5000);
+            return !done;
+          };
+          // 先请求一次（start() 起算）；未终态再 5s interval
+          let timer: ReturnType<typeof setInterval> | null = null;
+          void poll().then((keepGoing) => {
+            if (keepGoing) {
+              timer = setInterval(() => { void poll(); }, 5000);
+            }
+          });
+          // 65s 超时仍从 start() 起算（spec 7.3——首枪已即时发出，超时线不动）
           const timeoutId = setTimeout(
             () => {
               settle('TIMEOUT');
             },
             65_000
-          ); // >60s 超时（spec 7.3）
+          );
         });
       } finally {
         running.current = false;

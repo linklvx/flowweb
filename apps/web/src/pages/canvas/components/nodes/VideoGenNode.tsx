@@ -2,7 +2,6 @@ import { memo, useEffect, useState, useRef, useCallback } from 'react';
 import { NodeResizeControl, useReactFlow, useInternalNode, type NodeProps } from '@xyflow/react';
 import { useIsSingleSelected } from '@/hooks/useIsSingleSelected';
 import { NodeHandle } from './NodeHandle';
-import { subscribeNodeStatus, ensureExecutionSocket } from '@/services/executionSocket';
 import { message } from 'antd';
 import { useNodeStore, NODE_TYPES } from '@/stores/nodeStore';
 import { selectExecStatus } from '@/stores/execStatusView';
@@ -81,20 +80,15 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
   // Audio separate state
   const [audioSeparatingType, setAudioSeparatingType] = useState<'vocal' | 'background' | 'split' | null>(null);
   const [separateTaskId, setSeparateTaskId] = useState<string | null>(null);
-  // trim/separate 任务快路径：单例 socket（useAsyncMediaTask 内部精确 on/off——不影响单例其它 handler）。
-  // 勘误：原 socketRef.current 并非恒 null（mount effect 赋值后触发任务时的 re-render 传的是真 socket，
-  // 快路径生效过）——迁移时传 null 会退化为 3s 纯轮询，此处接单例恢复原语义（socket 推送 + 10s 轮询兜底）。
-  // ensure 幂等（page.tsx 已建连，此处仅取引用）；projectId 缺失时 null 走纯轮询兜底。
-  const projectId = useCanvasStore((s) => s.projectId);
+  // Y3 T1：trim/separate 任务改 REST 轮询单通道——taskSocket/WS 引用删（签名收窄；T8 随 /execution 退役整删）
   const marqueeSelecting = useCanvasStore((s) => s.marqueeSelecting);
-  const taskSocket = projectId ? ensureExecutionSocket(projectId) : null;
-  const separateStatus = useVideoSeparateTask(separateTaskId, taskSocket, id);
+  const separateStatus = useVideoSeparateTask(separateTaskId, id);
 
   // Trim panel state
   const [trimMode, setTrimMode] = useState(false);
   const initialTrimState = useRef({ trimStart: 0, trimEnd: 0 });
   const [trimTaskId, setTrimTaskId] = useState<string | null>(null);
-  const trimStatus = useTrimTaskStatus(trimTaskId, taskSocket, id);
+  const trimStatus = useTrimTaskStatus(trimTaskId, id);
 
   // HD panel state
   const [hdPanelOpen, setHdPanelOpen] = useState(false);
@@ -360,17 +354,6 @@ function VideoGenNodeComponent({ id, selected, dragging, type }: NodeProps) {
   }, [label]);
 
   const titleText = label || 'Video';
-
-  // Real-time video generation status updates — 订阅 /execution 单例（连接/join/credits 转发归单例与 page 生命周期）
-  // Y2 B3：socket 状态回填退役——data.status/fileId 均禁键（交付唯一 owner=服务端投影 poller；
-  // 本订阅面清空=纯执行提示通道归 execStatusView 投影）。
-  useEffect(() => {
-    const off = subscribeNodeStatus((data) => {
-      if (data.nodeId !== id) return;
-      void data;
-    });
-    return off;
-  }, [id]);
 
   // Unmount cleanup for in-progress separate task
   const separateTaskIdRef = useRef(separateTaskId);

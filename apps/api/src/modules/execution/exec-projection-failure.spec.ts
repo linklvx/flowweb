@@ -36,13 +36,11 @@ describe('Y0c T0：exec 投影吞错观测（collab_exec_projection_failed_total
     expect(classifyExecProjectionFailure(Object.assign(new Error('x'), { reason: 'invalid-doc-name' }))).toBe('invalid-doc-name');   // 词表值照常直透（闭集抽验）
   });
 
-  it('execution.service onReserveFail：writeExecStatus reject 被 .catch 吞且计数+1（cause=not-serving——503 SUE），void_/emit 不受影响', async () => {
+  it('execution.service onReserveFail：writeExecStatus reject 被 .catch 吞且计数+1（cause=not-serving——503 SUE），void_ 照达（Y3 T8：emit 面已删）', async () => {
     const void_ = vi.fn().mockResolvedValue(undefined);
-    const emitNodeStatus = vi.fn();
     const svc = new ExecutionService(
       {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
       { writeExecStatus: vi.fn().mockRejectedValue(new ServiceUnavailableException('collab not serving')) } as any,   // collabDoc
-      { emitNodeStatus } as any,                                                                                      // gateway
       { void_ } as any,                                                                                               // intentService
       {} as any,                                                                                                      // upstreamMedia（Y1a T8——onReserveFail 不触）
       {} as any,                                                                                                      // T10 artifactCommit（onReserveFail 不触）,
@@ -52,7 +50,6 @@ describe('Y0c T0：exec 投影吞错观测（collab_exec_projection_failed_total
       (svc as any).onReserveFail('p1', { id: 'n1' }, { attempts: 1, intentId: 'i1' }, 'boom', 'SOME_CODE'));
     expect(d).toBe(1);
     expect(void_).toHaveBeenCalledTimes(1);
-    expect(emitNodeStatus).toHaveBeenCalledTimes(1);
   });
 
   it('execution.processor onFailed（Y0c T28/Z41 拆两半）：钩子零投影写——计数零增 ∧意图终态照达（P14 兜底不外抛）', async () => {
@@ -74,7 +71,7 @@ describe('Y0c T0：exec 投影吞错观测（collab_exec_projection_failed_total
     const fail = vi.fn().mockResolvedValue(undefined);
     const writeExecStatus = vi.fn().mockRejectedValue(new ServiceUnavailableException('doc-vacuuming'));
     const proc = new AiImageEditProcessor(
-      {} as any, {} as any, {} as any, {} as any, {} as any,
+      {} as any, {} as any, {} as any, {} as any,
       { writeExecStatus } as any,   // collabDoc
       {} as any,                                                                                                 // lightingConsumer
       { findByActiveNode: vi.fn().mockResolvedValue({ id: 'intent-2', attempts: 0, execSeq: 1n }), fail } as any,             // intentService

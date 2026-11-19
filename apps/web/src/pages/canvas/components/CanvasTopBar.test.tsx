@@ -15,7 +15,6 @@ const { mockUseAuth, mockCreditsStore, mockCanvasState, mockTeamApi, mockGetAwar
     error: null,
     fetchBalance: vi.fn(),
     fetchTeamBalance: vi.fn(),
-    applyBalance: vi.fn(),
     isSubscriptionActive: vi.fn(() => false),
   },
   mockCanvasState: { teamId: null as string | null },
@@ -94,9 +93,9 @@ describe('CanvasTopBar', () => {
     expect(screen.getByText('登录')).toBeDefined();
   });
 
-  it('画布属非默认团队：挂载拉 /team/:id/balance（fetchTeamBalance）', async () => {
+  it('画布属非默认团队：挂载拉 /team/:id/balance（fetchTeamBalance——统一刷新函数默认档）', async () => {
     renderTopBarWith({ teamId: 't-team' });
-    await waitFor(() => expect(mockCreditsStore.fetchTeamBalance).toHaveBeenCalledWith('t-team'));
+    await waitFor(() => expect(mockCreditsStore.fetchTeamBalance).toHaveBeenCalledWith('t-team', {}));
     expect(mockCreditsStore.fetchBalance).not.toHaveBeenCalled();
   });
 
@@ -106,12 +105,36 @@ describe('CanvasTopBar', () => {
     expect(mockCreditsStore.fetchTeamBalance).not.toHaveBeenCalled();
   });
 
-  it('credits:update CustomEvent detail 为对象时 applyBalance', () => {
-    renderTopBarWith({ teamId: 't-default' });
+  it('Y3 D1：credits:update 空 detail=信号——按挂载 scope 静默重拉（非默认团队走 fetchTeamBalance(teamId)）', async () => {
+    renderTopBarWith({ teamId: 't-team' });
+    await waitFor(() => expect(mockTeamApi.getDefaultTeam).toHaveBeenCalled());
+    mockTeamApi.getDefaultTeam.mockClear();
+    mockCreditsStore.fetchTeamBalance.mockClear();
     act(() => {
-      window.dispatchEvent(new CustomEvent('credits:update', { detail: { credits: 1, subscriptionCredits: 2 } }));
+      window.dispatchEvent(new CustomEvent('credits:update'));
     });
-    expect(mockCreditsStore.applyBalance).toHaveBeenCalledWith({ credits: 1, subscriptionCredits: 2 });
+    // 空 detail 收号：fetchTeamBalance(teamId, { silent: true })——不再请求默认团队、不走 applyBalance
+    await waitFor(() => expect(mockCreditsStore.fetchTeamBalance).toHaveBeenCalledWith('t-team', { silent: true }));
+    expect(mockTeamApi.getDefaultTeam).not.toHaveBeenCalled();   // 比较结果 ref 化——终态事件不再每次请求
+    expect(mockCreditsStore.fetchBalance).not.toHaveBeenCalled();
+  });
+
+  it('Y3 D1：空 detail 信号——个人/默认团队档走 fetchBalance({ silent: true })', async () => {
+    renderTopBarWith({ teamId: 't-default' });
+    await waitFor(() => expect(mockCreditsStore.fetchBalance).toHaveBeenCalled());
+    mockTeamApi.getDefaultTeam.mockClear();
+    mockCreditsStore.fetchBalance.mockClear();
+    act(() => {
+      window.dispatchEvent(new CustomEvent('credits:update'));
+    });
+    await waitFor(() => expect(mockCreditsStore.fetchBalance).toHaveBeenCalledWith({ silent: true }));
+    expect(mockTeamApi.getDefaultTeam).not.toHaveBeenCalled();
+    expect(mockCreditsStore.fetchTeamBalance).not.toHaveBeenCalled();
+  });
+
+  it('Y3 D1：挂载与非默认团队首次判定——默认团队请求仍发生一次（ref 化后终态才免请求）', async () => {
+    renderTopBarWith({ teamId: 't-team' });
+    await waitFor(() => expect(mockTeamApi.getDefaultTeam).toHaveBeenCalledTimes(1));   // 挂载时恰一次
   });
 
   it('R33：在线成员列表排除本机（getRemoteStates——现状 getStates 全量自计入必红）；T7：色=注入字段 s.user.color', () => {

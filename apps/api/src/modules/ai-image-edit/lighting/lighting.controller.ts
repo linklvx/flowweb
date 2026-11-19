@@ -14,7 +14,6 @@ import { WorkerPresenceService } from '../../worker-presence/worker-presence.ser
 import type { AdmissionOutcome } from '@flowweb/shared';   // Y3 Task3：受理显式结局（四档——T7 客户端 handleGenerate 只认 outcome）
 import { QUEUE_NAMES } from '../../../config/queue.constants';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { EmitPort } from '../../gateway/emit.port';
 import { AuthorSlotService } from '../../collab/author-slot.service';
 import { authorVoidProjectionKey } from '../../artifact-core/artifact-commit.service';
 import type { ExecutionTicket } from '../../execution/execution.types';
@@ -30,9 +29,8 @@ export class LightingController {
     // Y0c T29-II（Z148②）：付费队列 enqueue fail-closed 门（当前单进程拓扑下 registered 恒≥1、
     // 门不可实际触发——T30 补 processor 注册门后自动生效，见 worker-presence.service.ts 裁决①注释）
     @Inject(WorkerPresenceService) private readonly presence: WorkerPresenceService,
-    // Y2 B2d：受理回放两档依赖（!created → 作废键等值查+补释放+emit——B2c execution 回放臂同构）
+    // Y2 B2d：受理回放两档依赖（!created → 作废键等值查+补释放——B2c execution 回放臂同构）
     @Inject(PrismaService) private readonly prisma: PrismaService,
-    @Inject(EmitPort) private readonly emitPort: EmitPort,
     @Inject(AuthorSlotService) private readonly authorSlot: AuthorSlotService,
   ) {}
 
@@ -78,19 +76,18 @@ export class LightingController {
     });
     if (!created) {
       // SUCCEEDED 幂等重放——零 enqueue 零扣费。Y2 B2d（v2.10 回放臂两档）：先查同代作废键——
-      // 命中=该代交付已作废 ⇒ emit done 不带 fileId+零释放；未命中=正常成功交付 ⇒ 带 fileId
-      // +releaseAuthorSlot 幂等补释放（提交后崩溃窗=release 补上）。
-      // Y3 Task3：受理显式结局——delivered/voided 两档（shared AdmissionOutcome 形状）。
+      // 命中=该代交付已作废 ⇒ 零释放；未命中=正常成功交付 ⇒ releaseAuthorSlot 幂等补释放
+      // （提交后崩溃窗=release 补上）。
+      // Y3 Task3：受理显式结局——delivered/voided 两档（shared AdmissionOutcome 形状）。Y3 T8：
+      // emit 面删除（回放 UX 归客户端受理响应+投影 poller）。
       const voidKey = authorVoidProjectionKey(intent.id, intent.execSeq);
       const voidRow: unknown = await this.prisma.artifactProjection
         .findUnique({ where: { artifactId_artifactRev: { artifactId: voidKey, artifactRev: 0 } } })
         .catch(() => null);   // 查询失败=胜臂回放形态（作废键无行同判——fail-open 对齐 idempotentOutcome 先例）
       if (voidRow) {
-        this.emitPort.emitNodeStatus(body.projectId, { nodeId: body.nodeId, status: 'done' });
         return { replayed: true, outcome: 'voided' };
       }
       await this.authorSlot.releaseAuthorSlot(body.projectId, intent.id);
-      this.emitPort.emitNodeStatus(body.projectId, { nodeId: body.nodeId, status: 'done', fileId: intent.resultRef ?? undefined });
       return { replayed: true, outcome: 'delivered', resultRef: intent.resultRef };
     }
     // Y1c T23 收口 I-1(spec)：M-5 补接线——claim 后 NodeExecution 观测写（统一锚

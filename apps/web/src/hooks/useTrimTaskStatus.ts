@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { useAsyncMediaTask } from './useAsyncMediaTask';
 import { videoTrimApi } from '@/services/video-trim.api';
 
@@ -12,14 +11,12 @@ interface TrimStatusResult {
 
 export function useTrimTaskStatus(
   taskId: string | null,
-  socket: any,
-  nodeId?: string,
+  nodeId: string,
 ): TrimStatusResult {
+  // Y3 T1：签名收窄（socket 参数删——REST 轮询单通道）；nodeId 保留在透传面（发起者组件定位）
+  void nodeId;
   const { status, data, setError, setProcessing } = useAsyncMediaTask({
     taskId,
-    socket,
-    nodeId,
-    socketEvent: 'video-trim:status',
     pollFn: (id) => videoTrimApi.getTaskStatus(id),
   });
 

@@ -149,7 +149,6 @@ describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFa
       recordProviderTaskId: vi.fn().mockResolvedValue(undefined),   // T9 taskId 落库
       tickFence: vi.fn().mockResolvedValue(undefined),              // T9 onTick 双职+代际
     };
-    const emitPort = { emitNodeStatus: vi.fn() };   // T24 改道后消费面注入 EmitPort（锚与 emit 面正交）
     const artifactCommit = { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t10' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }), finalizeVideo: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t12' }) };   // T10/T12（本用例焦点=503 全程投影面——读槽失败早退须零触达）
     const svc = new ExecutionService(
       { generationIntent: { findUnique: vi.fn().mockResolvedValue(null) } } as any,   // prisma（B-1 分支读态——不触）
@@ -159,8 +158,7 @@ describe('Z99 第一验收锚（先红锚）：注入 503 ⇒ rollbackDeliveryFa
       teamCredit as any,                                                                                  // teamCredit
       {} as any,                                                                                          // perm
       port,                                                                                               // collabDoc=Http 形态（503 注入）
-      emitPort as any,                                                                                    // emit 端口
-      intentSvc as any,                                                                                   // intentService
+      intentSvc as any,                                                                                   // intentService（Y3 T8：emit 形参随 /execution 退役删除）
       { readUpstreamMediaId: vi.fn().mockResolvedValue(null), canonicalizeMediaRef: vi.fn().mockResolvedValue(undefined), resolveCallUrl: vi.fn().mockResolvedValue(undefined) } as any,   // upstreamMedia（Y1a T8）
       artifactCommit as any,   // T10/T12 artifactCommit（读槽失败早退零触达锚）
     undefined as never,   // Y1c T21：ExecutionRequestService（spec 不触达）

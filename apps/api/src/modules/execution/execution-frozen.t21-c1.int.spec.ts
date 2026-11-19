@@ -71,12 +71,11 @@ const fakeCollabDoc = {
     bindingStats: { written: 0, skipped: { missing: 0, 'cross-team': 0, 'soft-deleted': 0 } },
   }),
 };
-const fakeEmit = { emitNodeStatus: vi.fn() };
 const perm = new ProjectPermissionService(prisma as unknown as PrismaService);
 const upstreamMedia = new UpstreamMediaService(prisma as unknown as PrismaService, fakeMinio as never);
 const execService = new ExecutionService(
   prisma as unknown as PrismaService, new TopologyService(), validation, fakeApiCaller as never, teamCredit,
-  perm, fakeCollabDoc as never, fakeEmit as never, intentSvc, upstreamMedia, artifactCommit, execRequests,
+  perm, fakeCollabDoc as never, intentSvc, upstreamMedia, artifactCommit, execRequests,   // Y3 T8：emit 形参随 /execution 退役删除
 );
 
 let TID = '';

@@ -5,7 +5,6 @@ import * as crypto from 'crypto';
 import * as Sentry from '@sentry/nestjs';   // Y0b-5 T11：单版本收敛——@sentry/node 直接依赖已删（唯一传递来源=@sentry/nestjs 10.68 对齐）
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
-import { EmitPort } from '../gateway/emit.port';
 import {
   VIDEO_SEPARATE_QUEUE, MAX_FILE_SIZE, USER_CONCURRENT_LIMIT,
   IDEMPOTENCY_LOCK_TTL, COUNTER_TTL,
@@ -23,7 +22,6 @@ export class VideoSeparateService {
     @Inject('REDIS_CLIENT') private readonly redis: any,
     @InjectQueue(VIDEO_SEPARATE_QUEUE) private readonly separateQueue: Queue,
     @Inject(MinioService) private readonly minio: MinioService,
-    @Inject(EmitPort) private readonly emitPort: EmitPort,   // Y0c T25（F1 补面）：emitSeparateStatus 3 调用点改道 emit 端口（api=Direct/worker=降级 no-op——T24 同形态）
   ) {}
 
   async submitSeparate(params: VideoSeparateRequest): Promise<{ taskId: string }> {
@@ -129,32 +127,23 @@ export class VideoSeparateService {
   }
 
   async setTaskProcessing(taskId: string): Promise<void> {
-    const task = await this.prisma.videoSeparateTask.update({
+    // Y3 T8：separate 状态 WS 通道随 /execution 退役删除（读面=客户端 REST 轮询单通道——useVideoSeparateTask 3s 拍）。
+    await this.prisma.videoSeparateTask.update({
       where: { id: taskId },
       data: { status: 'processing' },
-    });
-    this.emitPort.emitSeparateStatus(task.workflowId, {
-      nodeId: task.nodeId,
-      taskId,
-      status: 'processing',
     });
   }
 
   async handleTaskCompleted(taskId: string, videoFileId: string, audioFileId: string): Promise<void> {
-    const task = await this.prisma.videoSeparateTask.update({
+    // Y3 T8：separate 状态 WS 通道随 /execution 退役删除（同上）。
+    await this.prisma.videoSeparateTask.update({
       where: { id: taskId },
       data: { status: 'done', videoFileId, audioFileId, finishedAt: new Date() },
-    });
-    this.emitPort.emitSeparateStatus(task.workflowId, {
-      nodeId: task.nodeId,
-      taskId,
-      status: 'done',
-      videoFileId,
-      audioFileId,
     });
   }
 
   async handleTaskFailed(taskId: string, errorMsg: string, errorType?: string): Promise<void> {
+    // Y3 T8：separate 状态 WS 通道随 /execution 退役删除（同上）。
     const task = await this.prisma.videoSeparateTask.update({
       where: { id: taskId },
       data: { status: 'error', errorMsg, errorType: errorType || 'UNKNOWN', finishedAt: new Date() },
@@ -172,13 +161,6 @@ export class VideoSeparateService {
         nodeId: task.nodeId,
         workflowId: task.workflowId,
       },
-    });
-
-    this.emitPort.emitSeparateStatus(task.workflowId, {
-      nodeId: task.nodeId,
-      taskId,
-      status: 'error',
-      error: errorMsg,
     });
   }
 }

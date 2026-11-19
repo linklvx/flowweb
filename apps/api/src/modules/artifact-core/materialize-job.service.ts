@@ -18,12 +18,11 @@
 // MATERIALIZE_MAX_ATTEMPTS）→幂等补偿退款（rollbackDeliveryFailed——team-credit rollback 族唯一
 // 入口，重跑恰一次）+单事务 Media failed+failed fact+NodeArtifact materializing→failed（不清
 // mediaId——UI 失败/重试非撤回交付）+Sentry 告警。
-// errorCode=MATERIALIZE_FAILED 送达双通道（评审 P1 裁定）：①**failed fact payload 携带
-// {status:'failed',errorCode,error}**（durable 进 MediaFact——T16 pendingFacts 消费=UI
-// 失败/重试的**真实通道**：本 Job 仅装配于 worker.module，worker 的 EmitPort=WorkerEmitPort 计数
-// no-op，双进程拓扑下 emit 到不了任何客户端——事实流是唯一可达载道）②emitNodeStatus 保留
-// （api-role/单进程形态下有义；worker 形态=降级计数——emit.port.ts 既有语义）。materialize 不写
-// doc（data 域）硬约束两通道共同维持。
+// errorCode=MATERIALIZE_FAILED 送达（评审 P1 裁定→Y3 T8 收窄）：failed fact payload 携带
+// {status:'failed',errorCode,error}（durable 进 MediaFact——T16 pendingFacts 消费=UI 失败/重试的
+// **真实且唯一通道**：本 Job 仅装配于 worker.module，双进程拓扑下 WS 通知本就到不了任何
+// 客户端——socket emit 调用随 /execution 退役整删，materialize 的「通知即 no-op」注记归档于此）。
+// materialize 不写 doc（data 域）硬约束由 fact 通道维持。
 // 写回 lease fence（评审 P2-②）：claim 置位的 processingLeaseUntil 值=本代唯一持有物——完成/退避/
 // 终态全部写回带 WHERE processingLeaseUntil=<本代值>（值 CAS）：旧代 lease 过期被新代接管 ⇒ 写回
 // 0 行=fenced（放弃写回+日志）——僵尸 worker 不得清新代 lease/叠 attempts/投退避，并发双下载窗收敛
@@ -60,7 +59,6 @@ import { sniffMimeType } from '../media/sniff';
 import { TeamCreditService } from '../team/team-credit.service';
 import { upsertMediaFactInTx } from './media-fact-write';   // C2-2：MediaFact 写双函数纪律（完成/终态=已 increment 路径①）
 import { StorageQuotaService } from '../team/storage-quota.service';
-import { EmitPort } from '../gateway/emit.port';
 import { ObjectManifestService } from './object-manifest.service';   // Y1c T23：delete-claim（上传前 claim/锚定后 release——GC 交错误删收口）
 // ffprobe 单源（T7 沙箱本体——census ㉒ 纪律禁第二份字面量；buildFfprobeArgs/FFPROBE_TIMEOUT_MS 复用）
 import { buildFfprobeArgs, FFPROBE_TIMEOUT_MS } from '../media/media-probe.poller';
@@ -134,7 +132,6 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
     @Inject(SafeRemoteFetchService) private readonly safeFetch: SafeRemoteFetchService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @Inject(StorageQuotaService) private readonly quota: StorageQuotaService,
-    @Inject(EmitPort) private readonly emit: EmitPort,
     /** Y1c T23（迁移三）：delete-claim 面（上传 content-addressed 键前 claim、锚定后 release）。
      *  @Optional——直构测试（t23 int 六参形态）缺席=跳过（行域 GC 兜底仍在）。**T33 双评审普查
      *  P2-③ 随批**：联合注解反射 Object→worker 真装配恒 undefined=claim 面恒跳过（降级非断链）
@@ -470,8 +467,8 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
    *  **抛错=立即放弃终态+释放本代 lease**〔Critical#1〕——行留 processing 重 claim 重走终态）
    *  ②单事务 Media failed（status∧本代 lease CAS）+failed fact（payload 携带 errorCode——P1：
    *  durable 事实流=T16 pendingFacts 消费的 UI 真实通道）+NodeArtifact materializing→failed（不清
-   *  mediaId）③Sentry 告警+emitNodeStatus（**worker 进程=WorkerEmitPort 计数 no-op——双进程拓扑
-   *  下到不了客户端**；保留供 api-role/单进程形态——真实 UI 通道=②的 failed fact）。
+   *  mediaId）③Sentry 告警（Y3 T8：socket 通知面已随 /execution 退役删除——真实 UI 通道=②的
+   *  failed fact）。
    *  返回 marked=false=终态未达（lease 失守∨他方已终态∨退款抛错放弃）——调用方按 fenced 语义收敛。 */
   private async terminate(row: Media & { materializeRunId?: string }, attempts: number, failure: MaterializeFailure): Promise<boolean> {
     const reason = `MATERIALIZE_FAILED(${failure.kind}): ${failure.message}`.slice(0, 500);
@@ -506,6 +503,7 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
       if (refunded) materializeRefundTotal.inc();
     }
     let emitTarget = null as { projectId: string; nodeId: string } | null;   // 闭包内赋值——显式宽化标注（TS 流分析不跟踪）
+    void emitTarget;   // Y3 T8：socket 通知面已随 /execution 退役删除——emitTarget 仅为 NodeArtifact 锚定读的形态残留，无消费
     const marked = await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.media.updateMany({
         where: { id: row.id, status: 'processing', processingLeaseUntil: row.processingLeaseUntil },   // lease fence（P2-②）
@@ -557,23 +555,16 @@ export class MaterializeJob implements OnModuleInit, OnApplicationShutdown {
     });
     // ③ 告警（不落人工工单——spec 裁决①「终态失败→幂等补偿退款+artifactState=failed+告警」）：
     // 评审#2：告警面移入 marked 分支+文案按 refunded 区分（fenced=warn 降级；退款 CAS 未命中=先前
-    // 已退/不适用——非「本轮已发」）。Sentry=运维告警面恒达；emitNodeStatus=**worker 进程计数
-    // no-op**（WorkerEmitPort——双进程拓扑下到不了客户端，保留供 api-role/单进程形态）；UI 真实
-    // 通道=上方 failed fact 的 errorCode。
+    // 已退/不适用——非「本轮已发」）。Sentry=运维告警面恒达；UI 真实通道=上方 failed fact 的
+    // errorCode。Y3 T8：socket 通知面随 /execution 退役删除（worker 形态本就计数 no-op——materialize
+    // 「通知即 no-op」注记归档：失败的用户可见通道=media fact MATERIALIZE_FAILED）。
     if (marked) {
       await this.closeRun(row.materializeRunId, 'FAILED');
       Sentry.captureException(new Error(`materialize 终态失败 mediaId=${row.id} intent=${row.sourceIntentRowId ?? '-'} 退款=${refunded ? '本轮已发' : '先前已发/不适用'}: ${reason}`));
       this.logger.error(`[materialize] mediaId=${row.id} 终态失败（attempts=${attempts} ${failure.kind}）——artifactState=failed+failed fact(errorCode)；补偿退款=${refunded ? '本轮已发' : '先前已发/不适用（CAS 未命中）'}: ${failure.message}`);
-      if (emitTarget) {
-        this.emit.emitNodeStatus(emitTarget.projectId, {
-          nodeId: emitTarget.nodeId,
-          status: 'error',
-          error: `MATERIALIZE_FAILED: ${failure.message.slice(0, 180)}`,
-        });
-      }
     } else {
       await this.closeRun(row.materializeRunId, 'FENCED');
-      this.logger.warn(`[materialize] mediaId=${row.id} 终态写回 0 行（lease 失守/他方已终态）——fenced：不告警不 emit`);
+      this.logger.warn(`[materialize] mediaId=${row.id} 终态写回 0 行（lease 失守/他方已终态）——fenced：不告警`);
     }
     return marked;
   }

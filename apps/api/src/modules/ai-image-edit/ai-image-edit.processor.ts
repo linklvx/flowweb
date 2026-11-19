@@ -5,7 +5,6 @@ import * as Sentry from '@sentry/nestjs';
 import { feedError } from '@flowweb/shared';   // Y3 Task3：编辑链 Feed error 唯一出口（扣费五码句与 execution.service onReserveFail 同款映射）
 import { MinioService } from '../minio/minio.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { EmitPort } from '../gateway/emit.port';
 import { ApiCallerService } from '../execution/api-caller.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { CollabWritePort } from '../collab/collab-write.port';
@@ -66,7 +65,6 @@ export class AiImageEditProcessor extends WorkerHost {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(MinioService) private readonly minio: MinioService,
-    @Inject(EmitPort) private readonly emitPort: EmitPort,   // Y0c T24（Z101）：emitNodeStatus 3 调用点改道 emit 端口（api=Direct/worker=降级 no-op）
     @Inject(ApiCallerService) private readonly apiCaller: ApiCallerService,
     @Inject(TeamCreditService) private readonly teamCredit: TeamCreditService,
     @Inject(CollabWritePort) private readonly collabDoc: CollabWritePort,
@@ -154,11 +152,6 @@ export class AiImageEditProcessor extends WorkerHost {
           where: { id: intentRowId }, select: { intentId: true, attempts: true, execSeq: true },
         }).catch(() => null);
         await this.collabDoc.writeExecStatus(projectId, nodeId, feedError(reason, sentence, row ? { intentId: row.intentId, attempts: row.attempts, execSeq: row.execSeq ?? execSeq } : null), intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure);
-        this.emitPort.emitNodeStatus(projectId, {
-          nodeId,
-          status: 'edit-failed',
-          error: `扣费失败：${reason}`,
-        });
         return { status: 'failed', reason };
       }
 
@@ -266,15 +259,10 @@ export class AiImageEditProcessor extends WorkerHost {
 
       // 10. T15 收口：doc 交付写移除——fileId 归 ArtifactProjection 投影 poller（finalize 已落 pending
       //     行；worker 通道 writeNodeData 已 403——旧 Z44 nodeAlive 守卫/typed 悬留计数面随直写退役，
-      //     node 删除观察=poller apply 存在性守卫〔orphaned〕）。socket 仅进度通知（即时 UX）。
+      //     node 删除观察=poller apply 存在性守卫〔orphaned〕）。
       //     O0b-2（终裁 59⑤）：AI data.{width,height} 键整删——AI 只写 fileId（尺寸由 web 内容事件
       //     路径决定——load/换图 contain-fit）。
-      //     Y2 B2d emit 收窄：仅 committed∧非 void 携 fileId（作废/未释放面不投递产物引用）。
-      this.emitPort.emitNodeStatus(projectId, {
-        nodeId,
-        status: 'edit-result',
-        ...(committed.outcome === 'committed' && !authorVoid ? { fileId: mediaId } : {}),
-      });
+      //     Y3 T8：socket edit-result emit 删除（编辑成功 UX=受理响应 outcome+投影 poller 双通道）。 ──
 
       this.logger.log(`Edit complete: ${mediaId}`);
       return { status: 'completed', fileId: committed.outcome === 'committed' && !authorVoid ? mediaId : undefined };
@@ -327,9 +315,7 @@ export class AiImageEditProcessor extends WorkerHost {
         const fundsRow = await this.prisma.generationIntent.findUnique({
           where: { id: intentRowId }, select: { intentId: true, attempts: true, execSeq: true },
         }).catch(() => null);
-        const msg = '生成结果暂缓交付（资金核销异常，待对账处理）';
         await this.collabDoc.writeExecStatus(projectId, nodeId, feedError('FUNDS_INVARIANT_VIOLATION', 'FUNDS_HELD', fundsRow ? { intentId: fundsRow.intentId, attempts: fundsRow.attempts, execSeq: fundsRow.execSeq ?? execSeq } : null), intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure);
-        this.emitPort.emitNodeStatus(projectId, { nodeId, status: 'edit-failed', error: msg });
         return { status: 'failed', reason: 'FUNDS_INVARIANT_VIOLATION' };
       }
       // 批0.5-9：失败先 void_ 解冻（约束②——冻结退还），批0.5-8 终态必达——外呼抛错置 FAILED
@@ -351,12 +337,8 @@ export class AiImageEditProcessor extends WorkerHost {
         await this.collabDoc.writeExecStatus(projectId, nodeId, feedError('EXECUTION_FAILED', 'EDIT_FAILED', failRow ? { intentId: failRow.intentId, attempts: failRow.attempts, execSeq: failRow.execSeq ?? execSeq ?? 0n } : null), intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure); // best-effort——doc 写失败不吞原始错误（Y0c T0：吞错加观测）
       }
 
-      // Push failure via WebSocket — do NOT deduct credit on failure
-      this.emitPort.emitNodeStatus(projectId, {
-        nodeId,
-        status: 'edit-failed',
-        error: error.message,
-      });
+      // Y3 T8：socket edit-failed emit 删除（失败 UX 归 Feed 投影「AI 处理失败」句）——不扣费语义
+      // 不变（fail/void_ 已在前）。
 
       // Re-throw to trigger BullMQ retry
       throw error;

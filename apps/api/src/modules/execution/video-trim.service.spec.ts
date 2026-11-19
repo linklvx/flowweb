@@ -4,7 +4,6 @@ import { BadRequestException, ForbiddenException, NotFoundException, InternalSer
 import { VideoTrimService } from './video-trim.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
-import { EmitPort } from '../gateway/emit.port';   // Y0c T25（F1 补面）：emitTrimStatus 消费改道 emit 端口（T24 同形态——token 换 EmitPort）
 import * as constants from './video-trim.constants';
 
 const { mockExec } = vi.hoisted(() => {
@@ -64,7 +63,6 @@ describe('VideoTrimService', () => {
   let service: VideoTrimService;
   let prisma: ReturnType<typeof mockPrismaService>;
   let queue: ReturnType<typeof mockBullQueue>;
-  let gateway: { emitTrimStatus: ReturnType<typeof vi.fn> };
   let minio: ReturnType<typeof mockMinioService>;
 
   beforeEach(async () => {
@@ -76,7 +74,6 @@ describe('VideoTrimService', () => {
 
     prisma = mockPrismaService();
     queue = mockBullQueue();
-    gateway = { emitTrimStatus: vi.fn() };
     minio = mockMinioService();
 
     const module = await Test.createTestingModule({
@@ -84,7 +81,6 @@ describe('VideoTrimService', () => {
         VideoTrimService,
         { provide: PrismaService, useValue: prisma },
         { provide: `BullQueue_${constants.VIDEO_TRIM_QUEUE}`, useValue: queue },
-        { provide: EmitPort, useValue: gateway },
         { provide: MinioService, useValue: minio },
       ],
     }).compile();
