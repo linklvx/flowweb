@@ -219,3 +219,14 @@
   （本机三池并行抢同 PG 库 convergence/replaySuperset 假红——安静重跑硬门全过）。处置=CI 侧
   rerun-failed-jobs（rerun② 全绿收口）；同族再红先安静环境单跑归因、连续三红升级调查；
   禁调硬门阈值（fsync/隔离 p95 预算口径冻结）。
+
+- 2026-11-20（Y3 批本机全量池登记——collab-project-actor 背压超时偶发）：collab-project-actor.spec
+  「per-project 写入背压」用例于 T8 全量池首跑超时红（30s 档全池并行形态）；定性证据=单跑该文件
+  23/23 绿+复跑全池 316/3385 全绿+与本批 diff 零 import 交集（collab actor 域零触碰）。族先例=
+  2026-11-19 T6 时点 canvasIntents.t17 模块加载竞态（同族=本机全池并行时敏面）。处置=全量池重跑
+  即绿；同族再红先单跑归因、连续三红升级调查；禁调判据。
+
+- 2026-11-20（Y3 批本机登记②——canvasIntents.t17 模块加载竞态）：canvasIntents.t17 恢复拒绝
+  用例族于 T6 全量池单次红（RecoveryDenyTracker is not a constructor）；定性证据=stash 隔离复跑
+  绿（非 T6 diff 引入）+单次运行 26/26 绿。族属=本机全池并行时敏面（模块加载竞态）。处置=重跑
+  即绿；同族再红先单跑归因、连续三红升级调查；禁调判据。
