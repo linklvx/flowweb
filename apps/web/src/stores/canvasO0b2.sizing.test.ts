@@ -22,6 +22,7 @@
 // throw 窗口批后复核（登记——现执行序下窗口不可达：patchGroupData doc 先写/mergeStoryboard 新组
 // rec 缺席回落 cs data，无新测试）。
 import { describe, it, expect, afterEach, vi } from 'vitest';
+vi.mock('@/api/collabApi', () => ({ bindMedia: vi.fn(async () => ({ type: 'BindMedia', rev: 0, mediaId: 'f' })) }));
 vi.mock('@hocuspocus/provider', () => ({ HocuspocusProvider: class MockProvider {} }));
 import * as Y from 'yjs';
 import { readFileSync, existsSync } from 'fs';
