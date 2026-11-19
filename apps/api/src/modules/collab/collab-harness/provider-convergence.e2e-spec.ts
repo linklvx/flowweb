@@ -142,9 +142,11 @@ interface SeedArtifactOpts {
   state?: 'pending' | 'dead' | 'orphaned' | 'superseded';
 }
 
-/** NodeArtifact+ArtifactProjection 成对落行（slot 唯一键=targetItemId ''）。 */
+/** NodeArtifact+ArtifactProjection 成对落行（slot 唯一键=targetItemId ''）。
+ *  Y2 B4：targetField='fileId' 随 CHECK 域收紧退役（夹具撞 23514）——生成槽位域='mediaId'
+ *  （targetFieldOfKind 单源同值；B4 迁移后全库唯一合法域）。 */
 async function seedArtifact(pid: string, nodeId: string, opts: SeedArtifactOpts = {}): Promise<{ artifactId: string; projectionId: string }> {
-  const targetField = 'fileId';
+  const targetField = 'mediaId';
   const mediaId = opts.mediaId ?? `media-${randomUUID().slice(0, 8)}`;
   const artifact = await prisma.nodeArtifact.create({
     data: {
@@ -264,7 +266,7 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     await prisma.nodeArtifact.update({ where: { id: artifactId }, data: { rev: 2, mediaId: 'media-new-gen' } });   // replace CAS（rev 前进）
     await prisma.artifactProjection.create({
       data: {
-        artifactId, artifactRev: 2, projectId: PID, nodeId: NODE, targetField: 'fileId', targetItemId: '',
+        artifactId, artifactRev: 2, projectId: PID, nodeId: NODE, targetField: 'mediaId', targetItemId: '',
         mediaId: 'media-new-gen', resultText: null, state: 'pending', attempts: 0,
       },
     });
@@ -288,19 +290,19 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     poller = makePoller();
 
     // 生成在飞（投影 pending rev1）→用户 replace 命令：NodeArtifact 同槽位 CAS 前进（rev+新 mediaId）
-    // +doc data.fileId=replace 新值（replaceMedia 命令双写形态——T11 交付面）
+    // +doc data.mediaId=replace 新值（replaceMedia 命令双写形态——T11 交付面；Y2 B3 作者键=mediaId）
     const { projectionId } = await seedArtifact(PID, NODE, { rev: 1, mediaId: 'media-old-bind' });
     await prisma.nodeArtifact.update({
       where: { id: (await prisma.nodeArtifact.findFirstOrThrow({ where: { projectId: PID, nodeId: NODE } })).id },
       data: { rev: 2, mediaId: 'media-user-replaced' },   // replace CAS：rev 前进（0 行=superseded 判据源）
     });
     await residency.withSession(PID, (doc) => {
-      ((doc.getMap('nodes').get(NODE) as Y.Map<any>).get('data') as Y.Map<any>).set('fileId', 'media-user-replaced');
+      ((doc.getMap('nodes').get(NODE) as Y.Map<any>).get('data') as Y.Map<any>).set('mediaId', 'media-user-replaced');
     }, { mode: 'write' });
     await poller.tick();
     expect((await prisma.artifactProjection.findUnique({ where: { id: projectionId } }))?.state).toBe('superseded');   // 旧代投影 superseded（rev≠——用户值不被旧代产物覆盖）
-    const fileId = await residency.withSession(PID, (doc) => ((doc.getMap('nodes').get(NODE) as Y.Map<any>).get('data') as Y.Map<any>).get('fileId'), { mode: 'read' });
-    expect(fileId).toBe('media-user-replaced');
+    const authorMediaId = await residency.withSession(PID, (doc) => ((doc.getMap('nodes').get(NODE) as Y.Map<any>).get('data') as Y.Map<any>).get('mediaId'), { mode: 'read' });
+    expect(authorMediaId).toBe('media-user-replaced');
 
     // C3a-8：reconcile 只读检测经 **PG 定代前缀**（禁活 doc）——先让 replace 写落 PG（真持久链）
     await new Promise((r) => setTimeout(r, 350));
@@ -324,14 +326,14 @@ d('T19 跨子系统收敛 harness（真 PG+真 WS：代际×投影×binding×fac
     for (;;) {
       await backfill.drain().catch(() => 0);
       const b = await prisma.mediaBinding.findFirst({
-        where: { projectId: PID, nodeId: NODE, role: 'primary', targetField: 'fileId', targetItemId: '' },
+        where: { projectId: PID, nodeId: NODE, role: 'primary', targetField: 'mediaId', targetItemId: '' },
       });
       if (b) break;
       if (Date.now() > deadline) throw new Error('backfill 未在 15s 内收敛 binding（reconcile→runner 链断）');
       await new Promise((r) => setTimeout(r, 100));
     }
     const binding = await prisma.mediaBinding.findFirst({
-      where: { projectId: PID, nodeId: NODE, role: 'primary', targetField: 'fileId', targetItemId: '' },
+      where: { projectId: PID, nodeId: NODE, role: 'primary', targetField: 'mediaId', targetItemId: '' },
     });
     expect(binding?.mediaId).toBe('media-user-replaced');   // rebuild 后 binding=doc 现值（reconcile 零写）
     await prisma.media.deleteMany({ where: { projectId: PID } });

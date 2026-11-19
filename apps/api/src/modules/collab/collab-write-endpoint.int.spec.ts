@@ -27,6 +27,7 @@ import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabWriteController } from './collab-write.controller';
+import { AuthorSlotService } from './author-slot.service';   // Y2 B2a：TestModule DI 面补齐（裸 stub）
 import { CollabErasureRegistryService } from './collab-erasure-registry.service';
 import { DeletionBarrierService } from './deletion-barrier.service';   // C3b-4a：controller 构造参数四（deletion-barrier 端点——exec-status 用例零消费 stub）
 import { PrismaService } from '../../prisma/prisma.service';
@@ -118,6 +119,7 @@ maybe('Y1c T32 exec-status 端点（端到端真链+三探针——RuntimeEvent 
         { provide: CollabSpoolService, useValue: spoolForTest() },   // C4-c1：media-refs 端点面（exec-status 用例零消费——裸构造即可）
         { provide: DeletionBarrierService, useValue: {} as DeletionBarrierService },   // C3b-4a：deletion-barrier 端点面（exec-status 用例零消费——裸 stub 即可）
         { provide: CollabErasureRegistryService, useValue: { listPurgeableProjectIdsLive: async () => new Set<string>(), mark: () => {} } },   // TD-33/C1b T14：purge 端点面（本 spec 零消费）
+        { provide: AuthorSlotService, useValue: {} as AuthorSlotService },   // Y2 B2a：author-slot 两端点面（本 spec 零消费——裸 stub）
       ],
     }).compile();
     app = moduleRef.createNestApplication();

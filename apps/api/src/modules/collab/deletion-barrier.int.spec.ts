@@ -38,6 +38,7 @@ import { DeletionBarrierService } from './deletion-barrier.service';
 import { isDeletionBarrierSealed } from './deletion-barrier.seal';
 import { CollabCloseCode, DELETION_BARRIER_REASON, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化
 import { CollabWriteController } from './collab-write.controller';
+import { AuthorSlotService } from './author-slot.service';   // Y2 B2a：⑥用例 TestModule DI 面补齐（裸 stub）
 import { CollabErasureRegistryService } from './collab-erasure-registry.service';
 import { CollabDocumentService } from './collab-document.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -378,6 +379,7 @@ maybe('C3b-4a：DeletionBarrier 持久 fence+admission 三面', () => {
         { provide: CollabSpoolService, useValue: spoolForTest() },
         { provide: DeletionBarrierService, useValue: svc },
         { provide: CollabErasureRegistryService, useValue: { listPurgeableProjectIdsLive: async () => new Set<string>(), mark: () => {} } },   // TD-33/C1b T14：purge 端点面（本 spec 零消费）
+        { provide: AuthorSlotService, useValue: {} as AuthorSlotService },   // Y2 B2a：author-slot 两端点面（本 spec 零消费——裸 stub）
       ],
     }).compile();
     app = moduleRef.createNestApplication();
