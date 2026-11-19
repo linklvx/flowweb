@@ -202,3 +202,20 @@
   面（material restore/GC claim 谓词/quota lockTeamQuota）与速率闸域零代码交叠；族先例=2026-10-27
   T24 首登/2026-11-13 C1-4 复现（同两例同处置）。处置=CI 侧 rerun-failed-jobs（P4 首立形态）——
   attempt2 test job success 全绿收口；禁调阈值/不动判据。
+
+- 2026-11-19（Y2 批 push CI 首推登记——spool 族 CI 面第二形态）：collab-spool.service.spec
+  「干净分支收养」adoptSilentForeignSegments 返回 [] 用例于 run attempt1 红一例（11ms fail）；
+  定性证据链=同 job 首推（7dcafe6e CI）绿+本机六跑全绿不可复现+CI 日志逐行静态排除全判据
+  （buildOwnerName sanitizeHost/hostKey 在 CI runner hostname 形态下恒一致；PidSeamSpool 覆写
+  isPidAlive 恒 false；silentMs=0 恒过 mtime 判）+邻近日志仅 recoverScan 用例两条外来段跳过
+  WARN（前一用例正常输出）。零代码交叠=5fc71e0b 零触碰 spool 面。族先例=2026-11-07 服务器窗
+  两例（同函数 mtime/fsync 时序窗——NTFS 取整可后移一 tick；CI 形态=返回空而非 rmdir 竞态）。
+  处置=CI 侧 rerun-failed-jobs（rerun① 73/73 转绿）——偶发定性成立；同族再红先单跑归因、
+  连续三红升级调查；禁调判据。
+
+- 2026-11-19（Y2 批 push CI 登记②——bench-load-smoke CI runner 磁盘争抢首例）：
+  bench-load-smoke 硬门 2 项于 rerun① 红（WAL fsync p95=50ms>20ms+慢项目隔离 p95=215ms）——
+  GitHub 免费档 4C runner 磁盘争抢形态；先例=批末环境事实「bench-load-smoke 必须安静环境跑」
+  （本机三池并行抢同 PG 库 convergence/replaySuperset 假红——安静重跑硬门全过）。处置=CI 侧
+  rerun-failed-jobs（rerun② 全绿收口）；同族再红先安静环境单跑归因、连续三红升级调查；
+  禁调硬门阈值（fsync/隔离 p95 预算口径冻结）。
