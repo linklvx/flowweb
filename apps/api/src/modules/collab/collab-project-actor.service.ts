@@ -322,6 +322,16 @@ export class FrameEffectsCollector {
         }
       }
     });
+    // Y4a T3（spec §0 条 8）：timelines observeDeep——**回调内先物化 ev.changes 再 noteEvents**。
+    // YEvent.changes getter（yjs :4699-4705）在 _changes===null 且事务清理已跑时抛
+    // errorComputeChanges『You must not compute changes after the event-handler fired』：noteEvents
+    // 只推事件进缓冲、事务结束 validateAppliedL2 一读 ev.changes 就抛→actor 收成 l2-internal
+    // 毒帧 4411 关该项目全部连接、每笔时间轴编辑都触发。edges 观察者 :313 `void ev.changes.keys`
+    // 同款形态。T3 只接 L2 事件面（touched 绑定并集投影=T6 另一笔）。
+    doc.getMap('timelines').observeDeep((events) => {
+      for (const ev of events) void ev.changes;
+      noteEvents(events);
+    });
   }
 }
 

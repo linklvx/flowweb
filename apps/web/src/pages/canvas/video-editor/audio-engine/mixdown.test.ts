@@ -14,7 +14,7 @@ const ac = (id: string, mediaId: string, start: number, duration: number, over: 
 });
 const mk = (clips: (AudioClip | VideoClip)[], muted = false): ProjectData => ({
   version: 1, fps: 30,
-  tracks: [{ id: 'ta', type: 'audio', name: 'a', muted, hidden: false, clips: clips.map((c) => c.id) }],
+  tracks: [{ id: 'ta', type: 'audio', name: 'a', muted, hidden: false, clips: clips.map((c) => c.id), order: '5000' }],
   clips: Object.fromEntries(clips.map((c) => [c.id, c])),
 });
 

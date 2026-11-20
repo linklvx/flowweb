@@ -20,8 +20,10 @@ export const UNDO_OVERFLOW_ACTION = 'clear-whole-stack' as const;
 /** 禁用溢出形态（负控常量——spec §6.7 删除清单「shift 字节回落」；禁复活） */
 export const UNDO_OVERFLOW_FORBIDDEN = 'shift-oldest' as const;
 
-/** 栈基（Y.UndoManager scope——doc 双 Y.Map 'nodes'/'edges'，次序冻结；T16/T18 attach 消费已落地） */
-export const UNDO_STACK_BASE = ['nodes', 'edges'] as const;
+/** 栈基（Y.UndoManager scope——Y4a T1 扩第三根 timelines〔spec §0 条 7：撤销恢复只复活 scope
+ *  之内的 item——scope 缺这棵根则删除的撤销带回节点边、时间轴仍消失〕；次序冻结；attach 面
+ *  〔web canvasUndo.ts〕与 nodes/edges 同一启动方式 getMap 进 scope。T16/T18 attach 消费已落地。） */
+export const UNDO_STACK_BASE = ['nodes', 'edges', 'timelines'] as const;
 
 /** trackedOrigins 初始集（仅 LocalUser——Server/AutoEdge/Geometry origin 刻意不入栈：回放/自动边/
  *  几何修复非用户编辑，防啃 STACK_LIMIT；与 web canvasUndo.ts Origin.LocalUser='local-user' 同值）。
@@ -33,6 +35,13 @@ export const UNDO_TRACKED_ORIGINS = ['local-user'] as const;
  *  ySyncPluginKey])，apps/web canvasUndo.ts attachUndoManager 一处）。编辑器键入帧经
  *  ySyncPlugin 事务 origin 入栈（S3 ③ 结论：≠LocalUser 故 T18 构造面一次到位双 tracked）。 */
 export const UNDO_TRACKED_ORIGINS_T18_ADDENDUM = 'ySyncPluginKey' as const;
+
+/** Y4a T1 时间轴编辑 origin（spec §4 撤销域——时间轴编辑栈 trackedOrigins 专属值；web Origin
+ *  枚举〔canvasUndo.ts〕引用同值 TimelineUser='timeline-user'）。域隔离由 origin 保证：画布栈
+ *  trackedOrigins 不含本值（时间轴编辑不动画布栈）、时间轴栈只含本值。消费现状：T5 编辑器
+ *  打开时创建时间轴栈；timeline-gate.ts measureTransactionFrames 缺省域=local-user（T4 量
+ *  timeline-user 写时经 options.trackedOrigins 覆盖）。 */
+export const UNDO_TIMELINE_ORIGIN = 'timeline-user' as const;
 
 /** 溢出判定（纯函数——入栈后栈长>UNDO_STACK_LIMIT 即整栈 clear） */
 export function undoOverflowAction(newStackItemCount: number): 'within-limit' | 'clear-whole-stack' {

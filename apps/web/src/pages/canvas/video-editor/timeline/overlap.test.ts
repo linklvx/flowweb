@@ -8,7 +8,7 @@ const vclip = (id: string, start: number, duration: number, over: Partial<VideoC
 });
 const data = (clips: VideoClip[], trackId = 'tv'): ProjectData => ({
   version: 1, fps: 30,
-  tracks: [{ id: trackId, type: 'video', name: '视频', muted: false, hidden: false, clips: clips.map(c => c.id) }],
+  tracks: [{ id: trackId, type: 'video', name: '视频', muted: false, hidden: false, clips: clips.map(c => c.id), order: '5000' }],
   clips: Object.fromEntries(clips.map(c => [c.id, c])),
 });
 
@@ -65,8 +65,8 @@ describe('crossfade 边界状态机（spec 第三节）', () => {
     const d: ProjectData = {
       version: 1, fps: 30,
       tracks: [
-        { id: 't1', type: 'video', name: 'V1', muted: false, hidden: false, clips: ['a'] },
-        { id: 't2', type: 'video', name: 'V2', muted: false, hidden: false, clips: ['b'] },
+        { id: 't1', type: 'video', name: 'V1', muted: false, hidden: false, clips: ['a'], order: '5000' },
+        { id: 't2', type: 'video', name: 'V2', muted: false, hidden: false, clips: ['b'], order: '5000' },
       ],
       clips: {
         a: vclip('a', 0, 3),
@@ -129,7 +129,7 @@ describe('canPlaceAt / findNearestFreeStart（同轨禁重叠、跨轨自由）'
   it('跨轨自由重叠', () => {
     const two: ProjectData = {
       ...base,
-      tracks: [...base.tracks, { id: 't2', type: 'video', name: 'V2', muted: false, hidden: false, clips: [] }],
+      tracks: [...base.tracks, { id: 't2', type: 'video', name: 'V2', muted: false, hidden: false, clips: [], order: '5000' }],
     };
     expect(canPlaceAt(two, 'me', 1, 't2', 5)).toBe(true);
   });

@@ -334,4 +334,25 @@ maybe('C3b-2：PG oracle worker（候选无关+短事务+状态机+复用+bail-o
     expect(await svc.scanProject(PID_MAIN)).toMatchObject({ outcome: 'complete' });
     expect((await headerOf(PID_MAIN))?.status).toBe('COMPLETE');
   }, 60_000);
+
+  // ── ⑦ Y4a T2：SCAN_ROOTS 扩 timelines（spec §3.2 表 oracle 行——新增可写根必须同步扩扫描域）──
+  it('⑦SCAN_ROOTS 覆盖 timelines 根：timeline clip mediaId 入 oracle 行（仅 timelines 引用也保护——节点已删时间轴在=悬空键照投的删除保护前置）', async () => {
+    // 帧构造：全新量 doc 只带 timelines 工程子树（clip 带 mediaId=U.map——既有 Media 行复用）。
+    // 增量帧可与既有基态合并（append 尾重放——scanProject 重放全量）。
+    const tlDoc = new Y.Doc();
+    try {
+      const entry = new Y.Map<unknown>();
+      entry.set('version', 1);
+      entry.set('fps', 30);
+      const clips = new Y.Map<unknown>();
+      clips.set('clip-tl', new Y.Map<unknown>([['type', 'video'], ['mediaId', U.map], ['span', { trackId: 'n-tl:video', start: 0, duration: 5 }]]));
+      entry.set('clips', clips);
+      (tlDoc.getMap('timelines') as Y.Map<unknown>).set('n-tl', entry);
+      await appendFrame(PID_CAS, Y.encodeStateAsUpdate(tlDoc));
+    } finally { tlDoc.destroy(); }
+    const r = await svc.scanProject(PID_CAS);
+    expect(r).toMatchObject({ outcome: 'complete' });
+    // 修前红：SCAN_ROOTS=['nodes','edges'] 不扫 timelines ⇒ mediaIdsOf 不含 U.map
+    expect(await mediaIdsOf(PID_CAS)).toContain(U.map);
+  }, 60_000);
 });

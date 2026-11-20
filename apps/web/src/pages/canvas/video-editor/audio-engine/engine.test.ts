@@ -47,7 +47,7 @@ function makeFakeCtx(sampleRate = 48000) {
 
 // ---- 夹具 ----
 const track = (id: string, type: Track['type'], clipIds: string[], over: Partial<Track> = {}): Track =>
-  ({ id, type, name: id, muted: false, hidden: false, clips: clipIds, ...over });
+  ({ id, type, name: id, muted: false, hidden: false, clips: clipIds, order: '5000', ...over });
 const vc = (id: string, over: Partial<VideoClip> = {}): VideoClip => ({
   id, trackId: 'tv', type: 'video', start: 0, duration: 4, sourceStart: 0, mediaId: 'mv', playbackSpeed: 1,
   transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 }, keyframes: [], ...over,

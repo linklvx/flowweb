@@ -1,7 +1,8 @@
 // packages/shared/src/collab/undo-policy.spec.ts
 // Y1c T5b（plan v1.7 Task 5 业务 DDL 段；Undo 策略 D6 维持——spec §6.7 删「shift 字节回落」验收）：
-// 撤销栈策略契约冻结的契约测试——500ms 捕获窗/100 上限/溢出=整栈 clear（禁 shift）/栈基 [nodes,edges]/
-// trackedOrigins=LocalUser 单值。本文件=T16（单 UndoManager 收口）的消费契约锁。
+// 撤销栈策略契约冻结的契约测试——500ms 捕获窗/100 上限/溢出=整栈 clear（禁 shift）/栈基
+// [nodes,edges,timelines]（Y4a T1 扩第三根）/trackedOrigins=LocalUser 单值+timeline-user 登记。
+// 本文件=T16（单 UndoManager 收口）的消费契约锁。
 import { describe, expect, it } from 'vitest';
 import {
   UNDO_CAPTURE_TIMEOUT_MS, UNDO_OVERFLOW_ACTION, UNDO_OVERFLOW_FORBIDDEN, UNDO_STACK_BASE,
@@ -24,9 +25,13 @@ describe('Y1c T5b 契约冻结：Undo 策略（D6 维持）', () => {
     expect(undoOverflowAction(101)).toBe('clear-whole-stack');
     expect(undoOverflowAction(5000)).toBe('clear-whole-stack');
   });
-  it('栈基冻结=[nodes,edges] 两 Y.Map（doc 双根——次序冻结）；trackedOrigins=LocalUser 单值（Server/AutoEdge/Geometry 不入栈）', () => {
-    expect([...UNDO_STACK_BASE]).toEqual(['nodes', 'edges']);
+  it('栈基冻结=[nodes,edges,timelines] 三 Y.Map（Y4a T1 扩 timelines——spec §0 条 7/画布栈撤销删除带回时间轴；次序冻结）；trackedOrigins=LocalUser 单值（Server/AutoEdge/Geometry 不入栈）', () => {
+    expect([...UNDO_STACK_BASE]).toEqual(['nodes', 'edges', 'timelines']);
     expect([...UNDO_TRACKED_ORIGINS]).toEqual(['local-user']);
+  });
+  it('Y4a T1 时间轴编辑 origin 登记：UNDO_TIMELINE_ORIGIN === \'timeline-user\'（web Origin 枚举引用同值——时间轴编辑栈 trackedOrigins，T5 消费）', async () => {
+    const { UNDO_TIMELINE_ORIGIN } = await import('./undo-policy');
+    expect(UNDO_TIMELINE_ORIGIN).toBe('timeline-user');
   });
   it('Y1c T21 解冻同步：T18 增补项=ySyncPluginKey（构造面一次到位——初始集非终集纪律的登记真值锚）', async () => {
     const { UNDO_TRACKED_ORIGINS_T18_ADDENDUM } = await import('./undo-policy');

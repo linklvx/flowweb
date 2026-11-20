@@ -1,4 +1,5 @@
 // packages/shared/src/types/video-project.ts
+import { FIRST_ORDER_KEY } from '../canvas/order-key';
 /** 导出档位 = 目标短边（spec 5.3）——shared 定义，web/api 两侧派生消费 */
 export type ExportResolution = '480p' | '720p' | '1080p';
 export interface ProjectData {
@@ -15,6 +16,7 @@ export interface Track {
   muted: boolean;
   hidden: boolean;
   clips: string[]; // 三类轨语义一致，按 start 有序
+  order: string; // Y4a T1（spec §3.1 v7 类型补件）：轨排序键（order-key 域；读序=order 再比 trackId）
 }
 export interface BaseClip { id: string; trackId: string; start: number; duration: number; }
 export interface Transform { x: number; y: number; scale: number; rotation: number; opacity: number; }
@@ -57,7 +59,8 @@ export function createDefaultProjectData(): ProjectData {
   return {
     version: 1, fps: 30,
     tracks: [
-      { id: genId('track'), type: 'video', name: '视频', muted: false, hidden: false, clips: [] },
+      // Y4a T1：默认轨 order=FIRST_ORDER_KEY('5000')——空层中位点（canvas/order-key 单源）
+      { id: genId('track'), type: 'video', name: '视频', muted: false, hidden: false, clips: [], order: FIRST_ORDER_KEY },
     ],
     clips: {},
   };

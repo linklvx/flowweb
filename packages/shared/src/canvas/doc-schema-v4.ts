@@ -207,7 +207,11 @@ export const DOC_SCHEMA_V4: Record<
       // 以下三键=video-edit 导出产物节点写点（product-node.ts:23 addNode dataOverride——
       // census ② 接口真源之外的实测真实 doc 键，按「真实键必登记」收编）：
       origin: lww(), // 创建来源标记（'video-edit'）
-      videoProjectId: lww(), // VideoProject PG 身份引用（非 mediaId/fileId 媒体族——mediaRef 不标）
+      // Y4a T3（spec §0 条 9/§3.5 导出注册链 re-key）：`videoProjectId`→`sourceNodeId`——那是
+      // doc 里的字符串非 PG 外键（表整删后 VideoProject 身份不复存在；剪辑节点自身 id 同名）。
+      // 旧键执法机制：videoProjectId 不再登记于矩阵——旧键写入走键集外 unknown-data-key:
+      // videoGen.videoProjectId 拒（非 server-forbidden 翻禁面——键被移出键集即拒，零新条目）。
+      sourceNodeId: lww(),
       label: lww(),
     },
   },
@@ -242,7 +246,7 @@ export const DOC_SCHEMA_V4: Record<
   videoEdit: {
     envelope: NODE_ENVELOPE_KEYS,
     // census ②：无独立 data 接口、快照面 data 全剥——doc 侧现键=通用 order 仅此一项；
-    // spec §3.1 目标「videoEdit{videoProjectId 等}」——VideoProject 绑定键落位时随卡登记
+    // Y4a T3 换键后 videoGen 域=sourceNodeId（spec §3.5）；videoEdit 侧绑定键落位时随卡登记
     data: {
       order: lww(),
     },

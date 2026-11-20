@@ -102,6 +102,14 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
       isQuotaFrozen: () => false,
       releaseResidentDoc: async () => {},
       switchWalGeneration: async (pid, generation) => { switchedWal.push({ pid, generation }); },
+      // Y4a T2：rebuildDocFaithful host 缝（canonical 重建——生产=gateway 转发 DR 唯一拷贝器；
+      // 本 int 装置=状态机编排替身：fresh doc 全量重编码（M-a drift 编舞只消费 stage 推进+换代行，
+      // 重建内容非断言面——DR 直构过重〔repo+persistence〕不入装置）。
+      rebuildDocFaithful: (source) => {
+        const fresh = createCanvasDoc();
+        try { Y.applyUpdate(fresh, Y.encodeStateAsUpdate(source)); return fresh; }
+        catch (e) { fresh.destroy(); throw e; }
+      },
     });
     // gateway 生产接线形态复刻：actor freeze 面经 host 读 maintenance（4413 拒帧判定源）
     actor.bindHost({

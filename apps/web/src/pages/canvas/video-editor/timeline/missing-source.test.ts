@@ -5,7 +5,7 @@ import type { ProjectData } from '../types';
 
 const data = (sourceNodeIds: (string | undefined)[]): ProjectData => ({
   version: 1, fps: 30,
-  tracks: [{ id: 'tv', type: 'video', name: 'V', muted: false, hidden: false, clips: sourceNodeIds.map((_, i) => `c${i}`) }],
+  tracks: [{ id: 'tv', type: 'video', name: 'V', muted: false, hidden: false, clips: sourceNodeIds.map((_, i) => `c${i}`), order: '5000' }],
   clips: Object.fromEntries(sourceNodeIds.map((sn, i) => [`c${i}`, {
     id: `c${i}`, trackId: 'tv', type: 'video', start: 0, duration: 3, sourceStart: 0, mediaId: `m${i}`,
     ...(sn ? { sourceNodeId: sn } : {}), playbackSpeed: 1,

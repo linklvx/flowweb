@@ -11,6 +11,8 @@ import { ensureAutoEdges } from '../timeline/auto-edges';
 import { canvasSizeOf, remapForCanvasSize, type CanvasSize } from '../timeline/canvas-size';
 import { keyframeValueAt, interpolateTransform } from '../scene/interpolate';
 import { stopCapturing } from '@/stores/canvasUndo';
+// Y4a T1（Track.order 补件）：轨序键单源（order-key——addTrack 尾插；FIRST_ORDER_KEY 默认轨口径）
+import { FIRST_ORDER_KEY, compareOrderKeys, orderKeyAfter } from '@flowweb/shared';
 
 export type EditorStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type SaveState = 'saved' | 'saving' | 'error';
@@ -409,7 +411,10 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       const count = get().data?.tracks.filter(t => t.type === type).length ?? 0;
       commit((d) => ({
         ...d,
-        tracks: [...d.tracks, { id, type, name: `${type === 'video' ? '视频' : type === 'audio' ? '音频' : '字幕'}${count + 1}`, muted: false, hidden: false, clips: [] }],
+        // Y4a T1（Track.order 补件）：新增轨 order=尾插键（order-key 单源——max.int+1 零碰撞；
+        // 全空回落 FIRST_ORDER_KEY 同「默认轨 order='5000'」口径；orderKeyAfter null 档=越上沿，
+        // addTrack 维持现状键不越界）
+        tracks: [...d.tracks, { id, type, name: `${type === 'video' ? '视频' : type === 'audio' ? '音频' : '字幕'}${count + 1}`, muted: false, hidden: false, order: orderKeyAfter([...d.tracks].sort((a, b) => compareOrderKeys(a.order, b.order)).at(-1)?.order ?? FIRST_ORDER_KEY) ?? FIRST_ORDER_KEY, clips: [] }],
       }), { structural: false });
       return id;
     },

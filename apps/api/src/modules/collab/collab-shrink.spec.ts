@@ -852,6 +852,8 @@ function buildVacuumSvc(gateway: CollabGateway, repo: any, harnessOpts: { inFlig
       gateway.docRegistry.purgeDocState(pid);
     },
     switchWalGeneration: (pid: string, generation: number) => gateway.switchWalGeneration(pid, generation),
+    // Y4a T2：rebuildDocFaithful 单源缝（canonical 重建委托 DR 唯一拷贝器——gateway 转发同源）
+    rebuildDocFaithful: (source) => gateway.rebuildDocFaithful(source),
   });
   const svc = new CollabShrinkService(perm as any, docs as any, gateway, {} as any, {} as any, repo, maintenance);
   return { svc, perm, docs, maintenance, m };

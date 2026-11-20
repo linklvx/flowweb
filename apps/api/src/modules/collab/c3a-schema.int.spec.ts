@@ -107,13 +107,13 @@ import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';(hasDb ? describe : 
     expect(PROJECT_COLUMN_MODELS).toContain('ProjectionBackfillState');
   });
 
-  it('⑤ Y2 C1 @default 缺省插入落 4（schemaVersion 不写列——漏写该列的插入落 3、下轮装载被拒）', async () => {
+  it('⑤Y4a T2 @default 缺省插入落 5（schemaVersion 不写列——漏写该列的插入落 4 被装载版本门拒载；ALTER COLUMN SET DEFAULT 5 迁移进库后即绿）', async () => {
     await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
     // 缺省插入（data 不含 schemaVersion 列——走 PG 表 DEFAULT）
     await prisma.$executeRaw`INSERT INTO "CanvasDoc" ("projectId", generation, "updatedAt") VALUES (${PID}::text, 0::int, now())`;
     const doc = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID }, select: { schemaVersion: true } });
-    expect(doc.schemaVersion).toBe(CANVAS_DOC_SCHEMA_VERSION);   // 修前红：@default(3) 落 3≠4
-    // init 形态钉同批：CREATE TABLE "CanvasDoc" 块的 schemaVersion DEFAULT 4
+    expect(doc.schemaVersion).toBe(CANVAS_DOC_SCHEMA_VERSION);   // 修前红：DB DEFAULT 尚 4 ≠ 5（SET DEFAULT 5 迁移未进库）
+    // init 形态钉同批：CREATE TABLE "CanvasDoc" 块的 schemaVersion DEFAULT 4（历史 CREATE 不动——缺省插入=常量锁）
     const sqlOf = (d: string) => readFileSync(join(MIG_DIR, d, 'migration.sql'), 'utf8');
     const initDirs = readdirSync(MIG_DIR).filter((d) => /^\d+_/.test(d));
     const creators = initDirs
@@ -123,5 +123,11 @@ import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';(hasDb ? describe : 
       const block = sql.match(/CREATE TABLE "CanvasDoc" \(([\s\S]*?)\n\);/)?.[1] ?? '';
       expect(block, `${d} CanvasDoc.schemaVersion DEFAULT 4`).toMatch(/"schemaVersion" INTEGER NOT NULL DEFAULT 4/);
     }
+    // Y4a T2 默认值迁移形态钉：ALTER COLUMN SET DEFAULT 5 存在且不 UPDATE 旧行（开发库已 4 的行被版本门拒载=预期）
+    const v5Dirs = initDirs.filter((d) => /_canvas_schema_v5_default$/.test(d));
+    expect(v5Dirs.length, '缺省值迁移目录必在（canvas_schema_v5_default）').toBe(1);
+    const v5Sql = sqlOf(v5Dirs[0]).replace(/--[^\n]*/g, '');
+    expect(v5Sql).toMatch(/ALTER TABLE "CanvasDoc" ALTER COLUMN "schemaVersion" SET DEFAULT 5/);
+    expect(v5Sql).not.toMatch(/UPDATE/i);   // 不 UPDATE 旧行（spec §0 条 9）
   });
 });

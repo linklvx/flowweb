@@ -28,7 +28,7 @@ beforeEach(() => {
   HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ __fake: true })) as unknown as typeof HTMLCanvasElement.prototype.getContext;
   useEditorStore.setState({
     status: 'ready', playing: false, playhead: 0,
-    data: { version: 1, fps: 30, tracks: [{ id: 'tv', type: 'video', name: 'v', muted: false, hidden: false, clips: ['a'] }], clips: { a: imageClip('a', 'mi', 5) } },
+    data: { version: 1, fps: 30, tracks: [{ id: 'tv', type: 'video', name: 'v', muted: false, hidden: false, clips: ['a'], order: '5000' }], clips: { a: imageClip('a', 'mi', 5) } },
     mediaInfo: { mi: { name: 'i', durationSec: 5 } }, // 无 url——层跳过在 render-frame 内部（已 mock）
   });
 });

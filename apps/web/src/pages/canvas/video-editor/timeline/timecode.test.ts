@@ -32,7 +32,7 @@ describe('totalDuration（原点恒 0，总长 = max(end)；overlap 不重复计
     });
     return {
       version: 1, fps: 30,
-      tracks: [{ id: 't', type: 'video', name: 'V', muted: false, hidden: false, clips: entries.map(([id]) => id) }],
+      tracks: [{ id: 't', type: 'video', name: 'V', muted: false, hidden: false, clips: entries.map(([id]) => id), order: '5000' }],
       clips: Object.fromEntries(entries),
     };
   };

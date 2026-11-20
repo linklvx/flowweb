@@ -51,9 +51,9 @@ class FakeDoc implements DocLike {
   createXmlText = (): { insert(): void; setAttribute(): void } => ({ insert: () => {}, setAttribute: () => {} });
 }
 
-describe('CANVAS_DOC_SCHEMA_VERSION=4（Y2 C1 版本 4——meta 门退役，版本承载=CanvasDoc.schemaVersion PG 列）', () => {
-  it('常量钉 4（与 CLIENT_PROTOCOL_VERSION 同 bump——双常量=4；行值≠4 由 api 装载列门拒载）', () => {
-    expect(CANVAS_DOC_SCHEMA_VERSION).toBe(4);
+describe('CANVAS_DOC_SCHEMA_VERSION=5（Y4a T2 版本 5——spec §0 条 9 与 CLIENT_PROTOCOL_VERSION 同笔 bump；行值≠5 由 api 装载列门拒载）', () => {
+  it('常量钉 5（双常量同 bump——timeline 根物化批；懒插入落 4 被版本门拒载故 schema @default(5) 同批）', () => {
+    expect(CANVAS_DOC_SCHEMA_VERSION).toBe(5);
   });
 });
 
@@ -63,5 +63,14 @@ describe('doc 内容不再带版本（meta map 零版本键——客户端无从
     fillDoc(doc, [{ id: 'n1', type: 'textInput', position: { x: 0, y: 0 }, data: {} }], []);
     expect([...doc.getMap('meta').entries()].length).toBe(0);
     expect(doc.getMap('meta').get('schemaVersion')).toBeUndefined();
+  });
+
+  // Y4a T2（spec §0 条 7——根集合守恒）：fillDoc 物化 timelines 根、不放工程。
+  it('Y4a T2：fillDoc 物化 timelines 根（空 doc fillDoc → getMap("timelines") 存在且 size===0——不种工程）', () => {
+    const doc = new FakeDoc();
+    fillDoc(doc, [], []);
+    const timelines = doc.getMap('timelines');
+    expect(timelines).toBeDefined();
+    expect([...timelines.entries()].length).toBe(0);   // 根物化零键——工程种入归 applyIntentToDoc addNode 分支（T7）
   });
 });

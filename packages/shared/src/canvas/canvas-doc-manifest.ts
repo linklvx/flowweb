@@ -11,8 +11,9 @@ import { NODE_ENVELOPE_KEYS } from './nodeEnvelope';
 import type { StoredNodeRecord } from './collab-doc-ops';
 import type { DocEdgeRecord } from './docShape';
 
-// ── 层①：顶层 map 集合（生产 getMap 面实测 2026-10-14：nodes/meta/edges/exec 四 map，别无他名）──
-export const DOC_TOP_LEVEL_MAPS = ['meta', 'nodes', 'edges', 'exec'] as const;
+// ── 层①：顶层 map 集合（生产 getMap 面实测 2026-10-14：nodes/meta/edges/exec 四 map；
+//    Y4a T2 +timelines——spec §3.2 manifest 行「新增顶层域七处单源」）──
+export const DOC_TOP_LEVEL_MAPS = ['meta', 'nodes', 'edges', 'exec', 'timelines'] as const;
 export type DocTopLevelMap = (typeof DOC_TOP_LEVEL_MAPS)[number];
 
 // ── 层④：归属面+撤销 scope 词汇 ──
@@ -130,7 +131,7 @@ export const DOC_KEY_MANIFEST: Record<DocTopLevelMap, readonly DocKeyManifestEnt
     {
       // T18（Y1b T2/Y1c 版本硬切）：meta.schemaVersion 退役——版本承载=CanvasDoc.schemaVersion
       // PG 列（api 装载行值门比对≠3 拒载）。meta map 零生产写者/零版本读者；条目保留=顶层 map
-      // 集合登记（DOC_TOP_LEVEL_MAPS 四 map 面不变——旧档 doc 残留 meta 值仅作历史载荷不解释）。
+      // 集合登记（DOC_TOP_LEVEL_MAPS 实测面不变——旧档 doc 残留 meta 值仅作历史载荷不解释）。
       map: 'meta', path: 'meta（空 map——T18 起零键；版本判据=CanvasDoc.schemaVersion PG 列）',
       writers: ['（无——T18 起 meta 零生产写者）'],
       readers: ['（无版本读——旧档残留 meta.schemaVersion 仅历史载荷；vacuum rebuildVacuumDoc 深拷贝=透明搬运非键读写）'],
@@ -182,12 +183,24 @@ export const DOC_KEY_MANIFEST: Record<DocTopLevelMap, readonly DocKeyManifestEnt
     {
       // Y1c T32（spec §6.7 删除清单）：doc.exec 读写链退役——writeExecStatus/deliverArtifact 已切
       // RuntimeEvent feed（T22），exec map 零生产写者/零读者（web 读=T22 起切 Runtime Store 投影）。
-      // 条目保留=顶层 map 集合登记（DOC_TOP_LEVEL_MAPS 四 map 面不变——旧档 doc 残留 exec 根值仅
+      // 条目保留=顶层 map 集合登记（DOC_TOP_LEVEL_MAPS 实测面不变——旧档 doc 残留 exec 根值仅
       // 作历史载荷 wire 透传不解释；vacuum 真空重建不搬运该根〔死根随换代消亡〕）。
       map: 'exec', path: 'exec（死根——T32 起零键登记；执行状态权威=RuntimeEvent feed 投影）',
       writers: ['（无——T22 起零生产写者，T32 删 doc 写原语）'],
       readers: ['（无——web 读 T22 起切 Runtime Store 投影；api 读者 T32 随删除清单退役）'],
       ownership: 'exec', undo: 'server-only',
+    },
+  ],
+  timelines: [
+    {
+      // Y4a T2（spec §0 条 7/§3.2 表 层③④）：时间轴顶层根登记——键=剪辑节点自身 canvas nodeId
+      // （=VideoProject.sourceNodeId 同义）；entry=Y.Map{version,fps,canvasSize,tracks,clips}。
+      // 根物化三处单源：fillDoc 装载根（docShape）/服务端 loadDocument 装载缝（registry——
+      // 水合 applyUpdate 不经 fillDoc）/rebuildDocFaithful 重建（深拷贝 U-2 既有路径）。
+      map: 'timelines', path: 'timelines.*（每剪辑节点一棵入口 Y.Map——version/fps/canvasSize/tracks/clips；标量槽 JSON 整值替换）',
+      writers: ['canvasIntents.applyIntentToDoc(addNode/deleteNode)（LocalUser——节点与 timelines.<nodeId> 同笔创建/删除）', 'editorStore diff 写路径（timeline-user——结构 diff 只改碰到的键）'],
+      readers: ['视频编辑器（编辑器只读已存在键——键不在不创建）', '导出/预览（runExport 消费）', '迷你画布（轨道缩略）', 'oracle/GC 扫描（SCAN_ROOTS+clip mediaId 并集）', 'vacuum/canary 语义面（shapeOf+stableStringify）'],
+      ownership: 'doc', undo: 'client-undo',
     },
   ],
 };

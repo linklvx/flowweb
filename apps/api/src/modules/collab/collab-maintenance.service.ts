@@ -53,7 +53,6 @@ import {
   DOC_VACUUMING_TERMINAL_REASON,
   canTransitionMaintenanceStage,
   toReadModel,
-  fillDoc,
   type MaintenanceStage,
 } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -64,7 +63,7 @@ import { RuntimeFeedService } from './runtime-feed.service';
 import { ProjectionBackfillRunner } from './projection-backfill.runner';   // C3a-8：vacuum 换代后 binding 回填入队
 import { createCanvasDoc } from './canvas-doc.factory';
 import { readCanvasDocHead } from './canvas-doc-head';   // 契约 1 豁免读面（缺头三态——CanvasDoc 头行读不绕 repository 装载单源）
-import { toDocLike } from './doc-like.util';
+import { stableStringify } from './collab-canary-semantic';   // Y4a T2：records hash 面 timelines 稳定序列化单源（T9 vacuumEquivalent 同函数）
 import { collabMaintenanceCloseTotal, collabMaintenanceRequestedTotal, collabMaintenanceStageAdvanceTotal } from './collab-maintenance.metrics';
 import { fenceProject, lockProject } from './project-lock';
 
@@ -97,6 +96,9 @@ export interface CollabMaintenanceHost {
   releaseResidentDoc(pid: string): Promise<void>;
   /** WAL 段 namespace 切代（spool.switchGeneration——**事务提交后**；事务内禁切）。 */
   switchWalGeneration(pid: string, generation: number): Promise<void>;
+  /** Y4a T2（spec §0 条 7）rebuildDocFaithful 单源消费缝：canonical 重建委托 DR 侧唯一拷贝器
+   *  （gateway 1 行转发族——DR.rebuildDocFaithful；禁 canonical 自手搓第二套 fillDoc 拷贝器）。 */
+  rebuildDocFaithful(source: Y.Doc): Y.Doc | null;
 }
 
 /** rebuild payload 提供方（vacuum 委托=shrink 注入 rebuildVacuumDoc+equivalence；canonical=本服务内置）。 */
@@ -384,27 +386,40 @@ export class CollabMaintenanceService {
     return { exportHash, hydrate };
   }
 
-  /** 装载行→records（EXPORTING/VERIFYING 共用——快照+增量尾重放后 toReadModel）。 */
-  private recordsOfHydration(hydrate: HydrationRow): { nodes: unknown[]; edges: unknown[] } {
+  /** 装载行→records（EXPORTING/VERIFYING 共用——快照+增量尾重放后 toReadModel）。
+   *  Y4a T2（spec §0 条 7「哈希和真空等价比较包含 timelines」）：返回值加 timelines 根稳定
+   *  序列化（stableStringify——collab-canary-semantic 单源导出，键序稳定防深拷贝后假红）进
+   *  hash 面；节点/边公开读模型保持原样（toReadModel 结构性不含 timelines——公开零泄漏）。 */
+  private recordsOfHydration(hydrate: HydrationRow): { nodes: unknown[]; edges: unknown[]; timelines: string } {
     const doc = createCanvasDoc();
     try {
       if (hydrate.state) Y.applyUpdate(doc, new Uint8Array(hydrate.state));
       for (const u of hydrate.updates) Y.applyUpdate(doc, new Uint8Array(u));
       const records = toReadModel(doc);
-      return { nodes: records.nodes as unknown[], edges: records.edges as unknown[] };
+      return {
+        nodes: records.nodes as unknown[],
+        edges: records.edges as unknown[],
+        timelines: stableStringify(Object.fromEntries(doc.getMap('timelines').entries())),
+      };
     } finally { doc.destroy(); }
   }
 
-  /** REBUILDING 段动作（canonical 内置模式）：fresh doc（新 clientID）+fillDoc records 真值重放。 */
+  /** REBUILDING 段动作（canonical 内置模式）：fresh doc（新 clientID）重放 records 真值。
+   *  Y4a T2（spec §0 条 7）rebuildDocFaithful 单源：改经 host 缝委托 DR 侧唯一拷贝器——
+   *  「toReadModel+fillDoc 直写」在时间轴进 doc 后=canonical 重建丢整棵 timelines（禁形）；
+   *  rebuildDocFaithful 的 fillDoc 物化 timelines 根+deepCopyYMap 搬内容（canonical 重建
+   *  保留时间轴后 EXPORTING/VERIFYING hash 面〔recordsOfHydration timelines〕两侧恒等——
+   *  校验仍过；负控钉死=T12 vacuum int Y4a 档）。host 缺席（直构离线形态）=不支持 canonical
+   *  档净失败（typed error——真空委托档不受影响：buildRebuildPayload 由 shrink 注入走同源）。 */
   private rebuildCanonical(hydrate: HydrationRow): { state: Buffer; updateRowCount: number } {
+    if (!this.host) throw new Error('REBUILD_NO_HOST: canonical 重建须 host.rebuildDocFaithful 缝（gateway 转发 DR 单源——直构离线形态不支持 canonical 档）');
     const oldDoc = createCanvasDoc();
     try {
       if (hydrate.state) Y.applyUpdate(oldDoc, new Uint8Array(hydrate.state));
       for (const u of hydrate.updates) Y.applyUpdate(oldDoc, new Uint8Array(u));
-      const records = toReadModel(oldDoc);
-      const fresh = createCanvasDoc();
+      const fresh = this.host.rebuildDocFaithful(oldDoc);
+      if (fresh === null) throw new Error('REBUILD_UNSUPPORTED_ROOT: canonical 重建遇 Text/Array 序列根（vacuum 降级通道档——维护状态机不应达）');
       try {
-        fillDoc(toDocLike(fresh), records.nodes, records.edges);
         return { state: Buffer.from(Y.encodeStateAsUpdate(fresh)), updateRowCount: hydrate.updates.length };
       } finally { fresh.destroy(); }
     } finally { oldDoc.destroy(); }

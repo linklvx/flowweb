@@ -456,6 +456,8 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
           this.docRegistry.purgeDocState(pid);   // 进程态普查表（旧代记账不跨换代窗）
         },
         switchWalGeneration: (pid, generation) => this.spool.switchGeneration(pid, generation),
+        // Y4a T2（spec §0 条 7）rebuildDocFaithful 单源转发：maintenance canonical 重建委托 DR 唯一拷贝器。
+        rebuildDocFaithful: (source) => this.docRegistry.rebuildDocFaithful(source),
       });
     }
     this.frameGate = frameGate ?? new CollabFrameGateService(this.docRegistry, this.projectActor);
@@ -763,7 +765,14 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** ④ 全根真空重建（vacuum service 与 recheck residue 评估共用单源——yjs wire 根类型事实/
-   *  U-1/U-2 注释见 service 对应位；deepCopyYMap 随迁 DR 模块级）。 */
+   *  U-1/U-2 注释见 service 对应位；deepCopyYMap 随迁 DR 模块级）。
+   *  Y4a T2（spec §0 条 7）rebuildDocFaithful 单源：DR 侧唯一拷贝器——maintenance canonical/
+   *  exportFresh 均经本转发名消费（三处手搓第二套拷贝器=禁形）。 */
+  rebuildDocFaithful(source: Y.Doc): Y.Doc | null {
+    return this.docRegistry.rebuildDocFaithful(source);
+  }
+
+  /** ④ 旧转发名（shrink buildRebuildPayload 委托链既有消费面——语义同 rebuildDocFaithful 零行为差）。 */
   rebuildVacuumDoc(source: Y.Doc): Y.Doc | null {
     return this.docRegistry.rebuildVacuumDoc(source);
   }

@@ -83,6 +83,26 @@ describe('C2-2b canary verify 纯判定面（红⑥-a 语义兜底构造）', ()
     expect(canonicalDocView(b)).toMatch(/edges:\{[^}]*e1/);
   });
 
+  // Y4a T2（spec §0 条 7「哈希和真空等价比较包含 timelines」+§3.2 表 canary 行）：canonicalDocView
+  // 扩 timelines 根——仅时间轴差异的两 doc 摘要不等。修前红：视图不含该根 ⇒ digest 恒等。
+  it('Y4a T2：canonicalDocView 含 timelines 根——仅 timelines 差异的两 doc 摘要不等（时间轴进 doc 后 must 进语义面）', () => {
+    const a = new Y.Doc();
+    Y.applyUpdate(a, nodeFrame('k1', 'm-1'));
+    const b = new Y.Doc();
+    Y.applyUpdate(b, nodeFrame('k1', 'm-1'));
+    const entry = new Y.Map();
+    entry.set('version', 1);
+    entry.set('fps', 30);
+    const clips = new Y.Map();
+    clips.set('clip1', new Y.Map([['type', 'video'], ['mediaId', 'm-1'], ['span', { trackId: 'k1:video', start: 0, duration: 5 }]]));
+    entry.set('clips', clips);
+    b.getMap('timelines').set('k1', entry);   // 仅时间轴差异（nodes/edges 同）
+    expect(semanticEqualDocs(a, b)).toBe(false);
+    expect(semanticDocDigest(a)).not.toBe(semanticDocDigest(b));
+    expect(canonicalDocView(b)).toContain('timelines:');
+    expect(canonicalDocView(b)).toMatch(/timelines:\{[^}]*k1/);
+  });
+
   it('svMutuallySupported：重放缺帧（删行形态——SV 少 client clock）→ false（mismatch 判据）', () => {
     const a = new Y.Doc();
     Y.applyUpdate(a, nodeFrame('k1', 'm-1'));

@@ -33,7 +33,7 @@ describe('placeAssetInTrack（spec 3.1 / D8 动态建轨策略）', () => {
     // 显式补建音频轨 + 一条 0-3s 片段：
     const d2: ProjectData = {
       ...d,
-      tracks: [...d.tracks, { id: 'ta', type: 'audio', name: '音频1', muted: false, hidden: false, clips: ['a1'] }],
+      tracks: [...d.tracks, { id: 'ta', type: 'audio', name: '音频1', muted: false, hidden: false, clips: ['a1'], order: '5000' }],
       clips: { ...d.clips, a1: audioClip('a1', 0, 3, 'ta') },
     };
     const r2 = placeAssetInTrack(d2, { mimeType: 'audio/mp3' });

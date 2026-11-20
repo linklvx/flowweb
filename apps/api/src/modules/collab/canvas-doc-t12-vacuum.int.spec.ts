@@ -194,6 +194,9 @@ maybe('Y1c T12 复核残留 I1.2：era 定格 DB 真值化+expectedGeneration �
       isQuotaFrozen: () => false,
       releaseResidentDoc: async () => {},
       switchWalGeneration: async () => {},
+      // Y4a T2：rebuildDocFaithful host 缝（canonical 重建——生产=gateway 转发 DR 唯一拷贝器；
+      // 本 kit 有真 gateway ⇒ 直连其 DR 单源〔vacuum 委托档断言面=rebuildVacuumDoc 等价链〕）。
+      rebuildDocFaithful: (source) => gateway.rebuildDocFaithful(source),
     });
     const svc = new CollabShrinkService(
       { assertEditorWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }) } as any,
@@ -223,4 +226,51 @@ maybe('Y1c T12 复核残留 I1.2：era 定格 DB 真值化+expectedGeneration �
     expect(head[0].generation).toBe(3);
     expect(canvasDocName(PID_ERA, 3)).toBe(`project:${PID_ERA}#g3`);   // 换代通道 DB 面（① 同锚）
   });
+
+  // ══ Y4a T2（spec §0 条 7）：真空重建×timelines 根——shapeOf 两侧对称+内容搬入新代 ══
+  it('Y4a T2-A：旧形态 doc（快照无 timelines 根）⇒ vacuum 仍 ok（fillDoc 物化后 fresh 恒带根——old 侧同造根才 shapeOf 等）', async () => {
+    await seedUnloadedDoc(1);
+    const { svc } = await buildKit();
+    const r = await svc.vacuum(PID_ERA, 'u1');
+    // 红序锚：fillDoc 物化 timelines 后、vacuumEquivalent 两侧 getMap 对称前 ⇒ shapeOf 单侧造根
+    // ⇒ equivalence-failed（meta :780-781 假红同根因——修实现侧非改测试）。
+    expect(r.result).toBe('ok');
+    expect(r.generation).toBe(2);
+  }, 60_000);
+
+  it('Y4a T2-B：doc 带 timelines 根+内容 ⇒ vacuum ok 且时间轴搬入新代（rebuildDocFaithful 单源——deepCopyYMap U-2 既有路径）', async () => {
+    // 布景：gen1 快照带 timelines.n1 工程子树（clip c1 mediaId=m-1）
+    const doc = createCanvasDoc();
+    try {
+      doc.getMap('nodes').set('n1', new Y.Map([['type', 'textInput']]));
+      const entry = new Y.Map();
+      entry.set('version', 1);
+      entry.set('fps', 30);
+      const clips = new Y.Map();
+      clips.set('c1', new Y.Map([['type', 'video'], ['mediaId', 'm-1'], ['span', { trackId: 'n1:video', start: 0, duration: 5 }]]));
+      entry.set('clips', clips);
+      doc.getMap('timelines').set('n1', entry);
+      const state = Buffer.from(Y.encodeStateAsUpdate(doc));
+      await prisma.$executeRaw`INSERT INTO "CanvasDocSnapshot" ("projectId", generation, "snapshotRev", "stateSeq", state, "stateHash", "vacuumEpoch", "schemaVersion")
+        VALUES (${PID_ERA}::text, 1::int, 0::bigint, 0::bigint, ${state}, ${createHash('sha256').update(state).digest('hex')}::char(64), 0::int, ${CANVAS_DOC_SCHEMA_VERSION}::int)`;
+      await prisma.$executeRaw`INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "currentSnapshotRev", "updatedAt")
+        VALUES (${PID_ERA}::text, 1::int, ${CANVAS_DOC_SCHEMA_VERSION}::int, 0::bigint, now())`;
+    } finally { doc.destroy(); }
+    const { svc } = await buildKit();
+    const r = await svc.vacuum(PID_ERA, 'u1');
+    expect(r.result).toBe('ok');
+    expect(r.generation).toBe(2);
+    // 新代快照重放：timelines.n1 工程搬入新代（clip c1 在——真空不丢时间轴）
+    const snap = await prisma.$queryRaw<{ state: Buffer }[]>`
+      SELECT state FROM "CanvasDocSnapshot" WHERE "projectId" = ${PID_ERA}::text AND generation = 2::int AND "snapshotRev" = 0::bigint`;
+    expect(snap).toHaveLength(1);
+    const revived = createCanvasDoc();
+    try {
+      Y.applyUpdate(revived, new Uint8Array(snap[0].state));
+      const tl = revived.getMap('timelines').get('n1');
+      expect(tl).toBeInstanceOf(Y.Map);
+      const clipsOut = (tl as Y.Map<unknown>).get('clips') as Y.Map<unknown>;
+      expect((clipsOut.get('c1') as Y.Map<unknown>).get('mediaId')).toBe('m-1');
+    } finally { revived.destroy(); }
+  }, 60_000);
 });

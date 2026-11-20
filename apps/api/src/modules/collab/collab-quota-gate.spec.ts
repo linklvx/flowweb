@@ -503,6 +503,8 @@ function buildVacuumSvc(kit: DualClientKit, repo: any) {
       gw.docRegistry.purgeDocState(pid);
     },
     switchWalGeneration: (pid: string, generation: number) => gw.switchWalGeneration(pid, generation),
+    // Y4a T2：rebuildDocFaithful 单源缝（canonical 重建委托 DR 唯一拷贝器）
+    rebuildDocFaithful: (source) => gw.rebuildDocFaithful(source),
   });
   return new CollabShrinkService(perm as any, docs as any, kit.gateway, {} as any, {} as any, repo, maintenance);
 }

@@ -15,7 +15,7 @@ const ac = (id: string, mediaId: string, start: number, duration: number, trackI
 });
 const mk = (clips: (VideoClip | AudioClip | SubtitleClip)[], tracks: { id: string; type: 'video' | 'subtitle' | 'audio' }[]): ProjectData => ({
   version: 1, fps: 30,
-  tracks: tracks.map((t) => ({ id: t.id, type: t.type, name: t.id, muted: false, hidden: false, clips: clips.filter((c) => c.trackId === t.id).map((c) => c.id) })),
+  tracks: tracks.map((t) => ({ id: t.id, type: t.type, name: t.id, muted: false, hidden: false, clips: clips.filter((c) => c.trackId === t.id).map((c) => c.id), order: '5000' })),
   clips: Object.fromEntries(clips.map((c) => [c.id, c])),
 });
 

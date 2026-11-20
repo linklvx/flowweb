@@ -221,6 +221,27 @@
       ]
     },
     {
+      "path": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "packages/shared/src/canvas/canvas-node-delete.spec.ts",
+          "line": 2,
+          "text": "// Y4a T1（plan 2026-11-20-y4a-timeline-domain Task 1——spec §0 条 3/4）：两个删除原语的行为锁。"
+        },
+        {
+          "src": "packages/shared/src/canvas/canvas-node-delete.ts",
+          "line": 2,
+          "text": "// Y4a T1（plan 2026-11-20-y4a-timeline-domain Task 1——spec §0 条 3/4）：shared 删除原语单源"
+        },
+        {
+          "src": "packages/shared/src/canvas/timeline-codec.spec.ts",
+          "line": 2,
+          "text": "// Y4a T3（plan 2026-11-20-y4a-timeline-domain Task 3——spec §3.1 v6 修订④⑤/§3.4）："
+        }
+      ]
+    },
+    {
       "path": "docs/superpowers/plans/collab-e2e-gate-checklist.md",
       "criteria": "C1",
       "evidence": [

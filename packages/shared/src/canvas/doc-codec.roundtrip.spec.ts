@@ -224,6 +224,21 @@ describe('Y1c T4 DocCodec：v3 纯 JSON doc——toReadModel ≡ readRecordsFrom
     expect(() => serializeCanvas(doc)).toThrow(/RESERVED_YJS_TAG/);
     expect(toReadModel(doc).nodes[0].data.sneaky).toEqual({ $yjs: 'text', delta: [{ insert: 'fake' }] });   // 读出口不受影响（终端纯 JSON）
   });
+
+  // Y4a T2（spec §0 条 7——回归锁非先红档：toReadModel 结构性不产 timelines，登记防 T7/T9 扩读侧时漂移）。
+  it('Y4a T2 公开零泄漏锁：doc 带 timelines 根+内容 ⇒ toReadModel 输出键集无 timelines（公开读模型里根本没有 timelines——结构性保证非先放再剔除）', () => {
+    const doc = buildV3FixtureDoc();
+    const entry = new Y.Map<unknown>();
+    entry.set('version', 1);
+    entry.set('fps', 30);
+    const tracks = new Y.Map<unknown>();
+    tracks.set('ti1:video', new Y.Map<unknown>([['type', 'video'], ['name', '视频'], ['order', '5000']]));
+    entry.set('tracks', tracks);
+    doc.getMap('timelines').set('ti1', entry);
+    const out = toReadModel(doc);
+    expect(Object.keys(out).sort()).toEqual(['edges', 'nodes']);   // 修前已绿（读侧根本不遍历 timelines）——本条=回归锁
+    expect(out.nodes.map((n) => n.id).sort()).toEqual(['au1', 'g1', 'ig1', 'ti1']);
+  });
 });
 
 describe('Y1c T4 DocCodec：v4 嵌套类型 doc round-trip（语义相等非字节相等）', () => {

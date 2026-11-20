@@ -237,3 +237,45 @@ maybe('装载×compact 隔离性质（结构锚——对破坏后代码红，如
     expect(revived.getMap('nodes').has('z')).toBe(true);
   });
 });
+
+// ══ Y4a T2（spec §0 条 7——装载物化 timelines 根）：真 PG 装载链装置档 ══
+//  水合走 applyUpdate 不经 fillDoc ⇒ 帧里没有 timelines 根时装载链须主动补根
+// （SERVER_TRANSACT_ORIGIN 一笔空事务 getMap('timelines') 不放工程）；actor observeDeep 在其后。
+//  unit 面（collab-version-gate.spec 装载物化断言）覆盖 mock 路径；本档=真 PG hydrateWithRecovery 路径。
+maybe('Y4a T2：装载物化 timelines 根（真 PG——水合/重放完成后、根内零键）', () => {
+  const prisma = new PrismaClient();
+  const repo = new CanvasDocUpdateRepository(prisma as any);
+
+  beforeAll(async () => { await ensureProjectFixture(prisma, PID); });
+  beforeEach(async () => {
+    await ensureLeaseFixture(prisma, repo);
+    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
+    await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: PID } });
+    await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
+  });
+  afterAll(async () => { await restoreLeaseRow(prisma); await cleanupProjectFixture(prisma, PID); await prisma.$disconnect(); });
+
+  it('装载无 timelines 根的 doc → share 有 timelines 根且根内零键（SERVER_TRANSACT_ORIGIN 补根——根集合守恒）', async () => {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "CanvasDoc" ("projectId", generation, "schemaVersion", "updatedAt") VALUES ($1, 1, ${CANVAS_DOC_SCHEMA_VERSION}, now()) ON CONFLICT DO NOTHING`,
+      PID,
+    );
+    // 种子帧：无 timelines 根（Y4a 前档形态——nodes-only doc）
+    const d = new Y.Doc(); d.getMap('nodes').set('a', new Y.Map([['x', 1]]));
+    const row = seedAppend(Y.encodeStateAsUpdate(d));
+    await repo.appendBatch(PID, [row], { expectedPgSeq: 0n, newPgSeq: row.lastWalSeq, walCheckpointSeq: row.lastWalSeq });
+    const { state, updates } = await repo.hydrateWithRecovery(PID);
+    // 重放面（装载链 applyUpdate 段）：旧档帧无 timelines 根
+    const revived = new Y.Doc();
+    if (state) Y.applyUpdate(revived, new Uint8Array(state));
+    for (const u of updates) Y.applyUpdate(revived, new Uint8Array(u));
+    expect(revived.share.has('timelines')).toBe(false);   // 帧里没有——装载缝补根的动机实证
+    expect(revived.getMap('nodes').has('a')).toBe(true);
+    // 装载缝（DR.loadDocument 消费面形态）：share.has 为假 ⇒ transact(getMap('timelines')) 补根零键。
+    // 真网关装载全链在 version-gate spec（unit 面）钉死；本档钉 repo 装载读+补根后形态。
+    revived.transact(() => { revived.getMap('timelines'); }, 'server');
+    expect(revived.share.has('timelines')).toBe(true);
+    expect([...revived.getMap('timelines').keys()]).toHaveLength(0);
+    revived.destroy();
+  });
+});

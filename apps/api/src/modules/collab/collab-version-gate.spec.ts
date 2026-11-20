@@ -14,7 +14,7 @@ import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
-import { CollabAuthReason, isTerminalReason, CLIENT_PROTOCOL_VERSION } from '@flowweb/shared';
+import { CollabAuthReason, isTerminalReason, CLIENT_PROTOCOL_VERSION, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { measureHeapPressure, resetHeapPressure, stubHeapMeasure } from './heap-pressure';
 import * as Y from 'yjs';
@@ -167,38 +167,45 @@ describe('T18 版本硬切：CanvasDoc.schemaVersion PG 列门（Y1b T2——met
     expect(rejected.store.pendingStructs).toBeNull();
   });
 
-  it('Y2 C1 翻禁批：行 schemaVersion=3（Y1c 旧档）→ 拒载（bump 4 后 3 即旧 doc——sv=3 拒载红测试）；行=4（当前）→ 放行；行缺失（null，懒建档）→ 放行（首 store 建行 @default(4)）', async () => {
-    // sv=3 拒载（Y2 C1 前红：3=current 放行——bump 后必拒）
+  it('Y4a T2 版本 5 批：行 schemaVersion=4（Y2 旧档）→ 拒载（bump 5 后 4 即旧 doc——sv=4 拒载红档）；行=5（当前）→ 放行；行缺失（null，懒建档）→ 放行（首 store 建行 @default(5)）', async () => {
+    // sv=4 拒载（Y4a 前红：4=current 放行——bump 后必拒；开发库已 4 的行被拒载重置文档=预期形态不写数据迁移）
     {
       const { gateway, repo } = buildGateway();
-      const legacy = new Y.Doc();   // Y1c 档 doc 内容（翻禁前建行）
-      legacy.getMap('nodes').set('n', new Y.Map());
-      repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(legacy)), updates: [], stateSeq: 0n, schemaVersion: 3 });
+      const y2legacy = new Y.Doc();   // Y2 档 doc 内容（版本 4 期建行）
+      y2legacy.getMap('nodes').set('n', new Y.Map());
+      repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(y2legacy)), updates: [], stateSeq: 0n, schemaVersion: 4 });
       const refused = new Y.Doc();
-      const denial = await gateway.hooks.onLoadDocument({ document: refused, documentName: 'project:vg-sv3' } as any)
+      const denial = await gateway.hooks.onLoadDocument({ document: refused, documentName: 'project:vg-sv4' } as any)
         .then(() => { throw new Error('expected rejection'); }, (e: Error & { schemaRefusal?: boolean; reason?: string }) => e);
       expect(denial.reason).toBe(CollabAuthReason.SCHEMA_OUTDATED);
       expect(denial.schemaRefusal).toBe(true);
-      expect(denial.message).toMatch(/CanvasDoc\.schemaVersion=3/);
+      expect(denial.message).toMatch(/CanvasDoc\.schemaVersion=4/);
       expect([...refused.getMap('nodes').keys()]).toHaveLength(0);   // 零重放残留（同 :150 档）
     }
-    // sv=4 放行（doc meta 零键也放——doc 内容不再带版本）
+    // sv=5 放行（当前——timeline 根物化批；装载物化 timelines 根=同一装载链）
     stubHeapMeasure({ heapUsed: 0.5e9, heapLimit: 1e9, rss: 100 * MiB });   // 前序 heap 桩残留复位（heap-gate.spec 同款——loadDocument 装载门 heap 闸前置）
     resetHeapPressure();
     {
       const { gateway, repo } = buildGateway();
       const fresh = new Y.Doc();
       fresh.getMap('nodes').set('n', new Y.Map());
-      repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(fresh)), updates: [], stateSeq: 0n, schemaVersion: 4 });
+      repo.hydrateWithRecovery.mockResolvedValue({ state: Buffer.from(Y.encodeStateAsUpdate(fresh)), updates: [], stateSeq: 0n, schemaVersion: CANVAS_DOC_SCHEMA_VERSION });
       const cur = new Y.Doc();
       await gateway.hooks.onLoadDocument({ document: cur, documentName: 'project:vg-cur' } as any);   // 不抛=放行（hook 返回 void——节点应用为证）
       expect([...cur.getMap('nodes').keys()]).toEqual(['n']);
+      // Y4a T2 装载物化缝（spec §0 条 7）：装载链补 timelines 根（SERVER_TRANSACT_ORIGIN 零工程根——水合 applyUpdate 不经 fillDoc）
+      expect(cur.share.has('timelines')).toBe(true);
+      expect([...cur.getMap('timelines').keys()]).toHaveLength(0);
     }
 
     const { gateway: g2, repo: r2 } = buildGateway();
     stubHeapMeasure({ heapUsed: 0.5e9, heapLimit: 1e9, rss: 100 * MiB });
     resetHeapPressure();
     r2.hydrateWithRecovery.mockResolvedValue({ state: null, updates: [], stateSeq: 0n, schemaVersion: null });
-    await g2.hooks.onLoadDocument({ document: new Y.Doc(), documentName: 'project:vg-lazy' } as any);   // 行缺失（懒建档）不抛
+    const lazy = new Y.Doc();
+    await g2.hooks.onLoadDocument({ document: lazy, documentName: 'project:vg-lazy' } as any);   // 行缺失（懒建档）不抛——首 store 建行 @default(5)
+    // 懒建档档同样物化 timelines 根（空 doc 装载=fillDoc 消费面的对称面）
+    expect(lazy.share.has('timelines')).toBe(true);
+    expect([...lazy.getMap('timelines').keys()]).toHaveLength(0);
   });
 });

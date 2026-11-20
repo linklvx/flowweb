@@ -16,7 +16,7 @@ const dataWith = (sourceNodeIds: (string | undefined)[]): ProjectData => {
   });
   return {
     version: 1, fps: 30,
-    tracks: [{ id: 'tv', type: 'video', name: 'V', muted: false, hidden: false, clips: entries.map(([id]) => id) }],
+    tracks: [{ id: 'tv', type: 'video', name: 'V', muted: false, hidden: false, clips: entries.map(([id]) => id), order: '5000' }],
     clips: Object.fromEntries(entries),
   };
 };

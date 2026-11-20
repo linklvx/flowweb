@@ -19,9 +19,11 @@ const CENSUS_DATA_KEYS: Record<string, readonly string[]> = {
   imageExtGen: ['fileId', 'mediaId', 'referenceImage', 'mediaName', 'slot', 'status', 'imageRotation', 'flipH', 'flipV',
     'aspectRatio', 'allImages', 'style', 'styleId', 'styleName', 'model', 'quality', 'ratio', 'resolution', 'prompt',
     'extConfig', 'aiTool', 'order'],
+  // Y4a T3（spec §0 条 9）：videoGen `videoProjectId`→`sourceNodeId` 同批换键（doc-schema 矩阵与
+  // 契约实测键集单批同改——换键不改契约=shared 红；旧键 v5 矩阵标禁）。
   videoGen: ['model', 'status', 'fileId', 'mediaId', 'aspectRatio', 'referenceVideo', 'ratio', 'prompt', 'styleId', 'styleName',
     'allImages', 'trimStart', 'trimEnd', 'trimTaskStatus', 'trimmedFileId', 'order',
-    'origin', 'videoProjectId', 'label'],
+    'origin', 'sourceNodeId', 'label'],
   // Y1c T15：audioGen content:string → prompt:Y.Text 同卡迁（写面实测键集同步——AudioConfigPanel）
   audioGen: ['model', 'prompt', 'status', 'fileId', 'mediaId', 'referenceAudio', 'order'],
   multiImageGen: ['label', 'images', 'mainImageIndex', 'expanded', 'nodeStatus', 'generationBatchId', 'prompt', 'order'],

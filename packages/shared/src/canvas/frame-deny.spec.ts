@@ -76,6 +76,35 @@ describe('Y1c T24 validateFrameDeny（DENY 矩阵 frame-local 纯函数）', () 
     expect(countDsRanges(decoded.ds as unknown as { clients: Map<number, unknown[]> })).toBeGreaterThanOrEqual(1);
     expect(FRAME_MAX_DS_RANGES).toBe(16_000);   // 收口 I-6：cap=FRAME_MAX_STRUCTS 同值单源（4096→16,000）
   });
+
+  // Y4a T2（spec §3.2 表——L1 根准入；帧谓词详细执法=T3）：timelines 根入 FRAME_DENY_ROOTS。
+  // 先红：timelines 不在白名单 → unknown-root 拒。
+  it('Y4a T2：timelines 根帧准入（L1 只收根——timeline-user 事务形态整棵工程子树放行；详细帧谓词=T3）', () => {
+    expect(FRAME_DENY_ROOTS.has('timelines')).toBe(true);
+    // 合法 timeline-user 事务形状：timelines.<nodeId>=Y.Map（version/fps/tracks/clips 混合容器+标量）
+    // T3 起 L1 直接子项档跑全字段谓词——夹具补齐轨五键/片段满键（muted/hidden/transform/
+    // playbackSpeed/keyframes 空容器=键矩阵合法树形态）。
+    const entry = new Y.Map();
+    entry.set('version', 1);
+    entry.set('fps', 30);
+    const tracks = new Y.Map();
+    tracks.set('node1:video', new Y.Map([['type', 'video'], ['name', '视频'], ['muted', false], ['hidden', false], ['order', '5000']]));
+    entry.set('tracks', tracks);
+    const clips = new Y.Map();
+    const clip = new Y.Map();
+    clip.set('type', 'video');
+    clip.set('mediaId', 'm-1');
+    clip.set('span', { trackId: 'node1:video', start: 0, duration: 5 });
+    clip.set('transform', { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 });
+    clip.set('playbackSpeed', 1);
+    clip.set('keyframes', new Y.Map());
+    clips.set('clip1', clip);
+    entry.set('clips', clips);
+    const f = frameOf((d) => { d.getMap('timelines').set('node1', entry); });
+    expect(validateFrameDeny(f)).toEqual({ ok: true });   // 修前红：unknown-root:timelines
+    // 未准根维持 DENY（负控——白名单收窄检查）
+    expect(validateFrameDeny(frameOf((d) => { d.getMap('bogus2').set('x', 1); })).ok).toBe(false);
+  });
 });
 
 describe('Y1c T24 validateAppliedL2（apply 后事件级后验）', () => {
@@ -370,3 +399,328 @@ function forbiddenNode(type: string, key: string): Y.Map<unknown> {
   node.set('position', new Y.Map());
   return node;
 }
+
+// ══════════ Y4a T3（spec §0 条 8——L1 只查插入/L2 执法删除三级）：timelines 双面接线 ══════════
+// 谓词单源=timeline-frame-predicate.ts（负控矩阵在 timeline-frame-predicate.spec.ts）；
+// 本段锁 frame-deny.ts 的**接线面**：L1 两支（:153-159 直接子项档+:178 帧内深链档）只对插入跑
+// 谓词、删除集不执法；L2 currentTarget 身份分支插在循环第一行（path.length===0 continue 块之前
+// ——插到 :365 启发式前不够：path 空事件在 :363 已 continue、根上整棵新工程不检查=负控钉死）。
+
+/** 合法 timelines.<nodeId> 工程入口（T2 既有夹具同族——version/fps/默认轨/零片段）。 */
+function legalTimelineEntry(nodeId: string): Y.Map<unknown> {
+  const entry = new Y.Map();
+  entry.set('version', 1);
+  entry.set('fps', 30);
+  const tracks = new Y.Map();
+  const t = new Y.Map();
+  t.set('type', 'video'); t.set('name', '视频'); t.set('muted', false); t.set('hidden', false); t.set('order', '5000');
+  tracks.set(`${nodeId}:video`, t);
+  entry.set('tracks', tracks);
+  entry.set('clips', new Y.Map());
+  return entry;
+}
+
+/** L2 事件捕获装置（observeDeep 物化形态开关——④物化负控钉死用）。 */
+function captureTimelines(doc: Y.Doc, materialize: boolean): Array<Y.YEvent<never>> {
+  const events: Array<Y.YEvent<never>> = [];
+  doc.getMap('timelines').observeDeep((evs) => {
+    if (materialize) for (const e of evs) void e.changes;   // 回调内物化（edges :313 同款——不物化=事务后读抛 errorComputeChanges）
+    (events as unknown[]).push(...evs);
+  });
+  return events;
+}
+
+describe('Y4a T3 ①：L1 两支只查插入（timelines 帧谓词接线——spec §0 条 8）', () => {
+  it('直接子项档（:153-159 形态——timelines 根上新建工程 struct）：非法 fps 拒/合法树放行', () => {
+    // 非法：根直接子项=version 标量非法值（fps 24——字面量矩阵）
+    const bad = frameOf((d) => {
+      const entry = legalTimelineEntry('n1');
+      entry.set('fps', 24);
+      d.getMap('timelines').set('n1', entry);
+    });
+    expect(validateFrameDeny(bad)).toMatchObject({ ok: false, reason: expect.stringContaining('timeline') });
+    // 合法：整棵新工程（默认轨+容器）放行——容器创建本身合法
+    const good = frameOf((d) => { d.getMap('timelines').set('n1', legalTimelineEntry('n1')); });
+    expect(validateFrameDeny(good)).toEqual({ ok: true });
+  });
+
+  it('直接子项档：根直接子项非 Y.Map 拒（timelines.<nodeId> 标量=毒值）', () => {
+    const f = frameOf((d) => { d.getMap('timelines').set('n1', 'not-a-map'); });
+    expect(validateFrameDeny(f)).toMatchObject({ ok: false, reason: expect.stringContaining('timeline') });
+  });
+
+  it('帧内深链档（:178 形态——帧内新建工程下钻片段 span/transform）：非法 duration 拒/合法放行', () => {
+    const bad = frameOf((d) => {
+      const entry = legalTimelineEntry('n1');
+      const clip = new Y.Map();
+      clip.set('type', 'video');
+      clip.set('span', { trackId: 'n1:video', start: 0, duration: -5, sourceStart: 0 });   // 非正 duration
+      clip.set('transform', { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 });
+      clip.set('mediaId', 'm-1');
+      clip.set('playbackSpeed', 1);
+      clip.set('keyframes', new Y.Map());
+      d.getMap('timelines').set('n1', entry);
+      (entry.get('clips') as Y.Map<unknown>).set('c1', clip);
+    });
+    expect(validateFrameDeny(bad)).toMatchObject({ ok: false, reason: expect.stringContaining('timeline') });
+    const good = frameOf((d) => {
+      const entry = legalTimelineEntry('n1');
+      const clip = new Y.Map();
+      clip.set('type', 'video');
+      clip.set('span', { trackId: 'n1:video', start: 0, duration: 5, sourceStart: 0 });
+      clip.set('transform', { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 });
+      clip.set('mediaId', 'm-1');
+      clip.set('playbackSpeed', 1);
+      clip.set('keyframes', new Y.Map());
+      d.getMap('timelines').set('n1', entry);
+      (entry.get('clips') as Y.Map<unknown>).set('c1', clip);
+    });
+    expect(validateFrameDeny(good)).toEqual({ ok: true });
+  });
+
+  it('L1 不执法删除三级：纯删除帧放行（删除集只有 client/clock、帧内读不出键名——执法归 L2）', () => {
+    // 建立基线 → 删 version 键（三级非法删除）→ 捕获纯删帧 → L1 必须放行（其执法=L2 档）
+    const base = new Y.Doc();
+    base.getMap('timelines').set('n1', legalTimelineEntry('n1'));
+    const clone = new Y.Doc();
+    Y.applyUpdate(clone, Y.encodeStateAsUpdate(base));
+    const captured: Uint8Array[] = [];
+    clone.on('update', (u: Uint8Array) => { captured.push(u); });
+    clone.transact(() => { (clone.getMap('timelines').get('n1') as Y.Map<unknown>).delete('version'); });
+    const delFrame = captured.reduce((acc, u) => Y.mergeUpdates([acc, u]));
+    expect(validateFrameDeny(delFrame)).toEqual({ ok: true });   // L1 拒=红（本任务钉「L1 只查插入」）
+  });
+});
+
+describe('Y4a T3 ②：L2 currentTarget 身份分支（循环第一行、path 空 continue 块之前）', () => {
+  it('根上整棵新工程（path 空+action add+新值 Y.Map）→ 谓词递归检查：非法值拒（分支未接/插点在 :363 之后=放行——负控钉死）', () => {
+    const doc = new Y.Doc();
+    const events = captureTimelines(doc, true);
+    doc.transact(() => {
+      const entry = legalTimelineEntry('n1');
+      entry.set('fps', 24);   // 整棵新工程内非法字面量——递归谓词必须拒
+      doc.getMap('timelines').set('n1', entry);
+    });
+    expect(events.length).toBeGreaterThan(0);
+    expect(validateAppliedL2(doc, events)).toMatchObject({ ok: false, reason: expect.stringContaining('timeline') });
+  });
+
+  it('根上整棵新工程合法 → 放行（同事务 new Y.Map 子树不发独立事件——只查「这是个 Map」漏掉整棵=负控对照）', () => {
+    const doc = new Y.Doc();
+    const events = captureTimelines(doc, true);
+    doc.transact(() => { doc.getMap('timelines').set('n1', legalTimelineEntry('n1')); });
+    expect(validateAppliedL2(doc, events)).toEqual({ ok: true });
+  });
+
+  it('根上删 version/fps/tracks/clips 容器键 → 拒（三级删除规则——「删除一律合法」负控）', () => {
+    for (const key of ['version', 'fps', 'tracks', 'clips'] as const) {
+      const doc = new Y.Doc();
+      doc.getMap('timelines').set('n1', legalTimelineEntry('n1'));
+      const events = captureTimelines(doc, true);
+      doc.transact(() => { (doc.getMap('timelines').get('n1') as Y.Map<unknown>).delete(key); });
+      expect(validateAppliedL2(doc, events), `删除 ${key} 必须拒`).toMatchObject({ ok: false, reason: expect.stringContaining('timeline') });
+    }
+  });
+
+  it('删片段条目/删整棵 timelines.<nodeId> → 放行（三级合法删除）', () => {
+    // 删片段条目
+    const doc = new Y.Doc();
+    doc.getMap('timelines').set('n1', legalTimelineEntry('n1'));
+    (doc.getMap('timelines').get('n1') as Y.Map<unknown>);
+    doc.transact(() => {
+      const entry = doc.getMap('timelines').get('n1') as Y.Map<unknown>;
+      const clip = new Y.Map();
+      clip.set('type', 'video');
+      clip.set('span', { trackId: 'n1:video', start: 0, duration: 5, sourceStart: 0 });
+      clip.set('transform', { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 });
+      clip.set('mediaId', 'm-1');
+      clip.set('playbackSpeed', 1);
+      clip.set('keyframes', new Y.Map());
+      (entry.get('clips') as Y.Map<unknown>).set('c1', clip);
+    });
+    const events = captureTimelines(doc, true);
+    doc.transact(() => { ((doc.getMap('timelines').get('n1') as Y.Map<unknown>).get('clips') as Y.Map<unknown>).delete('c1'); });
+    expect(validateAppliedL2(doc, events)).toEqual({ ok: true });
+    // 删整棵 timelines.<nodeId>（根键 delete）
+    const doc2 = new Y.Doc();
+    doc2.getMap('timelines').set('n1', legalTimelineEntry('n1'));
+    const events2 = captureTimelines(doc2, true);
+    doc2.transact(() => { doc2.getMap('timelines').delete('n1'); });
+    expect(validateAppliedL2(doc2, events2)).toEqual({ ok: true });
+  });
+
+  it('入口 Map 直接键事件（path=[nodeId] 改 canvasSize）→ 不进节点启发式（现形态 :383 node-key:* 毒帧误杀——改造后走 timelines 谓词放行）', () => {
+    const doc = new Y.Doc();
+    doc.getMap('timelines').set('n1', legalTimelineEntry('n1'));
+    const events = captureTimelines(doc, true);
+    doc.transact(() => { (doc.getMap('timelines').get('n1') as Y.Map<unknown>).set('canvasSize', { width: 1920, height: 1080 }); });
+    expect(validateAppliedL2(doc, events)).toEqual({ ok: true });   // 修前红：n1 不在 nodes → :369 continue 或 :383 node-key 毒帧（按现状形态）
+  });
+
+  it('片段 Map 标量事件（path[1]=clips）非法 duration → L2 拒（现形态 :398 放行——改造后拒）', () => {
+    const doc = new Y.Doc();
+    doc.getMap('timelines').set('n1', legalTimelineEntry('n1'));
+    doc.transact(() => {
+      const entry = doc.getMap('timelines').get('n1') as Y.Map<unknown>;
+      const clip = new Y.Map();
+      clip.set('type', 'video');
+      clip.set('span', { trackId: 'n1:video', start: 0, duration: 5, sourceStart: 0 });
+      clip.set('transform', { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 });
+      clip.set('mediaId', 'm-1');
+      clip.set('playbackSpeed', 1);
+      clip.set('keyframes', new Y.Map());
+      (entry.get('clips') as Y.Map<unknown>).set('c1', clip);
+    });
+    const events = captureTimelines(doc, true);
+    doc.transact(() => {
+      const clip = ((doc.getMap('timelines').get('n1') as Y.Map<unknown>).get('clips') as Y.Map<unknown>).get('c1') as Y.Map<unknown>;
+      clip.set('span', { trackId: 'n1:video', start: 0, duration: -1, sourceStart: 0 });   // 非法 duration
+    });
+    expect(validateAppliedL2(doc, events)).toMatchObject({ ok: false, reason: expect.stringContaining('timeline') });
+  });
+
+  it('已存在键 set 新 Y.Map（事件路径=timelines 谓词结构拒绝）→ 拒', () => {
+    const doc = new Y.Doc();
+    doc.getMap('timelines').set('n1', legalTimelineEntry('n1'));
+    const events = captureTimelines(doc, true);
+    doc.transact(() => { (doc.getMap('timelines').get('n1') as Y.Map<unknown>).set('tracks', new Y.Map()); });
+    expect(validateAppliedL2(doc, events)).toMatchObject({ ok: false, reason: expect.stringContaining('timeline') });
+  });
+});
+
+describe('Y4a T3 ③：现有面不破（nodes/edges/meta 事件照旧执法——回归）', () => {
+  it('nodes 毒帧用例回归：type-immutable 维持（timelines 分支不得劫持 nodes 事件路径）', () => {
+    const doc = new Y.Doc();
+    doc.getMap('nodes').set('n1', legalNode('textInput'));
+    const events: Array<Y.YEvent<never>> = [];
+    doc.getMap('nodes').observeDeep((evs) => {
+      for (const e of evs) void e.changes.keys;
+      (events as unknown[]).push(...evs);
+    });
+    doc.transact(() => { (doc.getMap('nodes').get('n1') as Y.Map<unknown>).set('type', 'imageGen'); });
+    expect(validateAppliedL2(doc, events)).toMatchObject({ ok: false, reason: 'type-immutable' });
+  });
+
+  it('timelines 事件与 nodes 事件同帧共存：nodes 违规仍被执（分支互不遮蔽）', () => {
+    const doc = new Y.Doc();
+    doc.getMap('nodes').set('n1', legalNode('textInput'));
+    doc.getMap('timelines').set('t1', legalTimelineEntry('t1'));
+    const events: Array<Y.YEvent<never>> = [];
+    doc.getMap('nodes').observeDeep((evs) => { for (const e of evs) void e.changes.keys; (events as unknown[]).push(...evs); });
+    doc.getMap('timelines').observeDeep((evs) => { for (const e of evs) void e.changes; (events as unknown[]).push(...evs); });
+    doc.transact(() => {
+      (doc.getMap('nodes').get('n1') as Y.Map<unknown>).set('type', 'imageGen');   // nodes 违规
+      doc.getMap('timelines').delete('t1');   // timelines 合法删除
+    });
+    expect(validateAppliedL2(doc, events)).toMatchObject({ ok: false, reason: 'type-immutable' });
+  });
+});
+
+describe('Y4a T3 ④：observeDeep 物化（事务结束后读面——errorComputeChanges 负控）', () => {
+  it('不物化形态：事务结束后读 ev.changes 抛 errorComputeChanges（缓冲长度>0 盖不住——负控钉死；断言在事务结束后的读面）', () => {
+    const doc = new Y.Doc();
+    doc.getMap('timelines').set('n1', legalTimelineEntry('n1'));
+    const events = captureTimelines(doc, false);   // 不物化
+    expect(events.length).toBe(0);
+    doc.transact(() => {
+      (doc.getMap('timelines').get('n1') as Y.Map<unknown>).set('canvasSize', { width: 1920, height: 1080 });
+      (doc.getMap('timelines').get('n1') as Y.Map<unknown>).set('fps', 24);   // 同帧两键——path=[n1] 单事件多键
+    });
+    // 事务结束后（cleanups 已清、_changes===null）——L2 timelines 分支读 changes 即抛：
+    // 本负控断言在**接入后的读面**（改造前 path=[n1] 事件在 :369 归属判定 continue、不读 changes=
+    // 改造前本测试不抛=先红；分支接上后本测试绿=物化负控生效钉死）。
+    expect(events.length).toBeGreaterThan(0);   // 缓冲有事件——但 changes 未物化
+    expect(() => validateAppliedL2(doc, events)).toThrow(/compute changes|You must not/i);
+  });
+
+  it('物化形态：事务结束后 validateAppliedL2 全通过（断言在事务结束后的读面）', () => {
+    const doc = new Y.Doc();
+    doc.getMap('timelines').set('n1', legalTimelineEntry('n1'));
+    const events = captureTimelines(doc, true);
+    doc.transact(() => { (doc.getMap('timelines').get('n1') as Y.Map<unknown>).set('canvasSize', { width: 1920, height: 1080 }); });
+    expect(validateAppliedL2(doc, events)).toEqual({ ok: true });
+  });
+});
+
+// ══════════ Y4a T3-fix（评审回包 round 1——I#2）：L2 keyframes 档（修前面零覆盖）══════════
+// codec 的合法关键帧更新路径=kf.set(k.id, {...k}) 整值替换（action='update'）——修前
+// timelineEventErr 对 keyframe id 的 update 无条件拒（timeline-keyframe-replaced）=合法关键帧
+// 移动被 L2 毒帧；volume 关键帧带 property 的键矩阵规则（音量关键帧无 property）同批归位。
+describe('Y4a T3-fix ②：L2 keyframes 容器事件档（path=[nodeId,clips,clipId,keyframes]）', () => {
+  /** 建 doc：seed 工程+一个 audio 片段（keyframes 携 k1 音量关键帧）。 */
+  function seededWithAudioKf(): { doc: Y.Doc; clip: Y.Map<unknown> } {
+    const doc = new Y.Doc();
+    doc.getMap('timelines').set('n1', legalTimelineEntry('n1'));
+    const clip = new Y.Map();
+    clip.set('type', 'audio');
+    clip.set('span', { trackId: 'n1:video', start: 0, duration: 3, sourceStart: 0 });
+    clip.set('mediaId', 'm-a');
+    clip.set('volume', 1);
+    clip.set('fade', { in: 0, out: 0 });
+    clip.set('playbackSpeed', 1);
+    const kf = new Y.Map();
+    kf.set('k1', { id: 'k1', t: 0, value: 1, easing: 'linear' });
+    clip.set('keyframes', kf);
+    doc.transact(() => {
+      ((doc.getMap('timelines').get('n1') as Y.Map<unknown>).get('clips') as Y.Map<unknown>).set('a1', clip);
+    });
+    return { doc, clip };
+  }
+
+  it('I#2a：codec 产出的 kf 整值更新（kf.set 同 id 新值）→ L2 放行（修前 update 无条件拒=合法编辑毒帧）', () => {
+    const { doc } = seededWithAudioKf();
+    const events = captureTimelines(doc, true);
+    doc.transact(() => {
+      const kf = (((doc.getMap('timelines').get('n1') as Y.Map<unknown>).get('clips') as Y.Map<unknown>).get('a1') as Y.Map<unknown>).get('keyframes') as Y.Map<unknown>;
+      kf.set('k1', { id: 'k1', t: 5, value: 0.5, easing: 'linear' });   // codec timeline-codec.ts:334 同款整值替换
+    });
+    expect(events.length).toBeGreaterThan(0);
+    expect(validateAppliedL2(doc, events)).toEqual({ ok: true });   // 修前红：timeline-keyframe-replaced:k1
+  });
+
+  it('I#2b：kf 整值更新带非法值（id 漂移 / 非 linear）→ L2 拒（update 合法但值非法才拒）', () => {
+    // 键矩阵真值域：t 仅需有限数（排序域——spec §3.1 v6 修订⑤「t 再 id」无符号约束）、
+    // id=Map 键、easing 只 linear；非法例=id 漂移+easing 非 linear。
+    for (const poison of [{ id: 'k-other', t: 0, value: 1, easing: 'linear' }, { id: 'k1', t: 0, value: 1, easing: 'easeIn' }]) {
+      const { doc } = seededWithAudioKf();
+      const events = captureTimelines(doc, true);
+      doc.transact(() => {
+        const kf = (((doc.getMap('timelines').get('n1') as Y.Map<unknown>).get('clips') as Y.Map<unknown>).get('a1') as Y.Map<unknown>).get('keyframes') as Y.Map<unknown>;
+        kf.set('k1', poison);
+      });
+      expect(validateAppliedL2(doc, events)).toMatchObject({ ok: false, reason: expect.stringContaining('timeline-keyframe') });
+    }
+  });
+
+  it('I#2c：volume 关键帧带 property → L2 拒（音量关键帧无 property——键矩阵归位；修前 L2 面漏此规则）', () => {
+    const { doc } = seededWithAudioKf();
+    const events = captureTimelines(doc, true);
+    doc.transact(() => {
+      const kf = (((doc.getMap('timelines').get('n1') as Y.Map<unknown>).get('clips') as Y.Map<unknown>).get('a1') as Y.Map<unknown>).get('keyframes') as Y.Map<unknown>;
+      kf.set('k2', { id: 'k2', t: 1, value: 1, easing: 'linear', property: 'volume' });   // VolumeKeyframe 无 property
+    });
+    expect(validateAppliedL2(doc, events)).toMatchObject({ ok: false, reason: expect.stringContaining('timeline-keyframe-property') });
+  });
+
+  it('I#2d：Transform 片段关键帧五键 property → L2 放行（正控——video kf 带 property 合法）', () => {
+    const doc = new Y.Doc();
+    doc.getMap('timelines').set('n1', legalTimelineEntry('n1'));
+    const clip = new Y.Map();
+    clip.set('type', 'video');
+    clip.set('span', { trackId: 'n1:video', start: 0, duration: 5, sourceStart: 0 });
+    clip.set('transform', { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 });
+    clip.set('mediaId', 'm-1');
+    clip.set('playbackSpeed', 1);
+    clip.set('keyframes', new Y.Map());
+    doc.transact(() => {
+      ((doc.getMap('timelines').get('n1') as Y.Map<unknown>).get('clips') as Y.Map<unknown>).set('c1', clip);
+    });
+    const events = captureTimelines(doc, true);
+    doc.transact(() => {
+      const kf = (((doc.getMap('timelines').get('n1') as Y.Map<unknown>).get('clips') as Y.Map<unknown>).get('c1') as Y.Map<unknown>).get('keyframes') as Y.Map<unknown>;
+      kf.set('k1', { id: 'k1', t: 0, property: 'x', value: 3, easing: 'linear' });
+      kf.set('k1', { id: 'k1', t: 1, property: 'opacity', value: 0.5, easing: 'linear' });   // 整值更新
+    });
+    expect(validateAppliedL2(doc, events)).toEqual({ ok: true });
+  });
+});

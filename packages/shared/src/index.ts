@@ -172,3 +172,17 @@ export * from './collab/retention';
 // C2-0（plan Task C2-0——生产就绪收尾批）：CanvasProject.origin 值域单源（'user'/'clone'——谱系；
 // 写点单源=api collab/project-governance.service.ts ensureProjectGovernance）。
 export * from './collab/project-origin';
+// Y4a T1（plan 2026-11-20-y4a-timeline-domain）：时间轴撤销闸地基+删除原语单源——RESTORE_GATE_BYTES/
+// TIMELINE_CHUNK_UNDO_BUDGET/measureTransactionFrames（T4 编辑预检/T5 切块预检消费）；
+// deleteNodesWithTimelines/deleteTimelineClips（客户端分割删除与服务端三路逐块同源——恰一次事务/
+// 嵌套即抛）。契约测试=collab/timeline-gate.spec.ts+canvas/canvas-node-delete.spec.ts。
+export * from './collab/timeline-gate';
+export * from './canvas/canvas-node-delete';
+// Y4a T3（plan 2026-11-20-y4a-timeline-domain Task 3——spec §0 条 8/§3.1 v6 修订⑤）：时间轴帧谓词纯字段单源
+// （TIMELINE_FRAME_PREDICATE/checkTimelineEntryMap/checkTimelineEntryValue/checkTimelineClipMap——
+// frame-deny L1 两支+L2 currentTarget 分支+T4 客户端写前自检三面共用）+codec 骨架
+// （seedEmptyTimeline/readTimelineFromDoc/diffProjectDataToDoc/extractTimelineClipMediaIds——
+// T4 写路径/T5 切块预检/T6 绑定并集消费单源）。契约测试=canvas/timeline-frame-predicate.spec.ts
+// +canvas/timeline-codec.spec.ts。
+export * from './canvas/timeline-frame-predicate';
+export * from './canvas/timeline-codec';

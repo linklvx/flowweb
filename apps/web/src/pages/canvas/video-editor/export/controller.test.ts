@@ -8,7 +8,7 @@ const vc = (id: string, start: number, duration: number): VideoClip => ({
 });
 const data = (d: number): ProjectData => ({
   version: 1, fps: 30,
-  tracks: [{ id: 'tv', type: 'video', name: 'v', muted: false, hidden: false, clips: ['a'] }],
+  tracks: [{ id: 'tv', type: 'video', name: 'v', muted: false, hidden: false, clips: ['a'], order: '5000' }],
   clips: { a: vc('a', 0, d) },
 });
 
@@ -113,7 +113,7 @@ describe('runExport 编排（jsdom 无 WebCodecs——deps 全 mock）', () => {
 
   it('空工程（duration=0）抛错不入帧循环', async () => {
     const { deps, calls } = makeDeps();
-    const empty: ProjectData = { version: 1, fps: 30, tracks: [{ id: 'tv', type: 'video', name: 'v', muted: false, hidden: false, clips: [] }], clips: {} };
+    const empty: ProjectData = { version: 1, fps: 30, tracks: [{ id: 'tv', type: 'video', name: 'v', muted: false, hidden: false, clips: [], order: '5000' }], clips: {} };
     await expect(runExport(empty, '720p', deps as never)).rejects.toThrow('空工程');
     expect(calls.start).toBe(0);
   });

@@ -10,7 +10,7 @@ const vc = (id: string, start: number, duration: number, over: Partial<VideoClip
 });
 const data = (clips: VideoClip[]): ProjectData => ({
   version: 1, fps: 30,
-  tracks: [{ id: 'tv', type: 'video', name: 'V', muted: false, hidden: false, clips: clips.map(c => c.id) }],
+  tracks: [{ id: 'tv', type: 'video', name: 'V', muted: false, hidden: false, clips: clips.map(c => c.id), order: '5000' }],
   clips: Object.fromEntries(clips.map(c => [c.id, c])),
 });
 const kf = (t: number, property: 'x' | 'y' | 'scale' | 'rotation' | 'opacity', value: number) =>
@@ -190,7 +190,7 @@ describe('interpolateClip（整合输出）', () => {
   it('字幕片：text/style/visible 透传', () => {
     const d = data([]);
     d.clips['sub'] = { id: 'sub', trackId: 'ts', type: 'subtitle', start: 0, duration: 2, text: '你好', visible: true, style: { fontSize: 48, color: '#FFFFFF', letterSpacing: 0 } };
-    d.tracks[0] = { id: 'ts', type: 'subtitle', name: 'S', muted: false, hidden: false, clips: ['sub'] };
+    d.tracks[0] = { id: 'ts', type: 'subtitle', name: 'S', muted: false, hidden: false, clips: ['sub'], order: '5000' };
     const s = interpolateClip(d, 'sub', 1);
     expect(s).toMatchObject({ kind: 'subtitle', text: '你好', visible: true });
   });

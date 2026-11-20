@@ -8,9 +8,10 @@
  *  运行时=字面量精确比较；无区间协商（开发期禁兼容层，R 终裁）。
  *  T18 版本硬切（Y1c）：2→3 与 CANVAS_DOC_SCHEMA_VERSION 同批 bump（双常量=3）——旧 v2 bundle
  *  csv=2 → schema-outdated（reload 有效档，一次 reload 换新 bundle）。
- *  Y2 C1 版本 4（spec §4 第③步）：3→4=翻禁执法（server-forbidden 键写入即拒）+作者键 mediaId 域
- *  ——双常量同批 bump；旧 v3 bundle csv=3 → schema-outdated（一次 reload 换新 bundle）。 */
-export const CLIENT_PROTOCOL_VERSION = 4 as const;
+ *  Y2 C1 版本 4（spec §4 第③步）：3→4=翻禁执法+作者键 mediaId 域——双常量同批 bump。
+ *  Y4a T2 版本 5（spec §0 条 9）：4→5=timelines 顶层根物化（fillDoc/manifest/frame-deny/
+ *  oracle/canary 四门禁入册）——双常量同批 bump；旧 v4 bundle csv=4 → schema-outdated。 */
+export const CLIENT_PROTOCOL_VERSION = 5 as const;
 export type ClientProtocolVersion = typeof CLIENT_PROTOCOL_VERSION;
 
 export type VersionVerdict =

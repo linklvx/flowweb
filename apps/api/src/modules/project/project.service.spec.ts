@@ -352,8 +352,8 @@ describe('ProjectService', () => {
 
       const result = await service.findById('p1', 'u9');
       expect(result.collabGeneration).toBe(7);
-      expect(result.collabSchemaVersion).toBe(4);   // Y2 C1 版本 4：行值透传（=CANVAS_DOC_SCHEMA_VERSION）——IDB 缓存键 s 维与装载列门同源
-      expect(CANVAS_DOC_SCHEMA_VERSION).toBe(4);
+      expect(result.collabSchemaVersion).toBe(5);   // Y4a T2 版本 5：行值透传（=CANVAS_DOC_SCHEMA_VERSION）——IDB 缓存键 s 维与装载列门同源
+      expect(CANVAS_DOC_SCHEMA_VERSION).toBe(5);
       expect(result.collabViewerUid).toBe('u9');
       expect(prisma.canvasDoc.findUnique).toHaveBeenCalledWith({
         where: { projectId: 'p1' },

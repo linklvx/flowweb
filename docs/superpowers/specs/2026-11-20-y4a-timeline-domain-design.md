@@ -11,11 +11,11 @@
 
 本节与 §1–§9 及计划任务是同一套规则——§0 是 §1-§9 的浓缩，冲突处以 §0 为准。头注只标明文档状态，不宣布正文作废。§10 与 §13 只保留裁定史，里面不出现可执行的闸值或删除顺序。不再追加轮次。
 
-1. 软闸 262144。每一笔编辑、每一个删除片段块，正向帧与逆操作帧任一超过就拒绝，活文档不写。硬闸 524288，服务端入站帧与撤销按钮共用。520096 只用于撤销按钮：弹栈前读栈项上的装回字节，超过就不弹栈。
+1. 软闸 262144。每一笔编辑、每一个删除片段块，正向帧与逆操作帧任一超过就拒绝，活文档不写。硬闸 524288，服务端入站帧与撤销按钮共用。520192（=硬闸−4096）只用于撤销按钮：弹栈前读栈项上的装回字节，超过就不弹栈。
 2. 不实现、不调用「删掉整棵时间轴再 undo」这把尺。时间轴可以大于一把撤销帧。
 3. 客户端删除只走 `executeDeleteSplit`，并且它是最外层事务，不经过 `dispatchCanvasIntent`。先对整批做完切块计划，再写活文档。每个片段块的 origin 是 `local-user`，前后都 `stopCapturing`，只删这一块的片段。全部块之后，一笔 `local-user` 删掉未保护的节点、边、已经变小的 `timelines` 键和组。这次选择里没有剪辑节点时，维持一笔事务，不额外 `stopCapturing`。单个片段的逆操作仍超过 262144：该节点一笔都不写，它和删除集里的全部祖先组不进最后一笔。`undoStack.length + 块数 + 1 > 100`：整次删除不写。撤销先回到节点和组都在、片段还没装回。**投影差分（diffProjectionToIntents）的删除半边保持原样、继续产出 deleteNode intent——ungroup/clearStoryboard/removeStoryboardCell/多图展开四条漏斗经它删无时间轴节点；删除集里含「文档中仍带非空片段时间轴」的节点时整份差分不派发，canApplyIntent 对这种 deleteNode 拒绝（reason `timeline-chunk-required`）——漏网后挡，不是第二条删除实现。**
 4. 服务端与客户端用同一套切块，每一块都是最外层事务。`deleteTimelineClips` 与 `deleteNodesWithTimelines` 各自只开一层事务；文档已在事务里时直接抛 `nested-transact-forbidden`，禁止静默并帧（Yjs 嵌套 transact 并进外层、内层 origin 被丢掉——「先测一笔、不过再改切块」的退路走不通：原语在 withDoc/writeBatch 里被调用，切多少块都还是一帧）。片段还在的节点：先按与客户端相同的块预算删片段，每块单独一层 SERVER_TRANSACT_ORIGIN；壳节点、边、已变小的 timelines 键进最后一笔。shrink 影子预演继续量整份文档字节（8MB 配额）；活文档写入改走不包外层事务的会话、由调用方逐块开事务；任一块过不了 validateFrameDeny 或 262144，活文档一笔都不写。writeBatch 的 deleteNodes 遇非空片段时间轴返回 `timeline-chunk-required`，不在批事务里硬删。恢复导入的 effectiveDeletions 先对活文档逐块提交并逐块过闸，再克隆候选、再算信封 commitDiff。replace 仍只删 nodes 条目并留下同名时间轴；写回的节点不再是 videoEdit 时同一笔删掉这个键。客户端撤销毒帧仍只由客户端切块解决；服务端 origin 不进画布撤销栈。
-5. `stackItemBytes` 记正向帧，`stackItemRestoreBytes` 记装回字节。画布栈和时间轴栈各持各的表。`undo()` 和 `redo()` 弹栈后，把两张表都抄到新栈项上。**捕获窗三类**：片段/轨道/关键帧的增删与删除的每一块=写前写后 `stopCapturing`、单独成步；拖动松手（span 标量整值替换）=同一手势单独成步、写前写后 `stopCapturing`；其余标量整值替换=500ms 窗、栈项装回字节为窗内之和，写下一笔前栈顶已记装回字节加本笔 undoBytes 超 520096 先 `stopCapturing`。不做 openCapture 重放。
+5. `stackItemBytes` 记正向帧，`stackItemRestoreBytes` 记装回字节。画布栈和时间轴栈各持各的表。`undo()` 和 `redo()` 弹栈后，把两张表都抄到新栈项上。**捕获窗三类**：片段/轨道/关键帧的增删与删除的每一块=写前写后 `stopCapturing`、单独成步；拖动松手（span 标量整值替换）=同一手势单独成步、写前写后 `stopCapturing`；其余标量整值替换=500ms 窗、栈项装回字节为窗内之和，写下一笔前栈顶已记装回字节加本笔 undoBytes 超 520192 先 `stopCapturing`。不做 openCapture 重放。
 6. 删除某节点的第一块之前，卸下该节点的时间轴 UndoManager，拖动覆盖层作废。
 7. `rebuildDocFaithful` 是真空重建、金丝雀重建、瘦身副本的唯一拷贝。`toReadModel` 继续不含 timelines。哈希和真空等价比较包含 timelines。标量槽拒绝 Y.Array 和 Y.Text。**同名根就是同一对象**（doc.getMap 对同一名字返回同一对象）——装载时根不在用 SERVER_TRANSACT_ORIGIN 做一笔空事务 getMap('timelines') 不放工程；画布撤销挂接时同样 getMap('timelines') 进 scope（与 nodes/edges 同一启动方式 canvasCollabRuntime.ts:2067-2068）；编辑器只读已存在的 timelines.<nodeId>，键不在不创建。
 8. L1 只检查本帧插入。L2 用观察者安装时拿到的 timelines 根做 `currentTarget` 比较，谓词内部不对 timelines 调用 `getMap`。**两个观察者分开写：actor 的 observeDeep 先读 `ev.changes` 再 noteEvents（不读=事务结束后 Y.Event 抛 errorComputeChanges、actor 收成 4411 关连接）；编辑器的子 Map observeDeep 只 setState、不 commit（防 observe→commit 循环）——键的替换和删除听 timelines 根上该 nodeId 键**。删除片段、轨道、关键帧和整棵节点键合法；删除 version、fps、tracks、clips 非法。
@@ -222,11 +222,11 @@ doc.getMap('timelines'): Y.Map<nodeId, Y.Map>   // 键=剪辑节点自身 canvas
 6. **canUndo/canRedo UI**：按钮事件驱动禁用态（断言不轮询——订阅事件计数）。
 7. **创建唯一性**：第二端从不调用「给已存在键 set 新 Map」这记写；两端在同一棵 Map 上各加一个片段，**两个都在**；撤销互不吃对方的栈。
 8. **拖动零中间写+diff 基线+手势独立成步**：拖动过程中对端文档 start 不变；松手后变为终值；**松手是 span 标量但单独成步（写前写后双 stopCapturing——不走 500ms 窗）**、撤销栈恰增一条；**diff 基线=当时 doc 已合入状态叠覆盖层——未碰键不把远端更新写回**。
-9. **删除与撤销带回**：以 §0 第 3、4、5、6 条为准。撤销先回到节点和组都在；520096 只挡撤销按钮；栈将超过 100 则整次不写。
+9. **删除与撤销带回**：以 §0 第 3、4、5、6 条为准。撤销先回到节点和组都在；520192 只挡撤销按钮；栈将超过 100 则整次不写。
 10. **真空内容等价（v9 增根断言）**：**两侧都先声明 timelines 根，空根的真空形状比较为真**；真空前后时间轴内容 stableStringify 相等；深拷贝漏内容时等价判断为假（负控变异）；**漏拷贝一个片段时 stableStringify 比较为假**。
 11. **绑定投影并集**：只改时间轴的帧写下 targetItemId=clipId 的 MediaBinding 且不被帧内投影删掉；slot-write 端口对剪辑节点的槽写不清掉片段绑定；随后的全量 rebuild 不删它；只改坐标的画布帧仍不进 touched；clipId 空串被拒；**节点已删而 timelines 同名键还在→投影仍带该键片段行（双亡才清空）**。
 12. **公开零泄漏**：公开读模型的键里没有 timelines（结构性断言非剔除）。
-13. **撤销装回闸**：以 §0 第 1、2、10 条为准。每笔和每块只量自己的正向帧与逆操作帧；不测整棵装回；520096 不参与能不能删除。
+13. **撤销装回闸**：以 §0 第 1、2、10 条为准。每笔和每块只量自己的正向帧与逆操作帧；不测整棵装回；520192 不参与能不能删除。
 14. **键矩阵与类型（v9 补封标量槽）**：按片段类型键矩阵全执法（video/image/audio/subtitle 四档清单+轨五键+入口五键+字面量 version=1/fps=30/playbackSpeed∈{0.5,1,2}）；帧谓词拒非有限数/负 start/sourceStart/非正 duration/空 clipId/**标量槽 Y.Map/Y.Array/Y.Text**/**canvasSize 宽高非有限正数/volume、fade.in、fade.out、opacity、fontSize 非有限数（fontSize 需正、fade 两段非负）/mediaId 非空字符串**；**Map 键=记录自身 id**；Track 补 order:string；新轨 orderKeyAfter 返回空=拒加轨；音量关键帧无 property 且切比例不改；**keyframes 创建片段同笔事务空 Map、字幕无此键**；**已有 Map 键只改值不换新 Map**。
 
 ---

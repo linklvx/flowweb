@@ -22,8 +22,8 @@ const vc = (id: string, start: number, duration: number): VideoClip => ({
 const dataWith = (clips: { id: string; start: number; duration: number; type: 'video' | 'image' | 'subtitle' }[]): ProjectData => {
   const d: ProjectData = {
     version: 1, fps: 30,
-    tracks: [{ id: 'tv', type: 'video', name: 'V', muted: false, hidden: false, clips: [] },
-             { id: 'ts', type: 'subtitle', name: 'S', muted: false, hidden: false, clips: [] }],
+    tracks: [{ id: 'tv', type: 'video', name: 'V', muted: false, hidden: false, clips: [], order: '5000' },
+             { id: 'ts', type: 'subtitle', name: 'S', muted: false, hidden: false, clips: [], order: '5000' }],
     clips: {},
   };
   for (const c of clips) {

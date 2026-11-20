@@ -7,12 +7,16 @@
 // （评审 P3-b：旧 worker semanticViewDigest 只哈希 nodes 根——边根同为语义面必须并入）。
 // 形态独立文件（非 service/worker 挂载）：两侧互引成环（worker 已 import service）——独立模块
 // 零环；纯 yjs+crypto 闭包（census ⑰ 零 controller/Http 面）。
+// Y4a T2（spec §0 条 7/§3.2 表 canary 行）：根清单扩 timelines（三根）+stableStringify 导出
+// （T9 vacuumEquivalent 内容比较与 maintenance 记录 hash 面共消费——单源禁私有函数）。
 import { createHash } from 'node:crypto';
 import * as Y from 'yjs';
 
 /** 值域递归稳定序列化（Y 值经 toJSON 先折 plain〔Y.Map/Y.YText 递归转换+环切断〕；键排序+
- *  undefined 过滤；lighting.service stableStringify 同族形态）。 */
-function stableStringify(value: unknown): string {
+ *  undefined 过滤；lighting.service stableStringify 同族形态）。
+ *  Y4a T2 导出：maintenance recordsOfHydration 记录 hash 面与 T9 vacuumEquivalent
+ *  timelines 内容比较共用本函数（spec §3.2 表——单源共享，禁第二份序列化实现）。 */
+export function stableStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
   const asToJSON = value as { toJSON?: () => unknown };
   if (typeof asToJSON.toJSON === 'function') return stableStringify(asToJSON.toJSON());
@@ -23,13 +27,16 @@ function stableStringify(value: unknown): string {
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(',')}}`;
 }
 
-/** nodes+edges 两根 canonical JSON 视图（语义比对真值面——两根必须齐：节点复活/边丢失均为语义
- *  不等；「同逻辑状态不同 integration order」下两视图恒等〔deleteSet/tombstone 不进视图〕）。
+/** nodes+edges+timelines 三根 canonical JSON 视图（语义比对真值面——三根必须齐：节点复活/边丢失/
+ *  时间轴丢失均为语义不等；「同逻辑状态不同 integration order」下三视图恒等〔deleteSet/tombstone
+ *  不进视图〕）。
  *  【未来根不变量（C2-2b 评审 Minor#6）】客户端新增可写根（vacuum U-2 守恒面明确预留未知未来根）
- *  时**必须**同步扩本视图两根列表——否则该根数据丢失在 canary 侧降归 hash-encoding-mismatch
- *  只计数不 freeze（digest 判据对未覆盖根不敏感）。 */
+ *  时**必须**同步扩本视图根列表——否则该根数据丢失在 canary 侧降归 hash-encoding-mismatch
+ *  只计数不 freeze（digest 判据对未覆盖根不敏感）。
+ *  Y4a T2：+timelines（spec §0 条 7「哈希和真空等价比较包含 timelines」——时间轴进 doc 后
+ *  仅 timelines 差异=语义不等）。 */
 export function canonicalDocView(doc: Y.Doc): string {
-  return (['nodes', 'edges'] as const)
+  return (['nodes', 'edges', 'timelines'] as const)
     .map((r) => `${r}:${stableStringify(Object.fromEntries(doc.getMap(r).entries()))}`)
     .join('|');
 }

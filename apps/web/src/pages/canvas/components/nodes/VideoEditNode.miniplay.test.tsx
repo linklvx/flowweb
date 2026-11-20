@@ -15,7 +15,7 @@ vi.mock('@/pages/canvas/video-editor/renderer/image-cache', () => ({ clearImageB
 
 const props = (id = 'n1', selected = false) => ({ id, selected, dragging: false }) as any;
 const data = (): ProjectData => {
-  const d: ProjectData = { version: 1, fps: 30, tracks: [{ id: 'tv', type: 'video', name: 'V', muted: false, hidden: false, clips: ['c1'] }],
+  const d: ProjectData = { version: 1, fps: 30, tracks: [{ id: 'tv', type: 'video', name: 'V', muted: false, hidden: false, clips: ['c1'], order: '5000' }],
     clips: { c1: { id: 'c1', trackId: 'tv', type: 'video', start: 0, duration: 3, sourceStart: 0, mediaId: 'm1', playbackSpeed: 1, transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 }, keyframes: [] } } };
   return d;
 };

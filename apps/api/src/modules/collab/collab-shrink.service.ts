@@ -133,26 +133,31 @@ export class CollabShrinkService {
 
   /** 导出执行体：源活读（withDoc——发起方必有 WS⇒doc 常驻）→源元数据（CanvasProject.name/teamId
    *  +Template.folderId——projectId @unique 1:1）→同团队建副本（真实签名 create(name, folderId,
-   *  userId, teamId)——不传 teamId=落默认团队=协作者全员失访，外审 P1-6）→fillDoc 干净编码（墓碑
-   *  /GC 壳不随行——新 doc 只含 records 真值）→落地编码校验。fillDoc 走 toDocLike 适配（Y.Doc 无
-   *  createMap，裸传 throw 被 catch 吞=断言真空——adversarial-readers 先例）；新 doc 装载=空画布
-   *  合法档（无戳∧零节点→装载自愈点 stamp，gateway loadDocument 单源——fill 前已有戳）。 */
+   *  userId, teamId)——不传 teamId=落默认团队=协作者全员失访，外审 P1-6）→rebuildDocFaithful
+   *  干净编码（Y4a T2 spec §0 条 7 单源——现「toReadModel+fillDoc 直写」在时间轴进 doc 后=瘦身
+   *  副本丢整棵 timelines；改经 gateway 转发 DR 唯一拷贝器：fillDoc 物化 timelines 根+深拷贝搬
+   *  内容——瘦身副本带 timelines 后 bytes 口径不变〔墓碑/GC 壳不随行、Yjs 全量编码〕）→落地
+   *  编码校验。新 doc 装载=空画布合法档（无戳∧零节点→装载自愈点 stamp，gateway loadDocument
+   *  单源——重建前已有戳）。 */
   private async exportFreshRun(pid: string, userId: string): Promise<ExportFreshResult> {
-    const records = await this.docs.withDoc(pid, (doc) => toReadModel(doc));
     const src = await this.prisma.canvasProject.findUnique({
       where: { id: pid },
       include: { templates: { select: { folderId: true } } },
     });
     if (!src) throw new NotFoundException('源项目不存在');
+    // Y4a T2：源活读改经 rebuildDocFaithful 单源（源 doc 常驻——发起方必有 WS；重建含 timelines
+    // ——旧「toReadModel+fillDoc 直写」丢整棵时间轴）。withDoc 源事务内重建+编码，落地=新副本同
+    // 事务直写（encodeStateAsUpdate 一次）。
+    const rebuilt = await this.docs.withDoc(pid, (doc) => {
+      const fresh = this.gateway.rebuildDocFaithful(doc);
+      if (fresh === null) throw new Error('exportFresh 重建遇非 Map 根（unsupported-root）——瘦身影子面不应达，fail-fast');
+      try { return Buffer.from(Y.encodeStateAsUpdate(fresh)); } finally { fresh.destroy(); }
+    });
     const created = await this.canvas.create(
       `${src.name}(瘦身副本)`, src.templates[0]?.folderId ?? null, userId, src.teamId,
     );
     const bytes = await this.docs.withDoc(created.projectId, (doc) => {
-      // Y0c T12 直写收编：fillDoc 改道 doc 域应用核心（与 writeBatch 同一 Z108/schema 门单点）。
-      // T12 勘正：fill 结果 fail-fast——written:false=契约违规（内部 Error throw，消息含 reason 与
-      // op 索引），禁把空 doc 编码字节当成功上报。
-      const [fill] = applyWriteOpsToDoc(doc, [{ op: 'fillDoc', nodes: records.nodes, edges: records.edges }]);
-      if (!fill.written) throw new Error(`exportFresh fillDoc 未写入（契约违规 fail-fast）: index=${fill.index} reason=${fill.reason}——空 doc 编码不得当成功上报`);
+      Y.applyUpdate(doc, new Uint8Array(rebuilt));   // 重建态直写新 doc（干净编码——墓碑/GC 壳不随行）
       return Y.encodeStateAsUpdate(doc).byteLength;   // 落地编码校验（census④ 生产白名单点——Q-H；同事务不变）
     });
     collabDocExportFreshTotal.inc({ result: 'ok' });
@@ -313,8 +318,9 @@ export class CollabShrinkService {
       drainBudgetMs: VACUUM_QUIESCE_TIMEOUT_MS,
       onDrainTimeout: 'abort',   // drain 超时=quiesce-timeout 净 abort（P1-2：禁 FAILED 只读滞留——vacuum 面中止恢复）
       buildRebuildPayload: async ({ hydrate }) => {
-        // ④⑤ 段（vacuum 只做 rebuild payload）：离线全根真空+等价断言——rebuildVacuumDoc/vacuumEquivalent
-        // 单源仍在 DR（④ 装载读=状态机 EXPORTING 侧 hydrate 透传——loadForHydration 单源不重读）。
+        // ④⑤ 段（vacuum 只做 rebuild payload）：离线全根真空+等价断言——rebuildDocFaithful 单源在 DR
+        // （rebuildVacuumDoc=转发名〔Y4a T2 三重建处共用唯一拷贝器〕；④ 装载读=状态机 EXPORTING 侧
+        // hydrate 透传——loadForHydration 单源不重读）。
         const oldDoc = createCanvasDoc();
         try {
           if (hydrate.state) Y.applyUpdate(oldDoc, new Uint8Array(hydrate.state));

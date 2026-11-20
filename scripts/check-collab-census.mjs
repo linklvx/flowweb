@@ -579,7 +579,7 @@ export function reconcileWithDocRegistry(counts, registry) {
  *  gate-canvas-state ×1=A0-0 门禁画布种子构造（种子编码非测量）；
  *  canvas-doc-update.repository ×2=compact 快照重编码+tombstone delete set 余量测量（Y0b-5 T10——
  *   全 SV 滤零 structs 段的近似编码，compact ≥60s 时间门内成本有界）；
- *  collab-shrink.service ×5=export-fresh 落地校验/shrink 影子预演（apply 进 scratch+预演结果编码）
+ *  collab-shrink.service ×6=Y4a T2 export-fresh 重建态编码（rebuildDocFaithful 单源产物）/export-fresh 落地校验/shrink 影子预演（apply 进 scratch+预演结果编码）
  *   /shrink 写后校准（recalibrate truth）/vacuum 真空编码（newDoc 落库快照——T9a）；
  *  collab-doc-registry.service ×3=装载真值（cheap≥soft 才实测）/vacuum residue 评估（全根真空重建
  *   编码）/over 检查 measureTruth（冷却窗外实测）——T41 W3a 随 DocRegistry 域自 collab.gateway 迁移
@@ -593,7 +593,7 @@ export function reconcileWithDocRegistry(counts, registry) {
 const ENCODE_WHITELIST = {
   'apps/api/src/gate-canvas-state.ts': 1,
   'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 2,   // Y1c T11：compact 快照重编码+tombstone 余量测量（懒建档种子编码随 state 列退役删除——3→2）
-  'apps/api/src/modules/collab/collab-shrink.service.ts': 5,
+  'apps/api/src/modules/collab/collab-shrink.service.ts': 6,   // Y4a T2：+1=export-fresh 改经 rebuildDocFaithful 单源重建编码（源重建态编码——新副本落地校验仍 :205 同点）
   'apps/api/src/modules/collab/collab-doc-registry.service.ts': 3,   // T41 W3a：原 collab.gateway ×3 随域迁（装载真值/residue/measureTruth——同计数换宿主）
   'apps/api/src/modules/project/project.service.ts': 1,
   'apps/api/src/modules/canvas/canvas.service.ts': 1,   // Y1c T7：genesis 双路之二建头种子（project.service 同族）
@@ -1487,8 +1487,8 @@ if (isMain()) {
   const DOC_READER_WHITELIST = {
     'apps/api/src/modules/collab/collab-doc-registry.service.ts': 4,   // 装载病理观测/vacuum 重建×1+等价校验×2
     'apps/api/src/modules/collab/collab-document.service.ts': 2,       // readCanvas 出口+decodeSnapshot 投影
-    'apps/api/src/modules/collab/collab-shrink.service.ts': 2,         // shrink 影子源+预演读
-    'apps/api/src/modules/collab/collab-maintenance.service.ts': 2,    // Y1c T27：EXPORTING/VERIFYING recordsOfHydration+REBUILDING canonical（§6.6 导出/复核真值读面）
+    'apps/api/src/modules/collab/collab-shrink.service.ts': 1,         // shrink 预演读（Y4a T2：export-fresh 源读改经 rebuildDocFaithful 单源——直读 -1）
+    'apps/api/src/modules/collab/collab-maintenance.service.ts': 1,    // Y1c T27：EXPORTING/VERIFYING recordsOfHydration（Y4a T2：REBUILDING canonical 改经 rebuildDocFaithful 单源——直读 -1）
     'apps/web/src/collab/ydocBuilder.ts': 1,                           // readCanvasFromDoc 薄委托（web 读单源）
     'apps/web/src/stores/canvasIntents.ts': 3,                         // 组帧 oracle/组记录/差分尾 order
   };
@@ -1567,7 +1567,7 @@ if (isMain()) {
     // 离线 scratch 档（非 inbound——compact/快照解码/shrink 预演校准/巡检）
     'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 2,   // compact temp doc 行集重放 ×2（applyUpdate 面——Y1c T10 未增：懒建档种子只 encode 不 apply）
     'apps/api/src/modules/collab/collab-document.service.ts': 2,
-    'apps/api/src/modules/collab/collab-shrink.service.ts': 3,
+    'apps/api/src/modules/collab/collab-shrink.service.ts': 4,   // Y4a T2：+1=export-fresh 新副本重建态直写（rebuildDocFaithful 单源产物）
     'apps/api/src/modules/collab/collab-integrity-probe.ts': 2,
     // Y1c T9（2026-10-24）gate 档落地：actor pre-apply 调用点 1（准入链 ⑤——origin=GateApplyOrigin）；
     // 白名单 14+1=15 点/9 文件（gate 档从注释升级为登记条目——Y1c T9 写入方换代）
@@ -1700,8 +1700,8 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-document.service.ts': 5,       // readCanvas×2（def+fallback）+snapshotCached def+toReadModel×2
     'apps/api/src/modules/collab/collab-read.controller.ts': 2,        // readCanvas def+透传
     'apps/api/src/modules/collab/collab-canvas-read.controller.ts': 1, // T25b 微批 C-1：readCanvas 用户面透传（assertEditor 门——B 场景裁定 current 侧读径）
-    'apps/api/src/modules/collab/collab-shrink.service.ts': 2,         // toReadModel×2（影子源/预演）
-    'apps/api/src/modules/collab/collab-maintenance.service.ts': 2,    // Y1c T27：toReadModel×2（EXPORTING/VERIFYING recordsOfHydration+REBUILDING canonical——api-maintenance-export 条目同批）
+    'apps/api/src/modules/collab/collab-shrink.service.ts': 1,         // toReadModel×1（预演——Y4a T2：export-fresh 改经 rebuildDocFaithful 单源，影子源读 -1）
+    'apps/api/src/modules/collab/collab-maintenance.service.ts': 1,    // Y1c T27：toReadModel×1（EXPORTING/VERIFYING recordsOfHydration——Y4a T2：canonical 改经 rebuildDocFaithful 单源，REBUILDING 直读 -1；api-maintenance-export 条目同批）
     'apps/api/src/modules/collab/collab-write.port.ts': 4,             // readCanvas abstract+Direct def/委托+Http def
     'apps/api/src/modules/execution/execution.service.ts': 1,          // readCanvas 计费读
     'apps/api/src/modules/execution/execution.controller.ts': 1,       // Y2 B2c：enqueue 入队前 readCanvas 建作者槽表

@@ -20,7 +20,8 @@
 //   复用条件（增量跳过）=`historyEpoch+generation+verifiedSeq` 全同 ∧ status=COMPLETE ∧
 //   CanvasDoc.bindingsDirty=false——historyEpoch=worker 实例启动 UUID（ProjectionBackfillState.
 //   backfillEpoch 同体例）。CAS miss/失败=header 不认 COMPLETE，下轮重扫。
-// 扫描域=nodes+edges 两根（canonicalDocView 同族根单源——新增可写根必须同步扩 SCAN_ROOTS）。
+// 扫描域=nodes+edges+timelines 三根（canonicalDocView 同族根单源——新增可写根必须同步扩 SCAN_ROOTS；
+// Y4a T2：timelines 根 clip mediaId 入扫描面——节点已删时间轴还在=悬空键照投的删除保护前置）。
 // 指标=oracle-worker.metrics.ts 单源（coverage_ratio/scan_age——低基数）。
 // 部署前提=worker 单实例（canary verify 同族 ADR）：双实例下行为安全——CAS 串行化使陈旧者必
 // cas-miss、同锚双实例收敛同集合（DELETE+INSERT 原子替换），唯一代价=重复扫描工作浪费。
@@ -50,8 +51,9 @@ const SCAN_MAX_DEPTH = 32;
  *  路径须回头扩本口径。） */
 export const UUID_LEAF_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-/** 扫描域根（nodes+edges 两根——canonicalDocView 根单源同族；新增可写根必须同步扩本列表）。 */
-const SCAN_ROOTS = ['nodes', 'edges'] as const;
+/** 扫描域根（nodes+edges+timelines 三根——canonicalDocView 根单源同族；新增可写根必须同步扩本列表。
+ *  Y4a T2：timelines 根入扫描域——时间轴 clip mediaId 与节点 refs 同集保护（悬空键照投）。 */
+const SCAN_ROOTS = ['nodes', 'edges', 'timelines'] as const;
 
 /** 扫描预算超时 typed error（bail-out——header FAILED 落 error 文案）。 */
 export class OracleScanBudgetError extends Error {

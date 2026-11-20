@@ -561,6 +561,14 @@ export class CollabDocRegistryService {
       // Y0b-4 T3：帧数组显式持有——spool 字节计入 cheap 上界（帧在装载窗内，测量点必须在其后）。
       const spoolFrames = await this.persistence.peekSpoolFrames(projectId);
       for (const f of spoolFrames) Y.applyUpdate(document, f.payload);
+      // Y4a T2（spec §0 条 7）装载物化缝：水合/spool 重放完成后、actor observeDeep 安装前——
+      // 旧档帧（Y4a 前快照）无 timelines 根，装载链主动补根：SERVER_TRANSACT_ORIGIN 一笔空事务
+      // getMap('timelines') 不放工程（已有根零事务——**同名根就是同一对象**〔doc.getMap 返回既有
+      // 实例〕，不存在两客户端各造一棵根的问题；两客户端造根的形态由版本门〔sv≠5 拒载〕+同名根
+      // 同对象共同挡掉）。fillDoc 消费面（种子/重建）物化同款根——装载链与其对称。
+      if (!document.share.has('timelines')) {
+        document.transact(() => { document.getMap('timelines'); }, SERVER_TRANSACT_ORIGIN);
+      }
       // Y1c T24 收口 I-1：装载内容全量入 doc 后的索引重建缝（gateway 转发 actor.noteDocIndexRebuild
       // ——原挂 noteDocLoadedPrefix 缝在 applyReplayed 之前=对空 doc 执行，且重放走 replay 抑制窗
       // 零 effects 增量，装载后索引恒缺装载前节点）
@@ -738,14 +746,16 @@ export class CollabDocRegistryService {
    *  nodes/edges → toReadModel+fillDoc（records 真值重放——墓碑/GC 壳/delete set 不随行；Y1c T4
    *  起读侧改道 doc-codec toReadModel）；
    *  其余 Y.Map 根（meta/未来新增）→ 逐 key 深拷贝（未来新增根 map 不可能被静默丢弃〔U-2〕；
-   *  Y1c T32：exec 根=已除名死根——不搬运不深拷贝〔doc.exec 读写链退役，旧档残留随真空消亡〕）；
+   *  Y1c T32：exec 根=已除名死根——不搬运不深拷贝〔doc.exec 读写链退役，旧档残留随真空消亡〕；
    *  T18 起 meta 零键（版本=PG 列——深拷贝=透明搬运；旧档残留值随拷贝保留为历史载荷不解释）；
    *  非 Map 根（Y.Text 等）⇒ null（vacuum 不支持——降级导出通道，DB 零变更）。
    *  ⚠ yjs wire 根类型事实（实测 13.6.32）：applyUpdate 重建的 doc.share 根=AbstractType 占位
    *  （根类型不随 wire 承载——由访问侧 getMap/getText 声明）；序列型内容（Text/Array）挂占位
    *  ._start 链表。判定=非 Y.Map 实例且 _start 非空 ⇒ 非 Map 根；空根（无内容）按 Map 重建——
-   *  内容无损。 */
-  rebuildVacuumDoc(source: Y.Doc): Y.Doc | null {
+   *  内容无损。
+   *  **Y4a T2（spec §0 条 7）rebuildDocFaithful 单源**：本方法体=真空/金丝雀 canonical/export-fresh
+   *  三处重建的唯一拷贝器实现（rebuildDocFaithful）——三处手搓第二套拷贝器=禁形。 */
+  rebuildDocFaithful(source: Y.Doc): Y.Doc | null {
     for (const root of source.share.values()) {
       const r = root as unknown as { _start?: unknown };
       if (!(root instanceof Y.Map) && r._start != null) return null;   // Text/Array 序列内容 ⇒ unsupported-root（wire 占位判定——见头注 yjs 根类型事实）
@@ -753,14 +763,14 @@ export class CollabDocRegistryService {
     const fresh = createCanvasDoc();
     try {
       const records = toReadModel(source);   // 读侧建 nodes/edges 根（与 fillDoc 对称——根集合守恒；Y1c T4 改道 doc-codec）
-      fillDoc(toDocLike(fresh), records.nodes, records.edges);
+      fillDoc(toDocLike(fresh), records.nodes, records.edges);   // fillDoc 物化 timelines 根（Y4a T2——根集合守恒，不放工程）
       fresh.transact(() => {
         for (const [name] of source.share) {
           if (name === 'nodes' || name === 'edges') continue;
           // Y1c T32：exec 根死根不搬运（doc.exec 读写链退役——零写者零读者；旧档残留值随真空消亡，
-          // wire 透传义务随删除清单解除——meta 同族深拷贝保留〔未知未来根 U-2 守恒〕）。
+          // wire 透传义务随删除清单解除——meta/timelines 同族深拷贝保留〔未知未来根 U-2 守恒〕）。
           if (name === 'exec') continue;
-          deepCopyYMap(source.getMap(name), fresh.getMap(name));   // getMap 规约化（占位→YMap 视图——服务端访问语义）
+          deepCopyYMap(source.getMap(name), fresh.getMap(name));   // getMap 规约化（占位→YMap 视图——服务端访问语义；timelines 根走本路径搬内容〔Y4a〕）
         }
       });
       return fresh;
@@ -770,16 +780,28 @@ export class CollabDocRegistryService {
     }
   }
 
+  /** rebuildDocFaithful 的 DR 侧转发名（vacuum ④ 段/残留评估共用——**单源转发零第二实现**；
+   *  gateway 再导出面与 shrink buildRebuildPayload 委托链同源）。 */
+  rebuildVacuumDoc(source: Y.Doc): Y.Doc | null {
+    return this.rebuildDocFaithful(source);
+  }
+
   /** ⑤ 等价断言扩全根（把信任 fillDoc 变成验证 fillDoc）：readRecords 深比+根类型集合相等
    *  （两条 O(键数)——U-1/U-2 直接检测）。T18：meta.schemaVersion===current 检查随版本移 PG 列
    *  退役（行值不随 vacuum 变）；JSON 序列化对比（键序=遍历序稳定）。
    *  Y1c T32：exec 键集合相等断言随 doc.exec 读写链退役删除——exec 根=已除名死根（rebuild 不
-   *  搬运、shape 断言两侧行过滤对称豁免〔旧档源 exec 根丢弃合法〕）。 */
+   *  搬运、shape 断言两侧行过滤对称豁免〔旧档源 exec 根丢弃合法〕）。
+   *  Y4a T2（spec §0 条 7）：timelines 两侧 getMap 规约化——fillDoc 物化后 fresh 恒带根，
+   *  旧档源（Y4a 前快照）无根 ⇒ 单侧造根=shapeOf 永假（meta :780-781 假红同根因——对称声明
+   *  修实现侧）；内容比较（stableStringify timelines）=T9 扩，本批只落两侧声明+shapeOf 天然
+   *  覆盖〔根集合守恒〕。 */
   vacuumEquivalent(oldDoc: Y.Doc, newDoc: Y.Doc): boolean {
     // 三常驻根规约化（装载路径同款——根集合对称口径；空源 doc 键集合口径由此对称）。
     // T18：meta 规约化删除——legacy 根两侧自然对称（source 有 ⇒ fresh 深拷贝亦有；无 ⇒ 双无；
     // 单侧 getMap 建根=制造形状差〔stamp 退役后装载不再建 meta——equivalence-failed 根因〕）。
     oldDoc.getMap('nodes'); oldDoc.getMap('edges');
+    // Y4a T2：timelines 同款两侧对称声明（fillDoc 物化后 fresh 恒带根——old 侧同造根才 shapeOf 等）。
+    oldDoc.getMap('timelines'); newDoc.getMap('timelines');
     // T32：exec 键两侧行过滤（rebuild 不搬运源 exec 根——已知死根豁免；未过滤即旧档源必假失败）
     const shapeOf = (d: Y.Doc) => [...d.share.keys()].filter((k) => k !== 'exec').sort().join('|');   // 根键名集合（wire 占位与本地实例 constructor 不可比——类型保型由 rebuild 判定结构性保证）
     if (shapeOf(oldDoc) !== shapeOf(newDoc)) return false;

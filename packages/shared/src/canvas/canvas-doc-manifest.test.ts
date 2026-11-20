@@ -158,8 +158,8 @@ describe('Y0c T4 manifest 结构完整性（E38 四层——编译断言的运�
     }
   });
 
-  it('层①顶层 map 集合+层③④种子条目：四 map 全登记且 nodes/edges/exec 非空', () => {
-    expect([...DOC_TOP_LEVEL_MAPS].sort()).toEqual(['edges', 'exec', 'meta', 'nodes']);
+  it('层①顶层 map 集合+层③④种子条目：五 map 全登记且 nodes/edges/exec 非空', () => {
+    expect([...DOC_TOP_LEVEL_MAPS].sort()).toEqual(['edges', 'exec', 'meta', 'nodes', 'timelines']);
     for (const map of DOC_TOP_LEVEL_MAPS) {
       expect(DOC_KEY_MANIFEST[map], `种子条目缺 map=${map}`).toBeDefined();
     }
@@ -174,6 +174,25 @@ describe('Y0c T4 manifest 结构完整性（E38 四层——编译断言的运�
         expect(e.ownership).toBeDefined();
         expect(e.undo).toBeDefined();
       }
+    }
+  });
+
+  // Y4a T2（spec §0 条 7/§3.2 表）：timelines 顶层根入册——先红（新根未登记）后绿。
+  it('Y4a T2：DOC_TOP_LEVEL_MAPS 含 timelines 且层③④种子条目对齐（写者=LocalUser/timeline-user、读者=编辑器/导出/迷你画布/GC、undo scope=client-undo）', () => {
+    expect(DOC_TOP_LEVEL_MAPS).toContain('timelines');
+    const entries = DOC_KEY_MANIFEST.timelines;
+    expect(entries, 'timelines 种子条目缺 map（层③④登记面）').toBeDefined();
+    expect(entries.length).toBeGreaterThan(0);
+    for (const e of entries) {
+      expect(e.map).toBe('timelines');
+      // 层③写者=客户端双 origin（LocalUser=创建/删除、timeline-user=编辑——spec §3.2 表）
+      expect(e.writers.join('|')).toMatch(/LocalUser/);
+      expect(e.writers.join('|')).toMatch(/timeline-user/);
+      // 层③读者=编辑器/导出/迷你画布/GC 扫描（spec §3.2 表）
+      expect(e.readers.join('|')).toMatch(/导出|export/i);
+      expect(e.readers.join('|')).toMatch(/GC|扫描/);
+      // 层④ undo scope=客户端可撤销（UNDO_STACK_BASE 三根——T1 单源）
+      expect(e.undo).toBe('client-undo');
     }
   });
 

@@ -32,7 +32,7 @@ const mkData = (): ProjectData => {
   })();
   return {
     version: 1, fps: 30,
-    tracks: [{ id: 'tv', type: 'video', name: '视频', muted: false, hidden: false, clips: ['c1'] }],
+    tracks: [{ id: 'tv', type: 'video', name: '视频', muted: false, hidden: false, clips: ['c1'], order: '5000' }],
     clips: Object.fromEntries(entries),
   };
 };

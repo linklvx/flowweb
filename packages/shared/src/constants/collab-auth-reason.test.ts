@@ -95,6 +95,6 @@ describe('CollabReadyReason 封闭枚举（G-4 载体：tsc 即门）', () => {
     };
     expect(typeof body.epoch).toBe('string');
     expect(body.pending.strandedFiles).toBe(0);
-    expect(body.collabProtocolVersion).toBe(4);   // 缺字段=类型红（必选）；值锚 bump 纪律（Y2 C1 版本 4=翻禁执法+作者键 mediaId 域——与 CANVAS_DOC_SCHEMA_VERSION 双常量同 bump）
+    expect(body.collabProtocolVersion).toBe(5);   // 缺字段=类型红（必选）；值锚 bump 纪律（Y4a T2 版本 5=timeline 根物化批——与 CANVAS_DOC_SCHEMA_VERSION 双常量同 bump）
   });
 });

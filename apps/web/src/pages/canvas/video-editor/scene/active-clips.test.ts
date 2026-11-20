@@ -21,7 +21,7 @@ const sc = (id: string, start: number, duration: number, trackId = 'ts'): Subtit
 
 const data = (spec: { trackId: string; type: 'video' | 'subtitle' | 'audio'; hidden?: boolean; clips: Clip[] }[]): ProjectData => ({
   version: 1, fps: 30,
-  tracks: spec.map(s => ({ id: s.trackId, type: s.type, name: s.trackId, muted: false, hidden: s.hidden ?? false, clips: s.clips.map(c => c.id) })),
+  tracks: spec.map(s => ({ id: s.trackId, type: s.type, name: s.trackId, muted: false, hidden: s.hidden ?? false, clips: s.clips.map(c => c.id), order: '5000' })),
   clips: Object.fromEntries(spec.flatMap(s => s.clips).map(c => [c.id, c])),
 });
 describe('selectActiveClips（视觉管线活跃判定）', () => {
