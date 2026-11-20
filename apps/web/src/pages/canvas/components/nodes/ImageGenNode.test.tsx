@@ -282,10 +282,9 @@ vi.mock('@/stores/mediaFactsRuntime', async (importOriginal) => {
 const { mockDownloadMediaFile } = vi.hoisted(() => ({ mockDownloadMediaFile: vi.fn() }));
 vi.mock('@/utils/mediaDownload', () => ({ downloadMediaFile: mockDownloadMediaFile }));
 
-// Y3 T7：投影收场测试面——真实 useRuntimeFeedStore（组件订阅 selector/响应后立刻读共用该 store 实例）；
-// regen-token 真模块（restoreRotatedToken 接线断言经 sessionStorage 终态面）。
+// Y3 T7：投影收场测试面——真实 useRuntimeFeedStore（组件订阅 selector/响应后立刻读共用该 store 实例）。
+// Y3 清理批（Ruling 5 A2）：regen-token import 随 tripwire 用例整例删除（本文件 token 面断言已归零）。
 import { useRuntimeFeedStore, resetRuntimeFeed } from '@/stores/runtimeStore';
-import { gestureToken, storedToken, rotateToken } from '@/utils/regen-token';
 
 describe('ImageGenNode', () => {
   beforeEach(() => {
@@ -1285,27 +1284,9 @@ describe('ImageGenNode', () => {
       fetchSpy.mockRestore();
     });
 
-    it('restoreRotatedToken 生产接线：终态分支携槽上 {status,rearmable,execSeq}+消费标记读取（回滚三条件按 API 原样）', async () => {
-      // 轮换窗口预置（面板效应形态——M4 legacy 窗口残留同判）：持有 T1 轮换丢弃（prev 快照=T1、seq='3'）
-      gestureToken('p1', 'img1');
-      const prevToken = storedToken('p1', 'img1');
-      expect(prevToken).toBeTruthy();
-      rotateToken('p1', 'img1', '3');
-      expect(storedToken('p1', 'img1')).toBeNull();
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => admitEnvelope('i2', '7'));
-      renderInEditMode();
-      clickGenerate();
-      await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
-      // 点击侧 markGestureConsumed 在案（消费标记读取面）；测试构造资格成立档：清标记模拟「本轮换出 token 未消费」
-      expect(sessionStorage.getItem('flowweb:regen-consumed:p1:img1')).toBe('1');
-      sessionStorage.removeItem('flowweb:regen-consumed:p1:img1');
-      // ⓓ 可 rearm error（非终态）+槽 execSeq 7>已轮换 3+未消费 → 恢复轮换前值（旧 token 回持）
-      setSlot({ execStatus: { status: 'error', rearmable: true, nodeVersion: '50', intentId: 'i2', execSeq: '7', error: '积分不足' } });
-      await act(async () => {});
-      expect(portal().textContent).toContain('积分不足');
-      expect(storedToken('p1', 'img1')).toBe(prevToken);   // settle 终态分支的生产调用点生效
-      fetchSpy.mockRestore();
-    });
+    // Y3 清理批（Ruling 5 A2）：「手清消费标记构造资格」的 restore 接线 tripwire 用例整例删除——
+    // settle 已零 token 面（settle 只收场编辑态），restore 生产接线迁六面板投影 effect
+    //（面板级回归面=ImageConfigPanel.test.tsx Ruling5 用例；三条件单测面=regen-token.generation.spec.ts）。
   });
 
   describe('下载（R2b-2 切 downloadMediaFile）', () => {

@@ -521,8 +521,8 @@ export class IntentReconcileService implements OnModuleInit, OnApplicationShutdo
     }).catch((e) => this.logger.warn(`[R3] 意图行 ${intentRowId} 审计行落账失败（动作已执行——审计 best-effort）: ${e}`));
   }
 
-  /** Y0b-2 T5（Z106/Z112）→Y3 Task3：reaper 终态投影——**常驻门删**（isDocResident 早退+deferred
-   *  计数支删——Feed 写不成为装载源的结构证明已由 RuntimeFeed PG 事务承担：无人看也写=重连后
+  /** Y0b-2 T5（Z106/Z112）→Y3 Task3：reaper 终态投影——**常驻门删**（isDocResident 早退
+   *  随门删除——Y3 清理批 B1 deferred 计数支/指标一并退役：Feed 写不成为装载源的结构证明已由 RuntimeFeed PG 事务承担：无人看也写=重连后
    *  游标追平必达）。Feed=shared feedError（REAPER_DEADLINE/REAPER_STALE 两句 id 分立——事件码
    *  仍现两码；行 intentId/attempts/execSeq 恒写——rearmable 有行 attempts<3 由 feedError 按码承担）。
    *  drain 503 best-effort 记 warn（不因投影失败回滚资金）。 */

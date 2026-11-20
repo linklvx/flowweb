@@ -3,7 +3,7 @@ import { useViewport } from '@xyflow/react';
 import { useNodeStore, isImageNode } from '@/stores/nodeStore';
 import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { gestureToken, storedToken, rotateToken, markGestureConsumed } from '@/utils/regen-token';
+import { gestureToken, storedToken, rotateToken, markGestureConsumed, restoreRotatedToken, isGestureConsumed } from '@/utils/regen-token';
 import { ModelSelector } from './config-panel/ModelSelector';
 import { RatioResolutionPopover } from './config-panel/RatioResolutionPopover';
 import type { RatioOption } from './config-panel/RatioResolutionPopover';
@@ -61,10 +61,21 @@ function ImageConfigPanelComponent({ nodeId }: Props) {
   // ——修前 payload 丢键致本判据 rearmable===false 档结构性不可达；词表扩键=spec §7 v5.4⑭ 同批）
   // Y3 Task4（v3.1 合同二——轮换代际）：有 execSeq 的终态必传 entry.execStatus.execSeq（同 execSeq
   // 只轮换一次+更小忽略——旧代 done 迟到不再丢新持有）；无 execSeq 无行终态维持两参旧形态。
+  // Y3 清理批（Ruling 5——restore 接线迁本 effect）：终态档→rotateToken（真轮换清消费标记在彼内）；
+  // 非终态档→restoreRotatedToken 携槽上值+消费标记读取（回滚三条件按 regen-token API 原样判）——
+  // 两档互斥（settle 只收场编辑态，不碰 token 面）。
   useEffect(() => {
+    const pid = useCanvasStore.getState().projectId;
+    if (!pid) return;
     if (entry?.status === 'done' || (entry?.status === 'error' && entry.rearmable === false)) {
-      const pid = useCanvasStore.getState().projectId;
-      if (pid) rotateToken(pid, nodeId, entry.execSeq);
+      rotateToken(pid, nodeId, entry.execSeq);
+    } else if (entry?.status !== undefined) {
+      restoreRotatedToken(pid, nodeId, {
+        status: entry.status,
+        ...(entry.rearmable !== undefined ? { rearmable: entry.rearmable } : {}),
+        ...(entry.execSeq !== undefined ? { execSeq: entry.execSeq } : {}),
+        tokenConsumed: isGestureConsumed(pid, nodeId),
+      });
     }
   }, [entry?.status, entry?.rearmable, entry?.execSeq, nodeId]);
 

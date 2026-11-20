@@ -466,7 +466,7 @@ export class ExecutionService {
       //    +intent CAS+settleInTx+投影/binding 原子；complete/settle 独立外置退役）：image/text 同步链
       //    同前；video=finalize-first（裁决①/⑮：provider 成功即 settle+finalize——Media(processing)
       //    +state=materializing+fileId 交付 mediaId；字节物化归 MaterializeJob DB poller 异步——零队列）。 ──
-      let deliverFileId: string | undefined;   // emit 即时 UX 面（交付本身归投影 poller——doc 零写）
+      let deliverFileId: string | undefined;   // 现消费面=releaseAuthorSlot 释放守卫判据（committed 且非作废才释放作者槽）；交付本身归投影 poller——本段零 emit 零 doc 写
       // Y2 B2c（v2.3 现场槽≠冻结值判定）：call 前读槽——frozen=false（无作者键）或现场≠冻结值
       // （含清空）=整次交付作废（authorVoid 传入 finalize 作废臂）；两边皆空=相等走胜臂。text 不传。
       let authorVoid = false;

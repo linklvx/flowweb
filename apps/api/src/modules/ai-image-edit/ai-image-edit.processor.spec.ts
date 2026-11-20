@@ -627,7 +627,8 @@ describe('AiImageEditProcessor', () => {
       apiCaller.callOutpainting.mockRejectedValue(new Error('AI timeout'));
       prisma.generationIntent.findUnique.mockResolvedValue({ status: 'RUNNING', execSeq: 9n, attempts: 1, intentId: 'i-row-9' });
       await expect(processor.process(makeIntentJob())).rejects.toThrow('AI timeout');
-      const feed = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.status === 'error' && c[2]?.errorCode === 'EXECUTION_FAILED');
+      // B4（Ruling 清理批）：编辑通用失败 errorCode 改 EDIT_FAILED 标签（节点执行族缺省 EXECUTION_FAILED 不动）
+      const feed = collabDoc.writeExecStatus.mock.calls.find((c: any[]) => c[2]?.status === 'error' && c[2]?.errorCode === 'EDIT_FAILED');
       expect(feed).toBeTruthy();
       const patch = feed![2] as Record<string, unknown>;
       expect(patch.error).toBe('AI 处理失败');   // 封闭句——旧 err.message 原文进 Feed 即红

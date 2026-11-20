@@ -37,6 +37,9 @@ export const storedToken = (projectId: string, nodeId: string): string | null =>
  * 轮换：丢弃持有（done 后下一击=新"重新生成"；EXHAUSTED 后不自锁）。
  * 带第三参 execSeq（v3.1 合同二——有 execSeq 的终态必传）：同一 execSeq 只轮换一次+槽上更小则忽略
  * （旧代 done 迟到不再丢新持有）；无第三参=无行终态旧形态——照常轮换、零代际记录。
+ * Y3 清理批（Ruling 5——清标记归真轮换）：只在 execSeq 严格变大、轮换真正发生的那一次清消费标记
+ * （更小/相等走提前返回——不清标记、不丢持有）；两参 409（INTENT_EXHAUSTED 同步路径）维持今天
+ * 行为（不进代际窗口、不清消费标记）。
  */
 export function rotateToken(projectId: string, nodeId: string, execSeq?: string): void {
   if (execSeq !== undefined) {
@@ -44,6 +47,7 @@ export function rotateToken(projectId: string, nodeId: string, execSeq?: string)
     if (prev !== null && BigInt(execSeq) <= BigInt(prev)) return;   // 同代已轮换（一次）或更小（旧代迟到）——忽略
     sessionStorage.setItem(rotatedSeqKeyOf(projectId, nodeId), execSeq);
     sessionStorage.setItem(rotatedPrevKeyOf(projectId, nodeId), sessionStorage.getItem(keyOf(projectId, nodeId)) ?? '');   // 轮换时持有快照（回滚恢复值）
+    sessionStorage.removeItem(consumedKeyOf(projectId, nodeId));   // 真轮换清消费标记（新 token 新生命周期——Ruling5）
   }
   sessionStorage.removeItem(keyOf(projectId, nodeId));
 }

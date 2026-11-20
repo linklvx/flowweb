@@ -597,16 +597,7 @@ describe('IntentReconcileService（F12/F13 两档收敛——T13 R3 重写后语
       expect(patch.attempts).toBe(2);
     });
 
-    it('⑩ deferred 计数支删除：isDocResident=false 早退不再计数（exec_projection_deferred_total 零增量）', async () => {
-      const { execProjectionDeferredTotal: deferred } = await import('./exec.metrics');
-      const totalOf = (m: any): number => Object.values(m.hashMap ?? {}).reduce((s: number, v: any) => s + (v.value ?? 0), 0);
-      collabDoc.isDocResident.mockReturnValue(false);
-      prisma.generationIntent.findMany.mockResolvedValue([intent({ execSeq: 6n })]);
-      prisma.$queryRaw.mockImplementation(async (tpl: any) => (String(tpl?.[0]).includes('r.*') ? [chargeRow()] : []));
-      teamCredit.rollbackRunning.mockResolvedValueOnce(true);
-      const before = totalOf(deferred);
-      await service.verifyActive();
-      expect(totalOf(deferred)).toBe(before);   // 红：现早退路径 inc ⇒ before+1
-    });
+    // Y3 清理批 B1：⑩ deferred 计数零增量用例随 execProjectionDeferredTotal 指标删除
+    //（生产写点已随 reaper 常驻门删除——⑧⑩ 两用例已覆盖「isDocResident=false 也写入」行为面）。
   });
 });

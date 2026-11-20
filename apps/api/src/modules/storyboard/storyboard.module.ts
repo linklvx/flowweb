@@ -4,13 +4,11 @@ import { StoryboardController } from './storyboard.controller';
 import { StoryboardService } from './storyboard.service';
 import { StitchConsumer } from './stitch.consumer';
 import { STORYBOARD_STITCH_QUEUE } from './storyboard.constants';
-import { ExecutionCoreModule } from '../execution/execution-core.module';   // Y0c T25：模块拆分改道（Y3 T8 起零 WS 面——StitchConsumer 依赖解析）
 import { TeamModule } from '../team/team.module';
 
 @Module({
   imports: [
     TeamModule,
-    ExecutionCoreModule,
     BullModule.registerQueue({
       name: STORYBOARD_STITCH_QUEUE,
       // P1-4：指数退避重试防 MinIO/网络异常（bullmq 5.75 JobsOptions 无 timeout 字段，

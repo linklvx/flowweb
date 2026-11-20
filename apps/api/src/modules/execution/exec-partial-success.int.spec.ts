@@ -19,7 +19,6 @@ import { PricingResolverService } from './pricing-resolver.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { TeamCreditService } from '../team/team-credit.service';
 import { CreditLedgerService } from '../team/credit-ledger.service';
-import { execProjectionDeferredTotal } from './exec.metrics';
 import { ledgerWipe, deleteTeamsWithPass } from '../../test-utils/intent-fixture';
 import { BusinessException } from '../../common/exceptions/business.exception';
 
@@ -33,8 +32,6 @@ const intentSvc = new GenerationIntentService(prisma as unknown as PrismaService
 const resolver = new PricingResolverService(prisma as unknown as PrismaService);
 const validation = new ValidationService(prisma as unknown as PrismaService, resolver);
 const perm = new ProjectPermissionService(prisma as unknown as PrismaService);
-
-const totalOf = (m: any): number => Object.values(m.hashMap ?? {}).reduce((s: number, v: any) => s + (v.value ?? 0), 0);
 
 const UID = `int-eps-owner-${Date.now()}`;
 const PID = `int-eps-${Date.now()}`;
@@ -262,15 +259,14 @@ const statusOf = async (nodeId: string) =>
       ledger, { getJob: async () => null } as any, { getJob: async () => null } as any, {} as any, teamCredit,
       makeArtifactCommit(prisma as unknown as PrismaService, ledger, teamCredit, intentSvc).artifactCommit,   // T13 R3
     );
-    const before = totalOf(execProjectionDeferredTotal);
     await reconcile.verifyActive();
     expect((await prisma.generationIntent.findUnique({ where: { id: intent.id } }))!.status).toBe('VOIDED'); // 退款成立
     // Y3 T3⑩ 常驻门删：无人看也写入（feedError 有行档——行身份恒写；doc 非常驻=写面仍达）
+    // Y3 清理批 B1：execProjectionDeferredTotal 零增量断言随指标删（生产写点已随 reaper 常驻门删除）
     expect(writeExecStatus).toHaveBeenCalledWith(PID, nodeId, expect.objectContaining({
       status: 'error', errorCode: 'INTENT_DEADLINE_EXCEEDED', error: '生成超时已被系统回收',
       intentId: (intent as { intentId: string }).intentId, execSeq: String(intent.execSeq),
     }));
-    expect(totalOf(execProjectionDeferredTotal)).toBe(before); // deferred 计数支删除（零增量）
   }, 30_000);
 
   it('Z106/Z112 投影分治②：doc 常驻 ⇒ 投影 error 即时可见（Y3 T3 翻新：errorCode+封闭句 REAPER_DEADLINE+行 intentId/execSeq）', async () => {

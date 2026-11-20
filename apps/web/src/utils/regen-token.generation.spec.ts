@@ -59,6 +59,43 @@ describe('Y3 Task4 v3.1 合同二：rotateToken 轮换代际（同 execSeq 只�
     expect(storedToken('p1', 'n2')).toBeNull();
     expect(t).toBeTruthy();
   });
+
+  // ── Y3 清理批（Ruling 5——清标记语义归真轮换）：代际真变大的轮换清消费标记；更小/相等/两参不清 ──
+
+  it('Ruling5：代际真变大的轮换清消费标记（轮换真正发生的那一次——新 token 新生命周期）', () => {
+    gestureToken('p1', 'n1');
+    markGestureConsumed('p1', 'n1');
+    expect(sessionStorage.getItem('flowweb:regen-consumed:p1:n1')).toBe('1');
+    rotateToken('p1', 'n1', '9');   // 真轮换（9>无记录）——清消费标记
+    expect(sessionStorage.getItem('flowweb:regen-consumed:p1:n1')).toBeNull();   // 红：现不清
+    // 换代后的第二次真轮换同判（12>9 也清——每次真轮换都清）
+    const t2 = gestureToken('p1', 'n1');
+    markGestureConsumed('p1', 'n1');
+    rotateToken('p1', 'n1', '12');   // 真轮换（12>9）——清
+    expect(sessionStorage.getItem('flowweb:regen-consumed:p1:n1')).toBeNull();
+    expect(t2).toBeTruthy();
+  });
+
+  it('Ruling5：更小/相等走提前返回不清消费标记也不丢持有；两参 409 维持今天行为（不进代际窗口、不清标记）', () => {
+    // 更小：旧代 done 迟到——提前返回
+    gestureToken('p1', 'n1');
+    rotateToken('p1', 'n1', '5');
+    const t2 = gestureToken('p1', 'n1');
+    markGestureConsumed('p1', 'n1');
+    rotateToken('p1', 'n1', '3');   // 更小——忽略
+    expect(storedToken('p1', 'n1')).toBe(t2);   // 持有不丢
+    expect(sessionStorage.getItem('flowweb:regen-consumed:p1:n1')).toBe('1');   // 标记不清
+    // 相等：同代已轮换——提前返回
+    rotateToken('p1', 'n1', '5');   // 相等——忽略
+    expect(storedToken('p1', 'n1')).toBe(t2);
+    expect(sessionStorage.getItem('flowweb:regen-consumed:p1:n1')).toBe('1');
+    // 两参 409（INTENT_EXHAUSTED 同步路径）：照常轮换但不清标记
+    markGestureConsumed('p1', 'n1');   // 消费标记已在案（上档保留）
+    sessionStorage.removeItem('flowweb:regen-seq:p1:n1');   // 两参不写代际窗口——清记录还原两参前置态
+    rotateToken('p1', 'n1');   // 两参——无代际记录
+    expect(storedToken('p1', 'n1')).toBeNull();   // 照常轮换丢弃
+    expect(sessionStorage.getItem('flowweb:regen-consumed:p1:n1')).toBe('1');   // 两参不清标记（维持今天行为）
+  });
 });
 
 describe('Y3 Task4 v3.1 合同二：markGestureConsumed 消费语义（真发受理请求的那一次）', () => {

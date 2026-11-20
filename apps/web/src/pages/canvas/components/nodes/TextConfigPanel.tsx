@@ -6,7 +6,7 @@ import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { canExecute } from '@/stores/syncStatus';
 import { enqueueWorkflow } from '@/api/executionApi';
-import { gestureToken, storedToken, rotateToken, markGestureConsumed } from '@/utils/regen-token';
+import { gestureToken, storedToken, rotateToken, markGestureConsumed, restoreRotatedToken, isGestureConsumed } from '@/utils/regen-token';
 
 interface ModelInfo {
   id: string; name: string;
@@ -50,10 +50,20 @@ function TextConfigPanelComponent({ nodeId }: Props) {
 
   // Y0b-2 T6（Z95 轮换）：投影 done 或 error∧rearmable:false ⇒ 丢弃持有（判据单源=doc 投影）
   // Y3 Task4（v3.1 合同二）：有 execSeq 的终态必传（同 execSeq 只轮换一次+更小忽略）；无 execSeq 维持旧形态
+  // Y3 清理批（Ruling 5——restore 接线迁本 effect）：终态档→rotateToken（真轮换清消费标记在彼内）；
+  // 非终态档→restoreRotatedToken 携槽上值+消费标记读取（回滚三条件按 regen-token API 原样判）——两档互斥。
   useEffect(() => {
+    const pid = useCanvasStore.getState().projectId;
+    if (!pid) return;
     if (entry?.status === 'done' || (entry?.status === 'error' && entry.rearmable === false)) {
-      const pid = useCanvasStore.getState().projectId;
-      if (pid) rotateToken(pid, nodeId, entry.execSeq);
+      rotateToken(pid, nodeId, entry.execSeq);
+    } else if (entry?.status !== undefined) {
+      restoreRotatedToken(pid, nodeId, {
+        status: entry.status,
+        ...(entry.rearmable !== undefined ? { rearmable: entry.rearmable } : {}),
+        ...(entry.execSeq !== undefined ? { execSeq: entry.execSeq } : {}),
+        tokenConsumed: isGestureConsumed(pid, nodeId),
+      });
     }
   }, [entry?.status, entry?.rearmable, entry?.execSeq, nodeId]);
   const selectedModel = models.find((m) => m.id === model);

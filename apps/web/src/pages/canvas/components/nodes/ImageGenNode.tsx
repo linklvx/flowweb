@@ -34,7 +34,7 @@ import { apiFetch } from '@/api/client';
 import { withSyncRetry } from '@/api/executionApi';
 import { canExecute } from '@/stores/syncStatus';
 import { getStateVector } from '@/stores/canvasCollabRuntime';
-import { gestureToken, storedToken, rotateToken, markGestureConsumed, restoreRotatedToken, isGestureConsumed } from '@/utils/regen-token';
+import { gestureToken, storedToken, rotateToken, markGestureConsumed } from '@/utils/regen-token';
 import { transformImage } from '@/utils/imageTransform';
 import { cropImage, type CropRect } from '@/utils/imageCrop';
 import axios from 'axios';
@@ -817,6 +817,8 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
   // 合法十进制∧严格大于基线 → 投影句（空缺句→「AI 处理失败」）+processing false；ⓔdone∧投影
   // artifact 槽 mediaId 相对基线变非空 → 退出编辑+清基线；ⓕdone∧未变或空 → processing false 留
   // 编辑态不弹错（上一代的图照常换上）。产物槽照旧按 nodeVersion 换上——收场不为产物槽做事。
+  // Y3 清理批（Ruling 5）：settle 只收场编辑态——restoreRotatedToken 接线迁六面板投影 effect
+  //（终态轮换/非终态回滚互斥），本函数零 token 面动作。
   const settleEditOutcome = useCallback((entry: EditSettleEntry) => {
     const ref = editBaselineRef.current;
     if (ref === null || ref.intentId === null) return;   // 闸ⓐ
@@ -825,17 +827,6 @@ function ImageGenNodeComponent({ id, selected, type }: NodeProps) {
     if (st.intentId !== ref.intentId) return;   // 闸ⓑ
     if (st.execSeq !== ref.execSeq) return;   // 闸ⓒ（缺也算对不上）
     if (st.status !== 'error' && st.status !== 'done') return;   // loading/skipped 非终态——不收场
-    // Y3 T7（v3.1 合同二③生产接线）：终态分支携槽上 {status, rearmable?, execSeq}+消费标记读取
-    // （回滚三条件按 regen-token API 原样判——legacy 两参轮换窗口残留无特例：无消费即无恢复）。
-    const pid = canvasProjectId();
-    if (pid) {
-      restoreRotatedToken(pid, id, {
-        status: st.status,
-        ...(st.rearmable !== undefined ? { rearmable: st.rearmable } : {}),
-        ...(st.execSeq !== undefined ? { execSeq: st.execSeq } : {}),
-        tokenConsumed: isGestureConsumed(pid, id),
-      });
-    }
     if (st.status === 'error') {
       // ⓓ 版本闸：非十进制/≤基线按不大于处理（decVersionGreaterThan 单源）
       if (!decVersionGreaterThan(st.nodeVersion, ref.nodeVersion)) return;

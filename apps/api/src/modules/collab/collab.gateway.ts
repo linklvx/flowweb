@@ -186,12 +186,13 @@ export class CollabGateway implements OnModuleInit, OnApplicationShutdown {
   }
   /** Y0b-2 T5 → Y0c T20 定案（Z105 唯一形态=hasActiveWsConnection——**推翻 Z77「∨活跃会话」倾向**）：
    *  谓词=仅 WS 连接数>0，与常驻会话（direct conn）**无关**。常驻若计入⇒无人在线项目的 reconcile 也真
-   *  ⇒ exec_projection_deferred_total 的「无人在看=不值得为 UX 投影花钱」语义被废+5min 一次的 reconcile
-   *  会把几十个无人项目钉在内存——故语义本就只看 WS 连接（旧 documents.has 形态在常驻化〔T15〕后恒真
-   *  =假门禁 D13 族，本批根除）。
-   *  消费=①reaper 终态投影分治（intent-reconcile projectReaped deferred 门——无人看=deferred，用户回来
-   *  alignExecFromIntents 既有机制对齐）②（T13 probeArtifacts 退役——该归因计数面随之退役，指标保留历史读数）装载归因（yjs_doc_loaded_by_
-   *  reconciler_total——reconcile 装载=ephemeral 即用即释非常驻，T20 同批）。 */
+   *  ⇒ 5min 一次的 reconcile 会把几十个无人项目钉在内存——故语义本就只看 WS 连接（旧 documents.has
+   *  形态在常驻化〔T15〕后恒真=假门禁 D13 族，本批根除）。
+   *  消费=Y1c T12 vacuum/shrink 族查活 doc（E23 内部寻址）+装载归因（yjs_doc_loaded_by_
+   *  reconciler_total——reconcile 装载=ephemeral 即用即释非常驻，T20 同批）。
+   *  Y3 T3+清理批 B1：reaper 常驻门已删（projectReaped 恒 feedError——Feed 写不成为装载源，
+   *  无人在线重连后由 Runtime Store 游标追平必达；alignExecFromIntents 旧机制已退役）；
+   *  exec_projection_deferred_total 指标随门删除——本谓词不再有 deferred 分治消费面。 */
   /** Y1c T12（I2 三对齐接线）：WAL 段 namespace 切代——vacuum ⑥ vacuumReplace 事务**提交后**由
    *  shrink 调用（事务内禁切——提交前切段=新代帧落隔离旧段语义颠倒）。spool.switchGeneration 连续
    *  seq 形态（计数器/水位保留——与 vacuumReplace 新代快照基线=旧代 maxSeq、C1① seedWalSeqFromPg

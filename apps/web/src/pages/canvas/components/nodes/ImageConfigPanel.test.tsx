@@ -463,4 +463,29 @@ describe('ImageConfigPanel', () => {
       expect(sessionStorage.getItem('flowweb:regen-consumed:real-pid:img1')).toBe('1');
     });
   });
+
+  // ── Y3 清理批（Ruling 5）：restore 接线迁投影 effect——已消费→旧代 done 先到（已按旧代 done 轮换）
+  // →更高 execSeq loading 到达：不手清标记，原 token 回来（回滚三条件全中，面板 effect 生产调用点） ──
+
+  it('Ruling5：已消费→旧代 done 轮换→更高 execSeq loading 到达 ⇒ 原钥匙回来（不手清标记——restore 恢复轮换前值）', async () => {
+    // 本用例自管三键（文件不设全局 sessionStorage 清——上一用例残留 seq 记录会拦旧代 done 轮换）
+    sessionStorage.clear();
+    // ① 持有原钥匙（上一次手势 token）并消费在案
+    sessionStorage.setItem('flowweb:regen:real-pid:img1', 'orig-gesture-tok');
+    sessionStorage.setItem('flowweb:regen-consumed:real-pid:img1', '1');
+    // ② 旧代 done 先到（execSeq=5）——面板 effect 按旧代 done 轮换（终态档 rotateToken）
+    setExec({ status: 'done', attempts: 1, execSeq: '5' });
+    render(<ImageConfigPanel nodeId="img1" />);
+    await vi.waitFor(() => {
+      expect(sessionStorage.getItem('flowweb:regen:real-pid:img1')).toBeNull();   // 已按旧代 done 轮换
+    });
+    // ③ 更高 execSeq loading 到达（新一代受理在飞——本手势的那次）：非终态档 restoreRotatedToken
+    //    生产调用点（不手清标记——条件三判据 isGestureConsumed 读面）。
+    //    真轮换清标记（Ruling5 A4）：旧代 done 轮换已把消费标记清掉 ⇒ tokenConsumed=false ⇒
+    //    三条件全中（loading 非终态∧9>5∧未消费）恢复原钥匙。
+    setExec({ status: 'loading', attempts: 1, execSeq: '9' });
+    await vi.waitFor(() => {
+      expect(sessionStorage.getItem('flowweb:regen:real-pid:img1')).toBe('orig-gesture-tok');   // 红：现非终态档无 restore 接线
+    });
+  });
 });

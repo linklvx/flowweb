@@ -10,7 +10,7 @@ import { regenerateNode } from '@/api/videoProjectApi';
 import { useNodeStore, NODE_TYPES } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
-import { gestureToken, storedToken, rotateToken, markGestureConsumed } from '@/utils/regen-token';
+import { gestureToken, storedToken, rotateToken, markGestureConsumed, restoreRotatedToken, isGestureConsumed } from '@/utils/regen-token';
 
 export function PreviewPlayer() {
   const { message, modal } = AntdApp.useApp(); // 批1-2：静态 Modal.confirm/message（portal body z-index 2010 被壳盖不可见）→ 壳内上下文实例
@@ -45,10 +45,21 @@ export function PreviewPlayer() {
   //（done/EXHAUSTED ⇒ 丢弃 held——下一击=新手势；error 可 rearm ⇒ 保留 held 免费重试）
   const retakeEntry = useNodeStore(s => sourceNodeId != null ? selectExecEntry(s, sourceNodeId) : undefined);
   // Y3 Task4（v3.1 合同二）：有 execSeq 的终态必传（同 execSeq 只轮换一次+更小忽略）；无 execSeq 维持旧形态
+  // Y3 清理批（Ruling 5——restore 接线迁本 effect）：终态档→rotateToken（真轮换清消费标记在彼内）；
+  // 非终态档→restoreRotatedToken 携槽上值+消费标记读取（回滚三条件按 regen-token API 原样判）——两档互斥。
   useEffect(() => {
-    if (sourceNodeId && (retakeEntry?.status === 'done' || (retakeEntry?.status === 'error' && retakeEntry.rearmable === false))) {
-      const pid = useCanvasStore.getState().projectId;
-      if (pid) rotateToken(pid, sourceNodeId, retakeEntry.execSeq);
+    if (!sourceNodeId) return;
+    const pid = useCanvasStore.getState().projectId;
+    if (!pid) return;
+    if (retakeEntry?.status === 'done' || (retakeEntry?.status === 'error' && retakeEntry.rearmable === false)) {
+      rotateToken(pid, sourceNodeId, retakeEntry.execSeq);
+    } else if (retakeEntry?.status !== undefined) {
+      restoreRotatedToken(pid, sourceNodeId, {
+        status: retakeEntry.status,
+        ...(retakeEntry.rearmable !== undefined ? { rearmable: retakeEntry.rearmable } : {}),
+        ...(retakeEntry.execSeq !== undefined ? { execSeq: retakeEntry.execSeq } : {}),
+        tokenConsumed: isGestureConsumed(pid, sourceNodeId),
+      });
     }
   }, [retakeEntry?.status, retakeEntry?.rearmable, retakeEntry?.execSeq, sourceNodeId]);
   // R4-7：排除产物节点（type 同为 videoGen，但 origin='video-edit' 无 prompt/model）——后端 regenerate 只校验类型

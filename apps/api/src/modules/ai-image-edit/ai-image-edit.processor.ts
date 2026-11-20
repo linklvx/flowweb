@@ -328,13 +328,15 @@ export class AiImageEditProcessor extends WorkerHost {
       if (projectId) {
         // Y3 T3：通用失败行读封闭句（EDIT_FAILED「AI 处理失败」——err.message 只进日志）；行读
         // 身份键恒写（feedError 有行档——rearmable=attempts<3 由码承担）。
+        // Y3 清理批 B4（Ruling）：errorCode 改 EDIT_FAILED 标签（编辑族专属——与句子 id 同名对齐；
+        // 节点执行族缺省码 EXECUTION_FAILED 不动）。
         this.logger.warn(`[edit-failed] 节点 ${nodeId} 编辑失败（意图 ${intentLogId}）: ${error?.message ?? error}`);
         const failRow = intentRowId
           ? await this.prisma.generationIntent.findUnique({
               where: { id: intentRowId }, select: { intentId: true, attempts: true, execSeq: true },
             }).catch(() => null)
           : null;
-        await this.collabDoc.writeExecStatus(projectId, nodeId, feedError('EXECUTION_FAILED', 'EDIT_FAILED', failRow ? { intentId: failRow.intentId, attempts: failRow.attempts, execSeq: failRow.execSeq ?? execSeq ?? 0n } : null), intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure); // best-effort——doc 写失败不吞原始错误（Y0c T0：吞错加观测）
+        await this.collabDoc.writeExecStatus(projectId, nodeId, feedError('EDIT_FAILED', 'EDIT_FAILED', failRow ? { intentId: failRow.intentId, attempts: failRow.attempts, execSeq: failRow.execSeq ?? execSeq ?? 0n } : null), intentRowId && execSeq ? { intentRowId, execSeq: execSeq.toString() } : undefined).catch(countExecProjectionFailure); // best-effort——doc 写失败不吞原始错误（Y0c T0：吞错加观测）
       }
 
       // Y3 T8：socket edit-failed emit 删除（失败 UX 归 Feed 投影「AI 处理失败」句）——不扣费语义

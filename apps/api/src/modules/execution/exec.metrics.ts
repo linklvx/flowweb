@@ -84,17 +84,6 @@ export const providerRedriveBlockedTotal = new Counter({
   registers: [register],
 });
 
-/** Z112：reaper 终态投影分治——doc 非常驻跳过 UX 投影计数（重连后 Runtime Store feed 投影追平）。
- *  UX 投影不得成为装载源：provider 故障批量收敛时 withDoc 批量装载=故障自放大（正撞 E39/heap 闸）。
- *  Y1c T32：exec_projection_dropped_total/exec_orphan_blocked_total/exec_seq_stale_rejected 三计数
- *  随 doc.exec 写守卫面退役删除（writeExecStatus=feed 写——Z99/Z111 doc 代次守卫不存在，迟到旧事件
- *  由客户端 reducer nodeVersion 大者胜承担）。 */
-export const execProjectionDeferredTotal = new Counter({
-  name: 'exec_projection_deferred_total',
-  help: 'Y0b-2（Z112）：reaper 终态投影因 doc 非常驻跳过计数（重连 Runtime Store feed 投影追平——UX 投影不成为装载源）',
-  registers: [register],
-});
-
 /** Y0c T0（Z3）：执行链投影写失败计数——吞错点加观测不改策略
  *  （Z136④ 原口径 14 处：execution.service 11+execution.processor 1+ai-image-edit.processor 2；
  *  Y0c T28（Z41）拆两半后 12 处=execution.service 11+ai-image-edit.processor process catch 1——
