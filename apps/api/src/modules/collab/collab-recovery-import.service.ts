@@ -327,7 +327,6 @@ export class CollabRecoveryImportService {
       const envelopeIdSet = new Set(envelope.nodes.map((n) => n.id));
       const effectiveDeletions = deletionNodeIds.filter((id) => !envelopeIdSet.has(id));
       const filteredIntersection = deletionNodeIds.length - effectiveDeletions.length;
-      let deletionsApplied = 0;
       const deletableIds = effectiveDeletions.filter((id) => live.getMap('nodes').has(id));
       if (deletableIds.length > 0 && !deleteLiveDocPerBlocks(live, deletableIds)) {
         // 块闸拒（单片段逆操作超 262144/validateFrameDeny 拒）——活文档一笔不写：整导入拒
@@ -337,7 +336,7 @@ export class CollabRecoveryImportService {
           message: '删除确认含超预算片段块（timeline-chunk-required）——逐块过闸失败，活文档未写',
         });
       }
-      deletionsApplied = deletableIds.length;
+      const deletionsApplied = deletableIds.length;
       const candidate = createCanvasDoc();
       Y.applyUpdate(candidate, Y.encodeStateAsUpdate(live));
 

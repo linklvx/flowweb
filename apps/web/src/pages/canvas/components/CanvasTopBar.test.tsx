@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { render, screen, act, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
-const { mockUseAuth, mockCreditsStore, mockCanvasState, mockTeamApi, mockGetAwareness, mockListProjectMembers } = vi.hoisted(() => ({
+const { mockUseAuth, mockCreditsStore, mockCanvasState, mockTeamApi, mockGetAwareness, mockListProjectMembers, mockUndoUiState } = vi.hoisted(() => ({
   mockUseAuth: vi.fn(),
   mockCreditsStore: {
     credits: 88,
@@ -21,6 +21,9 @@ const { mockUseAuth, mockCreditsStore, mockCanvasState, mockTeamApi, mockGetAwar
   mockTeamApi: { getDefaultTeam: vi.fn() },
   mockGetAwareness: vi.fn(),
   mockListProjectMembers: vi.fn(),
+  mockUndoUiState: {
+    canvasCanUndo: false, canvasCanRedo: false, timelineCanUndo: false, timelineCanRedo: false,
+  },
 }));
 
 vi.mock('@/api/projectMemberApi', () => ({
@@ -50,13 +53,26 @@ vi.mock('@/stores/canvasCollabRuntime', () => ({
   getAwareness: () => mockGetAwareness(),
 }));
 
+// Y4a T11：undoUiStore mock 面——CanvasTopBar 两颗 undo/redo 按钮 disabled 随 canvas 布尔；
+// undoCanvas/redoCanvas 动作面 mock（点击断言消费——真实栈语义在 undoUiStore.spec.ts 锁）
+vi.mock('@/stores/undoUiStore', () => ({
+  useUndoUiStore: (selector: (s: typeof mockUndoUiState) => unknown) => selector(mockUndoUiState),
+}));
+vi.mock('@/stores/canvasUndo', () => ({
+  undoCanvas: vi.fn(async () => { }),
+  redoCanvas: vi.fn(async () => { }),
+}));
+
 import { CanvasTopBar } from './CanvasTopBar';
+import { undoCanvas, redoCanvas } from '@/stores/canvasUndo';
 
 describe('CanvasTopBar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCanvasState.teamId = null;
     mockGetAwareness.mockReturnValue(null);
+    mockUndoUiState.canvasCanUndo = false;
+    mockUndoUiState.canvasCanRedo = false;
     mockUseAuth.mockReturnValue({
       user: { id: 'u1', email: 'u1@flowai.dev', name: 'U1' },
       loading: false,
@@ -171,5 +187,35 @@ describe('CanvasTopBar', () => {
     expect(await screen.findByText('项目成员')).toBeInTheDocument();
     expect(mockListProjectMembers).toHaveBeenCalledWith('test-pid');
     expect(await screen.findByText('成员A')).toBeInTheDocument();
+  });
+
+  it('Y4a T11：undo/redo 两颗渲染——空栈双 disabled、点击不吃空栈（undoCanvas/redoCanvas 不被调）', () => {
+    renderBar();
+    const undo = screen.getByRole('button', { name: '撤销' });
+    const redo = screen.getByRole('button', { name: '重做' });
+    expect(undo).toBeDisabled();
+    expect(redo).toBeDisabled();
+    fireEvent.click(undo);
+    fireEvent.click(redo);
+    expect(undoCanvas).not.toHaveBeenCalled();
+    expect(redoCanvas).not.toHaveBeenCalled();
+  });
+
+  it('Y4a T11：disabled 态随 undoUiStore canvas 布尔——栈可撤/可重做各亮一颗', () => {
+    mockUndoUiState.canvasCanUndo = true;
+    mockUndoUiState.canvasCanRedo = true;
+    renderBar();
+    expect(screen.getByRole('button', { name: '撤销' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '重做' })).toBeEnabled();
+  });
+
+  it('Y4a T11：点击接 canvasUndo（undoCanvas/redoCanvas）', () => {
+    mockUndoUiState.canvasCanUndo = true;
+    mockUndoUiState.canvasCanRedo = true;
+    renderBar();
+    fireEvent.click(screen.getByRole('button', { name: '撤销' }));
+    expect(undoCanvas).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: '重做' }));
+    expect(redoCanvas).toHaveBeenCalledTimes(1);
   });
 });

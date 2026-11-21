@@ -148,7 +148,7 @@
         },
         {
           "src": "apps/web/scripts/eslint-rules/collab-static-asserts.js",
-          "line": 212,
+          "line": 218,
           "text": "'（spec 2026-09-30-collab-recovery-master-plan 批5）。';"
         }
       ]
@@ -235,9 +235,9 @@
           "text": "// Y4a T10（plan 2026-11-20-y4a-timeline-domain Task 10——spec §9 协作锚 2/4/7/8/9）："
         },
         {
-          "src": "apps/web/src/pages/canvas/video-editor/components/VideoEditorShell.tsx",
-          "line": 2,
-          "text": "// Y4a T7（plan 2026-11-20-y4a-timeline-domain Task 7——spec §0 条 7）：Shell 改订阅既有"
+          "src": "apps/web/scripts/eslint-rules/collab-static-asserts.js",
+          "line": 67,
+          "text": "// 四文件均 timelines 域写/读者（spec 2026-11-20-y4a-timeline-domain §0），非旁路新增）："
         }
       ]
     },

@@ -29,6 +29,8 @@ import { useNodeStore, toAppNode, NODE_TYPES } from './nodeStore';
 import { Origin, attachUndoManager, detachUndoManager, getUndoManager } from './canvasUndo';
 // Y4a T4：时间轴执行器 doc 引用登记（轻量模块——yjs+shared 零画布依赖）
 import { setTimelineDocRef } from './timelineUndo';
+// Y4a T11（spec §5/§9 锚 6）：canUndo/canRedo 事件驱动 UI——画布栈订阅（attach 紧邻同点、禁双源）
+import { attachCanvasUi, detachCanvasUi } from './undoUiStore';
 export { Origin } from './canvasUndo';
 import {
   type RenderNode, type RenderSourceNode, type RenderSourceEdge,
@@ -2067,7 +2069,8 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
   unhealthySince = Date.now(); // 从未健康也从 t0 计时（startedAt 语义——首帧黑洞/挂起握手）
   // 批1-3 rebuildPending 会话起点复位已随 T6 退役（单源=unsyncedDirtyDocs 绑 doc 实例——新 doc 天然零携带）
   doc = new Y.Doc();
-  attachUndoManager(doc);
+  // Y4a T11（spec §9 锚 6）：画布栈 canUndo/canRedo 订阅（attachUndoManager 紧邻处——返回值直交、单 manager 单订阅入口）
+  attachCanvasUi(attachUndoManager(doc));
   // Y4a T4：时间轴执行器 doc 引用登记（editorStore.commit 消费——attach 在空文档上早于同步：
   // 同名根同对象、早挂零时序风险；timelineUndo 轻量模块零画布依赖）
   setTimelineDocRef(doc);
@@ -2480,6 +2483,8 @@ async function teardownSession(): Promise<void> {
     disarmUnloadWarning('unsynced');
   }
   if (doc === d) {
+    // Y4a T11：退订先于 manager destroy（undoUiStore 退订序——detachUndoManager 之前）
+    detachCanvasUi();
     detachUndoManager();
     setTimelineDocRef(null);   // Y4a T4：时间轴执行器 doc 引用随会话拆除（editorStore doc 写休眠）
     doc = null;

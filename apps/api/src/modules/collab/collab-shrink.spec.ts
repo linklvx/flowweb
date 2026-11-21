@@ -25,17 +25,34 @@ import { makeSpoolDir } from '../../test-utils/spool-dir';
 import { createLeaseStub } from './test-utils/lease-stub';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';   // Y0c T39b 波 2：内部状态访问经 façade（check-collab-test-facade 门禁）
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { resetHeapPressure, stubHeapMeasure } from './heap-pressure';
 
 const MiB = 1024 * 1024;
+const GiB = 1024 * MiB;
 
 let spoolDir: string;
 let spoolCleanup: () => Promise<void> = async () => {};
 beforeEach(async () => {
+  // Y4a T12 红门⑦测试隔离根修：heap-pressure 闸（DR loadDocument :488 !documents.has+双采样
+  // tripped→拒新装载）读真实 process.memoryUsage().rss——本文件 struct 密度用例把 worker RSS 顶到
+  // 850MB+（Windows 不退空闲页）误拦红门⑦两次 loadDocument。测量源钉在 server-profile F1 基线
+  // 138.8MB 附近（heap 比例远离 0.8——两臂都安全；heap-pressure.spec.ts:24 先例同款注入）；生产闸
+  // 本身正确（与 max_memory_restart 1G 一套算术），禁动 heap-pressure.ts 任何数值。
+  resetHeapPressure();
+  stubHeapMeasure({ heapUsed: 200 * MiB, heapLimit: 4 * GiB, rss: 139 * MiB });
   const d = await makeSpoolDir('y0b4-shrink-');
   spoolDir = d.dir;
   spoolCleanup = d.cleanup;
 });
-afterEach(async () => { await spoolCleanup(); vi.restoreAllMocks(); });
+afterEach(async () => {
+  await spoolCleanup();
+  vi.restoreAllMocks();
+  // 模块态不留给同文件后续用例：stubHeapMeasure(null)=测量抛错档（fail-open→tripped 恒 false，
+  // 对 heap 闸功能等价于「永不 tripped」的安全基线——本 util 无真测量还原口，恢复语义按此落地）；
+  // 再 resetHeapPressure() 清迟滞布尔（pendingTrip/trippedState）。
+  stubHeapMeasure(null);
+  resetHeapPressure();
+});
 
 /** 直构 gateway（quota-truth.spec 先例）：quota 注入受控 maxDocBytes */
 function buildGateway(quota?: Partial<QuotaConfig>): CollabGateway {

@@ -6,9 +6,13 @@ import { getAwareness } from '@/stores/canvasCollabRuntime';
 import type { AwarenessState } from '@/collab/awareness';
 import { Dropdown, Popover } from 'antd';
 import type { MenuProps } from 'antd';
-import { UserOutlined, SettingOutlined, LogoutOutlined, TeamOutlined } from '@ant-design/icons';
+import { UserOutlined, SettingOutlined, LogoutOutlined, TeamOutlined, UndoOutlined, RedoOutlined } from '@ant-design/icons';
 import { useCreditsStore } from '@/stores/creditsStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+// Y4a T11（spec §5/§9 锚 6）：画布撤销/重做按钮（undoCanvas/redoCanvas）——disabled=canvasUndo
+// 栈事件驱动布尔（undoUiStore selector 订阅；键盘 useGroupKeyboard Ctrl+Z/Y 路由不动）
+import { useUndoUiStore } from '@/stores/undoUiStore';
+import { undoCanvas, redoCanvas } from '@/stores/canvasUndo';
 import { getDefaultTeam } from '@/api/teamApi';
 import CreditsDropdown from './CreditsDropdown';
 import { SaveStatusIndicator } from './SaveStatusIndicator';
@@ -39,6 +43,9 @@ export function CanvasTopBar({ projectId }: Props) {
   }, [logout, navigate]);
 
   const teamId = useCanvasStore((s) => s.teamId);
+  // Y4a T11：两布尔=undoUiStore selector 订阅（事件驱动禁用态——栈事件唯一真源，零轮询）
+  const canvasCanUndo = useUndoUiStore((s) => s.canvasCanUndo);
+  const canvasCanRedo = useUndoUiStore((s) => s.canvasCanRedo);
 
   // Y3 D1：默认团队比较结果 ref 化——挂载时判一次，终态信号不再每次请求默认团队。
   // teamId 变化时重置（null=未判），随下方挂载 effect 重算。
@@ -125,6 +132,30 @@ export function CanvasTopBar({ projectId }: Props) {
     <>
       <div className="absolute top-3 right-4 z-50 flex items-center gap-3">
         <ThemeToggleButton />
+        {/* Y4a T11（spec §5/§9 锚 6）：画布撤销/重做两颗——既有 icon button 同款 className
+            （members-trigger 圆角胶囊族 rounded-full border-overlay-2 shadow-lg——非新设计面）；
+            disabled 随 undoUiStore canvas 布尔；点击接 undoCanvas/redoCanvas（useGroupKeyboard
+            :42-44 键盘路由不动——按钮与键盘同一动作身） */}
+        <button
+          type="button"
+          aria-label="撤销"
+          title="撤销 Ctrl+Z"
+          disabled={!canvasCanUndo}
+          onClick={() => { void undoCanvas(); }}
+          className="flex items-center bg-surface backdrop-blur px-2 py-1.5 rounded-full border border-overlay-2 shadow-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <UndoOutlined className="text-xs text-text" />
+        </button>
+        <button
+          type="button"
+          aria-label="重做"
+          title="重做 Ctrl+Shift+Z"
+          disabled={!canvasCanRedo}
+          onClick={() => { void redoCanvas(); }}
+          className="flex items-center bg-surface backdrop-blur px-2 py-1.5 rounded-full border border-overlay-2 shadow-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <RedoOutlined className="text-xs text-text" />
+        </button>
         {/* Y0b-4 T13（Q-M）：成员表入口——挂既有 ProjectMembersPanel（角色 Tag/逐行角色下拉/DELETE 全
             复用 projectMemberApi 既有端点，零新端点零新面板）；计数=远端在线+本机 */}
         <Popover

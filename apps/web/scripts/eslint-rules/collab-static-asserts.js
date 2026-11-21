@@ -63,6 +63,12 @@ const GETMAP_FILES = [
   'src/stores/canvasUndo.ts',
   'src/stores/canvasIntents.ts',
   'src/collab/yXmlFragmentBinding.ts',
+  // Y4a T12 白名单登记（T4/T5/T7 遗留缺口——T11 披露 42 存量违例、批末按 GETMAP_FILES 同款收口；
+  // 四文件均 timelines 域写/读者（spec 2026-11-20-y4a-timeline-domain §0），非旁路新增）：
+  'src/stores/timelineUndo.ts',                            // 时间轴撤销闸（UNDO_STACK_BASE 量法 temp doc+删除预检——timelines 域全读写者）
+  'src/stores/canvasDeleteSplit.ts',                      // 删除分割函数（节点+timelines 同名键删除原语——§0 条 3）
+  'src/pages/canvas/video-editor/store/editorStore.ts',   // 时间轴 codec 写穿（editor 域 timelines 读写+observeDeep）
+  'src/pages/canvas/components/nodes/VideoEditNode.tsx',  // 剪辑节点时间轴入口读（timelines 键挂节点——§0 条 7）
 ];
 
 // C. setState 直调白名单：协作数据写入路径（canvasHistory 为 0.5 接线前瞻项，现状无命中）

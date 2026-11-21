@@ -29,6 +29,9 @@ import {
   timelineUndo, timelineRedo,
   type TimelineCaptureKind,
 } from '@/stores/timelineUndo';
+// Y4a T11（spec §5/§9 锚 6）：canUndo/canRedo 事件驱动 UI——时间轴栈订阅（attachTimelineUndo
+// 调用紧邻处接线；退订收拢在 detachTimelineUndo 内部序首位——退订先于 clear()+destroy）
+import { attachTimelineUi } from '@/stores/undoUiStore';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 
 export type EditorStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -158,6 +161,7 @@ const bindDocListeners = (nodeId: string, entry: Y.Map<unknown>): void => {
       // 键删除（节点没了）→ 编辑器关掉（spec §0 条 7）——栈卸下+监听拆+壳收起。
       // m#3①（fix round 2）：模块级覆盖层同点闭口——手势中键删除后模块变量不残留（残留会吞掉
       // 后续同 doc 重 loadProject 的远端读回）。
+      // Y4a T11：undoUiStore 退订收拢在 detachTimelineUndo 内部序首位（退订先于 clear()+destroy）
       detachDocListeners();
       detachTimelineUndo();
       pendingOverlay = null;
@@ -168,9 +172,9 @@ const bindDocListeners = (nodeId: string, entry: Y.Map<unknown>): void => {
     if (current === observedEntry) return;   // 键在且同一对象——非替换事件
     // Map 被换 → 重绑当前这棵：销毁旧 UndoManager（先 clear()——避免对已脱离父键的 Map 再 undo）
     // 再绑、本地覆盖层作废、时间轴栈从空栈开始；data 立即读回新 Map。
+    // Y4a T11：旧栈退订由 detachTimelineUndo 内部序首位收口；新栈订阅=attach 紧邻处返回值直交
     detachDocListeners();
-    detachTimelineUndo();
-    attachTimelineUndo(observedNodeId, current);
+    attachTimelineUi(attachTimelineUndo(observedNodeId, current));
     pendingOverlay = null;   // 覆盖层随旧 Map 作废（模块级单源——state 镜像由下方 set 落）
     const next = readTimelineFromDoc(current);
     useEditorStore.setState({
@@ -261,9 +265,10 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       // m#3②（fix round 2）：模块级覆盖层闭口——水合入口是工程切换唯一路径，模块变量不跨工程
       // 残留（现只 null state 镜像会漏模块档）。
       detachDocListeners();
-      detachTimelineUndo();
       pendingOverlay = null;
-      attachTimelineUndo(nodeId, entry);
+      // Y4a T11：水合挂接+新栈订阅（返回值直交——单 manager 单订阅入口）；旧栈退订由
+      // attachTimelineUndo 内部 detachTimelineUndo 收口（退订序在其内部首位）
+      attachTimelineUi(attachTimelineUndo(nodeId, entry));
       bindDocListeners(nodeId, entry);
       set({
         sourceNodeId: nodeId, data, status: 'ready', loadError: null,
@@ -277,6 +282,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
     setLoadError: (msg) => set({ status: 'error', loadError: msg }),
     reset: () => {
       detachDocListeners();
+      // Y4a T11：undoUiStore 退订收拢在 detachTimelineUndo 内部序首位（退订先于 clear()+destroy）
       detachTimelineUndo();
       pendingOverlay = null;
       set({

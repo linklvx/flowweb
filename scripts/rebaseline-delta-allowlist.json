@@ -113,6 +113,78 @@
           "data_type": "USER-DEFINED",
           "column_default": "'pending'::\"MediaFactState\""
         }
+      },
+      {
+        "key": "VideoProject.createdAt",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "timestamp without time zone",
+          "column_default": "CURRENT_TIMESTAMP"
+        }
+      },
+      {
+        "key": "VideoProject.data",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "jsonb",
+          "column_default": null
+        }
+      },
+      {
+        "key": "VideoProject.id",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "VideoProject.sourceNodeId",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "VideoProject.teamId",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "VideoProject.title",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "VideoProject.updatedAt",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "timestamp without time zone",
+          "column_default": null
+        }
+      },
+      {
+        "key": "VideoProject.userId",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
+      },
+      {
+        "key": "VideoProject.workflowId",
+        "def": {
+          "is_nullable": "NO",
+          "data_type": "text",
+          "column_default": null
+        }
       }
     ],
     "constraints": [
@@ -128,6 +200,34 @@
         "def": {
           "contype": "p",
           "def": "PRIMARY KEY (id)"
+        }
+      },
+      {
+        "key": "VideoProject_pkey",
+        "def": {
+          "contype": "p",
+          "def": "PRIMARY KEY (id)"
+        }
+      },
+      {
+        "key": "VideoProject_teamId_fkey",
+        "def": {
+          "contype": "f",
+          "def": "FOREIGN KEY (\"teamId\") REFERENCES \"Team\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+        }
+      },
+      {
+        "key": "VideoProject_userId_fkey",
+        "def": {
+          "contype": "f",
+          "def": "FOREIGN KEY (\"userId\") REFERENCES \"User\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
+        }
+      },
+      {
+        "key": "VideoProject_workflowId_fkey",
+        "def": {
+          "contype": "f",
+          "def": "FOREIGN KEY (\"workflowId\") REFERENCES \"CanvasProject\"(id) ON UPDATE CASCADE ON DELETE CASCADE"
         }
       }
     ],
@@ -155,6 +255,36 @@
         "def": {
           "indexdef": "CREATE INDEX \"MediaFactOutbox_state_nextAttemptAt_idx\" ON public.\"MediaFactOutbox\" USING btree (state, \"nextAttemptAt\")"
         }
+      },
+      {
+        "key": "VideoProject_pkey",
+        "def": {
+          "indexdef": "CREATE UNIQUE INDEX \"VideoProject_pkey\" ON public.\"VideoProject\" USING btree (id)"
+        }
+      },
+      {
+        "key": "VideoProject_sourceNodeId_key",
+        "def": {
+          "indexdef": "CREATE UNIQUE INDEX \"VideoProject_sourceNodeId_key\" ON public.\"VideoProject\" USING btree (\"sourceNodeId\")"
+        }
+      },
+      {
+        "key": "VideoProject_teamId_idx",
+        "def": {
+          "indexdef": "CREATE INDEX \"VideoProject_teamId_idx\" ON public.\"VideoProject\" USING btree (\"teamId\")"
+        }
+      },
+      {
+        "key": "VideoProject_userId_idx",
+        "def": {
+          "indexdef": "CREATE INDEX \"VideoProject_userId_idx\" ON public.\"VideoProject\" USING btree (\"userId\")"
+        }
+      },
+      {
+        "key": "VideoProject_workflowId_idx",
+        "def": {
+          "indexdef": "CREATE INDEX \"VideoProject_workflowId_idx\" ON public.\"VideoProject\" USING btree (\"workflowId\")"
+        }
       }
     ],
     "sequences": [],
@@ -171,6 +301,10 @@
     "tables": [
       {
         "key": "MediaFactOutbox",
+        "def": null
+      },
+      {
+        "key": "VideoProject",
         "def": null
       }
     ]
@@ -670,10 +804,6 @@
         "def": "CREATE TRIGGER \"set_updated_at_VideoCategory\" BEFORE INSERT OR UPDATE ON public.\"VideoCategory\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
       },
       {
-        "key": "VideoProject.set_updated_at_VideoProject",
-        "def": "CREATE TRIGGER \"set_updated_at_VideoProject\" BEFORE INSERT OR UPDATE ON public.\"VideoProject\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
-      },
-      {
         "key": "VideoTag.set_updated_at_VideoTag",
         "def": "CREATE TRIGGER \"set_updated_at_VideoTag\" BEFORE INSERT OR UPDATE ON public.\"VideoTag\" FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
       },
@@ -717,7 +847,7 @@
         "after": {
           "is_nullable": "NO",
           "data_type": "integer",
-          "column_default": "4"
+          "column_default": "5"
         }
       },
       {
@@ -924,8 +1054,6 @@
       "Verification.updatedAt",
       "VideoCategory.createdAt",
       "VideoCategory.updatedAt",
-      "VideoProject.createdAt",
-      "VideoProject.updatedAt",
       "VideoSeparateTask.createdAt",
       "VideoSeparateTask.finishedAt",
       "VideoTag.createdAt",
@@ -944,7 +1072,9 @@
       "MediaFactOutbox.createdAt",
       "MediaFactOutbox.leaseUntil",
       "MediaFactOutbox.nextAttemptAt",
-      "MediaFactOutbox.publishedAt"
+      "MediaFactOutbox.publishedAt",
+      "VideoProject.createdAt",
+      "VideoProject.updatedAt"
     ]
   }
 }

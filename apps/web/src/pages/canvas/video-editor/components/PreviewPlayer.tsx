@@ -11,6 +11,9 @@ import { useNodeStore, NODE_TYPES } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { selectExecStatus, selectExecEntry } from '@/stores/execStatusView';
 import { gestureToken, storedToken, rotateToken, markGestureConsumed, restoreRotatedToken, isGestureConsumed } from '@/utils/regen-token';
+// Y4a T11（spec §5/§9 锚 6）：撤销/重做按钮 disabled=timelineUndoManager 栈事件驱动布尔
+// （undoUiStore selector 订阅——aria-label「撤销」「重做」与 onClick 保持，测试选择器零变）
+import { useUndoUiStore } from '@/stores/undoUiStore';
 
 export function PreviewPlayer() {
   const { message, modal } = AntdApp.useApp(); // 批1-2：静态 Modal.confirm/message（portal body z-index 2010 被壳盖不可见）→ 壳内上下文实例
@@ -24,6 +27,9 @@ export function PreviewPlayer() {
   const pxPerSec = useEditorStore(s => s.pxPerSec);
   const setPxPerSec = useEditorStore(s => s.setPxPerSec);
   const selectedClipId = useEditorStore(s => s.selectedClipId);
+  // Y4a T11：两布尔=undoUiStore selector 订阅（事件驱动禁用态——不再经 editorStore 长度派生）
+  const timelineCanUndo = useUndoUiStore(s => s.timelineCanUndo);
+  const timelineCanRedo = useUndoUiStore(s => s.timelineCanRedo);
   const nodes = useNodeStore(s => s.nodes); // 左面板可读整个 nodeStore（编辑器挂画布根层——spec §二 挂载结构）
   const total = data ? totalDuration(data) : 0;
 
@@ -132,10 +138,12 @@ export function PreviewPlayer() {
           <span className="text-[var(--ve-text-dim)]"> / {formatShortTime(total)}</span>
         </span>
         <span className="text-[var(--ve-text-dim)] mx-1">|</span>
-        <button type="button" aria-label="撤销" title="撤销 Ctrl+Z" onClick={() => useEditorStore.getState().undo()}
-          className="text-[15px] text-[var(--fw-text)] border-0 px-1.5 hover:text-text-strong"><UndoOutlined /></button>
-        <button type="button" aria-label="重做" title="重做 Ctrl+Shift+Z" onClick={() => useEditorStore.getState().redo()}
-          className="text-[15px] text-[var(--fw-text)] border-0 px-1.5 hover:text-text-strong"><RedoOutlined /></button>
+        <button type="button" aria-label="撤销" title="撤销 Ctrl+Z" disabled={!timelineCanUndo}
+          onClick={() => useEditorStore.getState().undo()}
+          className="text-[15px] text-[var(--fw-text)] border-0 px-1.5 hover:text-text-strong disabled:opacity-50"><UndoOutlined /></button>
+        <button type="button" aria-label="重做" title="重做 Ctrl+Shift+Z" disabled={!timelineCanRedo}
+          onClick={() => useEditorStore.getState().redo()}
+          className="text-[15px] text-[var(--fw-text)] border-0 px-1.5 hover:text-text-strong disabled:opacity-50"><RedoOutlined /></button>
         <button type="button" aria-label="分割" title="分割 S（在播放头处）"
           onClick={() => { const es = useEditorStore.getState(); if (es.selectedClipId) es.splitClip(es.selectedClipId, es.playhead); }}
           className="text-[15px] text-[var(--fw-text)] border-0 px-1.5 hover:text-text-strong"><ScissorOutlined /></button>

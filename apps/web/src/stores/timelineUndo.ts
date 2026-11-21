@@ -36,6 +36,9 @@ import {
   type ProjectData,
 } from '@flowweb/shared';
 import { recordRingOnlyCollabDiag } from '@/utils/collabDiagnostics';
+// Y4a T11（spec §9 锚 6）：undoUiStore 退订收拢在 detachTimelineUndo 内部序首位（模块零画布
+// 依赖保持——undoUiStore 只引 zustand+yjs 类型，无环）
+import { detachTimelineUi } from './undoUiStore';
 
 /** 捕获档（spec §0 条 5 捕获窗三类）：片段/轨道/关键帧增删=写前后双 stopCapturing 每笔成步；
  *  拖动松手（span 标量整值替换、同一手势）=同款单独成步、不进 500ms 窗；其余标量整值替换=窗内
@@ -104,6 +107,9 @@ export function attachTimelineUndo(nodeId: string, entry: Y.Map<unknown>): Y.Und
 }
 
 export function detachTimelineUndo(): void {
+  // Y4a T11（spec §9 锚 6）：undoUiStore 退订先于 clear()+destroy（内部序首位——所有卸栈路径
+  // 含 clearTimelineStackOf/canvasDeleteSplit 删除档共用本口，editorStore 侧的外部退订为幂等冗余）
+  detachTimelineUi();
   if (timelineDoc != null) {
     if (docUpdateHandler != null) timelineDoc.off('update', docUpdateHandler);
     if (docAfterTransactionHandler != null) timelineDoc.off('afterTransaction', docAfterTransactionHandler);
@@ -173,7 +179,9 @@ export function timelineRedo(): boolean {
 }
 
 /** 删除事务前清被删节点自己的时间轴栈（spec §0 条 6——T5 消费：拖动覆盖层作废+栈卸下；
- *  节点重新出现后编辑器重新 attach、时间轴栈从空栈开始）。他节点 id=本栈不是它的——no-op。 */
+ *  节点重新出现后编辑器重新 attach、时间轴栈从空栈开始）。他节点 id=本栈不是它的——no-op。
+ *  Y4a T11：栈卸下同步退订 undoUiStore——本口是 canvasDeleteSplit 删除路径的卸栈点（不经
+ *  editorStore），退订由 detachTimelineUndo 内部序首位收口（退订先于 clear()+destroy）。 */
 export function clearTimelineStackOf(nodeId: string): void {
   if (timelineNodeId === nodeId) detachTimelineUndo();
 }
