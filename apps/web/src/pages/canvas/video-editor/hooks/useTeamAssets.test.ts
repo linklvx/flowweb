@@ -5,12 +5,13 @@ const { getFiles } = vi.hoisted(() => ({ getFiles: vi.fn() })); // vi.mock 工�
 vi.mock('axios', () => ({ default: { get: (...a: unknown[]) => getFiles(...a) } }));
 
 import { useTeamAssets } from './useTeamAssets';
+import { useCanvasStore } from '@/stores/canvasStore';
 
 /** 响应实形（执行核实点）：TransformInterceptor 全局包 {code,data,message} → res.data.data = {success,data:files}
  *  （materialLibraryStore.loadFiles 双层 data 消费同款） */
 const ok = (data: unknown[]) => ({ data: { code: 0, message: 'ok', data: { success: true, data } } });
 
-beforeEach(() => { getFiles.mockReset(); });
+beforeEach(() => { getFiles.mockReset(); useCanvasStore.setState({ teamId: null }); });
 
 describe('useTeamAssets（团队素材库实化——spec §4 左面板"全集资产 = 画布产物 + 团队素材库"）', () => {
   it('GET /api/material/files（无 folderId 全量）→ 过滤 video/audio/image mimeType → mediaId 条目', async () => {
@@ -31,24 +32,22 @@ describe('useTeamAssets（团队素材库实化——spec §4 左面板"全集�
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.items).toEqual([]);
   });
-  it('editorStore.teamId 非空 → 请求带 teamId query（R4-9：画布团队对齐，material files 回落默认团队）', async () => {
+  it('Y4a T7（spec §3.3）：useCanvasStore.teamId 非空 → 请求带 teamId query（page.tsx 加载时已 setTeamId）', async () => {
     getFiles.mockResolvedValue(ok([]));
-    const { useEditorStore } = await import('../store/editorStore');
-    useEditorStore.setState({ teamId: 'team-9' } as never);
+    useCanvasStore.setState({ teamId: 'team-9' });
     const { result } = renderHook(() => useTeamAssets());
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(getFiles).toHaveBeenCalledWith('/api/material/files?teamId=team-9');
-    await act(async () => { useEditorStore.setState({ teamId: null } as never); }); // 清理——不污染其它用例（M1：async act 同步收尾 effect 重跑的 axios 续体，杜绝 act 警告）
+    await act(async () => { useCanvasStore.setState({ teamId: null }); }); // 清理——不污染其它用例（M1：async act 同步收尾 effect 重跑的 axios 续体，杜绝 act 警告）
   });
-  it('R5-P1-5：挂载时 teamId 为 null（loadProject 未回）→ 先默认团队；teamId 到达后自动重拉带 query', async () => {
+  it('R5-P1-5：挂载时 teamId 为 null → 先默认团队；teamId 到达后自动重拉带 query', async () => {
     getFiles.mockResolvedValue(ok([]));
-    const { useEditorStore } = await import('../store/editorStore');
-    useEditorStore.setState({ teamId: null } as never);
+    useCanvasStore.setState({ teamId: null });
     const { result } = renderHook(() => useTeamAssets());
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(getFiles).toHaveBeenLastCalledWith('/api/material/files'); // 首次：默认团队
-    act(() => useEditorStore.setState({ teamId: 'team-9' } as never)); // loadProject 异步回写（真实时序）
+    act(() => { useCanvasStore.setState({ teamId: 'team-9' }); }); // 画布团队上下文后到（真实时序）
     await waitFor(() => expect(getFiles).toHaveBeenLastCalledWith('/api/material/files?teamId=team-9'));
-    await act(async () => { useEditorStore.setState({ teamId: null } as never); }); // 清理（M1 同上）
+    await act(async () => { useCanvasStore.setState({ teamId: null }); }); // 清理（M1 同上）
   });
 });

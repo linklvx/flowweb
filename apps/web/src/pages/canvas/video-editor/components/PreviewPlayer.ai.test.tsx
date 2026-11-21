@@ -44,7 +44,7 @@ const TRANSFORM = { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 };
 const ready = (opts?: { data?: ProjectData; selectedClipId?: string; playhead?: number; node?: Record<string, unknown> }) => {
   const d = opts?.data ?? createDefaultProjectData();
   useEditorStore.setState({
-    status: 'ready', data: d, projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't',
+    status: 'ready', data: d, sourceNodeId: 'edit1',
     playhead: opts?.playhead ?? 0, playing: false, preparing: false, selectedClipId: opts?.selectedClipId ?? null,
   });
   useNodeStore.setState({ nodes: (opts?.node ?? {}) as never });

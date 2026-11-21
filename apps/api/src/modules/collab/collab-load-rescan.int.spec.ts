@@ -12,6 +12,11 @@
 //   （DirectConnection 不经 WS 鉴权——Z80 锚同入口，withSession 档先例）。
 // 计数=media_binding_skip_total 现有 skip 面（reason=missing|cross-team|soft-deleted——
 //   recordMediaBindingProjection 单点，禁新造指标——spec §7 观测）。
+// Y4a T6（spec 2026-11-20-y4a-timeline-domain-design.md §0 条 11——装载重扫三件）：候选收集
+//   改 timelines∪nodes 双枚举并集且在 :363 早退之前（纯片段引用文档不被跳过）+剥除两腿
+//   （节点槽 removeMediaRefsForNode+时间轴片段键 removeNodeRefsUnion 时间轴腿）+事务内
+//   写后快照=并集函数（同事务回调——禁另开读会话）；悬空键档（节点已删 timelines.<id> 仍在）
+//   候选照投——负控钉死「nodes.has(id)?union:null 会清掉绑定」形态。
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { register } from 'prom-client';
@@ -29,7 +34,8 @@ import { createLeaseStub } from './test-utils/lease-stub';
 import { ensureProjectFixture, cleanupProjectFixture, ensureLeaseFixture, restoreLeaseRow } from '../../test-utils/db-fixtures';
 import { seedRow } from '../../test-utils/canvas-doc-row';
 import { pollUntil } from '../../test-utils/poll-until';
-import { collectMediaRefsForNode, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
+import { collectMediaRefsForNode, collectNodeRefsUnion, collectMediaRefs, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
+import { toDocLike } from './doc-like.util';
 
 const hasDb = !!process.env.DATABASE_URL;
 const maybe = hasDb ? describe : describe.skip;
@@ -279,6 +285,163 @@ maybe('Y2 D4t：装入重扫三段式——装载兜底删非法键（真 gatewa
       } finally {
         revived.destroy();
       }
+    } finally {
+      await residency.releaseSessionFor(pid).catch(() => undefined);
+      await prisma.mediaBinding.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.canvasDocUpdate.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.canvasDoc.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.canvasProject.deleteMany({ where: { id: pid } }).catch(() => undefined);
+    }
+  }, 60_000);
+
+  // ══════════ Y4a T6（spec §0 条 11——装载重扫三件）：候选收集并集在早退之前+剥除两腿
+  //（节点槽+时间轴片段键）+事务内写后快照并集 ══════════
+
+  /** 剪辑节点帧：nodes.<id>{videoEdit,data.mediaId}+timelines.<id>{clips:{<cid>:video|image|audio mediaId}}。 */
+  const clipFrame = (nodeId: string, nodeData: Record<string, unknown>, clips: Record<string, { type: string; mediaId?: string }>): Uint8Array => {
+    const d = new Y.Doc();
+    d.transact(() => {
+      const node = new Y.Map<unknown>();
+      const dataMap = new Y.Map<unknown>();
+      for (const [k, v] of Object.entries(nodeData)) dataMap.set(k, v);
+      node.set('type', 'videoEdit');
+      node.set('data', dataMap);
+      (d.getMap('nodes') as Y.Map<unknown>).set(nodeId, node);
+      const entry = new Y.Map<unknown>();
+      const clipsMap = new Y.Map<unknown>();
+      for (const [cid, c] of Object.entries(clips)) {
+        const m = new Y.Map<unknown>();
+        m.set('type', c.type);
+        m.set('span', { trackId: `${nodeId}:video`, start: 0, duration: 5 });
+        if (c.mediaId !== undefined) m.set('mediaId', c.mediaId);
+        clipsMap.set(cid, m);
+      }
+      entry.set('clips', clipsMap);
+      (d.getMap('timelines') as Y.Map<unknown>).set(nodeId, entry);
+    });
+    return Y.encodeStateAsUpdate(d);
+  };
+
+  it('★Y4a T6 主档：时间轴 clip 引用跨团队 mediaId→剥掉该片段键（SERVER_TRANSACT_ORIGIN 维护事务在 applyGate 之外——谓词删除键合法）+节点 data 槽同剥；写后快照=并集（合法 clip 行保留+绑定行不含非法键）', async () => {
+    const pid = 'd4t-t6-clip-proj';
+    await prisma.canvasProject.upsert({ where: { id: pid }, update: {}, create: { id: pid, name: 'd4t-t6-clip', userId: UID, teamId: DST_TID } });
+    await prisma.mediaBinding.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+    await prisma.canvasDoc.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+    const skipBefore = await skipCount('cross-team');
+    try {
+      // 节点 data.mediaId=非法 X_MEDIA +timeline clips：c-x 跨团队 X_MEDIA/c-ok 本团队 OWN_MEDIA
+      await repo.appendBatch(pid, [seedRow(clipFrame('n-t6', { mediaId: X_MEDIA }, { 'c-x': { type: 'video', mediaId: X_MEDIA }, 'c-ok': { type: 'image', mediaId: OWN_MEDIA } }), 5n)], { expectedPgSeq: 0n, newPgSeq: 5n, walCheckpointSeq: 5n });
+      const doc = await loadDoc(pid);
+      // 剥除两腿：节点 data 槽已删+片段键 c-x 已删（SERVER_TRANSACT_ORIGIN 谓词删除合法——帧谓词三级规则）
+      expect(collectMediaRefsForNode('n-t6', (doc.getMap('nodes') as Y.Map<unknown>).get('n-t6')).some((r) => r.mediaId === X_MEDIA)).toBe(false);
+      const clips = (doc.getMap('timelines').get('n-t6') as Y.Map<unknown>).get('clips') as Y.Map<unknown>;
+      expect(clips.has('c-x'), '跨团队片段键剥除（时间轴腿）').toBe(false);
+      expect(clips.has('c-ok'), '合法片段键保留（同节点存活槽不被误删）').toBe(true);
+      // 事务内写后快照=并集：写后快照含合法 clip 行（并集快照——修前纯节点槽快照会把该 clip 绑定盖掉）
+      const afterUnion = collectNodeRefsUnion('n-t6', (doc.getMap('nodes') as Y.Map<unknown>).get('n-t6'), doc.getMap('timelines').get('n-t6'));
+      expect(afterUnion.map((r) => [r.targetItemId, r.mediaId]).sort()).toEqual([['c-ok', OWN_MEDIA]]);
+      // 维护帧落库后重放读侧同构（剥除帧 persistence——flush 后重放）
+      await flush(pid);
+      const { state, updates } = await repo.loadForHydration(pid);
+      const revived = new Y.Doc();
+      try {
+        if (state) Y.applyUpdate(revived, new Uint8Array(state));
+        for (const u of updates) Y.applyUpdate(revived, new Uint8Array(u));
+        const rClips = (revived.getMap('timelines').get('n-t6') as Y.Map<unknown>).get('clips') as Y.Map<unknown>;
+        expect(rClips.has('c-x')).toBe(false);
+        expect(rClips.has('c-ok')).toBe(true);
+      } finally {
+        revived.destroy();
+      }
+      // 绑定行与文档一致：非法键零行（重扫快照直调投影——并集快照含 c-ok→OWN_MEDIA 行在）
+      expect(await prisma.mediaBinding.findFirst({ where: { projectId: pid, mediaId: X_MEDIA } })).toBeNull();
+      const ownClipBinding = await prisma.mediaBinding.findFirst({ where: { projectId: pid, mediaId: OWN_MEDIA } });
+      expect(ownClipBinding).not.toBeNull();
+      expect(ownClipBinding?.targetItemId).toBe('c-ok');   // 合法 clip 行绑定带 targetItemId=clipId（并集快照投影）
+      expect(await skipCount('cross-team')).toBeGreaterThan(skipBefore);
+    } finally {
+      await residency.releaseSessionFor(pid).catch(() => undefined);
+      await prisma.mediaBinding.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.canvasDocUpdate.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.canvasDoc.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.canvasProject.deleteMany({ where: { id: pid } }).catch(() => undefined);
+    }
+  }, 60_000);
+
+  it('★Y4a T6 纯片段引用档：doc 只有 clip 引用无节点槽引用→重扫仍触达（候选收集发生在早退之前——断言=片段键被剥+绑定行收敛）', async () => {
+    const pid = 'd4t-t6-pure-clip-proj';
+    await prisma.canvasProject.upsert({ where: { id: pid }, update: {}, create: { id: pid, name: 'd4t-t6-pure', userId: UID, teamId: DST_TID } });
+    await prisma.mediaBinding.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+    await prisma.canvasDoc.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+    const missBefore = await skipCount('cross-team');
+    try {
+      // 零节点槽引用（data 空域）——唯一引用=timeline clip（修前 nodes 枚举零候选→:363 早退不触达）
+      await repo.appendBatch(pid, [seedRow(clipFrame('n-pure', {}, { 'c-x': { type: 'video', mediaId: X_MEDIA } }), 5n)], { expectedPgSeq: 0n, newPgSeq: 5n, walCheckpointSeq: 5n });
+      const doc = await loadDoc(pid);
+      const clips = (doc.getMap('timelines').get('n-pure') as Y.Map<unknown>).get('clips') as Y.Map<unknown>;
+      expect(clips.has('c-x'), '纯片段引用文档重扫触达（候选=timelines∪nodes 双枚举在早退之前）').toBe(false);
+      expect(await skipCount('cross-team')).toBeGreaterThan(missBefore);
+    } finally {
+      await residency.releaseSessionFor(pid).catch(() => undefined);
+      await prisma.mediaBinding.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.canvasDocUpdate.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.canvasDoc.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+      await prisma.canvasProject.deleteMany({ where: { id: pid } }).catch(() => undefined);
+    }
+  }, 60_000);
+
+  it('★Y4a T6 悬空键档：节点已删、timelines.<id> 仍在（并发残留形态）→重扫照投该键片段行（负控：nodes.has?id:union:null 会清掉绑定）', async () => {
+    const pid = 'd4t-t6-dangling-proj';
+    await prisma.canvasProject.upsert({ where: { id: pid }, update: {}, create: { id: pid, name: 'd4t-t6-dang', userId: UID, teamId: DST_TID } });
+    await prisma.mediaBinding.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+    await prisma.canvasDoc.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
+    const skipBefore = await skipCount('cross-team');
+    try {
+      // 并发残留形态播种：单帧两事务——先建 nodes.n-dang+timelines.n-dang，再删 nodes 键（对端
+      // 删除侧胜出后的持久化终态：装载重放后 nodes 无该键、timelines 键在场=clientID 较大一侧残留；
+      // 单帧行形态零行序依赖）
+      const danglingFrame = (): Uint8Array => {
+        const d = new Y.Doc();
+        d.transact(() => {
+          const node = new Y.Map<unknown>();
+          const dataMap = new Y.Map<unknown>();
+          node.set('type', 'videoEdit');
+          node.set('data', dataMap);
+          (d.getMap('nodes') as Y.Map<unknown>).set('n-dang', node);
+          const entry = new Y.Map<unknown>();
+          const clips = new Y.Map<unknown>();
+          for (const [cid, mid] of [['c-x', X_MEDIA], ['c-ok', OWN_MEDIA]] as const) {
+            const m = new Y.Map<unknown>();
+            m.set('type', 'video');
+            m.set('span', { trackId: 'n-dang:video', start: 0, duration: 5 });
+            m.set('mediaId', mid);
+            clips.set(cid, m);
+          }
+          entry.set('clips', clips);
+          (d.getMap('timelines') as Y.Map<unknown>).set('n-dang', entry);
+        });
+        d.transact(() => { (d.getMap('nodes') as Y.Map<unknown>).delete('n-dang'); });
+        return Y.encodeStateAsUpdate(d);
+      };
+      await repo.appendBatch(pid, [seedRow(danglingFrame(), 5n)], { expectedPgSeq: 0n, newPgSeq: 5n, walCheckpointSeq: 5n });
+      // 重装载：活 doc 只剩悬空 timelines 键
+      const doc = await loadDoc(pid);
+      expect((doc.getMap('nodes') as Y.Map<unknown>).has('n-dang')).toBe(false);
+      expect((doc.getMap('timelines') as Y.Map<unknown>).has('n-dang')).toBe(true);
+      // 重扫剥除：跨团队片段键从悬空键上剥掉（候选择投——`nodes.has?id:union:null` 形态下该键
+      // 不可见=永不收敛）；合法行保留
+      const clips = (doc.getMap('timelines').get('n-dang') as Y.Map<unknown>).get('clips') as Y.Map<unknown>;
+      expect(clips.has('c-x'), '悬空键上的非法片段键照剥（GC 看得见这段引用）').toBe(false);
+      expect(clips.has('c-ok')).toBe(true);
+      // 剥后聚合单源同集口径：悬空键合法片段行照投（nodes 无该键——collectMediaRefs 枚举
+      // timelines 键不查 nodes.has；负控=旧形态该行不可见、OWN_MEDIA 绑定永不落）
+      const refs = collectMediaRefs(toDocLike(doc));
+      expect(refs.some((r) => r.nodeId === 'n-dang' && r.mediaId === OWN_MEDIA && r.targetItemId === 'c-ok'),
+        '悬空键照投（collectMediaRefs 枚举 timelines 键）').toBe(true);
+      expect(await skipCount('cross-team')).toBeGreaterThan(skipBefore);
     } finally {
       await residency.releaseSessionFor(pid).catch(() => undefined);
       await prisma.mediaBinding.deleteMany({ where: { projectId: pid } }).catch(() => undefined);

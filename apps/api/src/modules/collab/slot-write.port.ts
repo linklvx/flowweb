@@ -10,11 +10,12 @@
 //   - 槽=他 id → 409 SLOT_OCCUPIED（跨团队档删已拷新键+deletePending 由调用方在端口外执行——
 //     端口只读槽写槽，外部 IO 禁进回调同步段）。
 //   回调=**同步段零 await**（withSession transact 语义——SERVER_TRANSACT_ORIGIN 档）；
-//   快照=回调内 collectMediaRefsForNode 返回值（与写帧原子——禁写完另开 read 会话）。
+//   快照=回调内 collectNodeRefsUnion 并集返回值（Y4a T6 spec §0 条 11——节点槽∪timeline clips；
+//   修前纯节点槽快照对剪辑节点会盖掉该节点全部片段绑定；与写帧原子——禁写完另开 read 会话）。
 //   测试以 useValue 注入 mock 端口（collab-write.port 惯例——真库面在 int spec 直构 controller）。
 import { Inject, Injectable } from '@nestjs/common';
 import * as Y from 'yjs';
-import { collectMediaRefsForNode, type MediaRef } from '@flowweb/shared';
+import { collectNodeRefsUnion, type MediaRef } from '@flowweb/shared';
 import { CollabDocumentService } from './collab-document.service';
 
 /** 槽条件写三档结果（档位归调用方分诊——本端口只承载读槽/写槽/快照原子面）。 */
@@ -23,7 +24,7 @@ export type SlotWriteOutcome = { slot: 'empty' | 'mine' | 'foreign'; snapshot: M
 /** BindMedia 槽条件写端口（驻留会话同步回调内读槽——行锁后三档的比较对象=调用方传入 slotId）。 */
 export interface CollabSlotWritePort {
   /** withSession(write) 同步回调：读目标节点 data.mediaId 与 slotId 比对三档；槽空才写 slotId。
-   *  返回回调内终态快照（collectMediaRefsForNode——与写帧原子）。 */
+   *  返回回调内终态快照（collectNodeRefsUnion 并集——Y4a T6 节点槽∪timeline clips，与写帧原子）。 */
   conditionalWrite(projectId: string, targetNodeId: string, slotId: string): Promise<SlotWriteOutcome>;
 }
 
@@ -59,7 +60,8 @@ export class DirectCollabSlotWriteAdapter implements CollabSlotWritePort {
       } else {
         slot = 'foreign';   // doc 保持对方值——不写
       }
-      return { slot, snapshot: collectMediaRefsForNode(targetNodeId, nodes.get(targetNodeId)) };
+      // Y4a T6：写后快照=并集单源（节点槽∪timeline clips——剪辑节点槽写不清片段绑定）
+      return { slot, snapshot: collectNodeRefsUnion(targetNodeId, nodes.get(targetNodeId), doc.getMap('timelines').get(targetNodeId)) };
     }, { mode: 'write' });
   }
 }

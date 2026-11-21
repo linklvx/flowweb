@@ -21,7 +21,7 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabPgBreakerService } from './collab-pg-breaker.service';
 import { CollabPersistenceService } from './collab-persistence.service';
 import { parseDocName, isValidDocName, admitDocNameForGeneration, canvasDocName, projectDocName } from './doc-name.util';
-import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, QUOTA_DEFAULTS, SERVER_TRANSACT_ORIGIN, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, toReadModel, collectMediaRefsForNode, removeMediaRefsForNode, type CollabAuthReasonCode, type CollabDocStatusPayload, type MediaRef } from '@flowweb/shared';
+import { CollabAuthReason, CANVAS_DOC_SCHEMA_VERSION, CollabCloseCode, QUOTA_DEFAULTS, SERVER_TRANSACT_ORIGIN, DOC_VACUUMING_TERMINAL_REASON, DOC_GENERATION_STALE_TERMINAL_REASON, DOC_STATUS_REV_SEED, fillDoc, toReadModel, collectMediaRefsForNode, collectNodeRefsUnion, extractTimelineClipMediaIds, removeNodeRefsUnion, type CollabAuthReasonCode, type CollabDocStatusPayload, type MediaRef } from '@flowweb/shared';
 import { observeOrderPathologyOnLoad } from './collab-pathology';
 import { toDocLike } from './doc-like.util';
 import { createCanvasDoc } from './canvas-doc.factory';
@@ -338,13 +338,17 @@ export class CollabDocRegistryService {
     if (delta !== undefined && origin !== SERVER_TRANSACT_ORIGIN) this.docDelta.set(pid, delta + bytes);
   }
 
-  /** Y2 D4t（spec v2.13 §3 D5 ⑦ 装入重扫三段式——翻禁前持久化历史帧+恢复导入旁路的兜底）：
-   *  ①活 doc 全词表同步收集候选（collectMediaRefsForNode 逐节点——与帧投影同一读面，不新造第二
-   *    套扫描）；②事务外 await 读 Media 行+admitMediaRef 谓词三档判定（missing/cross-team/
-   *    soft-deleted——写进 doc.transact 异步回调=第一次 await 后的删键掉出 SERVER_TRANSACT_ORIGIN、
-   *    maintenance 档不落库，故必须事务外先行）；③doc.transact 同步回调删键（候选已定零 await——
-   *    origin=SERVER_TRANSACT_ORIGIN ⇒ classifyDocUpdateOrigin 归 maintenance 档落库）；
-   *  ④返回后按写后全量快照 projectBindings（键已不在=空操作；delta 三态同款）。
+  /** Y2 D4t（spec v2.13 §3 D5 ⑦ 装入重扫三段式——翻禁前持久化历史帧+恢复导入旁路的兜底）+Y4a T6
+   *  （spec §0 条 11——重扫三件）：①活 doc 并集同步收集候选（timelines 键∪nodes 键双枚举
+   *  leg-split——**在 candidates.length===0 早退之前**，只有片段引用、没有节点槽
+   *  引用的文档也被扫到；与帧投影同一读面，不新造第二套扫描）；②事务外 await 读 Media 行+
+   *  admitMediaRef 谓词三档判定（missing/cross-team/soft-deleted——写进 doc.transact 异步回调
+   *  =第一次 await 后的删键掉出 SERVER_TRANSACT_ORIGIN、maintenance 档不落库，故必须事务外先行）；
+   *  ③doc.transact 同步回调删键（候选已定零 await——origin=SERVER_TRANSACT_ORIGIN ⇒
+   *  classifyDocUpdateOrigin 归 maintenance 档落库；**剥除=removeNodeRefsUnion 两腿**：节点槽+
+   *  时间轴 video/image/audio 片段键〔谓词删除键合法——维护写在 applyGate 之外不进 L2〕）；
+   *  ④返回后按写后全量快照 projectBindings（**并集函数**——纯节点槽快照会把 clip 绑定按节点槽
+   *  盖掉；键已不在=空操作；delta 三态同款）。
    *  幂等 no-op：候选全合法（admitted）或键已不在——零删键零投影零计数。
    *  计数挂 media_binding_skip_total 现有 skip 面（spec §7 观测：不新造指标）。
    *  admit 不判 status（pending 行照常 admitted——spec v2.3；读面=判定删哪些键，与 admit 语义
@@ -354,9 +358,17 @@ export class CollabDocRegistryService {
   private async rescanEnforcedMediaRefs(projectId: string, document: Document): Promise<void> {
     if (this.prisma == null) return;   // 旧直构（prisma 尾参缺省）=no-op——单测装置面零触达
     try {
-      // ① 同步收集：活 doc 全节点全词表（装载重放/spool 全量 apply 之后——与帧投影同一读面）
+      // ① 同步收集：timelines 键∪nodes 键双枚举并集（装载重放/spool 全量 apply 之后——与帧投影
+      //    同一读面；悬空键照投——枚举 timelines 键不从 nodes.has 推导；leg-split：timelines 键腿
+      //    只投片段行、nodes 键腿只投节点槽行——双根 nodeId 行零重复）
       const nodes = document.getMap('nodes');
+      const timelines = document.getMap('timelines');
       const candidates: MediaRef[] = [];
+      for (const [nodeId, timelineEntry] of timelines.entries()) {
+        for (const { clipId, mediaId } of extractTimelineClipMediaIds(timelineEntry)) {
+          candidates.push({ nodeId, mediaId, role: 'primary', targetField: 'mediaId', targetItemId: clipId });
+        }
+      }
       for (const [nodeId, entry] of nodes.entries()) {
         candidates.push(...collectMediaRefsForNode(nodeId, entry));
       }
@@ -385,15 +397,26 @@ export class CollabDocRegistryService {
         return;
       }
       // ③ 同步回调删键（候选已定零 await——SERVER_TRANSACT_ORIGIN 最外层事务=maintenance 档落库；
-      //    removeMediaRefsForNode 删域=collectMediaRefsForNode 同一扫描域〔shared 单源〕——同节点
-      //    存活槽不被误删由候选集限定承载；回调内 collectMediaRefsForNode 写后快照=④投影入参）
+      //    removeNodeRefsUnion 剥除两腿〔Y4a T6 spec §0 条 11〕：节点槽 removeMediaRefsForNode 同
+      //    一扫描域+时间轴 video/image/audio 片段 mediaId 命中删片段键〔谓词删除键合法——维护写在
+      //    applyGate 之外不进 L2〕——同节点存活槽不被误删由候选集限定承载；回调内 collectNodeRefsUnion
+      //    写后快照=④投影入参（并集函数——纯节点槽快照会按节点槽盖掉该节点 clip 绑定）
       const afterSnapshot = document.transact(() => {
         for (const [nodeId, ids] of illegalByNode) {
-          removeMediaRefsForNode(nodes.get(nodeId), ids);
+          removeNodeRefsUnion(nodes.get(nodeId), timelines.get(nodeId), ids);
         }
-        // ④ 写后全量快照（与删键同事务回调内收集——禁另开读会话）
+        // ④ 写后全量快照（与删键同事务回调内收集——禁另开读会话；timelines 键∪nodes 键双枚举并集；
+        //    leg-split 与候选腿同款——timelines 键腿只投片段行、nodes 键腿只投节点槽行：双根
+        //    nodeId〔节点+timelines 键皆在〕行零重复，快照腿与候选腿一致）
         const snapshot = new Map<string, MediaRef[]>();
-        for (const [nodeId, entry] of nodes.entries()) snapshot.set(nodeId, collectMediaRefsForNode(nodeId, entry));
+        for (const [nodeId, timelineEntry] of timelines.entries()) {
+          const rows = collectNodeRefsUnion(nodeId, nodes.get(nodeId), timelineEntry).filter((r) => r.targetItemId !== '');
+          if (rows.length > 0) snapshot.set(nodeId, rows);
+        }
+        for (const [nodeId, entry] of nodes.entries()) {
+          const rows = collectMediaRefsForNode(nodeId, entry);
+          if (rows.length > 0) snapshot.set(nodeId, [...(snapshot.get(nodeId) ?? []), ...rows]);
+        }
         return snapshot;
       }, SERVER_TRANSACT_ORIGIN);
       // skip 计数挂现有面（media_binding_skip_total 现有 skip 面——spec §7 观测不新造指标）

@@ -6,7 +6,8 @@ import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';   // Y1c T17：真 Yjs 容器收敛锚（doc-codec 同款——测试面 yjs 可用）
 import { fillDoc, type DocLike } from './docShape';
 import type { StoredNodeRecord } from './collab-doc-ops';
-import { collectMediaRefs, collectMediaIds, collectMediaRefsForNode, MEDIA_REF_TARGET_FIELDS } from './media-refs';
+import { collectMediaRefs, collectMediaIds, collectMediaRefsForNode, MEDIA_REF_TARGET_FIELDS,
+  collectTimelineRefs, collectNodeRefsUnion, removeNodeRefsUnion } from './media-refs';
 import type { YArrayLike } from './array-domains';
 
 /** 最小可用 YArrayLike fake（fillDoc 物化真持有 items——collectMediaRefs 迭代消费）。 */
@@ -246,5 +247,150 @@ describe('C3a-1 collectMediaRefsForNode 单源收口', () => {
     const perNode = [...ydoc.getMap('nodes').entries()].flatMap(([nid, entry]) => collectMediaRefsForNode(nid, entry));
     expect(collectMediaRefs(docLike).map(refKey).sort()).toEqual(perNode.map(refKey).sort());
     expect(perNode).toHaveLength(5);   // m-file+m-i1+m-i2（n1）/m-vid（n2）/m-odd（n3）
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// Y4a T6（spec 2026-11-20-y4a-timeline-domain-design.md §0 条 11——媒体三件）：
+// 绑定投影并集单源——collectNodeRefsUnion（节点 refs∪timeline clips mediaId，
+// targetItemId=clipId、空 clipId 不产行）+collectTimelineRefs（枚举 timelines 键不从
+// nodes.has 推导——悬空键照投）+removeNodeRefsUnion（剥除两腿）+collectMediaRefs 聚合
+// 扩 timelines 键∪nodes 键双枚举。clip 矩阵扫描=T3 extractTimelineClipMediaIds 单源
+//（不另写第二套——空 clipId/mediaId/subtitle 无槽由其内部保证）。
+// ══════════════════════════════════════════════════════════════════════════
+describe('Y4a T6：绑定投影并集单源（spec §0 条 11）', () => {
+  /** 真实 Y.Doc 装置：剪辑节点带 timeline clips（video m1/image m2/subtitle 无槽）+data 主槽。 */
+  const mkClipNodeDoc = (): { doc: Y.Doc; docLike: DocLike } => {
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      const node = new Y.Map();
+      const data = new Y.Map();
+      data.set('mediaId', 'm-node-slot');
+      node.set('type', 'videoEdit');
+      node.set('data', data);
+      doc.getMap('nodes').set('n-clip', node);
+      const entry = new Y.Map();
+      const clips = new Y.Map();
+      const mk = (type: string, mediaId: unknown) => {
+        const m = new Y.Map();
+        m.set('type', type);
+        m.set('span', { trackId: 'n-clip:video', start: 0, duration: 5 });
+        if (mediaId !== undefined) m.set('mediaId', mediaId);
+        return m;
+      };
+      clips.set('c-vid', mk('video', 'm1'));
+      clips.set('c-img', mk('image', 'm2'));
+      clips.set('c-sub', mk('subtitle', undefined));
+      entry.set('clips', clips);
+      doc.getMap('timelines').set('n-clip', entry);
+    });
+    const docLike: DocLike = {
+      getMap: (name) => doc.getMap(name) as never,
+      createMap: () => new Y.Map() as never,
+      createText: () => new Y.Text() as never,
+      createXmlFragment: () => new Y.XmlFragment() as never,
+      createXmlElement: (name) => new Y.XmlElement(name) as never,
+      createXmlText: () => new Y.XmlText() as never,
+      createArray: () => new Y.Array() as never,
+    };
+    return { doc, docLike };
+  };
+
+  const refKey = (r: { nodeId: string; role: string; targetField: string; targetItemId: string; mediaId: string }): string =>
+    [r.nodeId, r.role, r.targetField, r.targetItemId, r.mediaId].join('|');
+
+  it('①剪辑节点并集：节点 data 槽行+clip 行（targetItemId=clipId 非空；subtitle 无槽不产行）', () => {
+    const { doc } = mkClipNodeDoc();
+    const union = collectNodeRefsUnion('n-clip', doc.getMap('nodes').get('n-clip'), doc.getMap('timelines').get('n-clip'));
+    expect(union.map(refKey).sort()).toEqual([
+      'n-clip|primary|mediaId||m-node-slot',      // 节点 data 主槽行（targetItemId 空 sentinel）
+      'n-clip|primary|mediaId|c-vid|m1',          // clip 行（targetItemId=clipId——与节点槽空 targetItemId 不撞键）
+      'n-clip|primary|mediaId|c-img|m2',
+    ].sort());
+  });
+
+  it('②空 clipId 不产行（extract 单源内部保证——union 无空 targetItemId clip 行）；空 mediaId 同跳', () => {
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      const entry = new Y.Map();
+      const clips = new Y.Map();
+      const mk = (mediaId: unknown) => {
+        const m = new Y.Map();
+        m.set('type', 'video');
+        m.set('span', { trackId: 't', start: 0, duration: 5 });
+        if (mediaId !== undefined) m.set('mediaId', mediaId);
+        return m;
+      };
+      clips.set('', mk('m-empty-id'));     // 空 clipId——节点标量槽 targetItemId='' 撞键形态禁
+      clips.set('c-empty-mid', mk(''));     // 空 mediaId
+      entry.set('clips', clips);
+      doc.getMap('timelines').set('n-clip', entry);
+      const node = new Y.Map();
+      node.set('type', 'videoEdit');
+      node.set('data', new Y.Map());
+      doc.getMap('nodes').set('n-clip', node);
+    });
+    expect(collectNodeRefsUnion('n-clip', doc.getMap('nodes').get('n-clip'), doc.getMap('timelines').get('n-clip'))).toEqual([]);
+  });
+
+  it('③非剪辑节点（无 timelines 键）→与现状同集（union=纯节点槽——零 clip 行）', () => {
+    const { doc, docLike } = mkClipNodeDoc();
+    // 独立普通节点（无 timelines 键）：union=collectMediaRefsForNode 同集
+    const plain = new Y.Map();
+    const data = new Y.Map();
+    data.set('mediaId', 'm-plain');
+    data.set('referenceImage', 'm-plain-ref');
+    plain.set('type', 'imageGen');
+    plain.set('data', data);
+    doc.getMap('nodes').set('n-plain', plain);
+    const union = collectNodeRefsUnion('n-plain', plain, doc.getMap('timelines').get('n-plain'));
+    expect(union.map(refKey).sort()).toEqual(collectMediaRefsForNode('n-plain', plain).map(refKey).sort());
+    expect(union).toHaveLength(2);
+    // 聚合面：collectMediaRefs=timelines 键∪nodes 键双枚举（n-clip 走并集、n-plain 走纯节点腿）
+    const agg = collectMediaRefs(docLike).map(refKey).sort();
+    expect(agg).toContain('n-clip|primary|mediaId|c-vid|m1');
+    expect(agg).toContain('n-clip|primary|mediaId||m-node-slot');
+    expect(agg).toContain('n-plain|primary|mediaId||m-plain');
+    expect(agg.filter((k) => k.startsWith('n-clip|'))).toHaveLength(3);
+  });
+
+  it('④悬空键照投（spec §0 条 11）：节点已删 timelines.<id> 仍在→collectTimelineRefs 照投该键片段行；双亡才空', () => {
+    const { doc, docLike } = mkClipNodeDoc();
+    const timelines = doc.getMap('timelines');
+    // 并发残留形态：节点删除侧 vs 编辑侧——clientID 较大一侧留下 timelines 键
+    doc.getMap('nodes').delete('n-clip');
+    const dangling = collectTimelineRefs(timelines, doc.getMap('nodes'));
+    expect(dangling.has('n-clip'), '悬空键照投——枚举 timelines 键不从 nodes.has 推导（负控：nodes.has(id)?union:null 形态会清绑定）').toBe(true);
+    expect([...dangling.get('n-clip')!].map(refKey).sort()).toEqual([
+      'n-clip|primary|mediaId|c-vid|m1',
+      'n-clip|primary|mediaId|c-img|m2',
+    ].sort());
+    // 聚合同口径：collectMediaRefs 照投悬空键片段行（GC 看见这段引用）
+    const agg = collectMediaRefs(docLike).map(refKey);
+    expect(agg).toContain('n-clip|primary|mediaId|c-vid|m1');
+    // 双亡才空：timelines 键也删→零行
+    doc.getMap('timelines').delete('n-clip');
+    expect([...collectTimelineRefs(timelines, doc.getMap('nodes')).keys()]).toHaveLength(0);
+    expect(collectMediaRefs(docLike).filter((r) => r.nodeId === 'n-clip')).toEqual([]);
+  });
+
+  it('⑤removeNodeRefsUnion 两腿：同 mediaId 集——节点槽走 removeMediaRefsForNode+timeline clip mediaId 命中删片段键返 clipId 列表', () => {
+    const { doc } = mkClipNodeDoc();
+    const entry = doc.getMap('nodes').get('n-clip') as Y.Map<unknown>;
+    const timelineEntry = doc.getMap('timelines').get('n-clip') as Y.Map<unknown>;
+    // 剥 m1（clip 行命中）+m-node-slot（节点槽命中）——m2/subtitle 不动
+    const r1 = removeNodeRefsUnion(entry, timelineEntry, new Set(['m1', 'm-node-slot']));
+    expect(r1.removedNodeSlots).toBe(1);
+    expect(r1.removedClips).toEqual(['c-vid']);
+    expect((timelineEntry.get('clips') as Y.Map<unknown>).has('c-vid')).toBe(false);
+    expect((timelineEntry.get('clips') as Y.Map<unknown>).has('c-img')).toBe(true);   // 未命中槽保留
+    expect((timelineEntry.get('clips') as Y.Map<unknown>).has('c-sub')).toBe(true);
+    expect((entry.get('data') as Y.Map<unknown>).get('mediaId')).toBeUndefined();
+    // 幂等 no-op：再剥同集=零删
+    const r2 = removeNodeRefsUnion(entry, timelineEntry, new Set(['m1', 'm-node-slot']));
+    expect(r2.removedNodeSlots).toBe(0);
+    expect(r2.removedClips).toEqual([]);
+    // 非 map 入参耐受（与 collectMediaRefsForNode/removeMediaRefsForNode 同口径）
+    expect(removeNodeRefsUnion(undefined, undefined, new Set(['m1']))).toEqual({ removedNodeSlots: 0, removedClips: [] });
   });
 });

@@ -1,28 +1,20 @@
+// apps/web/src/pages/canvas/video-editor/components/EditorTopBar.tsx
+// Y4a T7：REST autosave 退场——SAVE_DOT 状态点（saveState 消费面）+ onManualRetry 重试入口随链删除；
+// 顶栏保留标题常量/比例切换（EditorTopBar 常量「多轨剪辑」=ExportModal 导出文件名同源口径）。
 import { Dropdown } from 'antd';
 import { useEditorStore } from '../store/editorStore';
 import { CANVAS_PRESETS, canvasSizeOf, LAST_ASPECT_KEY } from '../timeline/canvas-size';
 import { ExportPopover } from './ExportModal'; // Task 19：导出按钮整体搬入 Popover 组件内部（open 由 Popover 自管，Shell 不再接 onExport）
 
-const SAVE_DOT: Record<string, { color: string; title: string }> = {
-  saved: { color: '#00B42A', title: '已保存' },
-  saving: { color: 'var(--ve-text-dim)', title: '保存中…' },
-  error: { color: '#F53F3F', title: '保存失败，点击重试' },
-};
-
-/** onClose 由 Shell 传入（handleClose——flush 排空后关闭，M1 检查点：收起不可绕过 flush）；onManualRetry 接 autosave flush */
-export function EditorTopBar({ onClose, onManualRetry }: { onClose: () => void; onManualRetry?: () => void }) {
-  const saveState = useEditorStore((s) => s.saveState);
+/** onClose 由 Shell 传入（Y4a T7：关闭=直接关——REST 排空链退场） */
+export function EditorTopBar({ onClose }: { onClose: () => void }) {
   const data = useEditorStore((s) => s.data);
   const current = canvasSizeOf(data);
   const label = CANVAS_PRESETS.find((p) => p.size.width === current.width && p.size.height === current.height)?.label ?? '自定义';
-  const dot = SAVE_DOT[saveState];
   return (
     <div data-testid="editor-top-bar"
       className="h-12 flex items-center gap-4 px-4 bg-[var(--fw-surface-dim)] border-b border-[var(--ve-border)]">
-      <span className="text-[15px] font-medium text-[var(--fw-text)]">多轨剪辑</span>
-      <button type="button" title={dot.title} onClick={onManualRetry}
-        className="w-2.5 h-2.5 rounded-full border-0"
-        style={{ background: dot.color }} data-testid="save-state-dot" />
+      <span className="text-[15px] font-medium text-text">多轨剪辑</span>
       <Dropdown
         trigger={['click']} // 按钮语义配 click（hover 划过顶栏即弹易误触）
         menu={{ items: [

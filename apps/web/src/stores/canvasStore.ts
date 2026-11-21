@@ -16,6 +16,10 @@ import { getMediaUrl, mediaContentUrl } from '@/api/mediaApi';
 import { deleteProjectByNode } from '@/api/videoProjectApi';
 import { ensureParentOrder } from '@/utils/nodeOrder';
 import { canEdit, canEditCommand, type EditableCommandName } from './syncStatus';
+// Y4a T5（spec §0 条 3）：删除唯一控制流 executeDeleteSplit（三入口同一函数——deleteNode/
+// onNodesChange remove/deleteTransformNode；不派 deleteNode intent、直接调 shared 删除原语）。
+// 循环依赖裁定同 canvasIntents：顶层仅声明，action 体运行时才调——ESM 本地绑定延迟求值安全。
+import { splitDeletePlan, classifyPlanByDoc, executeDeleteSplit } from './canvasDeleteSplit';
 import { batchConnectEdges } from '@/utils/handleMenu';
 // 批4b-2：auto 边确定性 id 判定（addEdge/removeEdge 的 origin 分流——AutoEdge 不入撤销栈契约）
 import { isAutoEdgeId } from './autoEdgeIds';
@@ -23,7 +27,7 @@ import { isAutoEdgeId } from './autoEdgeIds';
 // 批4b-2（组 2 收口）：复合信封写点经 captureStoreProjection/dispatchProjectionDiff 差分换芯
 // （before/after 差分翻译 intent 序列——旧 bindBridge 全量同步的增量形态，删除半边=显式成员差）。
 // 循环依赖裁定：canvasIntents↔canvasStore/nodeStore 互为顶层 import 声明，action 体运行时才调——安全。
-import { dispatchCanvasIntent, canApplyIntent, captureStoreProjection, dispatchProjectionDiff, dispatchFixtureSizeIntents, readGroupStoredFrameFromDoc, resolveDoc, effectiveSoftLimit, type CanvasIntent, type ApplyIntentVerdict, type QuotaRejectReason } from './canvasIntents';
+import { dispatchCanvasIntent, canApplyIntent, captureStoreProjection, dispatchProjectionDiff, dispatchFixtureSizeIntents, readGroupStoredFrameFromDoc, resolveDoc, effectiveSoftLimit, type CanvasIntent, type ApplyIntentVerdict, type ApplyIntentSplitVerdictFamily, type QuotaRejectReason } from './canvasIntents';
 import { recordCollabDiag } from '@/utils/collabDiagnostics';
 // B5'-1（Spec B）：commitIntents 末帧差分读 doc.abs 单源（readCanvasFromDoc——docShape 单源薄委托）。
 // 循环依赖裁定同 canvasIntents：顶层仅声明，action 体运行时才调——安全。
@@ -381,8 +385,9 @@ export interface CanvasState {
   /** 组 data 纯写层（v2.1 拆层）：patchGroupData 去 dispatch 的零 dispatch 版——runCommand.fn 内专用 */
   patchGroupDataInner: (groupId: string, patch: Record<string, unknown>) => void;
   /** R2 新命令唯一入口（canEdit 门 + 单 undo 步 + 差分换芯编排）——见实现 JSDoc。
-   *  Y0b-4 D-14：可选 precheck（配额预检 canApplyIntent——拒=零副作用，见实现 JSDoc）。 */
-  runCommand: (fn: () => void, precheck?: () => ApplyIntentVerdict) => void;
+   *  Y0b-4 D-14：可选 precheck（配额预检 canApplyIntent——拒=零副作用，见实现 JSDoc）。
+   *  Y4a T5：verdict 联合扩 'timeline-chunk-required'（漏网后挡族——canApplyIntent 出口窄化）。 */
+  runCommand: (fn: () => void, precheck?: () => ApplyIntentSplitVerdictFamily) => void;
   /** §4.3 整理选区（R2a-5）：组=原子块+散根真重排（participation('arrange') 裁决——detached 排除并计数提示）；
    *  写回经 runCommand（canEdit 门+单 undo 步+差分收尾）；不 refit 组框（refit 属 2c-4 显式几何命令语义） */
   arrangeSelection: (ids: string[], mode: ArrangeMode) => void;
@@ -977,11 +982,16 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
 
   /** quota 拒绝 toast（reason 分型文案——doc-over-budget 软阈口径与拦截点一致，Q-A v5）。
    *  T10 微修复（Minor 2）：容量读 effectiveSoftLimit 动态格式化（1024 基与配额常量同口径）——
-   *  缺省回退=6.4MB（6710886/1048576）、服务端下发 450KB 配置≈0.4MB（原硬编码 6.7MB 是十进制误读）。 */
-  const toastQuotaReject = (reason: QuotaRejectReason): void => {
+   *  缺省回退=6.4MB（6710886/1048576）、服务端下发 450KB 配置≈0.4MB（原硬编码 6.7MB 是十进制误读）。
+   *  Y4a T5：'timeline-chunk-required' 档走删除控制流提示（配额族文案表外——分型独立）。 */
+  const toastQuotaReject = (reason: QuotaRejectReason | 'timeline-chunk-required'): void => {
     if (reason === 'doc-over-budget') {
       const softLimit = effectiveSoftLimit(useCanvasStore.getState());
       message.warning(`画布已达容量上限（约 ${(softLimit / 1024 / 1024).toFixed(1)}MB），请瘦身或删除内容`);
+      return;
+    }
+    if (reason === 'timeline-chunk-required') {
+      message.warning('该节点时间轴过大，请先在编辑器中清空片段再删除');
       return;
     }
     message.warning({
@@ -1142,52 +1152,73 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   deleteNode: (id) => {
     // T17（G34 七命令补门）：viewer 会话零 cs 写
     if (!canEditCommand('deleteNode', get())) { denyCommandUX('deleteNode'); return; }
-    // 批4b-2：差分快照在 cascade/结构删/组善后全动作之前捕获——收尾 dispatchProjectionDiff
-    // 覆盖级联子删+父组框收缩（首行 reconcile('cs')——O0b-5 帧写单写者）。
-    // 与显式 deleteNode intent 幂等共存（同值 no-op，撤销栈同窗合并）
+    // Y4a T5（spec §0 条 3）：删除唯一控制流=executeDeleteSplit（组递归废除——后代由分割函数
+    // 一次收齐；不派 deleteNode intent、直接调 shared 删除原语）。善后差分快照仍覆盖级联+组框
+    // 收缩（首次删除动作之前捕获）。canEdit 假时 resolveDoc 仍可取 doc，但 dispatch 门拦的语义
+    // 移到本入口：canEdit 假=doc 零写（viewer 档语义与 G34 矩阵一致）。
     const before = captureStoreProjection();
-    // v6：被删节点是组 → 级联删子（对齐菜单 GroupContextMenu 先删子再删组的既有语义——
-    // 否则子节点 parentId 悬空、rel 被当绝对渲染飞原点；子也可能是组，递归天然覆盖）
-    const self = get().nodes.find((n) => n.id === id);
-    if (self?.type === NODE_TYPES.GROUP) {
-      for (const c of get().nodes.filter((n) => n.parentId === id)) {
-        get().deleteNode(c.id);
-      }
-    }
-    // 组清理需在删除前捕获父子关系（filter 后会丢失）
-    const prevParentId = get().nodes.find((n) => n.id === id)?.parentId;
     // Cancel any in-progress process for this node
-    const state = get();
-    state.cancelNodeProcess(id);
-    // videoEdit 节点：级联删除 VideoProject（fire-and-forget——失败上报不阻塞画布删除；边由下方 edges.filter 级联清除）
-    cascadeDeleteVideoProject(state.nodes, [id]);
-    // 批4b-1 换芯：doc 删（含级联边删）走意图漏斗——置于 cascade/捕获段之后（上方判型读变更前
-    // state）、结构 set 之前（doc 首写）；下方 filter 型 set 与投影幂等，canEdit 假时 dispatch
-    // 拦 doc=doc 零写（dispatch 门），store 侧回弹语义不变
-    dispatchCanvasIntent({ type: 'deleteNode', id }, Origin.LocalUser);
-    // B-2：结构 set 必须先于 nodeStore 清理——先清会触发 nodeStore 订阅提前 sync，被删节点走 nd.data 陈旧 fallback 瞬态覆写 doc data；结构 set 先行使其直接从投影消失
-    set((s) => ({
-      nodes: s.nodes.filter((n) => n.id !== id),
-      edges: s.edges.filter((e) => e.source !== id && e.target !== id),
-      selectedId: s.selectedId === id ? null : s.selectedId,
-    }));
-    // 组清理逻辑：检查被删节点的父组是否需要清理
-    const after = get();
-    const parent = prevParentId ? after.nodes.find((n) => n.id === prevParentId) : undefined;
+    get().cancelNodeProcess(id);
+    // videoEdit 节点：级联删除 VideoProject（fire-and-forget——T8 随时间轴入 doc 整链删除；
+    // 失败上报不阻塞画布删除；边由删除原语级联清除）
+    cascadeDeleteVideoProject(get().nodes, [id]);
+    // 父组清理判定材料在删除前捕获（doc 写后 store 快照不再含父子关系）
+    const prevParentId = get().nodes.find((n) => n.id === id)?.parentId;
+    let deletedIds: string[] = [];
+    let precheckRejected = false;
+    const d = canEdit(get()) ? resolveDoc() : null;
+    if (d) {
+      const plan = classifyPlanByDoc(d, splitDeletePlan(get(), [id]));
+      const result = executeDeleteSplit(d, plan);
+      deletedIds = result.deletedIds;
+      precheckRejected = result.precheckRejected;
+    }
+    // nodeStore 清理/unregisterSaveHandler 按分割函数收齐的全部 id〔选中+组全部后代−保护集〕
+    const ns = useNodeStore.getState();
+    if (deletedIds.length > 0) {
+      for (const cid of deletedIds) {
+        ns.deleteNode(cid);
+        ns.unregisterSaveHandler(cid);
+      }
+    } else if (d == null) {
+      // 无会话档（裸 store——canEdit 假/离线）：store 侧回弹语义保留（doc 在=尾投快照权威；
+      // doc 无=本地结构删照旧——批量选中/selectedId 三件与旧 filter 形态等价）
+      const deletedSet = new Set([id]);
+      for (const n of get().nodes) {
+        if (n.type === NODE_TYPES.GROUP && deletedSet.has(n.id)) {
+          for (const c of get().nodes.filter((x) => x.parentId === n.id)) deletedSet.add(c.id);
+        }
+      }
+      set((s) => ({
+        nodes: s.nodes.filter((n) => n.id !== id && !deletedSet.has(n.id)),
+        edges: s.edges.filter((e) => e.source !== id && e.target !== id),
+        selectedId: s.selectedId === id ? null : s.selectedId,
+      }));
+      for (const cid of deletedSet) {
+        ns.deleteNode(cid);
+        ns.unregisterSaveHandler(cid);
+      }
+    } else if (precheckRejected) {
+      // 评审 I#3(b)：栈预检拒=活文档一字未动——跳过清理（nodeStore 条目/save handler 原样；
+      // 尾部差分 composite 尾投把 store 回投 doc 真值——选中 id 回 store）
+    } else {
+      // doc 在但收齐集空（全缺 id/全 aborted 保护）——doc 未删该节点，但选中目标可能已被
+      // RF 分批先删（无收齐集可清）——单点清理保底（deletedIds 空时唯一可达面）
+      ns.deleteNode(id);
+      ns.unregisterSaveHandler(id);
+    }
+    // 组善后（删空解组）=函数返回之后、最后一次 stopCapturing 之后独立成步（不并进装回那笔）
+    const parent = prevParentId ? get().nodes.find((n) => n.id === prevParentId) : undefined;
     if (parent && parent.type === NODE_TYPES.GROUP) {
-      // T17（Z17'' cells 派生删）：分镜组零清理写——成员删即派生缓存重算（syncStoryboardCells；
-      // 旧 cells 过滤死 id 的 doc 回流写点删除）
+      // T17（Z17'' cells 派生删）：分镜组零清理写——成员删即派生缓存重算
       if ((parent.data as any)?.groupType === 'storyboard') {
       } else if ((parent.data as any).groupType === 'normal'
-        && !after.nodes.some((c) => c.parentId === parent.id)) {
-        // 普通组：删空自动解组；仍有子 → 组框收缩归收尾差分首行 reconcile('cs')（O0b-5 帧写单写者）
+        && !get().nodes.some((c) => c.parentId === parent.id)) {
+        // 普通组：删空自动解组（被闸剪辑子保留时组仍非空——不拆它）
         get().ungroup(parent.id);
       }
     }
-    const ns = useNodeStore.getState();
-    ns.deleteNode(id);
-    ns.unregisterSaveHandler(id);
-    // 批4b-2：善后几何（组框收缩）+ 级联删除的整体差分落 doc（冗余部分同值 no-op）
+    // Y4a T5：善后几何（组框收缩/自动解组）经差分落 doc——独立成步
     dispatchProjectionDiff(before, Origin.LocalUser);
   },
 
@@ -1195,17 +1226,30 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // Cancel any in-progress process for this node
     const state = get();
     state.cancelNodeProcess(id);
-    // 批4b-2 换芯：doc 删（含级联引用边）走意图漏斗（deleteNode 同款）；filter 型 set 幂等
-    dispatchCanvasIntent({ type: 'deleteNode', id }, Origin.LocalUser);
-    // B-2（spec D2）：结构 set 必须先于 nodeStore 清理
-    set((s) => ({
-      nodes: s.nodes.filter((n) => n.id !== id),
-      edges: s.edges.filter((e) => e.source !== id && e.target !== id),
-      selectedId: s.selectedId === id ? null : s.selectedId,
-    }));
-    const ns = useNodeStore.getState();
-    ns.deleteNode(id);
-    ns.unregisterSaveHandler(id);
+    // Y4a T5（spec §0 条 3——第三删除入口）：同一 executeDeleteSplit（不经 dispatchCanvasIntent
+    // 直派 deleteNode intent——预检/切块/撤销栈与 deleteNode 完全同一条控制流）。评审 I#3(c)：
+    // nodeStore 清理按 result.deletedIds 收敛——组删除后代条目/save handler 一并清（拒绝档
+    // deletedIds 空=活节点零清理）。
+    const d = canEdit(get()) ? resolveDoc() : null;
+    if (d) {
+      const plan = classifyPlanByDoc(d, splitDeletePlan(get(), [id]));
+      const result = executeDeleteSplit(d, plan);
+      const ns = useNodeStore.getState();
+      for (const cid of result.deletedIds.length > 0 ? result.deletedIds : [id]) {
+        ns.deleteNode(cid);
+        ns.unregisterSaveHandler(cid);
+      }
+    } else {
+      // 无会话档（裸 store）：本地结构删照旧（B-2 语义——先 store 后 nodeStore）
+      set((s) => ({
+        nodes: s.nodes.filter((n) => n.id !== id),
+        edges: s.edges.filter((e) => e.source !== id && e.target !== id),
+        selectedId: s.selectedId === id ? null : s.selectedId,
+      }));
+      const ns = useNodeStore.getState();
+      ns.deleteNode(id);
+      ns.unregisterSaveHandler(id);
+    }
   },
 
   setNodeDraggable: (nodeId, draggable) =>
@@ -1854,11 +1898,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     // C1：键盘 Delete 手势路径——videoEdit 节点 remove 需在 applyNodeChanges 移除节点前用变更前 state 判型级联删工程
     const removedIds = changes.filter((c) => c.type === 'remove').map((c) => (c as any).id);
     if (removedIds.length > 0) cascadeDeleteVideoProject(get().nodes, removedIds);
-    // v6：被删节点是组 → 级联（先于 applyNodeChanges 捕获，filter 后丢父子）；对齐 deleteNode/菜单语义
-    const removedGroupsChildren = removedIds.flatMap((gid) => {
-      const n = get().nodes.find((x) => x.id === gid);
-      return n?.type === NODE_TYPES.GROUP ? get().nodes.filter((c) => c.parentId === gid).map((c) => c.id) : [];
-    });
+    // Y4a T5（spec §0 条 3）：组级联/二次级联废除——后代由 executeDeleteSplit 一次收齐（本函数
+    // 尾部 applyNodeChanges 之后恰一次）；removedGroupsChildren 再走 deleteNode 的形态不再发生
     const parentOfRemoved = new Map(   // set 之前捕获——filter 后丢失父子关系（deleteNode 同款）
       removedIds.map((id) => [id, get().nodes.find((n) => n.id === id)?.parentId]),
     );
@@ -1890,11 +1931,10 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const hasPosition = routed.some((c) => c.type === 'position');
     const hasResizeAttr = routed.some((c) => c.type === 'dimensions' && (c as any).setAttributes);
 
-    // remove 结构批：手势内外都照常路由（结构域非几何域——deleteNode intent + 下方三件套善后）
+    // remove 结构批：手势内外都照常路由（结构域非几何域——删除集与祖先组在 applyNodeChanges
+    // 之前从当前 store 算完；Y4a T5：不再产出 deleteNode intent——删除经 executeDeleteSplit
+    // 唯一控制流一次收齐〔组+全部后代〕，resize 等其它 struct intent 留原处）
     const structIntents: CanvasIntent[] = [];
-    for (const c of routed) {
-      if (c.type === 'remove') structIntents.push({ type: 'deleteNode', id: c.id });
-    }
 
     const dragIntents: CanvasIntent[] = [];
     // O0b-2 (iii) 首测固化候选：dimensions 批非 setAttributes（RF 首测）。手势期隔离=session∨
@@ -1965,6 +2005,12 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     if (structIntents.length > 0) dispatchCanvasIntent(structIntents, Origin.LocalUser);
     // O0b-2 (iii)：固化独立 Geometry transact——不与 LocalUser 提交同 transact 合批（终裁 59⑥）
     dispatchFixtureSizeIntents(fixCandidates);
+    // Y4a T5 评审 I#2（计划先行——brief「删除集与祖先组在 applyNodeChanges 之前从当前 store 算完」）：
+    // RF 的 applyNodeChanges 会把 remove 批的选中 id 从 store 剥离——若 splitDeletePlan 在其后
+    // 才消费 store，嵌套组的祖先链沿 parentId 上溯会走到断链（多选删外层+内层组时内层组先被
+    // 剥离→aborted 节点的保护集只含内层、外层组进信封被删→存活的内层组 parentId 悬空）。
+    // 快照在剥离之前取、计划消费快照。
+    const preApplyNodes = get().nodes as Node[];
     // 去闸门（终裁 43 需求 5 物理前提）：拖拽期 clamp 块整删——子节点拖出组帧外渲染位置原样保留
     // （脱离判定归 B5' 松手路由）；placement 域 clamp（addToGroup/dropIntoGroup 分支 B）是另一域（F4 维持）
     // Y2 A3（坐标域终裁）：RF 批全量落渲染列表（rel 域——手势活值/首测尺寸唯一宿主）；作者缓存
@@ -1974,8 +2020,66 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
       nodes: applyNodeChanges(routed.filter((c) => c.type !== 'position' && c.type !== 'dimensions'), s.nodes) as Node[],
       renderNodes: applyNodeChanges(routed, s.renderNodes as unknown as Node[]) as unknown as RenderNode[],
     }));
-    // B4'-2 手势期本地自删：remove 命中被拖集合/resize 目标 ⇒ 会话收尾（'removed'——幸存者回
-    // baseline 事后回滚；doc 删已在上 structIntents 落地）
+
+    // TD-11: 键盘/程序化删除 → 对齐 deleteTransformNode 的 store 侧清理三件套
+    // （DB 同步由 bindCanvasSync 订阅判脏 → 统一 runtime debounce 保存承担）
+    const removes = changes.filter((c) => c.type === 'remove');
+    if (removes.length === 0) {
+      // B4'-2 手势期本地自删（remove 谓词扩展位——非 remove 批不触达）：保持原位不收尾
+      return;
+    }
+    // Y4a T5（spec §0 条 3）：删除唯一控制流——applyNodeChanges 之后恰一次 executeDeleteSplit
+    // （组 id 与子节点全部经同一次收齐删除；:2013-2015 二次级联废除——dispatch spy 无重入
+    // deleteNode）。React Flow remove 只给选中 id——store 清理按分割函数收齐集〔选中+组全部
+    // 后代−保护集〕；store 只由每次事务后的 applyUnifiedDocSnapshot 写回（快照是最后一次
+    // store 写入、排在 applyNodeChanges 之后——React Flow 的 remove 不能把预检留下的节点
+    // 从 store 拿走而 doc 里还在）。
+    for (const change of removes) get().cancelNodeProcess(change.id);
+    const ns = useNodeStore.getState();
+    const aftercareBefore = captureStoreProjection();
+    {
+      const d = canEdit(get()) ? resolveDoc() : null;
+      if (d) {
+        // 计划消费 preApplyNodes 快照（评审 I#2——applyNodeChanges 之后 store 已剥离选中 id，
+        // 嵌套祖先链在快照上完整）
+        const plan = classifyPlanByDoc(d, splitDeletePlan({ nodes: preApplyNodes }, removedIds));
+        const result = executeDeleteSplit(d, plan);
+        for (const cid of result.deletedIds) {
+          ns.deleteNode(cid);
+          ns.unregisterSaveHandler(cid);
+        }
+      } else {
+        // 无会话档（裸 store）：本地结构删照旧（applyNodeChanges 已删选中 id——组后代补删）
+        const removedSet = new Set(removedIds);
+        for (const n of get().nodes) {
+          if (n.type === NODE_TYPES.GROUP && removedSet.has(n.id)) {
+            for (const c of get().nodes.filter((x) => x.parentId === n.id)) removedSet.add(c.id);
+          }
+        }
+        set((s) => ({ nodes: s.nodes.filter((n) => !removedSet.has(n.id)) }));
+        for (const cid of removedSet) {
+          ns.deleteNode(cid);
+          ns.unregisterSaveHandler(cid);
+        }
+      }
+    }
+    // v6 组清理（对齐 deleteNode 的父组清理——被闸剪辑子保留时组仍非空、不拆它）：分镜组零
+    // 清理写；普通组删空自动解组
+    for (const change of removes) {
+      const prevParentId = parentOfRemoved.get(change.id);
+      const parent = prevParentId ? get().nodes.find((n) => n.id === prevParentId) : undefined;
+      if (parent?.type === NODE_TYPES.GROUP) {
+        if ((parent.data as any)?.groupType === 'storyboard') {
+        } else if ((parent.data as any).groupType === 'normal'
+          && !get().nodes.some((c) => c.parentId === parent.id)) {
+          get().ungroup(parent.id);
+        }
+      }
+    }
+    // B4'-2 手势期本地自删（Y4a T5 移序）：remove 命中被拖集合/resize 目标 ⇒ 会话收尾
+    // （'removed'——幸存者回 baseline 事后回滚）。**在 executeDeleteSplit 尾投之后**：先删
+    // 后收尾——endGesture 的 DEV 不量检查投影不变量，删除前的收尾会拿「doc 已删/store 未投」
+    // 的瞬态破缺形态。
     {
       const s1 = get().dragSession;
       if (s1 && removedIds.length > 0
@@ -1983,37 +2087,7 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
         get().endGesture('removed');
       }
     }
-
-    // TD-11: 键盘/程序化删除 → 对齐 deleteTransformNode 的 store 侧清理三件套
-    // （DB 同步由 bindCanvasSync 订阅判脏 → 统一 runtime debounce 保存承担）
-    const removes = changes.filter((c) => c.type === 'remove');
-    if (removes.length === 0) return;
-    // 批4b-2：善后段差分快照——上方结构 set 的变更已由显式 intent 覆盖（origin 语义分开：
-    // 拖拽 Geometry/结构 LocalUser），快照只收善后几何（父组框收缩/自动解组/级联子删）
-    const aftercareBefore = captureStoreProjection();
-    for (const change of removes) {
-      get().cancelNodeProcess(change.id);
-      const ns = useNodeStore.getState();
-      ns.deleteNode(change.id);
-      ns.unregisterSaveHandler(change.id);
-      // v6 组清理（cells 第 7 写者——对齐 deleteNode 的父组清理）：分镜组 cells 过滤死 id；普通组删空自动解组
-      const prevParentId = parentOfRemoved.get(change.id);
-      const parent = prevParentId ? get().nodes.find((n) => n.id === prevParentId) : undefined;
-      if (parent?.type === NODE_TYPES.GROUP) {
-        // T17（Z17'' cells 派生删）：分镜组零清理写——成员删即派生缓存重算（旧 cells 过滤 doc 写点删除）
-        if ((parent.data as any)?.groupType === 'storyboard') {
-        } else if ((parent.data as any).groupType === 'normal'
-          && !get().nodes.some((c) => c.parentId === parent.id)) {
-          // 普通组：删空自动解组；仍有子 → 组框收缩归收尾差分首行 reconcile('cs')（对齐 deleteNode 同款）
-          get().ungroup(parent.id);
-        }
-      }
-    }
-    // v6：级联子清理（组被删时其子走 deleteNode 三件套——cancelNodeProcess/ns.deleteNode/unregisterSaveHandler）
-    for (const cid of removedGroupsChildren) {
-      if (get().nodes.some((n) => n.id === cid)) get().deleteNode(cid);
-    }
-    // 批4b-2：善后几何（refit 收缩）经差分落 doc（嵌套 action 自 dispatch 幂等）
+    // 善后几何（refit 收缩/自动解组）经差分落 doc——独立成步（不并进删除那笔）
     dispatchProjectionDiff(aftercareBefore, Origin.LocalUser);
   },
 

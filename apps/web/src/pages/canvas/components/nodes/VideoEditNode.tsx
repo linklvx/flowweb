@@ -1,12 +1,14 @@
 // apps/web/src/pages/canvas/components/nodes/VideoEditNode.tsx
 import { memo, useEffect, useRef, useState } from 'react';
 import type { NodeProps } from '@xyflow/react';
+import * as Y from 'yjs';
 import { Tooltip } from 'antd';
 import { NodeHandle } from './NodeHandle';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { detectVideoEditorCapabilities } from '@/pages/canvas/video-editor/capabilities';
 import { formatShortTime, totalDuration } from '@/pages/canvas/video-editor/timeline/timecode';
-import { getProjectByNode } from '@/api/videoProjectApi';
+import { readTimelineFromDoc } from '@flowweb/shared';
+import { getTimelineDocRef } from '@/stores/timelineUndo';
 import type { ProjectData } from '@/pages/canvas/video-editor/types';
 import { renderFrameAt } from '@/pages/canvas/video-editor/renderer/render-frame';
 import type { FrameRenderDeps } from '@/pages/canvas/video-editor/renderer/render-frame';
@@ -42,9 +44,12 @@ function VideoEditNodeComponent({ id, selected }: NodeProps) {
     const cs = useVideoEditorStore.getState();
     const isMine = cs.sourceNodeId === id;
     if (closedAt > 0 && !isMine) return;
-    getProjectByNode(id)
-      .then((p) => { if (!cancelled) setProjectData(p?.data ?? null); })
-      .catch(() => { /* 失败保留现状：首载 null→空态，refetch 保留旧缩略（review M3） */ });
+    // Y4a T7：迷你画布改内存 doc 直读（zero REST）——timelines.<id> 只读已存在 Map；
+    // 键不在/毒值 → null（空态）；离线无 doc ref 同 null。
+    const doc = getTimelineDocRef();
+    const entry = doc?.getMap('timelines').get(id);
+    const data = entry instanceof Y.Map ? readTimelineFromDoc(entry) : null;
+    if (!cancelled) setProjectData(data);
     return () => { cancelled = true; };
   }, [id, closedAt]);
 

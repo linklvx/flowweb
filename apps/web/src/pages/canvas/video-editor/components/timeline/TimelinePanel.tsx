@@ -131,7 +131,7 @@ export function TimelinePanel() {
     const dxSec = pxToTime(e.clientX - d.startClientX, d.startPxPerSec); // 拖拽全程固定比例尺
     const es = useEditorStore.getState();
     if (d.kind === 'move') {
-      if (!es.pendingSnapshot && !d.pointerMovedOnce) { es.beginTransient(); d.pointerMovedOnce = true; }
+      if (!es.pendingOverlay && !d.pointerMovedOnce) { es.beginTransient(); d.pointerMovedOnce = true; }
       const target = d.startClipStart + dxSec;
       const snapped = snapTime(target, collectSnapPoints(d.clipId, Object.values(es.data?.clips ?? {}), es.playhead), d.startPxPerSec);
       // 跨轨拖动（spec 同类型跨轨自由重叠）：pointer 落点命中轨道行，类型兼容才换轨
@@ -152,10 +152,10 @@ export function TimelinePanel() {
       if (nextGuide !== snapGuideRef.current) { snapGuideRef.current = nextGuide; setSnapGuideTime(nextGuide); }
       es.moveClip(d.clipId, Math.max(0, snapped.time), targetTrackId, { transient: true });
     } else if (d.kind === 'keyframe') {
-      if (!es.pendingSnapshot && !d.pointerMovedOnce) { es.beginTransient(); d.pointerMovedOnce = true; }
+      if (!es.pendingOverlay && !d.pointerMovedOnce) { es.beginTransient(); d.pointerMovedOnce = true; }
       es.moveKeyframe(d.clipId, d.kfId!, d.startKfT! + dxSec, { transient: true });
     } else {
-      if (!es.pendingSnapshot && !d.pointerMovedOnce) { es.beginTransient(); d.pointerMovedOnce = true; }
+      if (!es.pendingOverlay && !d.pointerMovedOnce) { es.beginTransient(); d.pointerMovedOnce = true; }
       es.trimClip(d.clipId, d.kind === 'trim-left' ? 'left' : 'right', dxSec, { transient: true });
     }
   };

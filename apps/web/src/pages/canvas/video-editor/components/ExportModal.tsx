@@ -18,9 +18,12 @@ import { createProductNode } from '../export/product-node';
 import { armUnloadWarning, disarmUnloadWarning } from '@/utils/unloadGuard';
 
 // R2-N11/R3-4：模块级取值函数（currentXxx 前缀防 react-hooks lint 误报；?? '' 归一返回 string——可空字段直接透传 strict 下 TS2345）
+// Y4a T7（brief 编辑器组件 identity 接线表）：sourceNodeId=工程身份（projectId/title 随 REST 链退场）——
+// currentEditorProjectId 改读 useVideoEditorStore.sourceNodeId（上传 register 载荷值链 T8 re-key）；
+// 标题=EditorTopBar 常量「多轨剪辑」同源口径；currentEditorSourceNodeId 已是正确主键保留。
 const currentCanvasProjectId = () => useCanvasStore.getState().projectId ?? '';
-const currentEditorProjectId = () => useEditorStore.getState().projectId ?? '';
-const currentEditorProjectTitle = () => useEditorStore.getState().title ?? '';
+const currentEditorProjectId = () => useVideoEditorStore.getState().sourceNodeId ?? '';
+const currentEditorProjectTitle = () => '多轨剪辑';
 const currentEditorSourceNodeId = () => useVideoEditorStore.getState().sourceNodeId ?? '';
 
 // I-2：beforeunload 模块级守卫——以在飞 job 为依据安装/拆除，不随 Popover 卸载（收起编辑器后关页仍拦，对齐 R2-N12 后台完成语义）。

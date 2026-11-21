@@ -225,19 +225,19 @@
       "criteria": "C1",
       "evidence": [
         {
-          "src": "packages/shared/src/canvas/canvas-node-delete.spec.ts",
+          "src": "apps/api/src/modules/collab/collab-recovery-import.timeline.spec.ts",
           "line": 2,
-          "text": "// Y4a T1（plan 2026-11-20-y4a-timeline-domain Task 1——spec §0 条 3/4）：两个删除原语的行为锁。"
+          "text": "// Y4a T5（plan 2026-11-20-y4a-timeline-domain Task 5——spec §0 条 4）：恢复导入 timelines 三面"
         },
         {
-          "src": "packages/shared/src/canvas/canvas-node-delete.ts",
+          "src": "apps/web/src/pages/canvas/video-editor/components/VideoEditorShell.tsx",
           "line": 2,
-          "text": "// Y4a T1（plan 2026-11-20-y4a-timeline-domain Task 1——spec §0 条 3/4）：shared 删除原语单源"
+          "text": "// Y4a T7（plan 2026-11-20-y4a-timeline-domain Task 7——spec §0 条 7）：Shell 改订阅既有"
         },
         {
-          "src": "packages/shared/src/canvas/timeline-codec.spec.ts",
+          "src": "apps/web/src/pages/canvas/video-editor/store/editorStore.ts",
           "line": 2,
-          "text": "// Y4a T3（plan 2026-11-20-y4a-timeline-domain Task 3——spec §3.1 v6 修订④⑤/§3.4）："
+          "text": "// Y4a T7（plan 2026-11-20-y4a-timeline-domain Task 7——spec §0 条 5/条 7 + §4）："
         }
       ]
     },
@@ -332,6 +332,14 @@
       ]
     },
     {
+      "path": "docs/superpowers/specs/2026-10-06-canvas-yjs-arch-upgrade-review.md",
+      "criteria": "C4",
+      "evidence": [
+        "入引用自 docs/superpowers/plans/2026-11-17-y2-projection-convergence.md",
+        "入引用自 docs/superpowers/specs/2026-11-20-y4a-timeline-domain-design.md"
+      ]
+    },
+    {
       "path": "docs/superpowers/specs/2026-10-08-y0b-funds-and-access-design.md",
       "criteria": "C1",
       "evidence": [
@@ -379,6 +387,27 @@
           "src": "apps/api/src/modules/material-library/material-restore.int.spec.ts",
           "line": 2,
           "text": "// 素材恢复接线（spec 2026-11-16-media-restore-design.md v3 §1.2-§3/§4——plan 2026-11-17-media-restore Task 2）："
+        }
+      ]
+    },
+    {
+      "path": "docs/superpowers/specs/2026-11-20-y4a-timeline-domain-design.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "apps/api/src/modules/collab/author-slot.service.spec.ts",
+          "line": 143,
+          "text": "// ── Y4a T6 评审回包 I#1（spec 2026-11-20-y4a-timeline-domain-design.md §3.3「凡按节点替换"
+        },
+        {
+          "src": "apps/api/src/modules/collab/collab-load-rescan.int.spec.ts",
+          "line": 15,
+          "text": "// Y4a T6（spec 2026-11-20-y4a-timeline-domain-design.md §0 条 11——装载重扫三件）：候选收集"
+        },
+        {
+          "src": "apps/api/src/modules/collab/collab-project-actor.binding-delta.spec.ts",
+          "line": 183,
+          "text": "// Y4a T6（spec 2026-11-20-y4a-timeline-domain-design.md §0 条 11）：收集器 touched 扩"
         }
       ]
     },

@@ -27,7 +27,7 @@ const ready = (data?: ProjectData) => {
   const d = data ?? createDefaultProjectData();
   d.clips['v1'] = { id: 'v1', trackId: d.tracks[0].id, type: 'video', start: 0, duration: 3, sourceStart: 0, mediaId: 'm1', playbackSpeed: 1, transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 }, keyframes: [] };
   d.tracks[0].clips.push('v1');
-  useEditorStore.setState({ status: 'ready', data: d, projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't', playhead: 0, playing: false, preparing: false });
+  useEditorStore.setState({ status: 'ready', data: d, sourceNodeId: 'edit1', playhead: 0, playing: false, preparing: false });
 };
 
 describe('playback 状态机（togglePlayback/stopPlayback/seekPlayback）', () => {

@@ -41,7 +41,7 @@ describe('TimelinePanel 静态渲染', () => {
   it('ready → 渲染标尺/全部轨道/片段块与源时间码', () => {
     const d = dataWithClips();
     useEditorStore.setState({
-      status: 'ready', data: d, projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't',
+      status: 'ready', data: d, sourceNodeId: 'edit1',
       mediaInfo: { m1: { name: '视频A', durationSec: 10 }, m2: { name: '音频B', durationSec: 5 } },
     });
     render(<TimelinePanel />);
@@ -57,7 +57,7 @@ describe('TimelinePanel 静态渲染', () => {
     expect(screen.getByTestId('playhead-line')).toBeInTheDocument(); // 贯穿播放头（执行期 I3）
   });
   it('空轨渲染占位条，控制条有撤销/重做/分割/删除（Task 8 迁入预览控制条——补渲染 PreviewPlayer 保持断言语义）', () => {
-    useEditorStore.setState({ status: 'ready', data: createDefaultProjectData(), projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't' });
+    useEditorStore.setState({ status: 'ready', data: createDefaultProjectData(), sourceNodeId: 'edit1' });
     render(<><PreviewPlayer /><TimelinePanel /></>);
     expect(screen.getByRole('button', { name: '撤销' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '重做' })).toBeInTheDocument();
@@ -65,7 +65,7 @@ describe('TimelinePanel 静态渲染', () => {
     expect(screen.getByRole('button', { name: '删除' })).toBeInTheDocument();
   });
   it('Ctrl+滚轮缩放：原生 wheel 监听改 pxPerSec（passive:false——I1）', () => {
-    useEditorStore.setState({ status: 'ready', data: createDefaultProjectData(), projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't' });
+    useEditorStore.setState({ status: 'ready', data: createDefaultProjectData(), sourceNodeId: 'edit1' });
     // 判别力核心：wheel 必须以 { passive: false } 原生注册在滚动元素上（react-dom 根容器 wheel 是 passive，合成 onWheel 的 preventDefault 无效）
     const addSpy = vi.spyOn(HTMLElement.prototype, 'addEventListener');
     render(<TimelinePanel />);
@@ -91,7 +91,7 @@ describe('TimelinePanel 静态渲染', () => {
     // 真实入口时序：异步 loadProject resolve → ready，scrollRef 滚动容器此刻才进 DOM——
     // 注册 effect 若不随该转换重跑（[] 依赖 + 早退 JSX），监听全程缺失、缩放失效
     await act(async () => {
-      useEditorStore.setState({ status: 'ready', data: createDefaultProjectData(), projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't' });
+      useEditorStore.setState({ status: 'ready', data: createDefaultProjectData(), sourceNodeId: 'edit1' });
     });
     const scroll = screen.getByTestId('timeline-panel').querySelector('.overflow-x-auto') as HTMLElement;
     const before = useEditorStore.getState().pxPerSec;
@@ -101,7 +101,7 @@ describe('TimelinePanel 静态渲染', () => {
   it('视频片段渲染帧缩略图平铺：background-image=thumbnailUrl + repeat-x + auto 100%', () => {
     const d = dataWithClips();
     useEditorStore.setState({
-      status: 'ready', data: d, projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't',
+      status: 'ready', data: d, sourceNodeId: 'edit1',
       mediaInfo: { m1: { name: '视频A', durationSec: 10, thumbnailUrl: 'http://x/t.jpg' } },
     });
     render(<TimelinePanel />);
@@ -115,7 +115,7 @@ describe('TimelinePanel 静态渲染', () => {
   it('轨道色表：subtitle #5DBAA0 / audio #8F5DBA / video 兜底 var(--ve-track-video)', () => {
     const d = dataWithClips();
     useEditorStore.setState({
-      status: 'ready', data: d, projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't',
+      status: 'ready', data: d, sourceNodeId: 'edit1',
       mediaInfo: { m1: { name: '视频A', durationSec: 10 }, m2: { name: '音频B', durationSec: 5 } },
     });
     // 夹具 v1 带 sourceNodeId:'s1'（missing 红底会盖过色表）——先注入节点解除红态，与下方 missing 用例口径一致
@@ -133,7 +133,7 @@ describe('TimelinePanel 静态渲染', () => {
 
   it('素材缺失态：sourceNodeId 不在画布 → 红态角标；源节点回画布 → 消失', () => {
     const d = dataWithClips(); // 夹具 v1 带 sourceNodeId: 's1'（canvasStore.nodes 默认不含 → 红态）
-    useEditorStore.setState({ status: 'ready', data: d, projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't' });
+    useEditorStore.setState({ status: 'ready', data: d, sourceNodeId: 'edit1' });
     render(<TimelinePanel />);
     expect(screen.getByText('素材已删除')).toBeInTheDocument();
     act(() => { useCanvasStore.setState({ nodes: [{ id: 's1', position: { x: 0, y: 0 }, data: {} } as never] }); });

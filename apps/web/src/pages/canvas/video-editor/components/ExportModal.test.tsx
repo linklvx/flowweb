@@ -85,9 +85,10 @@ beforeEach(() => {
     status: 'ready',
     data: { version: 1, fps: 30, tracks: [{ id: 'tv', type: 'video', name: 'v', muted: false, hidden: false, clips: ['a'] }], clips: { a: clip('a', 'm1', 2) } },
     mediaInfo: { m1: { name: 'v', durationSec: 2, url: 'http://x' } },
-    projectId: 'vp1', title: '多轨剪辑', // R4-1：startExport 守卫三 getter 的取值来源（缺这三处 → 静默 return → runJob 用例必红）
     pendingProduct: null,
   } as never);
+  // Y4a T7：startExport 守卫三 getter 改读 sourceNodeId（videoEditorStore）+画布 projectId——
+  // 工程身份=edit1（vp1 随 REST 链退场）。
   useCanvasStore.setState({ projectId: 'wf1' } as never);
   useVideoEditorStore.setState({ sourceNodeId: 'edit1' } as never);
 });

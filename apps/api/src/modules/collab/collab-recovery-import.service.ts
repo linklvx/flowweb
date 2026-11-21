@@ -23,8 +23,13 @@ import {
   DRAFT_ENVELOPE_MAX_BYTES,
   rebuildCanvasDoc,
   resolveImportNodeConflicts,
+  seedEmptyTimeline,
   validateFrameDeny,
   validateXmlL1,
+  deleteTimelineClips,
+  deleteNodesWithTimelines,
+  SERVER_TRANSACT_ORIGIN,
+  TIMELINE_CHUNK_UNDO_BUDGET,
   type DraftEnvelope,
   type DraftImportConfirmation,
   type ImportNodeDisposition,
@@ -58,7 +63,6 @@ export interface RecoveryImportResult {
    *  微批 M-6：filteredIntersection=deletionNodeIds∩envelope.nodes 滤除数（信封成员面归导入
    *  通道权威——同批互杀收口）。 */
   deletions: { requested: number; applied: number; filteredIntersection: number };
-  /** 跨代/跨纪元随行报告（不阻断——typed 内容导入非 CRDT 回灌；C 场景本就跨代）。 */
   epoch: { envelopeGeneration: number; envelopeHistoryId: string; crossGeneration: boolean };
 }
 
@@ -111,6 +115,124 @@ function assertEnvelopeIntegrity(envelope: DraftEnvelope, rawBytes: number | und
     }
   }
 }
+
+// ── Y4a T5（spec §0 条 4）：effectiveDeletions 逐块化——与 shrink 同一条切块规则 ──
+
+  /** Y4a T5（spec §0 条 4）：effectiveDeletions 逐块化活文档删除——片段还在的节点先按块预算
+ *  删片段（每块单独一层 SERVER_TRANSACT_ORIGIN、块帧两过 262144），壳节点/边/已变小 timelines
+ *  键进最后一笔。计划先行（全部块在 temp doc 上量完）——任一块过不了闸=活文档一笔不写
+ *  （false——调用方 fail-closed 拒导入）。与 shrink deleteLivePerBlocks 同一条切块规则。 */
+function deleteLiveDocPerBlocks(doc: Y.Doc, victims: readonly string[]): boolean {
+  const plans: Array<{ nodeId: string; boxes: string[][] }> = [];
+  for (const id of victims) {
+    const entry = doc.getMap('timelines').get(id);
+    const clips = entry instanceof Y.Map ? entry.get('clips') : undefined;
+    if (!(clips instanceof Y.Map) || clips.size === 0) continue;
+    const boxes = planDeletionClipBlocks(doc, id, [...clips.keys()]);
+    if (boxes === null) return false;
+    plans.push({ nodeId: id, boxes });
+  }
+  for (const { nodeId, boxes } of plans) {
+    for (const box of boxes) deleteTimelineClips(doc, nodeId, box, SERVER_TRANSACT_ORIGIN);
+  }
+  deleteNodesWithTimelines(doc, victims, SERVER_TRANSACT_ORIGIN);
+  return true;
+}
+
+/** 块计划（与 shrink planVictimClipBlocks 同一条规则——单笔全过则单箱；逐片段量两帧贪心装箱+
+ *  合成帧复测；单片段任一帧>262144=整批拒 null）。量法两帧即块真帧（块闸同源）。 */
+function planDeletionClipBlocks(doc: Y.Doc, nodeId: string, clipIds: string[]): string[][] | null {
+  const del = (ids: readonly string[]) => (temp: Y.Doc) => deleteTimelineClips(temp, nodeId, ids, SERVER_TRANSACT_ORIGIN);   // 原语自开恰一层事务（temp 上同形——外层不得再包）
+  const single = measureDeletionFrames(doc, del(clipIds));
+  if (single.forwardBytes === 0) return [];
+  if (single.forwardBytes <= TIMELINE_CHUNK_UNDO_BUDGET && single.undoBytes <= TIMELINE_CHUNK_UNDO_BUDGET) {
+    if (!deletionFramesPassDeny(single)) return null;   // deny 拒——活文档一笔不写（评审 I#1）
+    return [[...clipIds]];
+  }
+  const perClip = clipIds.map((id) => {
+    const c = measureDeletionFrames(doc, del([id]));
+    return { id, forwardBytes: c.forwardBytes, undoBytes: c.undoBytes };
+  });
+  for (const c of perClip) {
+    if (c.forwardBytes > TIMELINE_CHUNK_UNDO_BUDGET || c.undoBytes > TIMELINE_CHUNK_UNDO_BUDGET) return null;
+  }
+  const candidateBoxes: string[][] = [];
+  let cur: string[] = [];
+  let curBytes = 0;
+  for (const c of perClip) {
+    const b = Math.max(c.forwardBytes, c.undoBytes);
+    if (cur.length > 0 && curBytes + b > TIMELINE_CHUNK_UNDO_BUDGET) {
+      candidateBoxes.push(cur);
+      cur = []; curBytes = 0;
+    }
+    cur.push(c.id);
+    curBytes += b;
+  }
+  if (cur.length > 0) candidateBoxes.push(cur);
+  const planned: string[][] = [];
+  const queue = [...candidateBoxes];
+  while (queue.length > 0) {
+    let ids = queue.shift()!;
+    let m = measureDeletionFrames(doc, del(ids));
+    while ((m.forwardBytes > TIMELINE_CHUNK_UNDO_BUDGET || m.undoBytes > TIMELINE_CHUNK_UNDO_BUDGET) && ids.length > 1) {
+      const dropped = ids[ids.length - 1]!;
+      ids = ids.slice(0, -1);
+      queue.unshift([dropped]);
+      m = measureDeletionFrames(doc, del(ids));
+    }
+    if (m.forwardBytes > TIMELINE_CHUNK_UNDO_BUDGET || m.undoBytes > TIMELINE_CHUNK_UNDO_BUDGET) return null;
+    if (!deletionFramesPassDeny(m)) return null;   // 合成帧复测过字节闸仍须过 deny 闸（structs/DS≤16000——评审 I#1）
+    planned.push(ids);
+  }
+  return planned;
+}
+
+/** 量法帧（帧字节保留——validateFrameDeny 消费：装回帧 struct 密度高一档〔T4 framesPassDeny 同族〕）。 */
+interface DeletionFrames { forwardBytes: number; undoBytes: number; forwardFrame: Uint8Array | null; undoFrame: Uint8Array | null }
+
+/** 两帧各跑 validateFrameDeny（spec §0 条 4「任一块过不了 validateFrameDeny 或 262144」——
+ *  T4 客户端 planner framesPassDeny 同族；帧缺失=零内容面跳过）。 */
+function deletionFramesPassDeny(m: DeletionFrames): boolean {
+  for (const f of [m.forwardFrame, m.undoFrame]) {
+    if (f == null) continue;
+    if (!validateFrameDeny(f).ok) return false;
+  }
+  return true;
+}
+
+/** 量法装置（captureTimeout:0+temp.clientID 保持——temp doc 离线量完即弃；createCanvasDoc 工厂
+ *  收编〔census ⑯——裸 new Y.Doc() 生产清零〕；帧保留供 deny 闸）。 */
+function measureDeletionFrames(doc: Y.Doc, apply: (temp: Y.Doc) => void): DeletionFrames {
+  const temp = createCanvasDoc();
+  Y.applyUpdate(temp, Y.encodeStateAsUpdate(doc));
+  temp.clientID = doc.clientID;
+  // 帧捕获经容器字段（闭包内赋值——TS 控制流对 captured let 的 null 缩窄在闭包外误判 never）
+  const frames: { forward: Uint8Array | null; undo: Uint8Array | null } = { forward: null, undo: null };
+  let gotForward = false;
+  temp.on('update', (u: Uint8Array) => {
+    if (!gotForward) { frames.forward = u; gotForward = true; }
+    else frames.undo = u;
+  });
+  const um = new Y.UndoManager(
+    ['nodes', 'edges', 'timelines'].map((r) => temp.getMap(r)),
+    { captureTimeout: 0, trackedOrigins: new Set([SERVER_TRANSACT_ORIGIN]) },
+  );
+  try {
+    apply(temp);
+    um.undo();
+  } finally {
+    um.destroy();
+  }
+  const forward: Uint8Array | null = frames.forward;
+  const undo: Uint8Array | null = frames.undo;
+  return {
+    forwardBytes: forward?.byteLength ?? 0,
+    undoBytes: undo?.byteLength ?? 0,
+    forwardFrame: forward,
+    undoFrame: undo,
+  };
+}
+
 
 @Injectable()
 export class CollabRecoveryImportService {
@@ -193,7 +315,29 @@ export class CollabRecoveryImportService {
     const docRow = head.status === 'found' ? { generation: head.row.generation } : null;
 
     return this.docs.withSession(projectId, async (live) => {
-      // ── 唯一允许 clone 的场所（§3.2）：候选=live 全量快照 clone（census ⑯：createCanvasDoc 工厂收编） ──
+      // ── Y4a T5（spec §0 条 4）：effectiveDeletions 先对活文档逐块提交并逐块过闸、再克隆候选
+      //    （原序「先克隆候选内删」保留——候选侧同删集保持镜像；本段活文档侧=逐块提交逐块过闸：
+      //    片段还在的节点先按块预算删片段、壳节点+边+已变小 timelines 键进最后一笔；任一块过
+      //    不了 validateFrameDeny 或 262144=活文档一笔不写→整导入拒（fail-closed）。
+      //    唯一允许 clone 的场所（§3.2）：候选=live 全量快照 clone（census ⑯：createCanvasDoc 工厂收编） ──
+      // 收口 I-3：删除确认先于信封并入（信封天然不含删除确认面节点——先删后并零复活；幂等：
+      // 候选缺该 id=跳过。删除节点的触达边由下方悬挂边扫除段收敛报告）。
+      // 微批 M-6：**先滤 deletionNodeIds ∩ envelope.nodes**（信封成员面归导入通道权威——手工
+      // REST 携带交集 id 禁同批先删后并互杀/复活；滤除数进 deletions.filteredIntersection 报告）。
+      const envelopeIdSet = new Set(envelope.nodes.map((n) => n.id));
+      const effectiveDeletions = deletionNodeIds.filter((id) => !envelopeIdSet.has(id));
+      const filteredIntersection = deletionNodeIds.length - effectiveDeletions.length;
+      let deletionsApplied = 0;
+      const deletableIds = effectiveDeletions.filter((id) => live.getMap('nodes').has(id));
+      if (deletableIds.length > 0 && !deleteLiveDocPerBlocks(live, deletableIds)) {
+        // 块闸拒（单片段逆操作超 262144/validateFrameDeny 拒）——活文档一笔不写：整导入拒
+        // （fail-closed——候选克隆/信封并入/commitDiff 全不发生）
+        throw new BadRequestException({
+          code: 'RECOVERY_IMPORT_CONTENT_REJECTED',
+          message: '删除确认含超预算片段块（timeline-chunk-required）——逐块过闸失败，活文档未写',
+        });
+      }
+      deletionsApplied = deletableIds.length;
       const candidate = createCanvasDoc();
       Y.applyUpdate(candidate, Y.encodeStateAsUpdate(live));
 
@@ -208,31 +352,19 @@ export class CollabRecoveryImportService {
         existingEdgeIds.has(e.id) ? { edgeId: e.id, disposition: 'skip' as const } : { edgeId: e.id, disposition: 'import' as const });
       const keepEdgeIds = new Set(edgeDispositions.filter((d) => d.disposition === 'import').map((d) => d.edgeId));
 
-      // replace：先删候选既有节点（后 apply 覆盖——同 nodeId 替换非重映射）
+      // replace（Y4a T5 spec §0 条 4）：**只删 nodes 条目、留 timelines.<id>——不调删除原语**
+      // （先删节点再信封加回同 id、信封里没有时间轴——replace 走删除原语=这次导入把该节点轨道
+      // 片段清空〔timelines.<id> 是新模型唯一一份数据非旧数据兼容问题〕）。补条：写回去的节点
+      // 若不再是 videoEdit，同一笔候选事务删掉 timelines.<id>（键一直占着媒体引用、GC 扔不掉）；
+      // 仍 videoEdit→键原样保留。
       candidate.transact(() => {
         for (const d of dispositions) {
-          if (d.disposition === 'replace') candidate.getMap('nodes').delete(d.nodeId);
+          if (d.disposition !== 'replace') continue;
+          candidate.getMap('nodes').delete(d.nodeId);
+          const replacement = envelope.nodes.find((n) => n.id === d.nodeId);
+          if (replacement != null && replacement.type !== 'videoEdit') candidate.getMap('timelines').delete(d.nodeId);
         }
       });
-
-      // 收口 I-3：删除确认先于信封并入（信封天然不含删除确认面节点——先删后并零复活；幂等：
-      // 候选缺该 id=跳过。删除节点的触达边由下方悬挂边扫除段收敛报告）。
-      // 微批 M-6：**先滤 deletionNodeIds ∩ envelope.nodes**（信封成员面归导入通道权威——手工
-      // REST 携带交集 id 禁同批先删后并互杀/复活；滤除数进 deletions.filteredIntersection 报告）。
-      const envelopeIdSet = new Set(envelope.nodes.map((n) => n.id));
-      const effectiveDeletions = deletionNodeIds.filter((id) => !envelopeIdSet.has(id));
-      const filteredIntersection = deletionNodeIds.length - effectiveDeletions.length;
-      let deletionsApplied = 0;
-      if (effectiveDeletions.length > 0) {
-        candidate.transact(() => {
-          for (const id of effectiveDeletions) {
-            if (candidate.getMap('nodes').has(id)) {
-              candidate.getMap('nodes').delete(id);
-              deletionsApplied += 1;
-            }
-          }
-        });
-      }
 
       // 信封 typed 内容 → temp doc（rebuildCanvasDoc=canonical→Y 单源）→ diff 并入候选。
       // T25 收口根修（I-3 真因——「replace flake」）：Y.Map 同 key 冲突 clientID 大者胜——随机
@@ -267,6 +399,19 @@ export class CollabRecoveryImportService {
             nm.delete('parentId');
             missingParentNodes += 1;
           }
+        }
+      });
+
+      // ── Y4a T5（spec §0 条 4）commitDiff 计算前补种：只针对信封里新出现、且 timelines 还没有
+      //    同名键的 videoEdit（已有键不 set 新 Map——并发互吃禁面；seedEmptyTimeline 空工程形态
+      //    与客户端 applyIntentToDoc addNode 分支同源）。悬挂 parentId 仍只剥这个键（上方段）。 ──
+      candidate.transact(() => {
+        const timelines = candidate.getMap('timelines');
+        for (const n of envelope.nodes) {
+          if (!keep.has(n.id)) continue;   // skip 档不种（节点不落）
+          if (n.type !== 'videoEdit') continue;
+          if (timelines.has(n.id)) continue;   // 已有键不重种（禁 set 新 Map）
+          timelines.set(n.id, seedEmptyTimeline(n.id));
         }
       });
 

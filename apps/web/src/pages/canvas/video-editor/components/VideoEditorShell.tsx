@@ -1,29 +1,20 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+// apps/web/src/pages/canvas/video-editor/components/VideoEditorShell.tsx
+// Y4a T7（plan 2026-11-20-y4a-timeline-domain Task 7——spec §0 条 7）：Shell 改订阅既有
+// timelines.<nodeId> Map——upsert/getProjectByNode REST 链+autosave 挂点+关闭排空三选 modal 整删
+// （关闭=直接关；写穿=editorStore commit→timeline-user 事务；撤销=时间轴栈）。键不在（节点
+// 无工程）停 loading 不创建（编辑器只读已存在 Map）。
+import { useEffect, useRef, useState } from 'react';
 import { ConfigProvider, App as AntdApp } from 'antd';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { BaseFullscreenModal } from '@/components/BaseFullscreenModal';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
-import { useCanvasStore } from '@/stores/canvasStore';
-import { useConfirmModalStore } from '@/stores/confirmModalStore';
-import { armUnloadWarning, disarmUnloadWarning } from '@/utils/unloadGuard';
 import { useEditorStore } from '../store/editorStore';
-import { createAutosaveController, type AutosaveController } from '../persist/autosave';
-import { upsertProject, patchProject } from '@/api/videoProjectApi';
-import { createDefaultProjectData } from '../types';
-import { CANVAS_PRESETS, DEFAULT_CANVAS_SIZE, LAST_ASPECT_KEY } from '../timeline/canvas-size';
 import { EditorTopBar } from './EditorTopBar';
 import { PreviewPlayer } from './PreviewPlayer';
 import { PropertiesPanel } from './PropertiesPanel';
 import { TimelinePanel } from './timeline/TimelinePanel';
 import { AssetPanel } from './AssetPanel';
 import { releaseEditorRuntime } from '../hooks/playback';
-
-// bridge：挂在内层 <AntdApp> 之下才能取到壳作用域 message 实例（返回 null 零 DOM）——Shell 函数体顶层
-// 不能 useApp()（React context 按组件树祖先解析，读到的是根 App 的 AntdApp：holder 挂 body、仍被壳盖）
-function ShellToastBridge({ apiRef }: { apiRef: MutableRefObject<{ warning: (m: string) => void; error: (m: string) => void } | null> }) {
-  apiRef.current = AntdApp.useApp().message;
-  return null;
-}
 
 // 持久化契约（对齐 opencut panel-store 模式：自管 {version, panels}，不用库内建 autoSaveId——
 // 其键名/序列化由库控制无版本语义）
@@ -36,28 +27,15 @@ function loadPanelSizes(): { version: 1; panels: Record<string, number[]> } | nu
   } catch { return null; }
 }
 
-// 批6：模块级活控制器引用——组件外查询（编辑器未挂载/已关闭时无未保存工作）
-let activeAutosave: AutosaveController | null = null;
-/** 批6：编辑器有无未保存工作（dirty/inFlight/latch 任一）——外部（画布层等）出口护栏查询 */
-export function hasPendingWork(): boolean {
-  return activeAutosave?.hasPendingWork() ?? false;
-}
-
 export function VideoEditorShell() {
   const open = useVideoEditorStore((s) => s.open);
   const sourceNodeId = useVideoEditorStore((s) => s.sourceNodeId);
   const close = useVideoEditorStore((s) => s.close);
-  // Task 19：导出弹层改 Popover 归 EditorTopBar（open 由 Popover 自管）——Shell 不再有 exportOpen state
   // 焦点移入壳内：编辑器打开后 Delete/Backspace 的事件目标落在 nokey 壳内，
   // xyflow isInputDOMNode（target.closest('.nokey')）命中 → 不再删除画布选中节点
   // ⚠ useRef 类型显式含 null：useRef<HTMLDivElement>(null) 推出 RefObject（current 只读），回调 ref 内赋值 TS 报错
   const focusRef = useRef<HTMLDivElement | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null); // 弹层容器 ref（ConfigProvider getPopupContainer）
-  const autosaveRef = useRef<AutosaveController | null>(null);
-  // onConflict 的 message.warning 经壳内上下文实例（bridge 存 ref）——静态 message 只读自身
-  // getContainer 不继承调用方容器，会挂到 body 被壳盖。onConflict 只在 open=true 可达，
-  // 此时 bridge 必挂载，无 null 窗口（批6 起 handleClose 失败出口走 ConfirmModal 三选，不再用 toast）
-  const toastApiRef = useRef<{ warning: (m: string) => void; error: (m: string) => void } | null>(null);
 
   // saved 惰性初始化一次——裸调 loadPanelSizes() 每次重渲重读 localStorage，若库在 prop 变化时
   // 重应用 defaultSize 会导致拖动回弹
@@ -73,100 +51,21 @@ export function VideoEditorShell() {
     pendingSizesRef.current = {};
   };
 
-  // 入口时序：open → reset + loading → POST upsert → loadProject
+  // 入口时序（Y4a T7）：open → reset + loading → loadProject(nodeId)=doc 水合（timelines.<nodeId>
+  // 只读已存在 Map——键不在停 loading 不创建）。关闭（open=false）→ cleanup reset（监听/栈卸下）。
   useEffect(() => {
     if (!open || !sourceNodeId) return;
-    let cancelled = false;
-    const es = useEditorStore.getState();
-    es.reset();
+    useEditorStore.getState().reset();
     useEditorStore.setState({ status: 'loading' });
-    // 新建工程默认画布：记忆比例优先（spec 5.1 D6——Dropdown 内 last-hint 行显式标注，不静默）
-    const lastPreset = localStorage.getItem(LAST_ASPECT_KEY); // '16:9' 等 label
-    const defaultData = { ...createDefaultProjectData(), canvasSize: CANVAS_PRESETS.find((p) => p.label === lastPreset)?.size ?? DEFAULT_CANVAS_SIZE };
-    upsertProject({ workflowId: useCanvasStore.getState().projectId!, sourceNodeId, title: '多轨剪辑', data: defaultData }) // 首建默认单空视频轨工程（勘误③：其余轨道随素材动态创建——update 分支忽略 data 幂等安全）
-      .then((p) => { if (!cancelled) useEditorStore.getState().loadProject(p); })
-      .catch((e: Error) => { if (!cancelled) useEditorStore.getState().setLoadError(e.message); });
-    return () => { cancelled = true; };
+    useEditorStore.getState().loadProject(sourceNodeId);
+    return () => { useEditorStore.getState().reset(); };
   }, [open, sourceNodeId]);
 
-  // autosave 生命周期：open 时创建 + data 订阅；关闭时 dispose（flush 在 handleClose）
-  useEffect(() => {
-    if (!open || !sourceNodeId) return;
-    const ctrl = createAutosaveController({
-      getProjectId: () => useEditorStore.getState().projectId!,
-      patch: (id, body) => patchProject(id, body),
-      getData: () => {
-        const s = useEditorStore.getState();
-        return { data: s.data, baseUpdatedAt: s.baseUpdatedAt! };
-      },
-      onSaved: (t) => useEditorStore.getState().setBaseUpdatedAt(t),
-      onStateChange: (s) => useEditorStore.getState().setSaveState(s),
-      onConflict: () => toastApiRef.current?.warning('工程已在其他窗口修改，自动保存已暂停'),
-      onDirtyChange: (d) => useCanvasStore.setState({ editorDirty: d }), // B4 镜像入 store（beforeunload 消费）
-    });
-    autosaveRef.current = ctrl;
-    activeAutosave = ctrl; // 批6：模块级引用——hasPendingWork 外部查询
-    // prev.status==='ready'：loadProject 是唯一进入 ready 的写入点——过滤加载迁移的幻影 PATCH（I2）
-    const unsubData = useEditorStore.subscribe((s, prev) => {
-      if (s.data !== prev.data && s.status === 'ready' && prev.status === 'ready') ctrl.notifyChange();
-    });
-    // 收起清零：编辑器关闭（dispose）即无"未落库编辑"可言——防 stale true 锁死全局 beforeunload
-    return () => { unsubData(); ctrl.dispose(); autosaveRef.current = null; activeAutosave = null; useCanvasStore.setState({ editorDirty: false }); };
-  }, [open, sourceNodeId]);
-
-  // 批0d B4：editorDirty（REST 侧 latch）拦关标签——Y0b-5 T6 收编：handler 面归 utils/unloadGuard
-  // reason 集合单源（本挂载点注册 'editor-dirty'；'unsynced' 由 runtime 单源置位/清零时注册——
-  // 两 reason 并集语义与旧 editorDirty∨hasUnsyncedCanvasChanges 等价）。
-  const editorDirty = useCanvasStore((s) => s.editorDirty);
-  useEffect(() => {
-    if (!editorDirty) return;
-    armUnloadWarning('editor-dirty');
-    return () => { disarmUnloadWarning('editor-dirty'); };
-  }, [editorDirty]);
-
-  // 关闭 = flush 排空后 close；排空失败（离线/最终失败/409/异常）→ ConfirmModal 三选（批6 编辑器出口组）
-  // 不变式：所有关闭路径必须经此函数（flush 排空先于 dispose，dispose 不取消在途 PATCH——review M2）
-  const finishClose = () => {
+  // 关闭 = 释放运行时后直接关（REST 排空三选链退场——数据在 doc 无未落库可言）
+  const handleClose = () => {
     releaseEditorRuntime(); // 收起释放运行时（spec 边界护栏）——close() 之前
     close();
   };
-  const showSaveFailureModal = () => {
-    useConfirmModalStore.getState().show({
-      title: '存在未保存的修改',
-      content: '当前离线或保存失败，修改尚未保存。可重试保存，或放弃修改并收起编辑器。',
-      cancelText: '取消',
-      secondaryText: '放弃修改并收起',
-      primaryText: '重试保存',
-      primaryType: 'primary',
-      onClose: () => useConfirmModalStore.getState().close(),
-      onSecondary: () => {
-        useConfirmModalStore.getState().close();
-        // 用户显式确认=清除语义：editorDirty 清零（beforeunload 解除）。恢复≠保存成功，
-        // 但显式放弃是用户主权出口——区别于 dispose/收起的隐式清零（那是"无未落库编辑可言"）
-        useCanvasStore.setState({ editorDirty: false });
-        finishClose();
-      },
-      onPrimary: () => {
-        useConfirmModalStore.getState().close();
-        attemptClose(true);
-      },
-    });
-  };
-  /** retryFirst=true（三选「重试保存」）：先 retry() 无条件补发当前 data（退避额度重置）再 flush 排空——
-   *  409/退避耗尽形态 dirty 已清而 latch 未清，仅 flush 恒 false 无法自愈，必须真的再发一次 */
-  const attemptClose = (retryFirst: boolean) => {
-    const ctrl = autosaveRef.current;
-    if (!ctrl) { finishClose(); return; }
-    if (retryFirst) ctrl.retry();
-    void ctrl.flush().then((drained) => {
-      if (drained) finishClose();
-      else showSaveFailureModal(); // 排空失败——数据仍留 editorStore，三选给出口
-    }).catch(() => {
-      // 批0d：异常不直接放行——数据在 editorStore，三选给出口（close=丢出口）
-      showSaveFailureModal();
-    });
-  };
-  const handleClose = () => attemptClose(false);
 
   if (!open) return null;
   return (
@@ -188,8 +87,7 @@ export function VideoEditorShell() {
           getPopupContainer={() => shellRef.current ?? document.body}
         >
           <AntdApp component={false}>
-            <ShellToastBridge apiRef={toastApiRef} />
-            <EditorTopBar onClose={handleClose} onManualRetry={() => { void autosaveRef.current?.retry(); }} />
+            <EditorTopBar onClose={handleClose} />
             <div className="flex flex-1 min-h-0">
               {/* v2 的尺寸 prop 属于 Panel，PanelGroup 无 defaultSize——恢复布局 = 保存的尺寸数组按序映射回各 Panel 的 defaultSize。
                   横向三档默认和必须 =100（22/56/22） */}

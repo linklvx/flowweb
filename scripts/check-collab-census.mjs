@@ -593,16 +593,17 @@ export function reconcileWithDocRegistry(counts, registry) {
 const ENCODE_WHITELIST = {
   'apps/api/src/gate-canvas-state.ts': 1,
   'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 2,   // Y1c T11：compact 快照重编码+tombstone 余量测量（懒建档种子编码随 state 列退役删除——3→2）
-  'apps/api/src/modules/collab/collab-shrink.service.ts': 6,   // Y4a T2：+1=export-fresh 改经 rebuildDocFaithful 单源重建编码（源重建态编码——新副本落地校验仍 :205 同点）
+  'apps/api/src/modules/collab/collab-shrink.service.ts': 7,   // Y4a T5：+1=逐块化块预演量法 temp doc 快照编码（measureFrames——量完即弃；Y4a T2 export-fresh 重建态编码/落地校验/影子预演/写后校准/vacuum 真空编码同批不变）
   'apps/api/src/modules/collab/collab-doc-registry.service.ts': 3,   // T41 W3a：原 collab.gateway ×3 随域迁（装载真值/residue/measureTruth——同计数换宿主）
   'apps/api/src/modules/project/project.service.ts': 1,
   'apps/api/src/modules/canvas/canvas.service.ts': 1,   // Y1c T7：genesis 双路之二建头种子（project.service 同族）
   'apps/web/src/stores/canvasCollabRuntime.ts': 3,
   'apps/web/src/collab/canvas-local-backup.ts': 1,
-  'apps/api/src/modules/collab/collab-recovery-import.service.ts': 3,   // Y1c T25：recovery import 候选 clone 快照/temp diff/commitDiff 三点（唯一 clone 场所——§3.2）
+  'apps/api/src/modules/collab/collab-recovery-import.service.ts': 4,   // Y4a T5：+1=effectiveDeletions 块预演量法 temp doc 快照编码（measureDeletionFrames——量完即弃；Y1c T25 候选 clone 快照/temp diff/commitDiff 三点不变）
   'apps/api/src/modules/collab/collab-maintenance.service.ts': 1,   // Y1c T27：维护 REBUILDING canonical 新代快照编码（fresh clientID rebuild payload——§6.6）
   'apps/api/src/modules/collab/collab-project-actor.service.ts': 1,   // Y1c T27 收尾 M-b：replay derive 基线 clone 编码（memo 轮间复用——load 档）
   'apps/api/src/modules/collab/collab-replay-canary.service.ts': 1,   // C2-2a：canary 捕获 canonical hash 编码（冻结临界区活 doc encodeStateAsUpdate——compact stateHash 同口径，快照权威读非装载面）
+  'apps/web/src/stores/timelineUndo.ts': 2,   // Y4a T4：撤销闸量法 temp doc 快照编码 ×2（measureChunkFrames+两帧量法/temp doc 两级自检——量法忠实性装置：applyUpdate 之后 temp.clientID=live.clientID；量完即弃非装载非写回）
 };
 
 const results = [];
@@ -836,7 +837,10 @@ if (isMain()) {
   //   collab-write.port.ts        DirectCollabWritePort.withDoc 一行委托=write-via-writer（Y0c T13b——写端口 Direct 形态，
   //                               透传 CollabDocumentService.withDoc；7 方法面=8 改道文件实测用面，spec §0.6 偏离 21）
   const WITHDOC_REGISTRY = {
-    'apps/api/src/modules/collab/collab-shrink.service.ts': { 'read-only': 1, 'write-via-writer': 2 },
+    // Y4a T5：shrink 活写改道 withSession(read)+assertWriteAdmitted（不包外层事务的会话——逐块
+    // 由调用方开事务）；withDoc 保留面=exportFresh 源读/落地两 veryreadonly+write 点（write 2→1：
+    // shrink 活写迁出）。
+    'apps/api/src/modules/collab/collab-shrink.service.ts': { 'read-only': 1, 'write-via-writer': 1 },
     'apps/api/src/modules/collab/collab-write.port.ts': { 'write-via-writer': 1 },
   };
   {
@@ -1567,14 +1571,14 @@ if (isMain()) {
     // 离线 scratch 档（非 inbound——compact/快照解码/shrink 预演校准/巡检）
     'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 2,   // compact temp doc 行集重放 ×2（applyUpdate 面——Y1c T10 未增：懒建档种子只 encode 不 apply）
     'apps/api/src/modules/collab/collab-document.service.ts': 2,
-    'apps/api/src/modules/collab/collab-shrink.service.ts': 4,   // Y4a T2：+1=export-fresh 新副本重建态直写（rebuildDocFaithful 单源产物）
+    'apps/api/src/modules/collab/collab-shrink.service.ts': 5,   // Y4a T5：+1=逐块化块预演量法 temp doc 铺底（measureFrames——量完即弃；Y4a T2 export-fresh 重建态直写同批不变）
     'apps/api/src/modules/collab/collab-integrity-probe.ts': 2,
     // Y1c T9（2026-10-24）gate 档落地：actor pre-apply 调用点 1（准入链 ⑤——origin=GateApplyOrigin）；
     // 白名单 14+1=15 点/9 文件（gate 档从注释升级为登记条目——Y1c T9 写入方换代）
     'apps/api/src/modules/collab/collab-project-actor.service.ts': 9,   // T9 pre-apply ⑤+T27 收口 I-3 deriveLifecycleFramesForReplay（基线装载×2+逐帙 apply）+T27 收尾 M-b memo 形 +5（基线槽装载×2+clone 编码应用+逐帙 apply+advance 推进——replay 重派生 load 档）
     // Y1c T25（写入方换代）：recovery import 档三点——候选 clone 快照 apply（§3.2 唯一 clone 场所）/
     // temp typed 内容并入候选/commit diff 以 origin='import' 直写 live（全量校验后受控生命周期操作）
-    'apps/api/src/modules/collab/collab-recovery-import.service.ts': 3,
+    'apps/api/src/modules/collab/collab-recovery-import.service.ts': 4,   // Y4a T5：+1=effectiveDeletions 块预演量法 temp doc 铺底（measureDeletionFrames——量完即弃）
     // C2-2b（生产就绪收尾批·replay-canary 比对侧）：worker verify 重放档两点——replayPgSnapshot
     // 快照 state 铺底+增量帙按序应用（readAt 坐标重放进 fresh doc——load 档语义：PG 前缀重放比对，
     // 非 inbound 非写回）
@@ -1588,6 +1592,9 @@ if (isMain()) {
     // C3a-6 genesis 种子含引用判定：seedState apply 进 scratch doc 扫 collectMediaIds（读侧判定
     // ——非装载非写回；零长 buffer 守卫直返）
     'apps/api/src/modules/collab/canvas-doc-genesis.ts': 1,
+    // Y4a T4 撤销闸量法档两点：live 快照铺 temp doc（measureChunkFrames 切块两帧复测+两级自检
+    // temp doc——离线 scratch 量完即弃，非 inbound 非写回；compact/shrink 预演同族）
+    'apps/web/src/stores/timelineUndo.ts': 2,
   };
   {
     const occurrences = {};

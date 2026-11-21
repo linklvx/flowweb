@@ -2,7 +2,7 @@
 // Y2 B2a（spec D8 服务端腿/plan v6 裁决 11）：两封闭操作逻辑宿主——
 //   readAuthorSlot：服务端装意图行核对项目/节点/代际+冻结两列读出+readAuthorSlot 回调只读 Y.Doc；
 //   releaseAuthorSlot（v5/v6 顺序钉死）：①withSession 回调〔禁 await〕内现场=冻结值才删该槽键
-//   +collectMediaRefsForNode 快照作回调返回值〔与写帧原子〕→②withSession 返回之后、200 之前用快照
+//   +collectNodeRefsUnion 并集快照作回调返回值〔与写帧原子〕→②withSession 返回之后、200 之前用快照
 //   调 projectBindings（delta 三态；失败同样非 2xx）→③projectBindings 成功后才 UPDATE
 //   authorSlotReleased=true（上代置 true 残留=新代释放失败零兜底——B1 rearm 重置闭环）→④投影与
 //   置位同一 Prisma 事务、投影在前〔v6——事务原子，提交成功再回 200〕。
@@ -10,11 +10,13 @@
 //   v6 空槽陷阱：⑴节点剩余引用=0 时 projectBindings 实参=Map{nodeId→[]}（恰一键非空 Map——
 //   projector 空 Map 直返零动作，旧绑定钉住旧对象；spec delta 三态「不得省略 nodeId」）；
 //   ⑵projectBindings 未被调用（含空 Map 早退/跳过形态）则 authorSlotReleased 不得置 true。
-// 槽键=targetFieldOfKind（text→result 无媒体槽——删键面仅 media 槽）；快照单源=collectMediaRefsForNode
-// （帧级投影同源——post-delete 终态）。
+// 槽键=targetFieldOfKind（text→result 无媒体槽——删键面仅 media 槽）；快照单源=collectNodeRefsUnion
+// （Y4a T6 spec §3.3「凡按节点替换的快照都走并集」绝对规则——节点槽∪timeline clips；帧级投影
+// 同源——post-delete 终态。现形纯节点槽快照对带 timeline clips 的节点=片段绑定被节点槽投影整表
+// diff 抹掉至下轮 rebuild——slot-write:62 同族 P0 形，评审回包 I#1 根修）。
 import { HttpStatus, Injectable, Inject } from '@nestjs/common';
 import * as Y from 'yjs';
-import { collectMediaRefsForNode, type MediaRef } from '@flowweb/shared';
+import { collectNodeRefsUnion, type MediaRef } from '@flowweb/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { targetFieldOfKind } from '../artifact-core/node-artifact.service';
@@ -96,7 +98,9 @@ export class AuthorSlotService {
           deletedSlot = true;
         }
       }
-      return { deletedSlot, snapshot: collectMediaRefsForNode(row.nodeId, doc.getMap('nodes').get(row.nodeId)) };
+      // Y4a T6（spec §3.3 凡按节点替换的快照都走并集）：写后快照=collectNodeRefsUnion
+      //（节点槽∪timeline clips——release 落在剪辑节点时片段绑定不被节点槽投影盖掉）
+      return { deletedSlot, snapshot: collectNodeRefsUnion(row.nodeId, doc.getMap('nodes').get(row.nodeId), doc.getMap('timelines').get(row.nodeId)) };
     }, { mode: 'write' });   // 写会话（条件删键在帧内——origin 分类面见 residency 头注）
     // ②③④：投影与置位同一事务、投影在前——projectBindings 失败（含其内部错误包装）⇒ 事务回滚
     // released 不落（v6 ⑵）；实参恒 Map{nodeId→快照}（v6 ⑴——剩余引用=0 ⇒ 空数组=清现存行）。

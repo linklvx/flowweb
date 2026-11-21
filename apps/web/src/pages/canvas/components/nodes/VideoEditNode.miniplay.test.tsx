@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ReactFlowProvider } from '@xyflow/react';
+import * as Y from 'yjs';
 import { VideoEditNode } from './VideoEditNode';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
+import { setTimelineDocRef } from '@/stores/timelineUndo';
 import type { ProjectData } from '@/pages/canvas/video-editor/types';
 
-vi.mock('@/api/videoProjectApi', () => ({ getProjectByNode: vi.fn() }));
-import { getProjectByNode } from '@/api/videoProjectApi';
 vi.mock('@/api/mediaApi', () => ({ batchGetMedia: vi.fn(async () => []) })); // G10：loadMediaUrls 不发真 fetch
 // 决策 16 后组件不 import audioEngine——无 engine mock（playback.ts 的 engine 依赖也不在本组件链上）
 vi.mock('@/pages/canvas/video-editor/renderer/render-frame', () => ({ renderFrameAt: vi.fn(async () => { }) })); // 播放循环隔离（jsdom getContext 返回 null → 播放 effect 早退，rAF 循环实际不启动；renderFrameAt mock 防 deps 构造路径意外触发）
@@ -14,11 +14,7 @@ vi.mock('@/pages/canvas/video-editor/renderer/video-cache', () => ({ videoCache:
 vi.mock('@/pages/canvas/video-editor/renderer/image-cache', () => ({ clearImageBitmaps: vi.fn(), getImageBitmap: vi.fn(async () => null) }));
 
 const props = (id = 'n1', selected = false) => ({ id, selected, dragging: false }) as any;
-const data = (): ProjectData => {
-  const d: ProjectData = { version: 1, fps: 30, tracks: [{ id: 'tv', type: 'video', name: 'V', muted: false, hidden: false, clips: ['c1'], order: '5000' }],
-    clips: { c1: { id: 'c1', trackId: 'tv', type: 'video', start: 0, duration: 3, sourceStart: 0, mediaId: 'm1', playbackSpeed: 1, transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 }, keyframes: [] } } };
-  return d;
-};
+void ({} as ProjectData);   // 形态随装置移入 doc（上面 beforeEach 种入 timelines.n1）
 
 // IntersectionObserver mock（jsdom/本仓均无——研究 §8）
 const observeMock = vi.fn();
@@ -33,6 +29,7 @@ class IO {
 
 describe('VideoEditNode 迷你播放（资源纪律）', () => {
   let ioInstances: IO[];
+  let live: Y.Doc;
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal('VideoDecoder', function () {});
@@ -41,9 +38,28 @@ describe('VideoEditNode 迷你播放（资源纪律）', () => {
     ioInstances = [];
     vi.stubGlobal('IntersectionObserver', class extends IO { constructor(cb: IntersectionObserverCallback) { super(cb); ioInstances.push(this); } });
     useVideoEditorStore.setState({ open: false, sourceNodeId: null, closedAt: 0, miniPlaybackNodeId: null });
-    vi.mocked(getProjectByNode).mockResolvedValue({ id: 'p1', data: data() } as never);
+    // Y4a T7：迷你画布数据源=内存 doc 直读（timelines.n1 由装置种入——zero REST）
+    live = new Y.Doc();
+    setTimelineDocRef(live);
+    live.transact(() => {
+      const track = new Y.Map();
+      track.set('type', 'video'); track.set('name', 'V');
+      track.set('muted', false); track.set('hidden', false); track.set('order', '5000');
+      const tracks = new Y.Map(); tracks.set('n1:video', track);
+      const c1 = new Y.Map();
+      c1.set('type', 'video');
+      c1.set('span', { trackId: 'n1:video', start: 0, duration: 3, sourceStart: 0 });
+      c1.set('mediaId', 'm1'); c1.set('playbackSpeed', 1);
+      c1.set('transform', { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 });
+      c1.set('keyframes', new Y.Map());
+      const clips = new Y.Map(); clips.set('c1', c1);
+      const entry = new Y.Map();
+      entry.set('version', 1); entry.set('fps', 30);
+      entry.set('tracks', tracks); entry.set('clips', clips);
+      live.getMap('timelines').set('n1', entry);
+    }, 'local-user');
   });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); setTimelineDocRef(null); live.destroy(); });
 
   const renderNode = (selected = false) => render(<ReactFlowProvider><VideoEditNode {...props('n1', selected)} /></ReactFlowProvider>);
 

@@ -2,7 +2,9 @@
 // doc 媒体引用键扫描单源（C3a-1 收口：collectMediaRefsForNode 逐节点+collectMediaRefs 聚合委托）——
 // API（binding-reconcile 惰性 reconcile/GC 引用图/C3a-3 帧级快照投影）与
 // web（pendingFacts 消费 fileId 到达判定/重连全量拉 mediaId 集）共用，禁双侧各写一份漂移。
-// 结构性入参=DocLike（零 yjs import——api/web 各自 toDocLike 适配注入，fillDoc 同款纪律）。
+// 结构性入参=DocLike（本模块零直接 yjs import——api/web 各自 toDocLike 适配注入，fillDoc 同款
+// 纪律；Y4a T6 起 timeline clips 扫描经 timeline-codec 的 extractTimelineClipMediaIds 单源
+//〔其内部 instanceof Y.Map 判定〕——clip 矩阵谓词全仓唯一，不另写第二套）。
 //
 // 【扫描域钉死（spec 评审 P1#1 补全 2026-10-22 grep 实证）】doc 节点引用键全在 **data 域单域**
 //（nodes map→nodeId→Y.Map 的 'data' 子 Map）——web 的 updateConfig/updateNodeData/文件引用设置
@@ -10,8 +12,19 @@
 // ——「config」只是 store 侧入口命名，doc 无独立 config 域）。
 // Y2 B4：九键收六键——fileId 随 doc 禁入已无写者（B3），主槽作者键=媒体身份同名 mediaId；
 // 三键（trimmedFileId/videoFileId/audioFileId）随词表退役（B3 已删 doc 写者——迁移 20261118142000 同批删行）。
+// Y4a T6（spec 2026-11-20-y4a-timeline-domain-design.md §0 条 11——媒体三件）：绑定快照单源
+// 并集——节点 refs∪timeline clips mediaId（collectNodeRefsUnion：role='primary'、
+// targetField='mediaId'、targetItemId=clipId 非空——与节点标量槽空 targetItemId 不撞键；
+// clip 矩阵扫描=T3 codec 导出的 extractTimelineClipMediaIds 唯一单源，不另写第二套）；
+// collectTimelineRefs/collectMediaRefs 聚合**枚举 timelines 键**（键在即投——悬空键照投：
+// 节点已删而 timelines 同名键还在〔并发删除与编辑、clientID 较大一侧留下这棵 Map〕照投，
+// 不从 nodes.has 推导——`nodes.has(id)?union:null` 形态会把绑定清掉、GC 看不见这段引用；
+// 节点和键都不在才不投）；removeNodeRefsUnion 剥除两腿（节点槽 removeMediaRefsForNode
+// +时间轴 video/image/audio 片段 mediaId 命中删该片段键并返回删掉的 clipId 列表——
+// 一对函数都认识片段槽）。
 import type { DocLike } from './docShape';
 import { isDocMap, type DocMapLike } from './collab-doc-ops';
+import { extractTimelineClipMediaIds } from './timeline-codec';   // Y4a T6：clip 矩阵扫描唯一单源（spec §0 条 11——禁第二套）
 
 /** 媒体引用键词表（MediaBinding.targetField 应用层单源——DB 侧另有 raw SQL CHECK
  *  media_binding_target_field_domain（Y2 B4 迁移 20261118142000 同批收紧至六键），
@@ -87,11 +100,46 @@ export function collectMediaRefsForNode(nodeId: string, entry: unknown): MediaRe
   return out;
 }
 
-/** collectMediaRefs：扫 doc nodes map 全量节点 → 引用集（聚合=逐节点 collectMediaRefsForNode
- *  并集——单源委托，聚合与帧级快照投影永不漂移；C3a-9 对拍契约与 C3b oracle 端到端消费面）。
- *  同槽位键天然去重输入——map 键唯一+列表 item.id 唯一；跨节点同 media 产多行 binding 是索引语义。 */
+/** Y4a T6（spec §0 条 11）：单节点绑定投影并集单源——节点 refs（collectMediaRefsForNode）∪
+ *  该节点 timeline video/image/audio 片段 mediaId 行（role='primary'、targetField='mediaId'、
+ *  targetItemId=clipId 非空——DB CHECK 词表已含 mediaId、唯一键带 targetItemId 与节点槽空
+ *  targetItemId 不冲突；空 clipId 永不产行——extract 单源内部保证；subtitle 无槽）。
+ *  帧投影（takeBindingDelta）/slot-write 快照/rescan 剥除与写后快照/rebuild 聚合同函数族
+ *  （增量=全量同集合）。 */
+export function collectNodeRefsUnion(nodeId: string, entry: unknown, timelineEntry: unknown): MediaRef[] {
+  const out = collectMediaRefsForNode(nodeId, entry);
+  for (const { clipId, mediaId } of extractTimelineClipMediaIds(timelineEntry)) {
+    out.push({ nodeId, mediaId, role: 'primary', targetField: 'mediaId', targetItemId: clipId });
+  }
+  return out;
+}
+
+/** Y4a T6（spec §0 条 11）：枚举 **timelines 键**（键在即投片段行——不查 nodes.has；节点和键
+ *  双亡才不投）→ nodeId→片段行集。悬空键照投：节点已删而 timelines 同名键还在（并发删除与编辑、
+ *  clientID 较大一侧留下这棵 Map）仍投——`nodes.has(id)?union:null` 形态会把绑定清掉、GC 看不见
+ *  这段引用（负控钉死）。nodes 形参保留投片键集对齐（调用方双根持有形态）；投片判定只看
+ *  timelines 键——节点在不在不改投片。 */
+export function collectTimelineRefs(timelines: DocMapLike, nodes: DocMapLike): Map<string, MediaRef[]> {
+  const out = new Map<string, MediaRef[]>();
+  for (const [nodeId, timelineEntry] of timelines.entries()) {
+    const rows = extractTimelineClipMediaIds(timelineEntry).map(({ clipId, mediaId }) =>
+      ({ nodeId, mediaId, role: 'primary' as const, targetField: 'mediaId' as MediaRefTargetField, targetItemId: clipId }));
+    if (rows.length > 0) out.set(nodeId, rows);
+  }
+  void nodes;   // 键在即投——双亡才不投；nodes 在不在非本函数判定输入
+  return out;
+}
+
+/** collectMediaRefs：扫 doc 全量引用集 → 数组形态（Y4a T6 后=timelines 键∪nodes 键双枚举
+ *  并集——帧投影（takeBindingDelta）/slot-write 快照/装载重扫（rescanEnforcedMediaRefs 剥除+
+ *  写后快照）/全量 rebuild 四调用方同集合，增量=全量永不漂移；C3a-9 对拍契约与 C3b oracle
+ *  端到端消费面）。同槽位键天然去重输入——map 键唯一+列表 item.id 唯一；跨节点同 media 产多行
+ *  binding 是索引语义。timelines 键枚举**不从 nodes.has 推导**（悬空键照投——spec §0 条 11；
+ *  键腿经 collectTimelineRefs 单源——聚合与逐键消费方共用同一枚举面）。 */
 export function collectMediaRefs(doc: DocLike): MediaRef[] {
-  const out: MediaRef[] = [];
+  // timelines 键腿：collectTimelineRefs 单源枚举摊平（键在即投片段行——悬空键照投；非剪辑键=零片段行自然空）
+  const out: MediaRef[] = [...collectTimelineRefs(doc.getMap('timelines'), doc.getMap('nodes')).values()].flat();
+  // nodes 键腿：节点槽行（clip 行已由 timelines 键腿承载——零双计；节点在而 timelines 键亡=纯节点槽）
   for (const [nodeId, entry] of doc.getMap('nodes').entries()) {
     out.push(...collectMediaRefsForNode(nodeId, entry));
   }
@@ -135,4 +183,25 @@ export function removeMediaRefsForNode(entry: unknown, mediaIds: ReadonlySet<str
     }
   }
   return removed;
+}
+
+/** Y4a T6（spec §0 条 11）：剥除两腿——同一 mediaId 集：节点槽走现有 removeMediaRefsForNode
+ *  +时间轴 video/image/audio 片段 mediaId 命中则删该片段键并返回删掉的 clipId 列表（剥除与
+ *  收集一对函数都认识片段槽——零误删由「先收集后删」候选集限定承载，同节点存活片段不误删；
+ *  片段键矩阵判定=extractTimelineClipMediaIds 单源〔extract-then-delete——delete 只需 clipId
+ *  不需活引用，谓词全仓唯一〕）。调用方=DR rescanEnforcedMediaRefs 同步删键回调
+ *  （SERVER_TRANSACT_ORIGIN 维护事务——帧谓词三级删除规则下删片段键合法）；纯同步零 await
+ *  由调用方承载。 */
+export function removeNodeRefsUnion(entry: unknown, timelineEntry: unknown, mediaIds: ReadonlySet<string>): { removedNodeSlots: number; removedClips: string[] } {
+  const removedClips: string[] = [];
+  const timelineMap = isDocMap(timelineEntry) ? timelineEntry.get('clips') : undefined;
+  if (isDocMap(timelineMap)) {
+    for (const { clipId, mediaId } of extractTimelineClipMediaIds(timelineEntry)) {
+      if (mediaIds.has(mediaId)) {
+        timelineMap.delete(clipId);   // extract 单源判定命中——删键只需 clipId（Y.Map.delete 按键寻址非按引用）
+        removedClips.push(clipId);
+      }
+    }
+  }
+  return { removedNodeSlots: removeMediaRefsForNode(entry, mediaIds), removedClips };
 }

@@ -1,7 +1,13 @@
+// apps/web/src/pages/canvas/video-editor/store/editorStore.ts
+// Y4a T7（plan 2026-11-20-y4a-timeline-domain Task 7——spec §0 条 5/条 7 + §4）：
+// editorStore 改 doc 水合+写穿 Y——sourceNodeId 为主键（projectId/baseUpdatedAt/title/teamId 随
+// REST 链退场）；loadProject=读已存在 timelines.<nodeId>（键不在不创建工程）；undo/redo=时间轴
+// 栈（timelineUndo/timelineRedo——JSON 快照史 history.ts 整删）；transient=本地覆盖层零 doc 笔、
+// 松手组合基线一笔；根键监听捕获 Map 替换/删除（重绑先 clear() 再销毁旧 manager）。
 import { create } from 'zustand';
+import * as Y from 'yjs';
 import type { Clip, ProjectData, Track, VideoClip, ImageClip, AudioClip, SubtitleClip, TransformKeyframe, VolumeKeyframe } from '../types';
 import { genId } from '../types';
-import { createHistory, pushHistory, undoHistory, redoHistory, type History } from '../timeline/history';
 import {
   quantizeTime, trimLeftGuard, trimRightGuard, clampDelta,
   applyTrimLeft, applyTrimRight, splitClipAt,
@@ -12,10 +18,20 @@ import { canvasSizeOf, remapForCanvasSize, type CanvasSize } from '../timeline/c
 import { keyframeValueAt, interpolateTransform } from '../scene/interpolate';
 import { stopCapturing } from '@/stores/canvasUndo';
 // Y4a T1（Track.order 补件）：轨序键单源（order-key——addTrack 尾插；FIRST_ORDER_KEY 默认轨口径）
-import { FIRST_ORDER_KEY, compareOrderKeys, orderKeyAfter } from '@flowweb/shared';
+import { FIRST_ORDER_KEY, compareOrderKeys, orderKeyAfter, readTimelineFromDoc } from '@flowweb/shared';
+// Y4a T4（plan 2026-11-20-y4a-timeline-domain Task 4——spec §0 条 1/条 5）：时间轴撤销闸执行器
+// （量法前置+临时 doc 两级自检+写前栈顶装回预检+timeline-user 事务+捕获档编排）——轻量模块
+// （yjs+shared 零画布依赖，editorStore 测试 mock 面不受累）。
+// Y4a T7：attachTimelineUndo 转由本 store 水合时挂接（生产调用点）；timelineUndo/timelineRedo=
+// undo/redo 动作身。
+import {
+  executeTimelineCommit, getTimelineDocRef, attachTimelineUndo, detachTimelineUndo,
+  timelineUndo, timelineRedo,
+  type TimelineCaptureKind,
+} from '@/stores/timelineUndo';
+import { useVideoEditorStore } from '@/stores/videoEditorStore';
 
 export type EditorStatus = 'idle' | 'loading' | 'ready' | 'error';
-export type SaveState = 'saved' | 'saving' | 'error';
 
 export interface MediaInfo { name: string; durationSec: number | undefined; url?: string; mimeType?: string; thumbnailUrl?: string; }
 
@@ -28,15 +44,10 @@ export interface AddClipInput {
 }
 
 interface EditorState {
-  projectId: string | null;
   sourceNodeId: string | null;
-  baseUpdatedAt: string | null;
-  title: string | null; // 导出弹层标题取值（spec L241 初始取源节点名——byNode 返回整行已含）
-  teamId: string | null; // Task 12 useTeamAssets 团队上下文
   data: ProjectData | null;
   status: EditorStatus;
   loadError: string | null;
-  saveState: SaveState;
   selectedClipId: string | null;
   selectedKeyframeId: string | null;
   playhead: number;
@@ -44,15 +55,14 @@ interface EditorState {
   playing: boolean;
   preparing: boolean;
   mediaInfo: Record<string, MediaInfo>;
-  history: History<ProjectData>;
-  pendingSnapshot: ProjectData | null;
+  /** 拖动覆盖层（spec §0 条 5）：transient 手会话（doc 组合基线+本地起始态）——模块级单会话，
+   *  state 化只为 begin/end 配对可见（null=无进行中手势）。 */
+  pendingOverlay: { base: ProjectData; origin: ProjectData } | null;
   pendingProduct: { mediaId: string; title: string } | null; // 导出产物节点补建登记（R7 小项④）——上传成功建节点失败时留存，重试仅补建不重复上传
 
-  loadProject(p: { id: string; sourceNodeId: string; updatedAt: string; data: ProjectData; title?: string; teamId?: string }): void;
+  loadProject(nodeId: string): boolean;
   setLoadError(msg: string): void;
   reset(): void;
-  setSaveState(s: SaveState): void;
-  setBaseUpdatedAt(t: string): void;
   setPlayhead(t: number): void;
   setPxPerSec(v: number): void;
   setPlaying(v: boolean): void;
@@ -83,8 +93,8 @@ interface EditorState {
 
   beginTransient(): void;
   endTransient(): boolean;
-  undo(): void;
-  redo(): void;
+  undo(): boolean;
+  redo(): boolean;
 }
 
 const sortTrackClips = (data: ProjectData): ProjectData => ({
@@ -101,19 +111,124 @@ const afterStructuralChange = (sourceNodeId: string, data: ProjectData) => {
   stopCapturing();
 };
 
+// ── 水合/重绑监听（spec §0 条 7）──
+// observeDeep=读回 setState（唯一观察者效果——写路径唯一入口=commit，防 observe→commit 循环）；
+// 根键监听=捕获 Map 替换/删除（子 Map 被换掉后旧 Map 上的监听收不到替换事件——非仅 observeDeep 子 Map）。
+let observedEntry: Y.Map<unknown> | null = null;
+let entryDeepHandler: (() => void) | null = null;
+let rootKeyHandler: (() => void) | null = null;
+let observedNodeId: string | null = null;
+
+const detachDocListeners = (): void => {
+  if (observedEntry != null && entryDeepHandler != null) observedEntry.unobserveDeep(entryDeepHandler);
+  if (observedEntry != null && observedEntry.doc != null && rootKeyHandler != null) {
+    observedEntry.doc.getMap('timelines').unobserve(rootKeyHandler);
+  }
+  observedEntry = null;
+  entryDeepHandler = null;
+  rootKeyHandler = null;
+  observedNodeId = null;
+};
+
+/** observeDeep 回调：只 setState 读回（永不 commit——写路径唯一入口）。毒值（readTimelineFromDoc
+ *  null）不 setState：本地保持上次良好投影，维护路径（装载重扫/服务端剥除）会继续写 doc。
+ *  拖动手势进行中（覆盖层会话非空）跳过读回——远端合入不砸掉本地覆盖层（spec §0 条 5：
+ *  transient=本地覆盖层；松手守卫按 doc 真值判并发删除，手势结束即恢复读回同步）。 */
+const makeEntryDeepHandler = () => () => {
+  if (observedEntry == null || pendingOverlay !== null) return;
+  const next = readTimelineFromDoc(observedEntry);
+  if (next === null) return;
+  useEditorStore.setState({ data: next });
+};
+
+/** 绑定一棵 entry：observeDeep（读回 setState）+timelines 根键监听（替换/删除——spec §0 条 7）。 */
+const bindDocListeners = (nodeId: string, entry: Y.Map<unknown>): void => {
+  detachDocListeners();
+  observedNodeId = nodeId;
+  observedEntry = entry;
+  entryDeepHandler = makeEntryDeepHandler();
+  entry.observeDeep(entryDeepHandler);
+  const doc = entry.doc;
+  if (doc == null) return;   // 理论不可达（集成态 entry）——防御不炸
+  const root = doc.getMap('timelines');
+  rootKeyHandler = () => {
+    if (observedNodeId == null) return;
+    const current = root.get(observedNodeId);
+    if (!(current instanceof Y.Map)) {
+      // 键删除（节点没了）→ 编辑器关掉（spec §0 条 7）——栈卸下+监听拆+壳收起。
+      // m#3①（fix round 2）：模块级覆盖层同点闭口——手势中键删除后模块变量不残留（残留会吞掉
+      // 后续同 doc 重 loadProject 的远端读回）。
+      detachDocListeners();
+      detachTimelineUndo();
+      pendingOverlay = null;
+      useEditorStore.setState({ status: 'idle', data: null, selectedClipId: null, selectedKeyframeId: null, pendingOverlay: null });
+      useVideoEditorStore.getState().close();
+      return;
+    }
+    if (current === observedEntry) return;   // 键在且同一对象——非替换事件
+    // Map 被换 → 重绑当前这棵：销毁旧 UndoManager（先 clear()——避免对已脱离父键的 Map 再 undo）
+    // 再绑、本地覆盖层作废、时间轴栈从空栈开始；data 立即读回新 Map。
+    detachDocListeners();
+    detachTimelineUndo();
+    attachTimelineUndo(observedNodeId, current);
+    pendingOverlay = null;   // 覆盖层随旧 Map 作废（模块级单源——state 镜像由下方 set 落）
+    const next = readTimelineFromDoc(current);
+    useEditorStore.setState({
+      data: next,
+      pendingOverlay: null,
+      selectedClipId: null, selectedKeyframeId: null,
+    });
+    bindDocListeners(observedNodeId, current);
+    if (next !== null && observedNodeId) afterStructuralChange(observedNodeId, next);   // 水合完成 AutoEdge 对账一次
+  };
+  root.observe(rootKeyHandler);
+};
+
+// ── 拖动覆盖层（spec §0 条 5）──
+// transient 阶段=本地覆盖层（不写 doc）；松手=组合基线 readTimelineFromDoc(entry) 叠覆盖层作
+// before、UI 终值作 after→commit。overlay 记录手势开始时的 doc 真值基线（组合基线原料）。
+interface OverlaySession {
+  /** 手势开始时 doc 读回基线（叠加覆盖层=松手 before 的原料）。 */
+  base: ProjectData;
+  /** 手势开始时 data（丢覆盖层时的本地回退态）。 */
+  origin: ProjectData;
+}
+let pendingOverlay: OverlaySession | null = null;
+
 export const useEditorStore = create<EditorState>()((set, get) => {
-  /** 非 transient 结构变更：push 前态 → mutate → 尾部动作 */
-  const commit = (mutate: (data: ProjectData) => ProjectData, opts?: { structural?: boolean }) => {
+  /** 非 transient 结构变更：mutate → doc 写 → 尾部动作。
+   *  Y4a T4（spec §0 条 1/条 5）：doc 写路径穿两级执行器——量法（两帧任一超 262144 拒「单次操作
+   *  过大」live 不写）→临时 doc 两级自检（validateFrameDeny+物化事件 validateAppliedL2）→写前
+   *  栈顶装回预检→一条 timeline-user 事务（捕获档见各 action capture 注）。
+   *  评审回包 I#2（拒绝回滚）：doc 写**先行**、本地 set 延后到写成功——执行器拒（软闸/自检/
+   *  切块计划拒）时本地保持 prev（不写被拒态），before 每笔重读 doc 真值→被拒 delta 不复含。
+   *  Y4a T7：before=doc 已合入状态（readTimelineFromDoc(entry)——远端合入不被回写；doc ref 缺席
+   *  =无协作会话——本地态照旧（写面休眠零差异）。 */
+  const commit = (mutate: (data: ProjectData) => ProjectData, opts?: { structural?: boolean; capture?: TimelineCaptureKind }) => {
     const s = get();
     if (!s.data || s.status !== 'ready') return;
     const prev = s.data;
     let next = mutate(prev);
     next = sortTrackClips(next);
-    set({ data: next, history: pushHistory(s.history, prev) });
+    // doc 写先行（无协作会话=本地序先行——写面休眠零差异）
+    if (s.sourceNodeId && !writeTimelineToDoc(s.sourceNodeId, prev, next, opts?.capture ?? 'structural')) return;   // 拒→本地保持 prev（不 set）
+    set({ data: next });
     if (opts?.structural !== false && s.sourceNodeId) afterStructuralChange(s.sourceNodeId, next);
   };
 
-  /** transient 变更（拖拽 rAF 级）：只改 data 不入栈（begin/endTransient 配对收口） */
+  /** doc 写路径（timeline-user 事务——两级执行器编排）。
+   *  before=组合基线（拖动松手=doc 已合入状态叠覆盖层；普通 commit=当前本地态=最近 doc 投影）。
+   *  返回 false=执行器拒（软闸/自检/切块计划）——commit 回滚本地不落 next。doc ref/entry 缺席=
+   *  编辑器未挂 doc（测试/离线）：返 true（本地态照旧推进）。 */
+  const writeTimelineToDoc = (nodeId: string, before: ProjectData, after: ProjectData, capture: TimelineCaptureKind): boolean => {
+    const doc = getTimelineDocRef();
+    if (!doc) return true;   // 无协作会话（测试/离线）——本地态照旧
+    const entry = doc.getMap('timelines').get(nodeId);
+    if (!(entry instanceof Y.Map)) return true;   // 编辑器只读已存在的 timelines.<nodeId>——键不在不创建（spec §0 条 7）
+    return executeTimelineCommit(doc, { nodeId, before, after, kind: capture });
+  };
+
+  /** transient 变更（拖拽 rAF 级）：只改 data 不写 doc（本地覆盖层——spec §0 条 5） */
   const transient = (mutate: (data: ProjectData) => ProjectData) => {
     const s = get();
     if (!s.data) return;
@@ -121,15 +236,10 @@ export const useEditorStore = create<EditorState>()((set, get) => {
   };
 
   return {
-    projectId: null,
     sourceNodeId: null,
-    baseUpdatedAt: null,
-    title: null,
-    teamId: null,
     data: null,
     status: 'idle',
     loadError: null,
-    saveState: 'saved',
     selectedClipId: null,
     selectedKeyframeId: null,
     playhead: 0,
@@ -137,28 +247,46 @@ export const useEditorStore = create<EditorState>()((set, get) => {
     playing: false,
     preparing: false,
     mediaInfo: {},
-    history: createHistory<ProjectData>(),
-    pendingSnapshot: null,
+    pendingOverlay: null,
     pendingProduct: null,
 
-    loadProject: (p) => set({
-      projectId: p.id, sourceNodeId: p.sourceNodeId, baseUpdatedAt: p.updatedAt,
-      title: p.title ?? null, teamId: p.teamId ?? null,
-      data: p.data, status: 'ready', loadError: null,
-      history: createHistory<ProjectData>(), pendingSnapshot: null,
-      selectedClipId: null, playhead: 0, playing: false, preparing: false,
-      pendingProduct: null, // R11-A7：显式字段清单——不补则工程 A 建节点失败后重开工程 B，重试把 A 的 mediaId 错挂到 B
-    }),
+    loadProject: (nodeId) => {
+      const doc = getTimelineDocRef();
+      if (!doc) return false;   // 无协作会话——离线无 doc 可读（不创建不抛）
+      const entry = doc.getMap('timelines').get(nodeId);
+      if (!(entry instanceof Y.Map)) return false;   // 键不在不创建工程（spec §0 条 7）
+      const data = readTimelineFromDoc(entry);
+      if (data === null) return false;   // 毒值/旧文档未水合——不可开
+      // 换绑新节点：旧监听/旧栈卸下（clear() 在 detachTimelineUndo 内置——先 clear 再 destroy）
+      // m#3②（fix round 2）：模块级覆盖层闭口——水合入口是工程切换唯一路径，模块变量不跨工程
+      // 残留（现只 null state 镜像会漏模块档）。
+      detachDocListeners();
+      detachTimelineUndo();
+      pendingOverlay = null;
+      attachTimelineUndo(nodeId, entry);
+      bindDocListeners(nodeId, entry);
+      set({
+        sourceNodeId: nodeId, data, status: 'ready', loadError: null,
+        selectedClipId: null, selectedKeyframeId: null, playhead: 0, playing: false, preparing: false,
+        pendingOverlay: null,
+        pendingProduct: null, // R11-A7：显式字段清单——不补则工程 A 建节点失败后重开工程 B，重试把 A 的 mediaId 错挂到 B
+      });
+      afterStructuralChange(nodeId, data);   // 水合完成 AutoEdge 对账一次（补崩溃窗没写上的边）
+      return true;
+    },
     setLoadError: (msg) => set({ status: 'error', loadError: msg }),
-    reset: () => set({
-      projectId: null, sourceNodeId: null, baseUpdatedAt: null, title: null, teamId: null, data: null,
-      status: 'idle', loadError: null, saveState: 'saved', selectedClipId: null, selectedKeyframeId: null,
-      playhead: 0, pxPerSec: 80, playing: false, preparing: false, mediaInfo: {},
-      history: createHistory<ProjectData>(), pendingSnapshot: null,
-      pendingProduct: null, // R1（P0-6）：reset 是编辑器重开清理点——漏加会跨工程残留
-    }),
-    setSaveState: (v) => set({ saveState: v }),
-    setBaseUpdatedAt: (t) => set({ baseUpdatedAt: t }),
+    reset: () => {
+      detachDocListeners();
+      detachTimelineUndo();
+      pendingOverlay = null;
+      set({
+        sourceNodeId: null, data: null, status: 'idle', loadError: null,
+        selectedClipId: null, selectedKeyframeId: null,
+        playhead: 0, pxPerSec: 80, playing: false, preparing: false, mediaInfo: {},
+        pendingOverlay: null,
+        pendingProduct: null, // R1（P0-6）：reset 是编辑器重开清理点——漏加会跨工程残留
+      });
+    },
     setPlayhead: (t) => set({ playhead: Math.max(0, quantizeTime(t)) }),
     setPxPerSec: (v) => set({ pxPerSec: Math.min(500, Math.max(10, v)) }),
     setPlaying: (v) => set({ playing: v }),
@@ -189,15 +317,17 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       return { mediaInfo: next };
     }),
 
-    // 批5 删信箱：shadowJobs 状态机（start/update/removeShadowJob）与 addGeneratedMedia/generatedMediaIds
-    // 随 watchShadowJob 整删——retake 产物改落真实节点（Media 行进全集资产），编辑器资产面板"生成结果"区随行消失
-
     setPendingProduct: (p) => set({ pendingProduct: p }),
     clearPendingProduct: () => set({ pendingProduct: null }),
 
     addClip: (input) => {
       const s = get();
       if (!s.data || s.status !== 'ready') return null;
+      // clip.sourceNodeId 写前检查（源节点不在不发事务——canvas-invariants clipSourceNodeExists）
+      if (input.sourceNodeId && s.sourceNodeId) {
+        const doc = getTimelineDocRef();
+        if (doc && !doc.getMap('nodes').has(input.sourceNodeId)) return null;   // 悬挂引用不产生（读侧全函数不炸）
+      }
       const duration = input.type === 'image'
         ? 5
         : s.mediaInfo[input.mediaId]?.durationSec ?? 5; // 决策 6：未知兜底 5s
@@ -218,7 +348,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
         ...d,
         clips: { ...d.clips, [id]: clip },
         tracks: d.tracks.map(t => t.id === input.trackId ? { ...t, clips: [...t.clips, id] } : t),
-      }));
+      }), { capture: 'structural' });
       return id;
     },
 
@@ -233,7 +363,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
         ...d,
         clips: { ...d.clips, [id]: clip },
         tracks: d.tracks.map(t => t.id === trackId ? { ...t, clips: [...t.clips, id] } : t),
-      }));
+      }), { capture: 'structural' });
       return id;
     },
 
@@ -261,7 +391,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
         };
       };
       if (opts?.transient) transient(mutate);
-      else commit(mutate, { structural: false }); // move 不改源集合，无需 ensureAutoEdges
+      else commit(mutate, { structural: false, capture: 'span-gesture' }); // 非拖动一次性 move（编程/吸附位）——span 整值替换单独成步；真实拖动=transient+endTransient 松手结算（I#3）
       return true;
     },
 
@@ -289,7 +419,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
         return { ...data, clips: { ...data.clips, [clipId]: next } };
       };
       if (opts?.transient) transient(mutate);
-      else commit(mutate, { structural: false });
+      else commit(mutate, { structural: false, capture: 'span-gesture' }); // 非拖动一次性 trim（编程位）——span 整值替换单独成步；真实拖动=transient+endTransient 松手结算（I#3）
       return true;
     },
 
@@ -327,7 +457,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
           clips,
           tracks: d.tracks.map(t => t.id === clip.trackId ? { ...t, clips: t.clips.filter(x => x !== clipId) } : t),
         };
-      });
+      }, { capture: 'structural' });   // 片段增删档——写前后双 stopCapturing 每笔成步
       if (s.selectedClipId === clipId) set({ selectedClipId: null });
     },
 
@@ -338,7 +468,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
           ...d,
           clips: { ...d.clips, [clipId]: { ...d.clips[clipId], ...patch } as Clip },
         };
-      }, { structural: false });
+      }, { structural: false, capture: 'scalar' });   // 标量整值替换档——500ms 窗内合并
     },
 
     addKeyframe: (clipId, property) => {
@@ -356,7 +486,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
         commit((d) => {
           const c = d.clips[clipId] as VideoClip;
           return { ...d, clips: { ...d.clips, [clipId]: { ...c, keyframes: [...c.keyframes, kf].sort((a, b) => a.t - b.t) } } };
-        }, { structural: false });
+        }, { structural: false, capture: 'structural' });   // 关键帧增删档——每笔成步
         return kf.id;
       }
       if (clip.type === 'audio') {
@@ -368,7 +498,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
         commit((d) => {
           const c = d.clips[clipId] as AudioClip;
           return { ...d, clips: { ...d.clips, [clipId]: { ...c, keyframes: [...c.keyframes, kf].sort((a, b) => a.t - b.t) } } };
-        }, { structural: false });
+        }, { structural: false, capture: 'structural' });
         return kf.id;
       }
       return null; // subtitle
@@ -384,7 +514,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
         // 调 .filter 触发 TS2349（union 泛型签名互不兼容）；audio 的 VolumeKeyframe 与 id 过滤结构兼容，单型谎报无运行时后果
         const c = d.clips[clipId] as VideoClip;
         return { ...d, clips: { ...d.clips, [clipId]: { ...c, keyframes: c.keyframes.filter(k => k.id !== kfId) } } };
-      }, { structural: false });
+      }, { structural: false, capture: 'structural' });
       if (get().selectedKeyframeId === kfId) set({ selectedKeyframeId: null });
     },
 
@@ -402,7 +532,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
         };
       };
       if (opts?.transient) transient(mutate);
-      else commit(mutate, { structural: false });
+      else commit(mutate, { structural: false, capture: 'scalar' });   // 关键帧标量整值替换——窗内合并
       return true;
     },
 
@@ -415,7 +545,7 @@ export const useEditorStore = create<EditorState>()((set, get) => {
         // 全空回落 FIRST_ORDER_KEY 同「默认轨 order='5000'」口径；orderKeyAfter null 档=越上沿，
         // addTrack 维持现状键不越界）
         tracks: [...d.tracks, { id, type, name: `${type === 'video' ? '视频' : type === 'audio' ? '音频' : '字幕'}${count + 1}`, muted: false, hidden: false, order: orderKeyAfter([...d.tracks].sort((a, b) => compareOrderKeys(a.order, b.order)).at(-1)?.order ?? FIRST_ORDER_KEY) ?? FIRST_ORDER_KEY, clips: [] }],
-      }), { structural: false });
+      }), { structural: false, capture: 'structural' });   // 轨道增删档——每笔成步
       return id;
     },
 
@@ -424,14 +554,14 @@ export const useEditorStore = create<EditorState>()((set, get) => {
         const clips = { ...d.clips };
         for (const cid of d.tracks.find(t => t.id === trackId)?.clips ?? []) delete clips[cid];
         return { ...d, clips, tracks: d.tracks.filter(t => t.id !== trackId) };
-      });
+      }, { capture: 'structural' });
     },
 
     toggleTrack: (trackId, key) => {
       commit((d) => ({
         ...d,
         tracks: d.tracks.map(t => t.id === trackId ? { ...t, [key]: !t[key] } : t),
-      }), { structural: false });
+      }), { structural: false, capture: 'scalar' });   // 轨标量整值替换——窗内合并
     },
 
     // 结构不变（tracks 不动）——与 moveClip 同款 opts；commit 即完整入栈，调用方无需再包 transient
@@ -439,43 +569,82 @@ export const useEditorStore = create<EditorState>()((set, get) => {
       commit((d) => {
         const clips = remapForCanvasSize(Object.values(d.clips), canvasSizeOf(d), size);
         return { ...d, canvasSize: size, clips: Object.fromEntries(clips.map((c) => [c.id, c])) };
-      }, { structural: false });
+      }, { structural: false, capture: 'scalar' });   // 切比例=canvasSize/transform/关键帧标量整值——窗内合并；超限整笔拒（不拆多笔）
     },
 
     beginTransient: () => {
+      // 拖动覆盖层（spec §0 条 5）：记手势基线=当时 doc 已合入状态（松手组合基线原料）+本地起始态。
+      // doc 不可读（离线/毒值）回落本地态（离线编辑照旧——写面休眠零差异）。
       const s = get();
-      set({ pendingSnapshot: s.data });
+      if (!s.data) return;
+      const doc = s.sourceNodeId ? getTimelineDocRef() : null;
+      const entry = doc?.getMap('timelines').get(s.sourceNodeId ?? '');
+      const base = entry instanceof Y.Map ? readTimelineFromDoc(entry) : null;
+      const overlay: OverlaySession = { base: base ?? s.data, origin: s.data };
+      pendingOverlay = overlay;
+      set({ pendingOverlay: overlay });   // state 镜像（TimelinePanel pointerMovedOnce 判据）
     },
 
     endTransient: () => {
       const s = get();
-      if (!s.pendingSnapshot || !s.data) return false;
-      const changed = s.pendingSnapshot !== s.data;
-      if (changed) {
-        set({ history: pushHistory(s.history, s.pendingSnapshot), pendingSnapshot: null });
-        stopCapturing(); // 拖拽 commit 断画布合并窗
-      } else {
-        set({ pendingSnapshot: null });
+      const overlay = pendingOverlay;
+      pendingOverlay = null;
+      if (!overlay || !s.data) return false;
+      if (overlay.origin === s.data) { set({ pendingOverlay: null }); return false; }   // 无位移（down-up 零 delta）——不入栈不落 doc
+      // 并发删除守卫（spec §0 条 5）：松手时片段键或它的轨道键已没了 → 丢覆盖层（本地读回 doc 真值）
+      const doc = s.sourceNodeId ? getTimelineDocRef() : null;
+      const entry = doc?.getMap('timelines').get(s.sourceNodeId ?? '');
+      if (entry instanceof Y.Map) {
+        const docNow = readTimelineFromDoc(entry);
+        if (docNow === null) { set({ data: overlay.origin, pendingOverlay: null }); return false; }   // 工程不可读（毒值/维护窗口）——覆盖层作废
+        const overlayKeys = Object.keys(s.data.clips);
+        const docKeys = new Set(Object.keys(docNow.clips));
+        const trackIds = new Set(docNow.tracks.map((t) => t.id));
+        for (const id of overlayKeys) {
+          if (!docKeys.has(id) || !trackIds.has(s.data.clips[id]!.trackId)) {
+            set({ data: sortTrackClips(docNow), pendingOverlay: null });   // 本地读回 doc 真值（丢覆盖层——并发删除形态收口）
+            return false;
+          }
+        }
       }
-      return changed;
+      // 松手=组合基线一笔（doc 已合入状态叠覆盖层作 before、UI 终值作 after→一条 timeline-user
+      // span-gesture 事务——前后双 stopCapturing 单独成步不走 500ms 窗）。拒绝面与 commit 同款
+      // （executeTimelineCommit false→本地回拖动前态=手势作废）。
+      if (s.sourceNodeId && !writeTimelineToDoc(s.sourceNodeId, overlay.base, s.data, 'span-gesture')) {
+        set({ data: overlay.origin, pendingOverlay: null });   // 执行器拒——本地回拖动前态（手势作废）
+        return false;
+      }
+      set({ pendingOverlay: null });
+      if (s.sourceNodeId) stopCapturing(); // 拖拽 commit 断画布合并窗
+      return true;
     },
 
+    // Y4a T7（spec §4）：undo/redo=时间轴栈（timelineUndo/timelineRedo——Y-backed；JSON 快照史退场）。
+    // 弹栈后 doc 装回经 observeDeep 读回 setState（唯一投影路径）；边跟随经 ensureAutoEdges（AutoEdge
+    // origin 不入栈——交叉点注记 spec §2）；进行中手势作废（历史操作作废 transient 会话）。
+    // I#1（fix round 2）：抑制窗先关再弹栈——um.undo() 事务同步收尾即触发 observeDeep，此刻模块级
+    // 覆盖层必须已 null（修前 null 化在弹栈之后→自身读回早退→本地留幽灵片段+afterStructuralChange
+    // 拿陈旧 data 重投幽灵 auto: 边）。非手势档 pendingOverlay 本来就 null、行为不变。
     undo: () => {
       const s = get();
-      if (!s.data) return;
-      const r = undoHistory(s.history, s.data);
-      if (!r) return;
-      set({ data: r.state, history: r.history, selectedClipId: null, selectedKeyframeId: null, pendingSnapshot: null }); // 历史操作作废进行中 transient 会话
-      if (s.sourceNodeId) afterStructuralChange(s.sourceNodeId, r.state); // 边跟随回滚
+      pendingOverlay = null;   // 抑制窗先关——undo 事务落笔时读回自然同步
+      const ok = timelineUndo();
+      if (!ok) return false;
+      const next = get().data;   // observeDeep 读回已同步（undo 事务同步收尾）
+      set({ selectedClipId: null, selectedKeyframeId: null, pendingOverlay: null });
+      if (s.sourceNodeId && next) afterStructuralChange(s.sourceNodeId, next);   // 边跟随回滚
+      return true;
     },
 
     redo: () => {
       const s = get();
-      if (!s.data) return;
-      const r = redoHistory(s.history, s.data);
-      if (!r) return;
-      set({ data: r.state, history: r.history, selectedClipId: null, selectedKeyframeId: null, pendingSnapshot: null }); // 历史操作作废进行中 transient 会话
-      if (s.sourceNodeId) afterStructuralChange(s.sourceNodeId, r.state);
+      pendingOverlay = null;   // 抑制窗先关（I#1 同款——redo 事务落笔时读回自然同步）
+      const ok = timelineRedo();
+      if (!ok) return false;
+      const next = get().data;
+      set({ selectedClipId: null, selectedKeyframeId: null, pendingOverlay: null });
+      if (s.sourceNodeId && next) afterStructuralChange(s.sourceNodeId, next);
+      return true;
     },
   };
 });

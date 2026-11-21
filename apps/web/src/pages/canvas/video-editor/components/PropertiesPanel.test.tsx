@@ -7,7 +7,7 @@ import { createDefaultProjectData } from '../types';
 const readyWith = (make: (d: ReturnType<typeof createDefaultProjectData>) => string) => {
   const d = createDefaultProjectData();
   const clipId = make(d);
-  useEditorStore.setState({ status: 'ready', data: d, projectId: 'p1', sourceNodeId: 'e1', baseUpdatedAt: 't', playhead: 0 });
+  useEditorStore.setState({ status: 'ready', data: d, sourceNodeId: 'e1', playhead: 0 });
   useEditorStore.getState().selectClip(clipId);
 };
 const videoClip = (d: ReturnType<typeof createDefaultProjectData>) => {
@@ -37,7 +37,7 @@ describe('PropertiesPanel 四态', () => {
   beforeEach(() => useEditorStore.getState().reset());
 
   it('未选中 → 空态', () => {
-    useEditorStore.setState({ status: 'ready', data: createDefaultProjectData(), projectId: 'p1', sourceNodeId: 'e1', baseUpdatedAt: 't' });
+    useEditorStore.setState({ status: 'ready', data: createDefaultProjectData(), sourceNodeId: 'e1' });
     render(<PropertiesPanel />);
     expect(screen.getByTestId('properties-empty')).toBeInTheDocument();
   });

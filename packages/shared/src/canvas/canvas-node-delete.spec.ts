@@ -170,3 +170,37 @@ describe('Y4a T1 删除原语：deleteTimelineClips（片段键删除单源—�
     expect((doc.getMap('timelines').get('bad') as Y.Map<unknown>).get('clips')).toBe('not-a-map');
   });
 });
+
+// ── Y4a T5（spec §0 条 3/4）：三路共用原语形态锁——local-user 入画布栈+缺 id/毒值边零破 ──
+
+describe('Y4a T5 三路共用原语：deleteNodesWithTimelines 带 origin 形参（spec §0 条 3/4）', () => {
+  it('local-user 调用进画布撤销栈：undo 带回节点+timelines 同名键（三根 scope）', () => {
+    const doc = buildDoc();
+    const um = new Y.UndoManager(
+      ['nodes', 'edges', 'timelines'].map((r) => doc.getMap(r)),
+      { captureTimeout: 0, trackedOrigins: new Set(['local-user']) },
+    );
+    deleteNodesWithTimelines(doc, ['n1'], 'local-user');
+    expect(um.undoStack.length).toBe(1);
+    expect(doc.getMap('nodes').has('n1')).toBe(false);
+    um.undo();
+    expect(doc.getMap('nodes').has('n1')).toBe(true);
+    expect(doc.getMap('timelines').has('n1')).toBe(true);
+    expect(doc.getMap('edges').has('e1')).toBe(true);   // 连边一并装回
+    um.destroy();
+  });
+
+  it('外层事务已有 origin 时嵌套不破：非 tracked origin 调用不入栈、删除照落（服务端批事务形态负控）', () => {
+    const doc = buildDoc();
+    const um = new Y.UndoManager(
+      ['nodes', 'edges', 'timelines'].map((r) => doc.getMap(r)),
+      { captureTimeout: 0, trackedOrigins: new Set(['local-user']) },
+    );
+    // 非 tracked origin 的直接调用（服务端 SERVER_TRANSACT_ORIGIN 同族形态）——删除照落、不进栈
+    deleteNodesWithTimelines(doc, ['n1'], 'server-transact');
+    expect(um.undoStack.length).toBe(0);
+    expect(doc.getMap('nodes').has('n1')).toBe(false);
+    expect(doc.getMap('timelines').has('n1')).toBe(false);
+    um.destroy();
+  });
+});

@@ -20,10 +20,12 @@ import { register } from 'prom-client';
 import type { Logger } from '@nestjs/common';
 import { FrameEffectsCollector, type BindingDelta } from './collab-project-actor.service';
 import { CollabProjectActorService } from './collab-project-actor.service';
+import { DirectCollabSlotWriteAdapter } from './slot-write.port';
 import { CollabSpoolService } from './collab-spool.service';
 import { spoolForTest } from '../../test-utils/erasure-fixtures';
 import { createMockRepo } from '../../test-utils/mock-repo';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
+import { collectNodeRefsUnion } from '@flowweb/shared';   // Y4a T6：并集单源（touched 投影断言辅助）
 
 /** 事务帧构造（生产形态=单事务增量 update——collab-project-actor.spec incrementalFrame 同款）。 */
 function frameOf(mutate: (src: Y.Doc) => void, base?: Uint8Array): Uint8Array {
@@ -174,6 +176,139 @@ describe('C3a-3：touched 保守收集+帧边界 bindingDelta（五族——spec
     const { delta } = applyFrame(c, doc, 2n, f);
     expect(delta.size).toBe(1);
     expect(delta.get('n1'), 'node 已不在 doc——null=NODE_DELETED（槽位集非空集：空集=无引用，null=全删槽位）').toBeNull();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// Y4a T6（spec 2026-11-20-y4a-timeline-domain-design.md §0 条 11）：收集器 touched 扩
+// timelines 路径首段+takeBindingDelta 并集投影。三档：
+//  ①只改 timelines.<nodeId>.clips.<cid>.span 的帧→touched 含 nodeId（binding delta 走并集
+//    ——clip 行不被「节点 data 替换」清掉）；投影=节点槽∪clip 行；
+//  ②position-only 画布帧→touched 不含（position-only 判定 :275-278 不动——timelines 路径
+//    永不 position-only 不扩该判定）；
+//  ③悬空键档：节点已删 timelines.<id> 仍在→delta 投该键片段行非 null（负控钉死
+//    「nodes.has(id)?union:null 形态会清掉绑定」）；节点和键双亡才 null。
+// ══════════════════════════════════════════════════════════════════════════
+describe('Y4a T6：touched 扩 timelines 路径+并集投影（spec §0 条 11）', () => {
+  /** 剪辑节点基帧：nodes.n-clip{data.mediaId}+timelines.n-clip{clips:{c1:video m-clip}}。 */
+  const clipBase = (): Uint8Array => frameOf((src) => {
+    src.getMap('nodes').set('n-clip', mkNode('videoEdit', { mediaId: 'm-node-slot' }));
+    const entry = new Y.Map<unknown>();
+    const clips = new Y.Map<unknown>();
+    const c1 = new Y.Map<unknown>();
+    c1.set('type', 'video');
+    c1.set('span', { trackId: 'n-clip:video', start: 0, duration: 5 });
+    c1.set('mediaId', 'm-clip');
+    clips.set('c1', c1);
+    entry.set('clips', clips);
+    src.getMap('timelines').set('n-clip', entry);
+  });
+
+  const refKey = (r: { nodeId: string; role: string; targetField: string; targetItemId: string; mediaId: string }): string =>
+    [r.nodeId, r.role, r.targetField, r.targetItemId, r.mediaId].join('|');
+
+  it('①只改 timelines.<nodeId>.clips.<cid>.span 的帧→touched 含 nodeId+投影=节点槽∪clip 行', () => {
+    const c = new FrameEffectsCollector();
+    const doc = new Y.Doc();
+    c.install(doc);
+    const base = clipBase();
+    applyFrame(c, doc, 1n, base);
+    // 只改片段 span（拖动松手帧形态——nodes 域零事件）
+    const drag = frameOf((src) => {
+      const clip = ((src.getMap('timelines').get('n-clip') as Y.Map<unknown>).get('clips') as Y.Map<unknown>).get('c1') as Y.Map<unknown>;
+      clip.set('span', { trackId: 'n-clip:video', start: 10, duration: 5 });
+    }, base);
+    const { delta } = applyFrame(c, doc, 2n, drag);
+    expect(delta.has('n-clip'), 'timelines 路径首段=剪辑节点 id 必须进 touched（修前=零事件面漏——clip 行被节点 data 投影盖掉）').toBe(true);
+    expect([...(delta.get('n-clip') ?? [])].map(refKey).sort()).toEqual([
+      'n-clip|primary|mediaId|c1|m-clip',
+      'n-clip|primary|mediaId||m-node-slot',
+    ].sort());
+  });
+
+  it('②position-only 画布帧→touched 不含（判定不扩——timelines 路径永不 position-only 为独立判定）', () => {
+    const c = new FrameEffectsCollector();
+    const doc = new Y.Doc();
+    c.install(doc);
+    const base = clipBase();
+    applyFrame(c, doc, 1n, base);
+    const posOnly = frameOf((src) => {
+      (nodeOf(src, 'n-clip').get('position') as Y.Map<unknown>).set('x', 99);
+    }, base);
+    const { delta } = applyFrame(c, doc, 2n, posOnly);
+    expect(delta.size, 'position-only 判定不动——timelines touched 扩不误触画布坐标帧').toBe(0);
+  });
+
+  it('③悬空键档：节点删除帧而 timelines.<id> 并发残留→delta 投该键片段行非 null（负控：nodes.has?id:union:null 形态会清掉绑定）', () => {
+    const c = new FrameEffectsCollector();
+    const doc = new Y.Doc();
+    c.install(doc);
+    const base = clipBase();
+    applyFrame(c, doc, 1n, base);
+    // 并发删除残留形态：nodes 帧删节点、timelines 键由对端 clientID 较大一侧留下
+    const delNode = frameOf((src) => { src.getMap('nodes').delete('n-clip'); }, base);
+    const { delta } = applyFrame(c, doc, 2n, delNode);
+    expect(delta.has('n-clip')).toBe(true);
+    expect(delta.get('n-clip'), '节点已删而 timelines 同名键还在——照投片段行（键还在=引用还在，非 null 全清）').toEqual([
+      { nodeId: 'n-clip', mediaId: 'm-clip', role: 'primary', targetField: 'mediaId', targetItemId: 'c1' },
+    ]);
+    // 双亡才 null：节点和 timelines 键同帧删掉→null（NODE_DELETED 语义）
+    const c2 = new FrameEffectsCollector();
+    const doc2 = new Y.Doc();
+    c2.install(doc2);
+    applyFrame(c2, doc2, 1n, base);
+    const d2 = applyFrame(c2, doc2, 2n, frameOf((src) => {
+      src.getMap('nodes').delete('n-clip');
+      src.getMap('timelines').delete('n-clip');
+    }, base));
+    expect(d2.delta.get('n-clip'), '节点和键都不在才 null（清该 nodeId 全部槽位）').toBeNull();
+  });
+
+  it('④帧投影与 collectNodeRefsUnion 同集（增量=全量同集合——spec §0 条 11 单源）', () => {
+    const c = new FrameEffectsCollector();
+    const doc = new Y.Doc();
+    c.install(doc);
+    const base = clipBase();
+    const { delta } = applyFrame(c, doc, 1n, base);
+    const union = collectNodeRefsUnion('n-clip', doc.getMap('nodes').get('n-clip'), doc.getMap('timelines').get('n-clip'));
+    expect([...(delta.get('n-clip') ?? [])].map(refKey).sort()).toEqual(union.map(refKey).sort());
+  });
+
+  it('⑤slot-write 对剪辑节点槽写→快照含 clip 行（并集快照——槽写不清片段绑定）', async () => {
+    // 装置=author-slot.service.spec docsStub 先例：withSession 直投真 Y.Doc（回调同步段语义）
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      const node = new Y.Map<unknown>();
+      const data = new Y.Map<unknown>();
+      data.set('mediaId', 'm-existing-slot');
+      node.set('type', 'videoEdit');
+      node.set('data', data);
+      doc.getMap('nodes').set('n-clip', node);
+      const entry = new Y.Map<unknown>();
+      const clips = new Y.Map<unknown>();
+      const c1 = new Y.Map<unknown>();
+      c1.set('type', 'video');
+      c1.set('span', { trackId: 'n-clip:video', start: 0, duration: 5 });
+      c1.set('mediaId', 'm-clip');
+      clips.set('c1', c1);
+      entry.set('clips', clips);
+      doc.getMap('timelines').set('n-clip', entry);
+    });
+    const adapter = new DirectCollabSlotWriteAdapter({ withSession: async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc) } as never);
+    const r = await adapter.conditionalWrite('p1', 'n-clip', 'm-new-slot');
+    expect(r.slot).toBe('foreign');   // 槽=他 id→409 档——快照照收（回调内终态）
+    expect(r.snapshot.map((s) => [s.targetField, s.targetItemId, s.mediaId]).sort()).toEqual([
+      ['mediaId', '', 'm-existing-slot'],   // 槽写不改变 foreign 档零写语义
+      ['mediaId', 'c1', 'm-clip'],          // ★并集快照：clip 行在场（修前=纯节点槽快照会把片段绑定盖掉）
+    ].sort());
+    // 空槽档同口径：目标节点 data.mediaId 空→写后快照含 clip 行（与写帧原子）
+    const doc2 = new Y.Doc();
+    Y.applyUpdate(doc2, Y.encodeStateAsUpdate(doc));
+    (doc2.getMap('nodes').get('n-clip') as Y.Map<unknown>).set('data', new Y.Map<unknown>());
+    const adapter2 = new DirectCollabSlotWriteAdapter({ withSession: async (_pid: string, fn: (d: Y.Doc) => unknown) => fn(doc2) } as never);
+    const r2 = await adapter2.conditionalWrite('p1', 'n-clip', 'm-written');
+    expect(r2.slot).toBe('empty');
+    expect(r2.snapshot.some((s) => s.targetItemId === 'c1' && s.mediaId === 'm-clip'), '槽写快照=并集（节点槽∪clip 行）——不清片段绑定').toBe(true);
   });
 });
 

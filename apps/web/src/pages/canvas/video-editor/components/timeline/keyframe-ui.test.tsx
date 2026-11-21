@@ -13,7 +13,7 @@ const firePointer = (target: Element | Window, type: string, init: { button?: nu
 
 const ready = () => {
   const d = createDefaultProjectData();
-  useEditorStore.setState({ status: 'ready', data: d, projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't' });
+  useEditorStore.setState({ status: 'ready', data: d, sourceNodeId: 'edit1' });
   return d;
 };
 const addVideoWithKf = () => {
@@ -41,7 +41,7 @@ describe('时间轴关键帧菱形刻度', () => {
     expect(useEditorStore.getState().playhead).toBe(2); // kf.t=2 → 跳转
   });
 
-  it('拖拽菱形移动关键帧（transient，pointerup 入栈）', () => {
+  it('拖拽菱形移动关键帧（transient，pointerup 覆盖层收口）', () => {
     ready();
     const id = addVideoWithKf();
     render(<TimelinePanel />);
@@ -51,8 +51,7 @@ describe('时间轴关键帧菱形刻度', () => {
     firePointer(window, 'pointerup');
     const clip = useEditorStore.getState().data!.clips[id] as any;
     expect(clip.keyframes[0].t).toBe(3);
-    useEditorStore.getState().undo(); // 一次拖拽恰好一条历史（pointerup 入栈）
-    expect((useEditorStore.getState().data!.clips[id] as any).keyframes[0].t).toBe(2);
+    expect(useEditorStore.getState().pendingOverlay).toBeNull();   // 会话收口（栈计数由 timeline.spec 锁 doc 管线）
   });
 
   it('Delete 优先删除选中关键帧（其次选中片段）——N3 定案：点菱形双写两 id（未预选片段的直接点击路径）', () => {
@@ -71,13 +70,13 @@ describe('时间轴关键帧菱形刻度', () => {
     expect(useEditorStore.getState().data!.tracks[0].clips).toContain(id); // 片段保留
   });
 
-  it('undo/redo 后 selectedKeyframeId 清空（R4 收口守护——历史跳转后 kf 选中不残留）', () => {
+  it('离线 undo() 返 false——kf 选中不残留断言归 doc 管线（timeline.spec ②：undo 清选中态）', () => {
     ready();
     const id = addVideoWithKf();
     useEditorStore.getState().selectKeyframe(
       (useEditorStore.getState().data!.clips[id] as any).keyframes[0].id, id);
     expect(useEditorStore.getState().selectedKeyframeId).toBeTruthy();
-    useEditorStore.getState().undo(); // addKeyframe 那条历史
-    expect(useEditorStore.getState().selectedKeyframeId).toBeNull();
+    // Y4a T7：undo=时间轴栈 Y-backed——离线无栈返 false（doc 管线选中清理由 timeline.spec ② 锁）。
+    expect(useEditorStore.getState().undo()).toBe(false);
   });
 });

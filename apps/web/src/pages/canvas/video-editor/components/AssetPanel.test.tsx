@@ -37,7 +37,7 @@ describe('AssetPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useEditorStore.getState().reset();
-    useEditorStore.setState({ status: 'ready', data: createDefaultProjectData(), projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't' });
+    useEditorStore.setState({ status: 'ready', data: createDefaultProjectData(), sourceNodeId: 'edit1' });
     // 素材缺失守卫（Task 8 I1）：ensureAutoEdges 的 toAdd 按画布现存节点过滤——断言 auto 边存在须提供 edit1/v1 节点（执行期修正）
     useCanvasStore.setState({
       nodes: [

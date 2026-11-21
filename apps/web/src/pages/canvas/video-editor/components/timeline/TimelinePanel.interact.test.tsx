@@ -13,7 +13,7 @@ vi.mock('../../renderer/poster', () => ({ ensurePoster: vi.fn() }));
 
 const ready = (data?: ProjectData) => {
   const d = data ?? createDefaultProjectData();
-  useEditorStore.setState({ status: 'ready', data: d, projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't', history: useEditorStore.getState().history, mediaInfo: { m1: { name: 'A', durationSec: 10 } } });
+  useEditorStore.setState({ status: 'ready', data: d, sourceNodeId: 'edit1', mediaInfo: { m1: { name: 'A', durationSec: 10 } } });
   return d;
 };
 const addVideoClip = (start = 0) => {
@@ -44,19 +44,18 @@ describe('TimelinePanel 交互', () => {
     delete (document as any).elementFromPoint; // 跨轨用例注入的 mock（jsdom 本无此 API），防残留串用例
   });
 
-  it('拖动片段：pointer 序列 → transient move + pointerup 一次入栈 + 新位置', () => {
+  it('拖动片段：pointer 序列 → transient move + pointerup 一次收口 + 新位置', () => {
     ready();
     const id = addVideoClip(0);
     render(<TimelinePanel />);
     const block = screen.getByTestId(`clip-block-${id}`);
-    const depthBefore = useEditorStore.getState().history.past.length;
 
     firePointer(block, 'pointerdown', { button: 0, clientX: 100, clientY: 50 });
     firePointer(window, 'pointermove', { clientX: 180, clientY: 50 }); // +80px = +1s @80px/s
     firePointer(window, 'pointerup');
 
     expect(useEditorStore.getState().data!.clips[id].start).toBe(1);
-    expect(useEditorStore.getState().history.past.length).toBe(depthBefore + 1); // 一次入栈
+    expect(useEditorStore.getState().pendingOverlay).toBeNull();   // 覆盖层会话收口（栈计数由 timeline.spec 锁 doc 管线）
     expect(useEditorStore.getState().selectedClipId).toBe(id);
   });
 
@@ -166,15 +165,14 @@ describe('TimelinePanel 交互', () => {
     expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(2);
   });
 
-  it('删除按钮：删选中片段（历史可撤销）', () => {
+  it('删除按钮：删选中片段', () => {
     ready();
     const id = addVideoClip(0);
     useEditorStore.getState().selectClip(id);
     render(<><PreviewPlayer /><TimelinePanel /></>); // 删除按钮已迁预览控制条（Task 8）
     fireEvent.click(screen.getByRole('button', { name: '删除' }));
     expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(0);
-    useEditorStore.getState().undo();
-    expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(1);
+    // 可撤销性由 editorStore.timeline.spec 锁 doc 管线（undo=时间轴栈 Y-backed）
   });
 
   it('字幕轨头 ➕ → 播放头处新增 3s 字幕', () => {
@@ -188,13 +186,15 @@ describe('TimelinePanel 交互', () => {
     expect((useEditorStore.getState().data!.clips[clips[0]] as any).duration).toBe(3);
   });
 
-  it('Ctrl+Z 编辑器内撤销（键盘，画布层已隔离）', () => {
+  it('Ctrl+Z 键盘路由到 editorStore.undo（画布层已隔离——离线无栈返 false 不动数据）', () => {
     ready();
     addVideoClip(0);
     useVideoEditorStore.setState({ open: true }); // 控制器批准修正：useEditorKeyboard 首行检查 open
     render(<TimelinePanel />);
     fireEvent.keyDown(document, { key: 'z', ctrlKey: true });
-    expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(0);
+    // Y4a T7：undo=时间轴栈 Y-backed——离线（无 doc ref）零栈返 false 数据不动；
+    // doc 管线撤销行为由 editorStore.timeline.spec 锁（undo() → timelineUndo() 弹栈）。
+    expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(1);
   });
 
   it('Delete 键删除选中片段', () => {

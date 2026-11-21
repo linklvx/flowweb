@@ -21,7 +21,8 @@
 //   - 槽条件写三档（spec §8 顺序钉死尾段）：withSession(write) 同步回调〔禁 await——
 //     SERVER_TRANSACT_ORIGIN 档〕内读槽（窄端口 COLLAB_SLOT_WRITE_PORT——裁决 10 防 DI 环）——
 //     空才写 data.mediaId/本行 id=崩溃续走补绑定+完成/他 id=删已拷新键+deletePending+doc 保持
-//     对方值+409；快照=回调内 collectMediaRefsForNode 返回值（与写帧原子——禁写完另开 read 会话）；
+//     对方值+409；快照=回调内 collectNodeRefsUnion 并集返回值（Y4a T6——节点槽∪timeline clips，
+//     与写帧原子——禁写完另开 read 会话）；
 //   - 槽写成后=先直调 projectBindings（delta 三态：空数组=零引用全槽清不得省略 nodeId/null=整节点
 //     删除/省略=空 delta 零动作；只传单格=差分删同节点其余槽）再完成事务；
 //   - 完成独立小函数（同一事务恰四件事）：pending→completed CAS+预留 ACTIVE→SETTLED+factVersion+1

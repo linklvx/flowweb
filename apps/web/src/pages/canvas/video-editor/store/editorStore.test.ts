@@ -8,27 +8,28 @@ import { createDefaultProjectData, type ProjectData, type VideoClip } from '../t
 import { stopCapturing } from '@/stores/canvasUndo';
 import { ensureAutoEdges } from '../timeline/auto-edges';
 
-const proj = (data?: ProjectData) => ({
-  id: 'p1', sourceNodeId: 'edit1', updatedAt: '2026-09-10T00:00:00Z',
-  data: data ?? createDefaultProjectData(),
-});
+// Y4a T7（spec §4）：undo/redo=时间轴栈（Y-backed——editorStore.timeline.spec 锁 doc 管线）；
+// 本套只锁纯本地数据面（placement/guard/keyframe 归一化——离线无 doc ref：commit 本地推进、
+// undo() 返 false）。history JSON 快照史随 REST 链退场——本套不再有 history.past 断言。
+const ready = (data?: ProjectData) => {
+  const d = data ?? createDefaultProjectData();
+  useEditorStore.setState({ status: 'ready', data: d, sourceNodeId: 'edit1', playhead: 0 });
+  return d;
+};
 
-describe('editorStore（normalized + transient 历史）', () => {
+describe('editorStore（纯本地数据面——Y4a T7 离线档）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useEditorStore.getState().reset();
   });
 
-  it('loadProject → ready，data/baseUpdatedAt 就位', () => {
-    useEditorStore.getState().loadProject(proj());
-    const s = useEditorStore.getState();
-    expect(s.status).toBe('ready');
-    expect(s.projectId).toBe('p1');
-    expect(s.baseUpdatedAt).toBe('2026-09-10T00:00:00Z');
+  it('离线（无 doc ref）loadProject → false 不进 ready（编辑器无 doc 可读——键不在不创建）', () => {
+    expect(useEditorStore.getState().loadProject('edit1')).toBe(false);
+    expect(useEditorStore.getState().status).toBe('idle');
   });
 
-  it('addClip 视频片：duration 取 mediaInfo，track.clips 按 start 有序，push 前态历史', () => {
-    useEditorStore.getState().loadProject(proj());
+  it('addClip 视频片：duration 取 mediaInfo，track.clips 按 start 有序', () => {
+    ready();
     useEditorStore.getState().setMediaInfo('m1', { name: '素材A', durationSec: 8 });
     const trackId = useEditorStore.getState().data!.tracks[0].id;
     const id = useEditorStore.getState().addClip({ type: 'video', mediaId: 'm1', sourceNodeId: 's1', trackId, start: 2 });
@@ -36,12 +37,11 @@ describe('editorStore（normalized + transient 历史）', () => {
     const d = useEditorStore.getState().data!;
     expect(d.clips[id!].duration).toBe(8);
     expect(d.tracks[0].clips).toEqual([id]);
-    expect(useEditorStore.getState().history.past).toHaveLength(1);
     expect(ensureAutoEdges).toHaveBeenCalled();
   });
 
   it('addClip 同轨冲突自动吸附最近空位', () => {
-    useEditorStore.getState().loadProject(proj());
+    ready();
     useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 3 });
     const st = useEditorStore.getState();
     const trackId = st.data!.tracks[0].id;
@@ -53,14 +53,14 @@ describe('editorStore（normalized + transient 历史）', () => {
   });
 
   it('addClip 图片默认 5s；素材时长未知兜底 5s 且不阻塞', () => {
-    useEditorStore.getState().loadProject(proj());
+    ready();
     const trackId = useEditorStore.getState().data!.tracks[0].id;
     const id = useEditorStore.getState().addClip({ type: 'image', mediaId: 'img1', trackId, start: 0 });
     expect(useEditorStore.getState().data!.clips[id!].duration).toBe(5);
   });
 
   it('addSubtitleClip：3s + 默认文本', () => {
-    useEditorStore.getState().loadProject(proj());
+    ready();
     const subTrackId = useEditorStore.getState().addTrack('subtitle'); // 单轨默认值下显式建字幕轨（与生产动态建轨对齐）
     const id = useEditorStore.getState().addSubtitleClip(subTrackId, 1);
     const c = useEditorStore.getState().data!.clips[id] as any;
@@ -69,41 +69,37 @@ describe('editorStore（normalized + transient 历史）', () => {
     expect(c.text).toBe('新字幕');
   });
 
-  it('transient 拖动：begin → move×N 不入栈 → end 一次入栈', () => {
-    useEditorStore.getState().loadProject(proj());
+  it('transient 拖动：begin → move×N 本地跟手 → end 一次落定（离线无 doc 笔）', () => {
+    ready();
     useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 3 });
     const st = useEditorStore.getState();
     const trackId = st.data!.tracks[0].id;
     const id = st.addClip({ type: 'video', mediaId: 'm1', trackId, start: 0 })!;
-    const historyDepthAfterAdd = useEditorStore.getState().history.past.length; // 1
 
     useEditorStore.getState().beginTransient();
+    expect(useEditorStore.getState().pendingOverlay).not.toBeNull();   // 覆盖层会话已开（state 镜像）
     for (let i = 1; i <= 3; i++) {
       useEditorStore.getState().moveClip(id, i, undefined, { transient: true });
     }
-    expect(useEditorStore.getState().history.past.length).toBe(historyDepthAfterAdd); // rAF 不入栈
-    const changed = useEditorStore.getState().endTransient();
-    expect(changed).toBe(true);
-    expect(useEditorStore.getState().history.past.length).toBe(historyDepthAfterAdd + 1); // pointerup 一次
-    expect(stopCapturing).toHaveBeenCalled(); // 断画布 500ms 合并窗
+    useEditorStore.getState().endTransient();
+    expect(useEditorStore.getState().pendingOverlay).toBeNull();        // 会话收口
+    expect(stopCapturing).toHaveBeenCalled(); // 断画布 500ms 合并窗（sourceNodeId 在位）
     expect(useEditorStore.getState().data!.clips[id].start).toBe(3);
   });
 
-  it('undo/redo：数据还原 + clip 集合回滚触发 ensureAutoEdges', () => {
-    useEditorStore.getState().loadProject(proj());
+  it('离线 undo/redo → false（时间轴栈 Y-backed——无 doc 无栈可弹）', () => {
+    ready();
     useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 3 });
     const st = useEditorStore.getState();
     const trackId = st.data!.tracks[0].id;
-    const id = st.addClip({ type: 'video', mediaId: 'm1', sourceNodeId: 's1', trackId, start: 0 })!;
-    useEditorStore.getState().undo();
-    expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(0); // 片没了
-    expect(ensureAutoEdges).toHaveBeenCalled(); // 边跟随回滚（spec 验收 4）
-    useEditorStore.getState().redo();
-    expect(useEditorStore.getState().data!.tracks[0].clips).toEqual([id]);
+    st.addClip({ type: 'video', mediaId: 'm1', trackId, start: 0 });
+    expect(useEditorStore.getState().undo()).toBe(false);   // 离线无栈——doc 管线 undo 由 timeline.spec 锁
+    expect(useEditorStore.getState().redo()).toBe(false);
+    expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(1);   // 数据不动
   });
 
-  it('splitClip：两片 + 撤销还原一片', () => {
-    useEditorStore.getState().loadProject(proj());
+  it('splitClip：两片（离线档）', () => {
+    ready();
     useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 10 });
     const st = useEditorStore.getState();
     const trackId = st.data!.tracks[0].id;
@@ -111,12 +107,10 @@ describe('editorStore（normalized + transient 历史）', () => {
     const backId = useEditorStore.getState().splitClip(id, 4);
     expect(backId).toBeTruthy();
     expect(useEditorStore.getState().data!.tracks[0].clips).toHaveLength(2);
-    useEditorStore.getState().undo();
-    expect(useEditorStore.getState().data!.tracks[0].clips).toEqual([id]);
   });
 
   it('removeClip + removeTrack 连片段删', () => {
-    useEditorStore.getState().loadProject(proj());
+    ready();
     useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 3 });
     const st = useEditorStore.getState();
     const trackId = st.data!.tracks[0].id;
@@ -129,7 +123,7 @@ describe('editorStore（normalized + transient 历史）', () => {
   });
 
   it('addTrack 新轨追加；toggleTrack 切换', () => {
-    useEditorStore.getState().loadProject(proj());
+    ready();
     const before = useEditorStore.getState().data!.tracks.length;
     const id = useEditorStore.getState().addTrack('audio');
     expect(useEditorStore.getState().data!.tracks).toHaveLength(before + 1);
@@ -137,8 +131,8 @@ describe('editorStore（normalized + transient 历史）', () => {
     expect(useEditorStore.getState().data!.tracks.find(t => t.id === id)!.muted).toBe(true);
   });
 
-  it('trimClip：guard 夹取 + 非 transient 入栈', () => {
-    useEditorStore.getState().loadProject(proj());
+  it('trimClip：guard 夹取', () => {
+    ready();
     useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 10 });
     const st = useEditorStore.getState();
     const trackId = st.data!.tracks[0].id;
@@ -147,19 +141,8 @@ describe('editorStore（normalized + transient 历史）', () => {
     expect(useEditorStore.getState().data!.clips[id].duration).toBe(10);
   });
 
-  it('undo 后 selectedClipId 清理（快照里 clip 可能没了）', () => {
-    useEditorStore.getState().loadProject(proj());
-    useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 3 });
-    const st = useEditorStore.getState();
-    const trackId = st.data!.tracks[0].id;
-    const id = st.addClip({ type: 'video', mediaId: 'm1', trackId, start: 0 })!;
-    useEditorStore.getState().selectClip(id);
-    useEditorStore.getState().undo();
-    expect(useEditorStore.getState().selectedClipId).toBeNull();
-  });
-
   it('trimClip 同轨邻居 clamp：右缘延长不得越过/加深后片（I1）', () => {
-    useEditorStore.getState().loadProject(proj());
+    ready();
     useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 60 });
     const st = useEditorStore.getState();
     const trackId = st.data!.tracks[0].id;
@@ -176,7 +159,7 @@ describe('editorStore（normalized + transient 历史）', () => {
   });
 
   it('moveClip 跨轨：clip 从原轨迁到目标轨（store 直测）', () => {
-    useEditorStore.getState().loadProject(proj());
+    ready();
     useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 3 });
     const st = useEditorStore.getState();
     const trackId = st.data!.tracks[0].id;
@@ -190,8 +173,8 @@ describe('editorStore（normalized + transient 历史）', () => {
     expect(d.tracks.find(t => t.id === audioTrackId)!.clips).toContain(id);
   });
 
-  it('setCanvasSize：canvasSize 落库 + transform/keyframes 中心点重映射 + commit 入栈 undo 可回退', () => {
-    useEditorStore.getState().loadProject(proj());
+  it('setCanvasSize：canvasSize 落库 + transform/keyframes 中心点重映射', () => {
+    ready();
     useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 3 });
     const st = useEditorStore.getState();
     const trackId = st.data!.tracks[0].id;
@@ -200,7 +183,6 @@ describe('editorStore（normalized + transient 历史）', () => {
       transform: { x: 1920, y: 540, scale: 1, rotation: 0, opacity: 1 },
       keyframes: [{ id: 'k1', t: 1, property: 'x', value: 1920, easing: 'linear' }],
     });
-    const depth = useEditorStore.getState().history.past.length;
     useEditorStore.getState().setCanvasSize({ width: 1080, height: 1920 });
     const d = useEditorStore.getState().data!;
     expect(d.canvasSize).toEqual({ width: 1080, height: 1920 });
@@ -208,33 +190,13 @@ describe('editorStore（normalized + transient 历史）', () => {
     expect(clip.transform.x).toBeCloseTo(1080);  // 1920/1920*1080
     expect(clip.transform.y).toBeCloseTo(960);   // 540/1080*1920
     expect(clip.keyframes[0].value).toBeCloseTo(1080); // 关键帧绝对值同步（spec 5.1）
-    expect(useEditorStore.getState().history.past.length).toBe(depth + 1); // commit 完整入栈
-    useEditorStore.getState().undo();
-    const d0 = useEditorStore.getState().data!;
-    expect(d0.canvasSize).toBeUndefined();
-    expect((d0.clips[id] as VideoClip).transform.x).toBe(1920);
   });
 
   it('endTransient 无变更返回 false（begin 后未动直接 end）', () => {
-    useEditorStore.getState().loadProject(proj());
+    ready();
     useEditorStore.getState().beginTransient();
     expect(useEditorStore.getState().endTransient()).toBe(false);
-    expect(useEditorStore.getState().history.past).toHaveLength(0); // 不入栈
-  });
-
-  it('undo/redo 清 pendingSnapshot（拖拽中 Ctrl+Z 不产生 bogus 记录）', () => {
-    useEditorStore.getState().loadProject(proj());
-    useEditorStore.getState().setMediaInfo('m1', { name: 'A', durationSec: 3 });
-    const st = useEditorStore.getState();
-    const trackId = st.data!.tracks[0].id;
-    const id = st.addClip({ type: 'video', mediaId: 'm1', trackId, start: 0 })!;
-    const depth = useEditorStore.getState().history.past.length;
-    useEditorStore.getState().beginTransient();
-    useEditorStore.getState().undo(); // 拖拽中撤销
-    expect(useEditorStore.getState().pendingSnapshot).toBeNull(); // 会话作废
-    expect(useEditorStore.getState().endTransient()).toBe(false); // 不产生 bogus 记录
-    expect(useEditorStore.getState().data!.tracks[0].clips).not.toContain(id); // undo 生效
-    expect(useEditorStore.getState().history.past.length).toBe(depth - 1);
+    expect(useEditorStore.getState().pendingOverlay).toBeNull(); // 会话收口
   });
 
   it('setMediaInfo 第四字段 thumbnailUrl 只补缺不覆盖（白名单同步）', () => {
@@ -269,5 +231,15 @@ describe('editorStore（normalized + transient 历史）', () => {
     expect(s.updateShadowJob).toBeUndefined();
     expect(s.removeShadowJob).toBeUndefined();
     expect(s.addGeneratedMedia).toBeUndefined();
+  });
+
+  it('Y4a T7 状态面锚：projectId/baseUpdatedAt/title/teamId/saveState/history 字段随 REST 链退场', () => {
+    const s = useEditorStore.getState() as unknown as Record<string, unknown>;
+    expect(s.projectId).toBeUndefined();
+    expect(s.baseUpdatedAt).toBeUndefined();
+    expect(s.title).toBeUndefined();
+    expect(s.teamId).toBeUndefined();
+    expect(s.saveState).toBeUndefined();
+    expect(s.history).toBeUndefined();
   });
 });

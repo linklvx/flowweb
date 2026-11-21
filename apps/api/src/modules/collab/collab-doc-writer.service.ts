@@ -150,8 +150,12 @@ function applyOp(doc: Y.Doc, op: DocWriteOp, index: number): WriteOpResult {
       const r = applyDeleteNodeDataKeysToDoc(doc, op.nodeId, op.keys);
       return guardResult(index, op.op, r.written, r.reason);
     }
-    case 'deleteNodes':
-      return guardResult(index, op.op, applyDeleteNodesToDoc(doc, op.nodeIds).written);   // T12 收编（shrink 同源）
+    case 'deleteNodes': {
+      // Y4a T5（spec §0 条 4）：timeline-chunk-required 拒因随结果上浮（writeBatch 遇非空片段
+      // 时间轴不在批事务硬删——T12 收编语义+reason 透传，guardResult 进 reject 计数）
+      const r = applyDeleteNodesToDoc(doc, op.nodeIds);
+      return guardResult(index, op.op, r.written, r.reason);
+    }
     case 'fillDoc':
       return guardResult(index, op.op, applyFillDocToDoc(doc, op.nodes, op.edges).written); // T12 收编（export-fresh 同源）
     default:

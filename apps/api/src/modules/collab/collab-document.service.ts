@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger, Optional, ServiceUnavailableException, type OnApplicationShutdown } from '@nestjs/common';
 import * as Y from 'yjs';
-import { toReadModel, CANVAS_DOC_SCHEMA_VERSION, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, textDomainOf, assembleExecStatusPayload, type StoredNodeRecord, type DocEdgeRecord, type CanvasReadModel, type CanvasReadSnapshot } from '@flowweb/shared';
+import { toReadModel, CANVAS_DOC_SCHEMA_VERSION, CollabAuthReason, SERVER_TRANSACT_ORIGIN, fillDoc, textDomainOf, assembleExecStatusPayload, deleteNodesWithTimelines, type StoredNodeRecord, type DocEdgeRecord, type CanvasReadModel, type CanvasReadSnapshot } from '@flowweb/shared';
 import { CollabGateway, isValidDocName } from './collab.gateway';
 import { canvasDocName } from './doc-name.util';
 import { CollabResidencyService, type WithSessionOptions } from './collab-residency.service';
@@ -28,7 +28,8 @@ export type ExecStatusPatch = {
 export interface WriteNodeDataResult {
   written: boolean;
   // Y1c T15 增容器规则两值（text-domain-protected/no-data-map——见 applyWriteNodeDataToDoc 头注）
-  reason?: 'node-deleted' | 'fence-unregistered' | 'no-node-map' | 'text-domain-protected' | 'no-data-map';
+  // +Y4a T5 timelines 键档（timeline-chunk-required——writeBatch 遇非空片段时间轴不在批事务硬删）。
+  reason?: 'node-deleted' | 'fence-unregistered' | 'no-node-map' | 'text-domain-protected' | 'no-data-map' | 'timeline-chunk-required';
 }
 
 @Injectable()
@@ -408,22 +409,23 @@ export function applyDeleteNodeDataKeysToDoc(doc: Y.Doc, nodeId: string, keys: r
 // shrink 影子预演在无外层事务的 scratch doc 上调用，原子边界须原语自持；嵌套于 withDoc 事务时
 // 内层 origin 被 yjs 忽略=T10 已证无影响）。三原语 delete/fill 均 no-guard（全量操作无存在性前提）。 ──
 
-/** deleteNodes 写核心（收编 collab-shrink.deleteNodesInDoc——语义原样迁移）：E68 边级联
- *  （引用被删节点的边一并删——悬挂边防护；非 map 边值跳过）+nodes 删；doc.transact 单事务原子。
- *  delete 幂等（不存在的 id=no-op）；exec 根=T32 起死根（零写者——无孤儿清扫面）。 */
+/** deleteNodes 写核心（收编 collab-shrink.deleteNodesInDoc——语义原样迁移）：Y4a T5（spec §0 条 4）
+ *  改调 shared 删除原语 deleteNodesWithTimelines——**带时间轴判守卫**：任一 victim 的 timelines.<id>
+ *  仍带非空片段 → written:false reason 'timeline-chunk-required'（writeBatch 遇此档不在批事务硬删
+ *  ——该 op 拒、同批合法 op 照常）；无时间轴/空时间轴节点=原语义（E68 边级联+nodes 删+timelines
+ *  同名键同笔删）。幂等（不存在的 id=no-op）。
+ *  注意：本函数不再自包 doc.transact（原语恰好一次最外层事务——调用方不得处于外层事务中，
+ *  嵌套即抛 nested-transact-forbidden 禁止静默并帧）；shrink 活写/恢复导入逐块由调用方开事务。 */
 export function applyDeleteNodesToDoc(doc: Y.Doc, nodeIds: readonly string[]): WriteNodeDataResult {
-  const victims = new Set(nodeIds);
-  doc.transact(() => {
-    const edges = doc.getMap('edges');
-    for (const [id, v] of [...edges.entries()]) {
-      if (!(v instanceof Y.Map)) continue;   // E68 全函数：边值可为任意 JSON——非 map 跳过
-      const s = v.get('source');
-      const t = v.get('target');
-      if ((typeof s === 'string' && victims.has(s)) || (typeof t === 'string' && victims.has(t))) edges.delete(id);
+  // 带非空片段时间轴的节点：writeBatch 不在批事务硬删（spec §0 条 4——须走切块路径）
+  for (const id of nodeIds) {
+    const entry = doc.getMap('timelines').get(id);
+    const clips = entry instanceof Y.Map ? entry.get('clips') : undefined;
+    if (clips instanceof Y.Map && clips.size > 0) {
+      return { written: false, reason: 'timeline-chunk-required' };
     }
-    const nodes = doc.getMap('nodes');
-    for (const id of victims) nodes.delete(id);
-  });
+  }
+  deleteNodesWithTimelines(doc, nodeIds, SERVER_TRANSACT_ORIGIN);
   return { written: true };
 }
 

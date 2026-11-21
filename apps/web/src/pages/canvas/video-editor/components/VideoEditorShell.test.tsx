@@ -1,64 +1,69 @@
+// apps/web/src/pages/canvas/video-editor/components/VideoEditorShell.test.tsx
+// Y4a T7（spec §0 条 7 + plan Task 7）：Shell 改订阅既有 timelines.<nodeId> Map——upsert/autosave/
+// 三选 ConfirmModal/close-drain REST 链整删（关闭=直接关；tests 随消费点同批退场）。装载装置=
+// setTimelineDocRef(live)+doc 里 timelines.n1 已种（编辑器只读已存在 Map——键不在不创建工程）。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { VideoEditorShell, hasPendingWork } from './VideoEditorShell';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import * as Y from 'yjs';
+import { VideoEditorShell } from './VideoEditorShell';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
-import { useCanvasStore } from '@/stores/canvasStore';
-import { armUnloadWarning, _resetUnloadGuardForTest } from '@/utils/unloadGuard';
-import { useConfirmModalStore } from '@/stores/confirmModalStore';
-import { ConfirmModal } from '@/pages/canvas/components/ConfirmModal';
 import { isGroupEditContext } from '@/hooks/useGroupKeyboard';
-import { upsertProject, patchProject } from '@/api/videoProjectApi';
-import { createDefaultProjectData } from '../types';
 import { useEditorStore } from '../store/editorStore';
-import { LAST_ASPECT_KEY } from '../timeline/canvas-size';
+import { setTimelineDocRef, getTimelineUndoManager, detachTimelineUndo } from '@/stores/timelineUndo';
 
-vi.mock('@/api/videoProjectApi', () => ({
-  upsertProject: vi.fn(),
-  patchProject: vi.fn(),
-  getProjectByNode: vi.fn().mockResolvedValue(null),
-  deleteProjectByNode: vi.fn(),
-}));
+/** 装置：真 live doc + timelines.n1 已种（loadProject 走 doc 水合）。 */
+const LIVE = 777_777;
+function setupDoc(): Y.Doc {
+  const live = new Y.Doc();
+  live.clientID = LIVE;
+  live.transact(() => {
+    const track = new Y.Map();
+    track.set('type', 'video'); track.set('name', '视频');
+    track.set('muted', false); track.set('hidden', false); track.set('order', '5000');
+    const tracks = new Y.Map(); tracks.set('n1:video', track);
+    const entry = new Y.Map();
+    entry.set('version', 1); entry.set('fps', 30);
+    entry.set('tracks', tracks); entry.set('clips', new Y.Map());
+    live.getMap('timelines').set('n1', entry);
+  }, 'local-user');
+  setTimelineDocRef(live);
+  return live;
+}
 
-// Y0b-5 T6 迁移：Shell beforeunload 消费面=utils/unloadGuard reason 集合（'editor-dirty' 由本
-// 组件注册；'unsynced' 由 runtime 单源注册——置位/清除语义归 runtime t6.spec/conn.spec 直测）。
-// 此处以 armUnloadWarning('unsynced') 直接建模 runtime 已武装形态（重建窗口半边）。
-
-/** 批6：patchProject mock 返回值（完整 VideoProjectDto 形状——onSaved 只消费 updatedAt） */
-const patchDto = () => ({
-  id: 'p1', sourceNodeId: 'n1', workflowId: 'w', teamId: 'team1', title: 't',
-  data: createDefaultProjectData(), updatedAt: 't1',
-});
-
-describe('VideoEditorShell', () => {
+describe('VideoEditorShell（Y4a T7 订阅既有 Map——REST 链退场）', () => {
+  let live: Y.Doc;
   beforeEach(() => {
     useVideoEditorStore.setState({ open: false, sourceNodeId: null, closedAt: 0 });
     useEditorStore.getState().reset();
-    // Shell 接线后 open 即触发 upsertProject → loadProject；mock 全量 DTO（data 用真实默认工程形状）
-    vi.mocked(upsertProject).mockResolvedValue({
-      id: 'p1', sourceNodeId: 'n1', workflowId: 'w', teamId: 'team1', title: 't',
-      data: createDefaultProjectData(), updatedAt: 't0',
-    });
+    live = setupDoc();
   });
-  it('open=false 不渲染；open 后渲染全屏壳与占位区', async () => {
+  afterEach(() => {
+    detachTimelineUndo();
+    setTimelineDocRef(null);
+    live.destroy();
+  });
+
+  it('open=false 不渲染；open 后渲染全屏壳与就绪时间轴（doc 水合 ready）', async () => {
     const { rerender } = render(<VideoEditorShell />);
     expect(screen.queryByTestId('video-editor-shell')).not.toBeInTheDocument();
     useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
     rerender(<VideoEditorShell />);
     expect(screen.getByTestId('video-editor-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('preview-canvas')).toBeInTheDocument(); // PreviewPlayer 替换 PreviewPlaceholder（Task 8）
-    // 入口时序（Task 14）：面板先 loading 禁编辑，loadProject resolve 后才就绪为 timeline-panel
+    expect(screen.getByTestId('preview-canvas')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument());
+    expect(useEditorStore.getState().status).toBe('ready');   // doc 水合就绪
+    expect(useEditorStore.getState().data).not.toBeNull();
   });
   it('点遮罩不关闭（closeOnBackdrop=false 透传）', () => {
     useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
     render(<VideoEditorShell />);
-    // 层级：遮罩 > role=dialog > video-editor-shell
     fireEvent.click(screen.getByTestId('video-editor-shell').parentElement!.parentElement!);
     expect(useVideoEditorStore.getState().open).toBe(true);
   });
-  it('收起按钮 → close（经 handleClose：flush 排空后异步关，M1 检查点）', async () => {
+  it('收起按钮 → 直接关（close-drain 三选/autosave 链退场——无 REST 排空）', async () => {
     useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
     render(<VideoEditorShell />);
+    await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument());
     fireEvent.click(screen.getByText('收起'));
     await waitFor(() => expect(useVideoEditorStore.getState().open).toBe(false));
   });
@@ -73,34 +78,29 @@ describe('VideoEditorShell', () => {
     render(<VideoEditorShell />);
     const shell = screen.getByTestId('video-editor-shell');
     expect(shell.className).toContain('nokey');
-    // 焦点断言：open 后焦点应落在壳内（initialFocusRef 生效），而非残留画布按钮
     await waitFor(() => expect(shell).toContainElement(document.activeElement as HTMLElement | null));
   });
   it('P0-A 回归：壳内 antd 弹层挂载容器归属壳节点（删 Shell 的 ConfigProvider 后此用例必红）', async () => {
     useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
     render(<VideoEditorShell />);
-    await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument()); // 就绪（upsert → loadProject）
-    fireEvent.click(screen.getByText('导出')); // 打开导出弹层（Task 19 起为 ExportPopover——批 1 壳内归属语义不变）
+    await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('导出'));
     await waitFor(() => {
       const wrap = document.querySelector('.ant-popover');
       expect(wrap).toBeTruthy();
-      // 容器归属断言（真红点）：Popover 弹层挂进壳内而非 body 直挂——
-      // 无 ConfigProvider(getPopupContainer) 时 wrap.closest(壳) === null，用例红
       expect((wrap as HTMLElement).closest('[data-testid="video-editor-shell"]')).not.toBeNull();
     });
   });
   it('布局为可调面板组：垂直(主区/时间轴) + 水平(素材/预览/属性) 各两级', async () => {
-    // 复用 P0-A 渲染等待方式（upsert → loadProject 就绪）
     useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
     render(<VideoEditorShell />);
     await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument());
-    // v2 DOM 属性 data-panel-group-id/data-panel-id（组 id ve-vertical/ve-horizontal 由实现写入）
     expect(document.querySelectorAll('[data-panel-group-id]').length).toBeGreaterThanOrEqual(2);
     expect(document.querySelector('[data-panel-group-id="ve-vertical"]')).not.toBeNull();
     expect(document.querySelector('[data-panel-group-id="ve-horizontal"]')).not.toBeNull();
-    expect(document.querySelectorAll('[data-panel-id]').length).toBe(5); // vertical 2 + horizontal 3
+    expect(document.querySelectorAll('[data-panel-id]').length).toBe(5);
   });
-  it('顶栏比例按钮存在且点击切换 canvasSize（走真实 store）+ 记忆写入', async () => {
+  it('顶栏比例按钮存在且点击切换 canvasSize（走真实 store commit→doc 写穿）', async () => {
     useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
     render(<VideoEditorShell />);
     await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument());
@@ -109,295 +109,50 @@ describe('VideoEditorShell', () => {
     await waitFor(() => expect(screen.getByText('9:16（1080×1920）')).toBeInTheDocument());
     fireEvent.click(screen.getByText('9:16（1080×1920）'));
     await waitFor(() => expect(useEditorStore.getState().data!.canvasSize).toEqual({ width: 1080, height: 1920 }));
-    expect(localStorage.getItem(LAST_ASPECT_KEY)).toBe('9:16');
+    // doc 写穿：entry 里 canvasSize 标量已落
+    const entry = live.getMap('timelines').get('n1') as Y.Map<unknown>;
+    await waitFor(() => expect(entry.get('canvasSize')).toEqual({ width: 1080, height: 1920 }));
   });
-  it('新建工程默认画布用记忆比例（LAST_ASPECT_KEY——spec 5.1 D6 显式不静默）', async () => {
-    localStorage.setItem(LAST_ASPECT_KEY, '9:16');
-    try {
-      useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
-      render(<VideoEditorShell />);
-      await waitFor(() => expect(vi.mocked(upsertProject)).toHaveBeenCalled());
-      const calls = vi.mocked(upsertProject).mock.calls; // 本文件 beforeEach 无 clearAllMocks——取最后一次调用
-      expect(calls[calls.length - 1][0]).toMatchObject({
-        data: { canvasSize: { width: 1080, height: 1920 } },
-      });
-    } finally {
-      localStorage.removeItem(LAST_ASPECT_KEY);
-    }
-  });
-  it('loadProject 迁移不触发 autosave（幻影 PATCH 过滤——I2）', async () => {
-    vi.useFakeTimers();
-    try {
-      useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
-      render(<VideoEditorShell />);
-      // upsertProject 已 resolve（microtask）→ loadProject 已跑 → 推进防抖窗口
-      await vi.advanceTimersByTimeAsync(2000);
-      expect(vi.mocked(upsertProject)).toHaveBeenCalled();
-      expect(vi.mocked(patchProject)).not.toHaveBeenCalled(); // 零幻影 PATCH
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-});
-
-describe('批0d：Shell 数据止血接线（catch 不放行 + beforeunload + editorDirty）', () => {
-  beforeEach(() => {
-    useVideoEditorStore.setState({ open: false, sourceNodeId: null, closedAt: 0 });
-    useEditorStore.getState().reset();
-    useCanvasStore.setState({ editorDirty: false });
-    vi.mocked(upsertProject).mockResolvedValue({
-      id: 'p1', sourceNodeId: 'n1', workflowId: 'w', teamId: 'team1', title: 't',
-      data: createDefaultProjectData(), updatedAt: 't0',
-    });
-  });
-
-  it('flush 异常路径不放行：保存链路异常时 handleClose 不 close（close=丢出口，数据留编辑器重试）', async () => {
+  it('键不在（timelines 无该 nodeId）→ 停 loading 不创建工程', async () => {
+    live.transact(() => { (live.getMap('timelines') as Y.Map<unknown>).delete('n1'); }, 'local-user');
     useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
     render(<VideoEditorShell />);
-    await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument()); // ready
-    // 构造 flush reject：setSaveState 抛错 → doSave 在 onStateChange('saving')（try 外）reject → flush reject
-    const spy = vi.spyOn(useEditorStore.getState(), 'setSaveState').mockImplementation(() => { throw new Error('boom'); });
-    try {
-      act(() => { useEditorStore.setState({ data: createDefaultProjectData() }); }); // 编辑 → notifyChange（dirty 排队）
-      fireEvent.click(screen.getByText('收起')); // handleClose → flush → reject → .catch
-      await act(async () => {}); // flush microtask 排空
-      expect(useVideoEditorStore.getState().open).toBe(true); // 不 close——数据留在编辑器给用户重试
-    } finally {
-      spy.mockRestore();
-    }
+    await waitFor(() => expect(screen.getByTestId('timeline-loading')).toBeInTheDocument());
+    expect(useEditorStore.getState().status).toBe('loading');
+    expect([...(live.getMap('timelines') as Y.Map<unknown>).keys()]).toEqual([]);   // 不创建
   });
-
-  it('editorDirty true 时 beforeunload preventDefault（B4——关标签无提示丢拦截）', async () => {
-    useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
-    render(<VideoEditorShell />);
-    await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument()); // ready
-    act(() => { useEditorStore.setState({ data: createDefaultProjectData() }); }); // 编辑 → notifyChange → latch 置位
-    const ev = new Event('beforeunload', { cancelable: true });
-    window.dispatchEvent(ev);
-    expect(ev.defaultPrevented).toBe(true);
-  });
-});
-
-describe('批6：红2f″ beforeunload 全组判据（defaultPrevented 场景矩阵）', () => {
-  // ⚠ 已知残留（sticky activation，平台行为不修）：浏览器 tab 激活恢复后 beforeunload 可能被
-  // 浏览器策略忽略（Chrome 需先有 sticky user activation）——jsdom 断言 defaultPrevented 是
-  // 谓词级锚，不覆盖该浏览器策略层
-  beforeEach(() => {
-    useVideoEditorStore.setState({ open: false, sourceNodeId: null, closedAt: 0 });
-    useEditorStore.getState().reset();
-    useCanvasStore.setState({ editorDirty: false, collabReadOnly: false, wsAuthNotice: null });
-    _resetUnloadGuardForTest();
-    vi.mocked(upsertProject).mockResolvedValue({
-      id: 'p1', sourceNodeId: 'n1', workflowId: 'w', teamId: 'team1', title: 't',
-      data: createDefaultProjectData(), updatedAt: 't0',
-    });
-    vi.mocked(patchProject).mockReset().mockResolvedValue(patchDto());
-  });
-
-  const fire = () => {
-    const ev = new Event('beforeunload', { cancelable: true });
-    window.dispatchEvent(ev);
-    return ev.defaultPrevented;
-  };
-  async function openReady() {
+  it('重绑（spec §0 条 7）：open 期间远端换掉 entry → 根键监听重绑新 Map、栈从空开始', async () => {
     useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
     render(<VideoEditorShell />);
     await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument());
-  }
-  const edit = () => act(() => { useEditorStore.setState({ data: createDefaultProjectData() }); });
-
-  it('本地编辑后（editorDirty=true）→ 拦', async () => {
-    await openReady();
-    edit(); // notifyChange → latch 即时置位（防抖窗口内也是"未落库"）
-    expect(useCanvasStore.getState().editorDirty).toBe(true);
-    expect(fire()).toBe(true);
-  });
-
-  it('零编辑 → 不拦（干净编辑器无噪音）', async () => {
-    await openReady();
-    expect(useCanvasStore.getState().editorDirty).toBe(false);
-    expect(fire()).toBe(false);
-  });
-
-  it('仅几何回写（Origin.Geometry 不入编辑器链）→ 不拦', async () => {
-    await openReady();
-    // 结构性保证：editorDirty 唯一置位源=autosave.onDirtyChange（editorStore.data 订阅触发）；
-    // S1 回写通道已删（O0b-0 停写/O0b-4 模块清理）——画布侧几何变化只写 canvasStore/doc，
-    // 不触碰 editorStore.data，editorDirty 保持 false
-    act(() => {
-      useCanvasStore.setState({ nodes: [{ id: 'g1', type: 'group', position: { x: 99, y: 99 }, data: {} } as any] });
-    });
-    expect(useCanvasStore.getState().editorDirty).toBe(false);
-    expect(fire()).toBe(false);
-  });
-
-  it('正常保存后（patch 成功 onDirtyChange(false)）→ 不拦（噪音防回归）', async () => {
-    await openReady();
-    vi.useFakeTimers();
-    try {
-      edit(); // notifyChange 的防抖 timer 须注册进 fake 时钟（先切 fake 再编辑）
-      await act(async () => { await vi.advanceTimersByTimeAsync(1500); }); // 防抖到期 → PATCH 成功
-      expect(useCanvasStore.getState().editorDirty).toBe(false);
-      expect(fire()).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('409 后（latch 不清）→ 拦', async () => {
-    const err = Object.assign(new Error('conflict'), { status: 409 });
-    vi.mocked(patchProject).mockReset().mockRejectedValue(err);
-    await openReady();
-    vi.useFakeTimers();
-    try {
-      edit();
-      await act(async () => { await vi.advanceTimersByTimeAsync(1500); }); // 首发 409 → onConflict，latch 保持
-      expect(useCanvasStore.getState().editorDirty).toBe(true);
-      expect(fire()).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('退避耗尽后（B4）→ 拦', async () => {
-    vi.mocked(patchProject).mockReset().mockRejectedValue(new Error('network'));
-    await openReady();
-    vi.useFakeTimers();
-    try {
-      edit();
-      await act(async () => { await vi.advanceTimersByTimeAsync(1500 + 1000 + 4000 + 16000 + 100); }); // 首发+3 次退避全烧完
-      expect(useCanvasStore.getState().editorDirty).toBe(true); // 耗尽不清 latch
-      expect(fire()).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('auth 终态+未同步 → 仍拦（guardBlocked 仅 collabReadOnly 锚——编辑器数据不因 auth 拒连而消失）', async () => {
-    await openReady();
-    edit();
-    act(() => {
-      // auth 终态形态：WS 拒连、画布只读——但编辑器 latch（REST 侧）不因此清零
-      useCanvasStore.setState({ collabReadOnly: true, wsAuthNotice: { reason: 'viewer', terminal: true } });
-    });
-    expect(useCanvasStore.getState().editorDirty).toBe(true);
-    expect(fire()).toBe(true);
-  });
-
-  it('重建窗口（recoverConnection 后未 healthy——rebuildPending=true）→ 拦（谓词另一半独立起效）', async () => {
-    await openReady();
-    // 零编辑（editorDirty=false）；runtime 单源已武装 'unsynced'（终态重建保守武装 markDocUnsyncedDirty）
-    armUnloadWarning('unsynced');
-    expect(fire()).toBe(true);
-  });
-});
-
-describe('批6：handleClose 三选（flush 失败 → ConfirmModal 重试保存/放弃修改并收起/取消）', () => {
-  beforeEach(() => {
-    useVideoEditorStore.setState({ open: false, sourceNodeId: null, closedAt: 0 });
-    useEditorStore.getState().reset();
-    useCanvasStore.setState({ editorDirty: false });
-    useConfirmModalStore.getState().close();
-    _resetUnloadGuardForTest();
-    vi.mocked(upsertProject).mockResolvedValue({
-      id: 'p1', sourceNodeId: 'n1', workflowId: 'w', teamId: 'team1', title: 't',
-      data: createDefaultProjectData(), updatedAt: 't0',
-    });
-  });
-
-  /** 装置：409 冲突形态（latch=true、dirty=false——flush 即返 false，无需烧退避额度）
-   *  patch 首发 reject 409 → 三选；「重试保存」补发走第二次 resolve */
-  async function setupConflictAndOpenModal() {
-    const err = Object.assign(new Error('conflict'), { status: 409 });
-    vi.mocked(patchProject).mockReset()
-      .mockRejectedValueOnce(err)
-      .mockResolvedValueOnce({ ...patchDto(), updatedAt: 't2' });
-    useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
-    render(<><VideoEditorShell /><ConfirmModal /></>); // ConfirmModal 生产挂载在 CanvasView——测试并排渲染
-    await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument());
-    vi.useFakeTimers();
-    act(() => { useEditorStore.setState({ data: createDefaultProjectData() }); }); // 编辑 → latch
-    await act(async () => { await vi.advanceTimersByTimeAsync(1500); }); // 首发 409 → onConflict + latch 保持
-    expect(useCanvasStore.getState().editorDirty).toBe(true);
-    fireEvent.click(screen.getByText('收起')); // handleClose → flush 即返 false → 三选
-    await act(async () => {}); // flush promise microtask 排空
-  }
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('flush 失败 → 三按钮出现且不 close（数据留编辑器）', async () => {
-    await setupConflictAndOpenModal();
-    expect(useConfirmModalStore.getState().isOpen).toBe(true);
-    expect(screen.getByText('重试保存')).toBeInTheDocument();
-    expect(screen.getByText('放弃修改并收起')).toBeInTheDocument();
-    expect(screen.getByText('取消')).toBeInTheDocument();
-    expect(useVideoEditorStore.getState().open).toBe(true); // 不 close
-  });
-
-  it('「取消」→ 留编辑器、latch 不清（关标签仍拦）', async () => {
-    await setupConflictAndOpenModal();
-    fireEvent.click(screen.getByText('取消'));
-    await act(async () => {});
-    expect(useConfirmModalStore.getState().isOpen).toBe(false);
-    expect(useVideoEditorStore.getState().open).toBe(true);
-    expect(useCanvasStore.getState().editorDirty).toBe(true); // 未保存工作仍在
-    const ev = new Event('beforeunload', { cancelable: true });
-    window.dispatchEvent(ev);
-    expect(ev.defaultPrevented).toBe(true);
-  });
-
-  it('「放弃修改并收起」→ release+close 且 editorDirty 清零（显式确认=清除语义，beforeunload 解除）', async () => {
-    await setupConflictAndOpenModal();
-    fireEvent.click(screen.getByText('放弃修改并收起'));
-    await act(async () => {});
-    expect(useVideoEditorStore.getState().open).toBe(false);
-    expect(useCanvasStore.getState().editorDirty).toBe(false); // 用户显式确认=清除
-    const ev = new Event('beforeunload', { cancelable: true });
-    window.dispatchEvent(ev);
-    expect(ev.defaultPrevented).toBe(false); // 放弃后不再拦
-  });
-
-  it('「重试保存」→ 补发成功 → close', async () => {
-    await setupConflictAndOpenModal();
-    fireEvent.click(screen.getByText('重试保存'));
-    await act(async () => { await vi.advanceTimersByTimeAsync(100); }); // retry 补发 + flush 排空
-    expect(vi.mocked(patchProject)).toHaveBeenCalledTimes(2); // 真的再保存了一次（非纯 flush 判 latch）
-    expect(useVideoEditorStore.getState().open).toBe(false); // 成功 → close
-    expect(useCanvasStore.getState().editorDirty).toBe(false);
-  });
-});
-
-describe('批6：hasPendingWork() 导出（外部查询编辑器有无未保存工作）', () => {
-  beforeEach(() => {
-    useVideoEditorStore.setState({ open: false, sourceNodeId: null, closedAt: 0 });
-    useEditorStore.getState().reset();
-    useCanvasStore.setState({ editorDirty: false });
-    _resetUnloadGuardForTest();
-    vi.mocked(upsertProject).mockResolvedValue({
-      id: 'p1', sourceNodeId: 'n1', workflowId: 'w', teamId: 'team1', title: 't',
-      data: createDefaultProjectData(), updatedAt: 't0',
-    });
-    vi.mocked(patchProject).mockReset().mockResolvedValue(patchDto());
-  });
-
-  it('干净 false；编辑 true；保存成功 false；关闭后 false', async () => {
-    useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
-    render(<VideoEditorShell />);
-    await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument());
-    expect(hasPendingWork()).toBe(false); // 干净
-    vi.useFakeTimers();
-    try {
-      act(() => { useEditorStore.setState({ data: createDefaultProjectData() }); }); // 编辑（防抖注册进 fake 时钟）
-      expect(hasPendingWork()).toBe(true);  // dirty（防抖窗口）
-      await act(async () => { await vi.advanceTimersByTimeAsync(1500); }); // 保存成功
-      expect(hasPendingWork()).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
-    fireEvent.click(screen.getByText('收起')); // 干净收起（flush 空 → drained → close）
+    const oldUm = getTimelineUndoManager()!;
+    // 造一笔栈项
+    useEditorStore.getState().addClip({ type: 'image', mediaId: 'm9', trackId: 'n1:video', start: 0 });
+    expect(oldUm.undoStack.length).toBe(1);
+    // 远端换掉整棵 Map
+    live.transact(() => {
+      const timelines = live.getMap('timelines') as Y.Map<unknown>;
+      timelines.delete('n1');
+      const track = new Y.Map();
+      track.set('type', 'video'); track.set('name', '视频');
+      track.set('muted', false); track.set('hidden', false); track.set('order', '5000');
+      const tracks = new Y.Map(); tracks.set('n1:video', track);
+      const entry = new Y.Map();
+      entry.set('version', 1); entry.set('fps', 30);
+      entry.set('tracks', tracks); entry.set('clips', new Y.Map());
+      timelines.set('n1', entry);
+    }, null as unknown as string);
+    await waitFor(() => expect(getTimelineUndoManager()).not.toBe(oldUm));
+    expect(getTimelineUndoManager()!.undoStack.length).toBe(0);   // 栈从空开始
+    // 关闭=直接关（收起无排空路径）
+    fireEvent.click(screen.getByText('收起'));
     await waitFor(() => expect(useVideoEditorStore.getState().open).toBe(false));
-    expect(hasPendingWork()).toBe(false);      // 关闭后（活控制器引用置 null）
+  });
+  it('键删除（节点没了）→ open 期间根键监听捕获 → 编辑器关掉', async () => {
+    useVideoEditorStore.setState({ open: true, sourceNodeId: 'n1' });
+    render(<VideoEditorShell />);
+    await waitFor(() => expect(screen.getByTestId('timeline-panel')).toBeInTheDocument());
+    live.transact(() => { (live.getMap('timelines') as Y.Map<unknown>).delete('n1'); }, 'local-user');
+    await waitFor(() => expect(useVideoEditorStore.getState().open).toBe(false));   // 编辑器关掉
   });
 });

@@ -4,7 +4,7 @@ import { createDefaultProjectData, type ProjectData } from '../types';
 
 const ready = (d?: ProjectData) => {
   const data = d ?? createDefaultProjectData();
-  useEditorStore.setState({ status: 'ready', data, projectId: 'p1', sourceNodeId: 'edit1', baseUpdatedAt: 't', playhead: 0 });
+  useEditorStore.setState({ status: 'ready', data, sourceNodeId: 'edit1', playhead: 0 });
   return data;
 };
 const addVideo = () => {
@@ -74,16 +74,17 @@ describe('keyframe actions（spec 第四节关键帧 UI 支撑）', () => {
     useEditorStore.getState().removeKeyframe(id, kfId);
     expect((useEditorStore.getState().data!.clips[id] as any).keyframes).toHaveLength(0);
   });
-  it('moveKeyframe transient 不入历史（拖拽 rAF），removeKeyframe 入历史', () => {
+  it('moveKeyframe transient=本地覆盖层（零 doc 笔），removeKeyframe 直删本地', () => {
     ready();
     const id = addVideo();
     useEditorStore.getState().setPlayhead(1);
     const kfId = useEditorStore.getState().addKeyframe(id, 'scale')!;
-    const depth = useEditorStore.getState().history.past.length;
+    // Y4a T7（spec §4）：JSON 快照史退场——栈行为由 editorStore.timeline.spec 锁 doc 管线；
+    // 本档只锁本地数据面：transient 跟手改 t、removeKeyframe 直删。
     useEditorStore.getState().moveKeyframe(id, kfId, 2, { transient: true });
-    expect(useEditorStore.getState().history.past.length).toBe(depth);
+    expect((useEditorStore.getState().data!.clips[id] as any).keyframes[0].t).toBe(2);
     useEditorStore.getState().removeKeyframe(id, kfId);
-    expect(useEditorStore.getState().history.past.length).toBe(depth + 1);
+    expect((useEditorStore.getState().data!.clips[id] as any).keyframes).toHaveLength(0);
   });
   it('字幕片 addKeyframe → null（无关键帧语义）', () => {
     ready();

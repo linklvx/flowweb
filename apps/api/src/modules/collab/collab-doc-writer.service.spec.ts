@@ -238,3 +238,64 @@ describe('Y0c T12 直写收编（两 op+doc 域 API+幂等执法面 flag）', ()
     expect(live.getMap('edges').get('e1')).toBeUndefined();         // 预演与活写同语义（E68 级联同在）
   });
 });
+
+// ── Y4a T5（spec §0 条 4）：writeBatch deleteNodes 遇非空片段时间轴=timeline-chunk-required
+//    拒（不在批事务硬删）+timelines 键随删（shared 删除原语三路接线）──
+describe('Y4a T5 deleteNodes 三路接线（spec §0 条 4）', () => {
+  /** 剪辑节点+非空片段时间轴夹具（videoEdit 节点+timelines.<id> 带 1 片段）。 */
+  function seedClipNode(doc: Y.Doc, id: string): void {
+    doc.transact(() => {
+      const n = new Y.Map();
+      n.set('type', 'videoEdit');
+      doc.getMap('nodes').set(id, n);
+      const clips = new Y.Map();
+      const clip = new Y.Map();
+      clip.set('type', 'subtitle');
+      clip.set('span', { trackId: `${id}:video`, start: 0, duration: 1 });
+      clip.set('text', 'x');
+      clip.set('visible', true);
+      clip.set('style', { fontSize: 16, letterSpacing: 0, color: '#fff' });
+      clips.set(`${id}-c1`, clip);
+      const tl = new Y.Map();
+      tl.set('version', 1); tl.set('fps', 30);
+      tl.set('tracks', new Y.Map()); tl.set('clips', clips);
+      doc.getMap('timelines').set(id, tl);
+    }, 'seed');
+  }
+
+  it('无时间轴/空片段时间轴节点：timelines 键随删（shared 原语——空 clips 仍整键删）', () => {
+    const doc = new Y.Doc();
+    seedNode(doc, 'plain');
+    doc.transact(() => {
+      const empty = new Y.Map();
+      empty.set('type', 'videoEdit');
+      doc.getMap('nodes').set('empty-tl', empty);
+      const tl = new Y.Map();
+      tl.set('version', 1); tl.set('fps', 30);
+      tl.set('tracks', new Y.Map()); tl.set('clips', new Y.Map());
+      doc.getMap('timelines').set('empty-tl', tl);
+    }, 'seed');
+    const results = applyWriteOpsToDoc(doc, [{ op: 'deleteNodes', nodeIds: ['plain', 'empty-tl'] }]);
+    expect(results[0]).toMatchObject({ index: 0, op: 'deleteNodes', written: true });
+    expect(doc.getMap('nodes').has('plain')).toBe(false);
+    expect(doc.getMap('nodes').has('empty-tl')).toBe(false);
+    expect(doc.getMap('timelines').has('empty-tl')).toBe(false);   // timelines 键随删（原语同笔）
+  });
+
+  it('非空片段时间轴节点：written:false reason timeline-chunk-required——不在批事务硬删（spec §0 条 4）', async () => {
+    const doc = new Y.Doc();
+    seedClipNode(doc, 'clip-n');
+    seedNode(doc, 'plain2');
+    const before = await rejectedOf('timeline-chunk-required');
+    const results = applyWriteOpsToDoc(doc, [
+      { op: 'deleteNodes', nodeIds: ['clip-n'] },
+      { op: 'deleteNodes', nodeIds: ['plain2'] },
+    ]);
+    expect(results[0]).toMatchObject({ index: 0, op: 'deleteNodes', written: false, reason: 'timeline-chunk-required' });
+    expect(doc.getMap('nodes').has('clip-n')).toBe(true);         // 节点原样保留（批事务不硬删）
+    expect(doc.getMap('timelines').has('clip-n')).toBe(true);      // 时间轴原样保留
+    expect(results[1]).toMatchObject({ index: 1, op: 'deleteNodes', written: true });   // 同批无时间轴节点照常删
+    expect(doc.getMap('nodes').has('plain2')).toBe(false);        // 合法 op 不连坐
+    expect(await rejectedOf('timeline-chunk-required')).toBe(before + 1);
+  });
+});

@@ -64,7 +64,7 @@ import {
 import {
   maskGraphAnomalies,
   MEDIA_REF_TARGET_FIELDS,
-  collectMediaRefsForNode,
+  collectNodeRefsUnion,
   isFrameNodeTypeName,
   validateActorRanges,
   validateXmlL1,
@@ -165,9 +165,9 @@ const mediaIdListOf = (v: unknown): string[] => {
 };
 
 /** C3a-3（spec §3.2-1）：帧级 binding 快照——touched nodeId→槽位集（MediaRef 五元组含 role，
- *  collectMediaRefsForNode 单源终态）；**null=NODE_DELETED**（帧边界 doc 已无该 node——全删其
- *  全部槽位，与空槽位集〔node 在册零引用〕语义分立，C3a-5 投影器 diff 消费）。空 Map=帧无
- *  touched（C3a-4 投影跳过零开销）。 */
+ *  Y4a T6 后=collectNodeRefsUnion 并集单源终态〔节点槽∪timeline clips〕）；**null=NODE_DELETED**
+ *  （帧边界 doc 已无该 node 且无 timelines 同名键——全删其全部槽位，与空槽位集〔在册零引用〕语义
+ *  分立，C3a-5 投影器 diff 消费）。空 Map=帧无 touched（C3a-4 投影跳过零开销）。 */
 export type BindingDelta = ReadonlyMap<string, readonly MediaRef[] | null>;
 
 /** per-doc 收集器（WeakMap 键控——doc 消亡即失联；事件签名结构性窄化，零 @hocuspocus import）。 */
@@ -207,14 +207,23 @@ export class FrameEffectsCollector {
     return out;
   }
 
-  /** C3a-3（spec §3.2-1）：帧边界 binding 快照取走（apply 后**终态 doc** 上算——帧内最后一刻
-   *  状态权威，非逐事件增量）；touched 保守集 × collectMediaRefsForNode 单源（候选无关全词表扫）
-   *  ——node 已不在 doc=null（NODE_DELETED，root delete/净删帧形态）。取走即清（帧作用域）。 */
+  /** C3a-3（spec §3.2-1）/Y4a T6（spec §0 条 11）：帧边界 binding 快照取走（apply 后**终态 doc**
+   *  上算——帧内最后一刻状态权威，非逐事件增量）；touched 保守集 × collectNodeRefsUnion 并集单源
+   *  （节点槽∪timeline clips——增量=全量同集合）。**悬空键照投**：节点已删而 timelines 同名键还在
+   *  →照投该键片段行（键还在=引用还在）；节点和键**双亡才 null**（NODE_DELETED——清该节点全部
+   *  槽位；`nodes.has?id?union:null` 形态会把并发残留键上的绑定清掉、GC 看不见）。取走即清
+   *  （帧作用域）。 */
   takeBindingDelta(doc: Y.Doc): BindingDelta {
     const nodes = doc.getMap('nodes');
+    const timelines = doc.getMap('timelines');
     const out = new Map<string, readonly MediaRef[] | null>();
     for (const nodeId of this.touched) {
-      out.set(nodeId, nodes.has(nodeId) ? collectMediaRefsForNode(nodeId, nodes.get(nodeId)) : null);
+      const timelineEntry = timelines.get(nodeId);
+      const keyAlive = timelineEntry !== undefined;
+      const node = nodes.get(nodeId);
+      out.set(nodeId, keyAlive || node !== undefined
+        ? collectNodeRefsUnion(nodeId, node, timelineEntry)
+        : null);
     }
     this.touched = new Set();
     return out;
@@ -327,9 +336,19 @@ export class FrameEffectsCollector {
     // errorComputeChanges『You must not compute changes after the event-handler fired』：noteEvents
     // 只推事件进缓冲、事务结束 validateAppliedL2 一读 ev.changes 就抛→actor 收成 l2-internal
     // 毒帧 4411 关该项目全部连接、每笔时间轴编辑都触发。edges 观察者 :313 `void ev.changes.keys`
-    // 同款形态。T3 只接 L2 事件面（touched 绑定并集投影=T6 另一笔）。
+    // 同款形态。T3 只接 L2 事件面；T6（spec §0 条 11）加**绑定用 touched**：timelines 变更路径
+    // 首段=剪辑节点 id 并入 touched（binding delta 走并集投影——clip 行不被「节点 data 替换」
+    // 盖掉）。timelines 路径永不 position-only（position-only 判定 :278 不扩——拖动 span 帧
+    // 是绑定语义无关的移动，但其 touched 进集由本观察者直标，非画布判定面）。
     doc.getMap('timelines').observeDeep((events) => {
-      for (const ev of events) void ev.changes;
+      for (const ev of events) {
+        void ev.changes;
+        if (ev.path.length > 0) {
+          this.touched.add(String(ev.path[0]));   // 子路径帧：首段=剪辑节点 id（拖动 span/clip 增删/标量改）
+        } else {
+          for (const key of ev.changes.keys.keys()) this.touched.add(key);   // 根级：timelines.<id> 键增删/替换（nodes 侧 touched 同键幂等）
+        }
+      }
       noteEvents(events);
     });
   }
@@ -477,8 +496,8 @@ interface AppliedEntry {
   actor: { userId: string; actorKind: CanvasActorKind };
   kind: QueueItem['kind'];
   effects: FrameEffect[];       // T26 义务 buffer 承载（per-walSeq——帧↔义务同事务）
-  /** C3a-3（spec §3.2-1）：帧级 binding 快照（touched→collectMediaRefsForNode 终态；null=
-   *  NODE_DELETED 全删该 node 槽位；空 Map=帧无 touched——C3a-4 投影跳过零开销）。 */
+  /** C3a-3（spec §3.2-1）：帧级 binding 快照（touched→collectNodeRefsUnion 并集终态〔Y4a T6〕；
+   *  null=NODE_DELETED 全删该 node 槽位；空 Map=帧无 touched——C3a-4 投影跳过零开销）。 */
   bindingDelta: BindingDelta;
   /** delta 序列化字节（applied 队列预算口径——Q-I2 appliedBytes 计入；binding_delta_bytes 直方图同值单点 observe）。 */
   bindingDeltaBytes: number;

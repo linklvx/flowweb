@@ -139,5 +139,38 @@ describe('Y2 B2a AuthorSlotService（两封闭操作——先红）', () => {
       expect(docs.withSession).not.toHaveBeenCalled();
       expect(projectBindings).not.toHaveBeenCalled();
     });
+
+    // ── Y4a T6 评审回包 I#1（spec 2026-11-20-y4a-timeline-domain-design.md §3.3「凡按节点替换
+    //    的快照都走并集」绝对规则）：release 落在带 timeline clips 的节点→快照=并集（节点槽∪clip 行
+    //    ——现形纯节点槽快照会把片段绑定抹掉至下轮 rebuild，正是 slot-write:62 同族 P0 形）。 ──
+    it('I#1：释放落在带 timeline clips 的节点 → 快照含 clip 行（targetItemId=clipId——并集快照不清片段绑定）', async () => {
+      const doc = mkDoc();   // n1 携作者键 mediaId=m-author（现场=冻结值=可删形态）
+      doc.transact(() => {
+        const entry = new Y.Map<unknown>();
+        const clips = new Y.Map<unknown>();
+        const mk = (type: string, mediaId: unknown) => {
+          const m = new Y.Map<unknown>();
+          m.set('type', type);
+          m.set('span', { trackId: 'n1:video', start: 0, duration: 5 });
+          if (mediaId !== undefined) m.set('mediaId', mediaId);
+          return m;
+        };
+        clips.set('c-keep', mk('video', 'm-clip-a'));   // 合法片段引用
+        clips.set('c-del', mk('video', 'm-author'));   // mediaId=作者键同值片段（剥除面唯一 mediaId 集）
+        entry.set('clips', clips);
+        doc.getMap('timelines').set('n1', entry);
+      });
+      const { svc } = mkService(intentRow(), doc);
+      const r = await svc.releaseAuthorSlot('p1', 'gi-1');
+      expect(r.deletedSlot).toBe(true);
+      // 快照=并集：n1 data.mediaId 已删（作者键腿）→零节点槽行，但 timeline clip 行照投
+      //（现形纯节点槽快照=空数组——片段绑定被节点槽投影整表 diff 抹掉至下轮 rebuild=评审点名的 P0 形）
+      const delta = vi.mocked(projectBindings).mock.calls[0][3] as Map<string, unknown>;
+      expect(delta.size).toBe(1);
+      expect(delta.get('n1')).toEqual([
+        { nodeId: 'n1', mediaId: 'm-clip-a', role: 'primary', targetField: 'mediaId', targetItemId: 'c-keep' },
+        { nodeId: 'n1', mediaId: 'm-author', role: 'primary', targetField: 'mediaId', targetItemId: 'c-del' },
+      ]);
+    });
   });
 });

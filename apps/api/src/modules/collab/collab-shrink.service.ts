@@ -14,7 +14,9 @@
 import { BadRequestException, HttpException, Injectable, Inject, NotFoundException, ServiceUnavailableException, Optional } from '@nestjs/common';
 import * as Y from 'yjs';
 import { randomUUID } from 'node:crypto';
-import { QUOTA_DEFAULTS, toReadModel } from '@flowweb/shared';
+// Y4a T5（spec §0 条 4）：服务端逐块化删除原语+帧闸（与客户端同切块——deleteTimelineClips/
+// deleteNodesWithTimelines 各自只开一层事务；每块帧两过 validateFrameDeny/262144）。
+import { QUOTA_DEFAULTS, toReadModel, deleteTimelineClips, deleteNodesWithTimelines, SERVER_TRANSACT_ORIGIN, TIMELINE_CHUNK_UNDO_BUDGET, validateFrameDeny } from '@flowweb/shared';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CanvasService } from '../canvas/canvas.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -23,7 +25,6 @@ import { CanvasDocUpdateRepository } from './canvas-doc-update.repository';
 import { CollabGateway, VACUUM_QUIESCE_POLL_MS, VACUUM_QUIESCE_TIMEOUT_MS } from './collab.gateway';
 import { CollabMaintenanceService } from './collab-maintenance.service';
 import { createCanvasDoc } from './canvas-doc.factory';
-import { applyWriteOpsToDoc } from './collab-doc-writer.service';
 import { collabDocExportFreshTotal, collabDocShrinkDuration, collabDocShrinkTotal, collabDocVacuumTotal, yjsDocBytes, yjsDocBytesOverThresholdTotal, DOC_BYTES_OVER_THRESHOLD_BYTES } from './store.metrics';
 
 /** 排队超时（进入执行位前的等待上界——已获执行位的请求不被打断；超时者从等待队列摘除不占执行位） */
@@ -103,11 +104,16 @@ export class CollabShrinkService {
     if (body.deleteNodeIds && body.keepNodeIds) {
       throw new BadRequestException('deleteNodeIds 与 keepNodeIds 二选一');
     }
-    // 权限恒先于信号量/withDoc（排队位不占给未授权请求；perm 未过者不触达 doc）
+    // 权限恒先于信号量/会话（排队位不占给未授权请求；perm 未过者不触达 doc）
     await this.perm.assertEditorWithTeam(projectId, userId);
     await this.acquire();
     try {
-      return await this.docs.withDoc(projectId, (doc) => this.shrinkSync(projectId, doc, body));
+      // Y4a T5（spec §0 条 4 服务端逐块化）：活写改走**不包外层事务的会话**（withSession read 档
+      // 直执行 fn、无 SERVER_TRANSACT_ORIGIN 外层 transact）+显式写受理门——由 shrinkSync 调用方
+      // 逐块开事务（每块单独一层 SERVER_TRANSACT_ORIGIN；原语嵌套即抛 nested-transact-forbidden
+      // 禁止静默并帧）。影子预演仍量整份文档字节（8MB 配额——块语义不动）。
+      this.docs.assertWriteAdmitted();
+      return await this.docs.withSession(projectId, (doc) => this.shrinkSync(projectId, doc, body), { mode: 'read' });
     } finally {
       this.release();
     }
@@ -167,8 +173,11 @@ export class CollabShrinkService {
   }
 
   /** 同步段（TOCTOU 契约：读 records→解析 victims→影子预演→写活 doc→再编码，全程无 await——
-   *  withDoc 的 transact 同步调用回调、事件循环不 yield〔hocuspocus DirectConnection.transact
-   *  是裸 Yjs 事务，saveMutex 只包 storeDocument〕=并发写结构性不可达）。 */
+   *  withSession read 档直接同步调用回调、事件循环不 yield=并发写结构性不可达）。
+   *  Y4a T5（spec §0 条 4）：活写逐块化——片段还在的节点先按与客户端相同的块预算删片段（每块
+   *  单独一层 SERVER_TRANSACT_ORIGIN、块帧两过 validateFrameDeny/262144）；壳节点、边、已变小
+   *  的 timelines 键进最后一笔。**任一块过不了闸→活文档一笔都不写**（noop 返回——块闸拒绝计数
+   *  still-chunk-denied）。影子预演继续量整份文档字节（8MB 配额——本段不动）。 */
   private shrinkSync(pid: string, doc: Y.Doc, body: ShrinkBody): ShrinkResult {
     const start = Date.now();
     try {
@@ -184,11 +193,11 @@ export class CollabShrinkService {
       let shrunkBytes: number | undefined;   // 删除档影子预演值（GC 已执行口径）——thaw 判据用（Y0c T13 根修 Z120）
       if (victims.length > 0) {
         // 影子预演（编码白名单点②）：scratch 应用删除→再编码测量——不达标不写活 doc（422 带实测值）。
-        // Y0c T12 直写收编：预演与活写同走 applyWriteOpsToDoc 单点（预演=即将写的内容同源最强形态）。
+        // 预演含全部块（片段块+壳尾笔——整份语义）=即将写的内容同源最强形态。
         const scratch = createCanvasDoc();
         try {
           Y.applyUpdate(scratch, Y.encodeStateAsUpdate(doc));
-          applyWriteOpsToDoc(scratch, [{ op: 'deleteNodes', nodeIds: victims }]);
+          deleteLivePerBlocks(scratch, victims);
           shrunkBytes = Y.encodeStateAsUpdate(scratch).byteLength;
           if (shrunkBytes > this.gateway.activeQuota.maxDocBytes) {
             collabDocShrinkTotal.inc({ result: 'still-over' });
@@ -197,7 +206,11 @@ export class CollabShrinkService {
         } finally {
           scratch.destroy();
         }
-        applyWriteOpsToDoc(doc, [{ op: 'deleteNodes', nodeIds: victims }]);   // 达标才写活 doc（同源原语）
+        // 达标才写活 doc：逐块提交逐块过闸（spec §0 条 4）——任一块拒=活文档一笔不写（noop）
+        if (!deleteLivePerBlocks(doc, victims)) {
+          collabDocShrinkTotal.inc({ result: 'noop' });
+          return { result: 'noop', thawed: false };
+        }
         deletedIds = victims;
       }
       // 白名单点③：活文档再编码（预演与实际写之间理论并发窗的系统性低估防线）+truth 校准
@@ -357,4 +370,130 @@ function resolveVictims(records: { nodes: Array<{ id: string }> }, body: ShrinkB
   }
   const keep = new Set(body.keepNodeIds ?? []);
   return ids.filter((id) => !keep.has(id));
+}
+
+// ── Y4a T5（spec §0 条 4）：逐块化删除——片段还在的节点先按块预算删片段（每块单独一层
+//    SERVER_TRANSACT_ORIGIN、块帧两过 validateFrameDeny/262144），壳节点/边/已变小的 timelines
+//    键进最后一笔。任一块过不了闸=活文档一笔不写（计划先行——全部块在 temp doc 上量完才落笔）。 ──
+
+/** 块计划：一笔删除一个箱的片段（temp doc 量两帧——单笔全过则单箱；逐片段量两帧贪心装箱）。
+ *  与客户端 T4/T5 同一条规则（captureTimeout:0 量法内置——measureTransactionFrames）；
+ *  单片段任一帧>262144=整批拒（null）。 */
+function planVictimClipBlocks(doc: Y.Doc, nodeId: string, clipIds: string[]): string[][] | null {
+  const del = (ids: readonly string[]) => (temp: Y.Doc) => deleteTimelineClips(temp, nodeId, ids, SERVER_TRANSACT_ORIGIN);   // 原语自开恰一层事务（temp 上同形——外层不得再包）
+  // ①一笔量两帧——全过则单箱（字节+deny 双闸：任一帧过不了 validateFrameDeny 或 262144→null）
+  const single = measureFrames(doc, del(clipIds));
+  if (single.forwardBytes === 0) return [];
+  if (single.forwardBytes <= TIMELINE_CHUNK_UNDO_BUDGET && single.undoBytes <= TIMELINE_CHUNK_UNDO_BUDGET) {
+    if (!framesPassDeny(single)) return null;   // deny 拒——活文档一笔不写（评审 I#1）
+    return [[...clipIds]];
+  }
+  // ②逐片段量两帧——单片段任一帧超=整批拒
+  const perClip = clipIds.map((id) => {
+    const c = measureFrames(doc, del([id]));
+    return { id, forwardBytes: c.forwardBytes, undoBytes: c.undoBytes };
+  });
+  for (const c of perClip) {
+    if (c.forwardBytes > TIMELINE_CHUNK_UNDO_BUDGET || c.undoBytes > TIMELINE_CHUNK_UNDO_BUDGET) return null;
+  }
+  // ③贪心装箱（两帧较大者保守）+每箱合成帧复测（超则移出最后一片再量——移出片自成箱）
+  const candidateBoxes: string[][] = [];
+  let cur: string[] = [];
+  let curBytes = 0;
+  for (const c of perClip) {
+    const b = Math.max(c.forwardBytes, c.undoBytes);
+    if (cur.length > 0 && curBytes + b > TIMELINE_CHUNK_UNDO_BUDGET) {
+      candidateBoxes.push(cur);
+      cur = []; curBytes = 0;
+    }
+    cur.push(c.id);
+    curBytes += b;
+  }
+  if (cur.length > 0) candidateBoxes.push(cur);
+  const planned: string[][] = [];
+  const queue = [...candidateBoxes];
+  while (queue.length > 0) {
+    let ids = queue.shift()!;
+    let m = measureFrames(doc, del(ids));
+    while ((m.forwardBytes > TIMELINE_CHUNK_UNDO_BUDGET || m.undoBytes > TIMELINE_CHUNK_UNDO_BUDGET) && ids.length > 1) {
+      const dropped = ids[ids.length - 1]!;
+      ids = ids.slice(0, -1);
+      queue.unshift([dropped]);
+      m = measureFrames(doc, del(ids));
+    }
+    if (m.forwardBytes > TIMELINE_CHUNK_UNDO_BUDGET || m.undoBytes > TIMELINE_CHUNK_UNDO_BUDGET) return null;
+    if (!framesPassDeny(m)) return null;   // 合成帧复测过字节闸仍须过 deny 闸（structs/DS≤16000——评审 I#1）
+    planned.push(ids);
+  }
+  return planned;
+}
+
+/** 量法帧（帧字节保留——validateFrameDeny 消费：装回帧 struct 密度高一档〔T4 framesPassDeny 同族〕）。 */
+interface MeasuredFrames { forwardBytes: number; undoBytes: number; forwardFrame: Uint8Array | null; undoFrame: Uint8Array | null }
+
+/** 两帧各跑 validateFrameDeny（spec §0 条 4「任一块过不了 validateFrameDeny 或 262144」——
+ *  T4 客户端 planner framesPassDeny 同族；帧缺失=零内容面跳过）。 */
+function framesPassDeny(m: MeasuredFrames): boolean {
+  for (const f of [m.forwardFrame, m.undoFrame]) {
+    if (f == null) continue;
+    if (!validateFrameDeny(f).ok) return false;
+  }
+  return true;
+}
+
+/** temp doc 量法（measureTransactionFrames 服务端消费——无客户端 UndoManager 依赖档：
+ *  apply 之后 temp.clientID=doc.clientID、captureTimeout:0、trackedOrigins=[SERVER_TRANSACT_ORIGIN]；
+ *  createCanvasDoc 工厂收编〔census ⑯——裸 new Y.Doc() 生产清零〕；帧保留供 deny 闸）。 */
+function measureFrames(doc: Y.Doc, apply: (temp: Y.Doc) => void): MeasuredFrames {
+  const temp = createCanvasDoc();
+  Y.applyUpdate(temp, Y.encodeStateAsUpdate(doc));
+  temp.clientID = doc.clientID;
+  // 帧捕获经容器字段（闭包内赋值——TS 控制流对 captured let 的 null 缩窄在闭包外误判 never）
+  const frames: { forward: Uint8Array | null; undo: Uint8Array | null } = { forward: null, undo: null };
+  let gotForward = false;
+  temp.on('update', (u: Uint8Array) => {
+    if (!gotForward) { frames.forward = u; gotForward = true; }
+    else frames.undo = u;
+  });
+  const um = new Y.UndoManager(
+    ['nodes', 'edges', 'timelines'].map((r) => temp.getMap(r)),
+    { captureTimeout: 0, trackedOrigins: new Set([SERVER_TRANSACT_ORIGIN]) },
+  );
+  try {
+    apply(temp);
+    um.undo();
+  } finally {
+    um.destroy();
+  }
+  const forward: Uint8Array | null = frames.forward;
+  const undo: Uint8Array | null = frames.undo;
+  return {
+    forwardBytes: forward?.byteLength ?? 0,
+    undoBytes: undo?.byteLength ?? 0,
+    forwardFrame: forward,
+    undoFrame: undo,
+  };
+}
+
+/** 逐块化删除一票事务序（spec §0 条 4）：全部块计划先行（temp doc 零突变）→过闸才逐块写活
+ *  doc（每块一层 SERVER_TRANSACT_ORIGIN）→最后一笔壳删除。任一块拒（计划 null）=活文档一笔
+ *  不写（false——调用方 noop 返回）。块帧两过 validateFrameDeny+262144（量法帧即真帧）。 */
+function deleteLivePerBlocks(doc: Y.Doc, victims: readonly string[]): boolean {
+  // 计划先行：全部 victim 的片段块+壳尾笔——任一 victim 单片段超=整批拒活 doc 不动
+  const plans: Array<{ nodeId: string; boxes: string[][] }> = [];
+  for (const id of victims) {
+    const entry = doc.getMap('timelines').get(id);
+    const clips = entry instanceof Y.Map ? entry.get('clips') : undefined;
+    if (!(clips instanceof Y.Map) || clips.size === 0) continue;
+    const boxes = planVictimClipBlocks(doc, id, [...clips.keys()]);
+    if (boxes === null) return false;   // 块闸拒——活文档一笔不写（fail-closed）
+    plans.push({ nodeId: id, boxes });
+  }
+  // 计划已过闸——逐块写活 doc（每块单独一层 SERVER_TRANSACT_ORIGIN；帧=量法帧已过 validateFrameDeny 同闸）
+  for (const { nodeId, boxes } of plans) {
+    for (const box of boxes) deleteTimelineClips(doc, nodeId, box, SERVER_TRANSACT_ORIGIN);
+  }
+  // 最后一笔：壳节点+边+已变小的 timelines 键（原语恰一层事务——比帧量法小的尾笔）
+  deleteNodesWithTimelines(doc, victims, SERVER_TRANSACT_ORIGIN);
+  return true;
 }

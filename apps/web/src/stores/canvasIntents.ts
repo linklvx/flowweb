@@ -18,7 +18,10 @@ import { setDocPosition, stripDerivedKeys, toReadModel, normalizeSize,
   QUOTA_DEFAULTS, utf8Bytes, EPHEMERAL_DATA_KEYS, CLIENT_FORBIDDEN_ON_UPDATE, EDIT_COMMAND_DENY_THROTTLE_MS,
   ensureTextDomainDefaults, textDomainOf, writeTextDomainValue,
   ensureXmlDomainDefaults, isXmlDomainKey,
-  ensureArrayDomainDefaults, isMediaListDomainKey, writeArrayDomainValue } from '@flowweb/shared';
+  ensureArrayDomainDefaults, isMediaListDomainKey, writeArrayDomainValue,
+  // Y4a T5（spec §0 条 3/条 8）：addNode videoEdit 空工程种点（seedEmptyTimeline）——version/fps/
+  // 默认轨+空 clips 一笔与节点同 transact。
+  seedEmptyTimeline } from '@flowweb/shared';
 import { fillDoc, type PlainEdge } from '@/collab/ydocBuilder';
 import { projectCanvasNodes, stripEphemeralDataKeys } from '@/utils/projectCanvasNodes';
 import { useCanvasStore } from './canvasStore';
@@ -88,7 +91,20 @@ export function effectiveSoftLimit(st: { quotaSoftLimitBytes: number }): number 
     : Math.floor(QUOTA_DEFAULTS.maxDocBytes * QUOTA_DEFAULTS.softEnterRatio);
 }
 
-export function canApplyIntent(intents: CanvasIntent[]): ApplyIntentVerdict {
+export function canApplyIntent(intents: CanvasIntent[]): ApplyIntentSplitVerdictFamily {
+  // Y4a T5（spec §0 条 3 漏网后挡）：带非空片段时间轴的节点经 intent 删除=漏网——canApplyIntent
+  // 对这种 deleteNode 拒（reason 'timeline-chunk-required'）。合法删除（无时间轴/空时间轴）照过。
+  // doc 侧判定单源（timelines.<id>.clips 非空 Map 且 size>0）；无 doc（离线）不在此层拦。
+  {
+    const d = resolveDoc();
+    if (d) {
+      for (const i of intents) {
+        if (i.type === 'deleteNode' && !timelineClipsEmptyInDoc(d, i.id)) {
+          return { ok: false, reason: 'timeline-chunk-required' };
+        }
+      }
+    }
+  }
   for (const i of intents) {
     for (const v of iterStringValues(i)) {
       if (utf8Bytes(v) > QUOTA_DEFAULTS.maxKeyBytes) return { ok: false, reason: 'key-too-large' }; // ①先判（②的子集）
@@ -117,6 +133,23 @@ export function canApplyIntent(intents: CanvasIntent[]): ApplyIntentVerdict {
     return { ok: false, reason: 'doc-over-budget' };
   }
   return { ok: true };
+}
+
+/** ApplyIntentVerdict 判据族扩值（Y4a T5——spec §0 条 3 漏网后挡）：带非空片段时间轴的节点
+ *  经 intent 删除须走 executeDeleteSplit（切块序），canApplyIntent 对该 deleteNode 拒。
+ *  QuotaRejectReason 四值保持 shared 单源——本 reason 走窄化字面量（不进 QuotaRejectReason
+ *  枚举：配额族与删除控制流族两域不混——canApplyIntent 出口窄化为联合字面量）。 */
+export type DeleteSplitRejectReason = 'timeline-chunk-required';
+export type ApplyIntentSplitVerdict = { ok: false; reason: DeleteSplitRejectReason };
+export type ApplyIntentSplitVerdictFamily = ApplyIntentVerdict | ApplyIntentSplitVerdict;
+
+/** doc 侧时间轴判空（canApplyIntent 漏网后挡/applyIntentToDoc deleteNode 守卫共用）。 */
+function timelineClipsEmptyInDoc(d: Y.Doc, nodeId: string): boolean {
+  const entry = d.getMap('timelines').get(nodeId);
+  if (!(entry instanceof Y.Map)) return true;
+  const clips = entry.get('clips');
+  if (!(clips instanceof Y.Map)) return true;
+  return clips.size === 0;
 }
 
 /** 测试缝（只读注入）：spec 裸 doc 驱动纯漏斗路径（无 initCollab）。生产恒走 getDoc()。 */
@@ -154,6 +187,12 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): IntentApplyOut
       // 幂等守卫（批4b 评审 Minor）：doc 已有同 id 节点跳过重写——fillDoc 无条件 set 新
       // Y.Map=新 item，嵌套/重放 addNode 形态会 doc 膨胀（与 cs 投影侧同 id 跳过守卫对齐）。
       if (d.getMap('nodes').has(intent.node.id)) break;
+      // Y4a T5（spec §0 条 3）：videoEdit 创建即种空工程 timelines.<id>（seedEmptyTimeline——
+      // version/fps/默认轨+空 clips；spec §0 条 8 键矩阵同笔入栈）。同根同对象（spec §0 条 7）
+      // ——getMap('timelines') 不构成「造根」；非 videoEdit 不种。
+      if (intent.node.type === NODE_TYPES.VIDEO_EDIT) {
+        d.getMap('timelines').set(intent.node.id, seedEmptyTimeline(intent.node.id));
+      }
       // Y1c T15 容器规则——创建 seam 单点：Y.Text 域键缺省补齐（audioGen/multiImageGen.prompt=''、
       // textInput.prompt={text:''}；G 纯函数副本——入参不突变）。Y1c T16：XmlFragment 域键缺省
       // 补齐+string canonical 收编同缝（textInput.content/三域 prompt——fillDoc 物化容器与
@@ -225,8 +264,13 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): IntentApplyOut
       return rejectedKeys ? { rejectedKeys } : OUTCOME_OK;
     }
     case 'deleteNode': {
+      // Y4a T5（spec §0 条 3/条 8）：deleteNode 分支只删无时间轴或空时间轴节点——非空片段=漏网
+      // 后挡（canApplyIntent 已拒 reason 'timeline-chunk-required'；此处防御性同判——遇非空
+      // 片段直接 break 不写〔上游已拦，双保险不破坏原子序〕）。合法删除=timelines 键同笔消失
+      // （与节点/边同一 transact——撤销一步带回三面）。
+      if (!timelineClipsEmptyInDoc(d, intent.id)) break;   // 非空片段——漏网后挡（不写）
       d.getMap('nodes').delete(intent.id);
-      // 级联删引用边——复刻 canvasStore.deleteNode 的 edges.filter 语义
+      // 级联删引用边——复刻 canvasStore 删除原语的 edges 级联语义
       //（spike 实测发现：不级联则 doc 残留孤儿边，不变量验收器抓双端分叉）
       const edges = d.getMap('edges');
       for (const id of [...edges.keys()]) {
@@ -235,6 +279,8 @@ export function applyIntentToDoc(d: Y.Doc, intent: CanvasIntent): IntentApplyOut
           edges.delete(id);
         }
       }
+      // timelines 同名键同笔删（无时间轴节点=缺键 no-op；空时间轴节点=键随删）
+      d.getMap('timelines').delete(intent.id);
       break;
     }
     case 'moveNode': {
@@ -598,6 +644,12 @@ export function dispatchProjectionDiff(before: StoreProjectionSnapshot, origin: 
   if (rd) useCanvasStore.setState({ renderNodes: recomputeRenderNodes(rd) });
   const intents = diffProjectionToIntents(before, storeProjectionSnapshot());   // after 侧零窗计——复合尾同步归零收口
   if (intents.length === 0) return;
+  // Y4a T5（spec §0 条 3 漏网后挡）：差分删除集里含「文档中仍带非空片段」节点→**整份差分不
+  // 派发**（不带尾巴部分执行——部分删除会让 store 与 doc 分叉）。四漏斗（ungroup/clearStoryboard/
+  // removeStoryboardCell/多图展开）的删除形态零改动——它们删无时间轴节点，本门不触达。
+  if (rd && intents.some((i) => i.type === 'deleteNode' && !timelineClipsEmptyInDoc(rd, i.id))) {
+    return;
+  }
   dispatchCanvasIntent(intents, origin);
   // M-1（O0a-1 质评）挂点覆盖面注：直发路径（dispatchCanvasIntent）靠
   // applyIntentToDoc 分支自剥、无批尾断言——挂点选 dispatchProjectionDiff 因单原子 dispatch

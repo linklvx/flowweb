@@ -27,6 +27,8 @@ import { useCanvasStore, clearLocalPreviewAll } from './canvasStore';
 import { useNodeStore, toAppNode, NODE_TYPES } from './nodeStore';
 // 循环依赖裁定允许：canvasUndo 顶层仅 import yjs + 纯常量/函数定义
 import { Origin, attachUndoManager, detachUndoManager, getUndoManager } from './canvasUndo';
+// Y4a T4：时间轴执行器 doc 引用登记（轻量模块——yjs+shared 零画布依赖）
+import { setTimelineDocRef } from './timelineUndo';
 export { Origin } from './canvasUndo';
 import {
   type RenderNode, type RenderSourceNode, type RenderSourceEdge,
@@ -2066,6 +2068,9 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
   // 批1-3 rebuildPending 会话起点复位已随 T6 退役（单源=unsyncedDirtyDocs 绑 doc 实例——新 doc 天然零携带）
   doc = new Y.Doc();
   attachUndoManager(doc);
+  // Y4a T4：时间轴执行器 doc 引用登记（editorStore.commit 消费——attach 在空文档上早于同步：
+  // 同名根同对象、早挂零时序风险；timelineUndo 轻量模块零画布依赖）
+  setTimelineDocRef(doc);
   mountLocalDeltaTracker(doc);   // Y0b-4 T10：localDelta 插值器（doc 销毁随会话拆除）
   mountUnsyncedDirtyTracker(doc);   // Y0b-5 T6：单源置位+diverged 判定+T8 Σpending 累计监听（doc 绑定——新 doc 自然隔离）
   // Y0b-5 T8：结构性变更（增删节点——浅 observe，嵌套 data 变更不触发）→置脏+提前到期。
@@ -2476,6 +2481,7 @@ async function teardownSession(): Promise<void> {
   }
   if (doc === d) {
     detachUndoManager();
+    setTimelineDocRef(null);   // Y4a T4：时间轴执行器 doc 引用随会话拆除（editorStore doc 写休眠）
     doc = null;
     session = null; // 批1-5 会话对象随 doc 实例守卫置空（sessionEpoch 不回卷）
   }

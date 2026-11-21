@@ -103,7 +103,8 @@ function addEdge(doc: Y.Doc, id: string, source: string, target: string): void {
   doc.getMap('edges').set(id, m);
 }
 
-/** service 直构：perm mock+withDoc 真透传（守卫回调全同步——TOCTOU 契约）。
+/** service 直构：perm mock+docs stub（Y4a T5：shrink 活写改走 withSession read 档+显式
+ *  assertWriteAdmitted——stub 透传 fn(doc) 且守卫回调全同步〔TOCTOU 契约〕）。
  *  T9：canvas/prisma 默认 mock（exportFresh 消费——源元数据 {name:'源画布',teamId:'t1',folderId:'f1'}
  *  /新 project 'p-new'）+docsByPid 可选多 doc 路由（源/新副本分档——缺省全透传 doc）。 */
 function buildSvc(
@@ -113,6 +114,14 @@ function buildSvc(
 ) {
   const perm = { assertEditorWithTeam: vi.fn().mockResolvedValue({ role: 'PROJECT_EDITOR', teamId: 't1' }) };
   const docs = {
+    // Y4a T5：shrink 活写走不包外层事务的会话（withSession read 档直执行 fn——无 SERVER_TRANSACT_ORIGIN
+    // 外层包裹；写受理门=调用方显式调 assertWriteAdmitted——stub 透传恒过）
+    assertWriteAdmitted: vi.fn(),
+    withSession: vi.fn(async (_pid: string, fn: (d: Y.Doc) => unknown, _opts?: unknown) => {
+      const r = fn(opts?.docsByPid?.get(_pid) ?? doc);
+      if (r instanceof Promise) throw new Error('withSession 回调必须全同步（TOCTOU 契约——read 档直执行语义）');
+      return r;
+    }),
     withDoc: vi.fn(async (_pid: string, fn: (d: Y.Doc) => unknown) => {
       const r = fn(opts?.docsByPid?.get(_pid) ?? doc);
       if (r instanceof Promise) throw new Error('withDoc 回调必须全同步（TOCTOU 契约——transact 同步段语义）');
@@ -175,10 +184,10 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     addEdge(doc, 'e1', 'n1', 'n2');
     const { svc, perm, docs } = buildSvc(gateway, doc);
 
-    // ① 权限拒绝（VIEWER/未登录同门——assertEditorWithTeam 恒先于 doc 访问）：403 且 withDoc 零调用
+    // ① 权限拒绝（VIEWER/未登录同门——assertEditorWithTeam 恒先于 doc 访问）：403 且 withSession 零调用
     perm.assertEditorWithTeam.mockRejectedValueOnce(new ForbiddenException('无项目编辑权限'));
     await expect(svc.shrink('p1', 'u-viewer', { deleteNodeIds: ['n1'] })).rejects.toThrow(ForbiddenException);
-    expect(docs.withDoc).not.toHaveBeenCalled();
+    expect(docs.withSession).not.toHaveBeenCalled();
     // 未登录 401 由全局 AuthGuard 承载（/api/collab 不在 PUBLIC_PREFIXES——默认受保护，见 controller 源文本锚用例）
 
     // ② 预演超限：422 {code,bytes,limit}+活 doc 零变更（不删 n1/e1、不校准 truth、不 thaw）
@@ -213,15 +222,15 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     addEdge(doc, 'e1', 'n1', 'n2');
     const { svc, docs } = buildSvc(gateway, doc);
 
-    // keepNodeIds 反推：victims=fn 内读到的全集−keep。withDoc mock 在调 fn 前一刻塞并发新增（n3+悬挂边）
+    // keepNodeIds 反推：victims=fn 内读到的全集−keep。withSession mock 在调 fn 前一刻塞并发新增（n3+悬挂边）
     // ——同步段内不可达的并发写以"fn 开始前最后落 doc"形态模拟；victims 若在事务外预解析（红相）
     // 则只含 n1，会漏 n3/悬挂边 e2 留在活 doc。
-    const originalWithDoc = docs.withDoc.getMockImplementation()!;
-    docs.withDoc.mockImplementationOnce(async (_pid: string, fn: (d: Y.Doc) => unknown) => {
+    const originalWithSession = docs.withSession.getMockImplementation()!;
+    docs.withSession.mockImplementationOnce(async (_pid: string, fn: (d: Y.Doc) => unknown, _opts?: unknown) => {
       addNode(doc, 'n3', 32);            // 并发新增节点（keep 反推必须纳入——fn 内重算）
       addEdge(doc, 'e2', 'n1', 'n3');    // 并发新增边（引用 victim n1——悬挂边防护）
       addEdge(doc, 'e3', 'n3', 'n2');    // 并发新增边（n3 本身也是 victim——同删）
-      return originalWithDoc(_pid, fn);
+      return originalWithSession(_pid, fn, _opts);
     });
 
     const r = await svc.shrink('p1', 'u1', { keepNodeIds: ['n2'] });
@@ -233,8 +242,8 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     expect(nodes.has('n3')).toBe(false);
     expect(nodes.has('n2')).toBe(true);
     expect(edges.size).toBe(0);           // e1 不存在（装置未加）+e2/e3 全删——零悬挂边
-    // withDoc 回调全同步由 buildSvc 默认实现守卫（fn 返回 Promise 即 throw）——本用例走同守卫
-    // 透传（originalWithDoc），shrink 成功即证同步段契约成立。
+    // withSession 回调全同步由 buildSvc 默认实现守卫（fn 返回 Promise 即 throw）——本用例走同守卫
+    // 透传（originalWithSession），shrink 成功即证同步段契约成立。
   });
 
   it('Y0b-5 T10 锚③：shrink 活文档再编码 → yjs_doc_bytes observe truth 值（白名单点③同一编码——零新增）', async () => {
@@ -501,9 +510,9 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     addNode(doc, 'n1', 64);
     const { svc, docs } = buildSvc(gateway, doc);
 
-    // withDoc 注入 30ms 延迟：第一请求在 async 间隙（openDirectConnection 等价窗）时第二请求排队
+    // withSession 注入 30ms 延迟：第一请求在 async 间隙（openDirectConnection 等价窗）时第二请求排队
     const order: string[] = [];
-    docs.withDoc.mockImplementation(async (_pid: string, fn: (d: Y.Doc) => unknown) => {
+    docs.withSession.mockImplementation(async (_pid: string, fn: (d: Y.Doc) => unknown, _opts?: unknown) => {
       order.push('enter');
       await new Promise((r) => setTimeout(r, 30));
       const r = fn(doc);
@@ -526,7 +535,7 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     vi.useFakeTimers();
     try {
       let releaseFirst!: (v: unknown) => void;
-      docs.withDoc.mockImplementationOnce(() => new Promise((r) => { releaseFirst = r; }));   // 第一请求占位挂起
+      docs.withSession.mockImplementationOnce(() => new Promise((r) => { releaseFirst = r; }));   // 第一请求占位挂起
       const p1 = svc.shrink('p1', 'u1', {});
       const p2 = svc.shrink('p1', 'u1', {});   // 排队
       const p2caught = p2.catch((x) => x);     // 立即挂 handler（reject 发生在下一断言前——防 unhandled rejection 窗）
@@ -535,10 +544,10 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
       const e = await p2caught;
       expect(e).toBeInstanceOf(ServiceUnavailableException);
       expect(e.getResponse()).toMatchObject({ code: 'SHRINK_BUSY' });
-      // 超时请求不占执行位：释放第一请求后队列已空（p2 未执行 withDoc——零第二进入）
+      // 超时请求不占执行位：释放第一请求后队列已空（p2 未执行 withSession——零第二进入）
       releaseFirst({ result: 'recalibrated', thawed: false });
       await expect(p1).resolves.toMatchObject({ result: 'recalibrated' });
-      expect(docs.withDoc).toHaveBeenCalledTimes(1);   // p2 从未进 withDoc（不占执行位）
+      expect(docs.withSession).toHaveBeenCalledTimes(1);   // p2 从未进 withSession（不占执行位）
     } finally {
       vi.useRealTimers();
     }
@@ -566,6 +575,150 @@ describe('POST /api/collab/doc/:projectId/shrink（Q-G）', () => {
     expect(src).toContain('@Throttle({ default: { limit: 5, ttl: 60_000 } })');   // 独立桶覆盖全局 300/min
     expect(src).not.toContain('@SkipThrottle');                                    // 不豁免全局限流
     expect(src).toContain("@Controller('api/collab/doc')");                        // 路由前缀（PUBLIC_PREFIXES 外=默认受保护——401 由全局 AuthGuard 承载）
+  });
+
+  // ── Y4a T5（spec §0 条 4）：服务端逐块化——影子预演量整份文档字节（8MB 配额）保持；活写走
+  //    不包外层事务的会话、由调用方逐块开事务；任一块过不了 validateFrameDeny 或 262144 活文档
+  //    一笔都不写。writeBatch deleteNodes 遇非空片段时间轴拒 timeline-chunk-required（writer spec）。 ──
+  it('Y4a T5 逐块化：无时间轴节点档=原语义不变（单事务删+影子预演整份字节口径保持）；帧 origin=SERVER_TRANSACT_ORIGIN 每块单独一层', async () => {
+    const gateway = buildGateway({ maxDocBytes: 1 * MiB });
+    const doc = seedDoc();
+    addNode(doc, 'n1', 64);
+    addNode(doc, 'n2', 32);
+    addEdge(doc, 'e1', 'n1', 'n2');
+    // 逐块事务观测：每块=最外层事务（无 withDoc 包裹的连续单事务——origin 逐块注入）
+    const origins: unknown[] = [];
+    doc.on('afterTransaction', (tr: Y.Transaction) => { if (tr.origin != null) origins.push(tr.origin); });
+    const { svc } = buildSvc(gateway, doc);
+    const r = await svc.shrink('p1', 'u1', { deleteNodeIds: ['n1'] });
+    expect(r.result).toBe('ok');
+    expect(r.deletedIds).toEqual(['n1']);
+    expect(doc.getMap('nodes').has('n1')).toBe(false);
+    expect(doc.getMap('edges').has('e1')).toBe(false);
+    expect(r.watermark).toBe(Y.encodeStateAsUpdate(doc).byteLength);   // truth=活文档再编码（口径不变）
+    // 活写逐块：无剪辑节点=最后一笔一笔（nodes+edges 同事务——单块）；非 SERVER_TRANSACT_ORIGIN 的
+    // withDoc 外层事务包裹形态不再出现（origins 只含本调用产出的最外层 origin）
+    expect(origins.length).toBe(1);
+    expect(origins.every((o) => o === 'server')).toBe(true);   // 每块单独一层 SERVER_TRANSACT_ORIGIN（='server'）
+  });
+
+  it('Y4a T5 剪辑节点逐块：先按块预算删片段（每块单独一层）、壳节点+边+已变小 timelines 键进最后一笔；块帧全 ≤262144', async () => {
+    const gateway = buildGateway({ maxDocBytes: 8 * MiB });
+    const doc = seedDoc();
+    // 剪辑节点+两片段（subtitle text 撑大——两片段合计超 262144、单片段各 ~150KB 两帧合法）
+    doc.transact(() => {
+      const n = new Y.Map();
+      n.set('type', 'videoEdit');
+      doc.getMap('nodes').set('vc', n);
+      const tl = new Y.Map();
+      tl.set('version', 1); tl.set('fps', 30);
+      const track = new Y.Map();
+      track.set('type', 'video'); track.set('name', '视频');
+      track.set('muted', false); track.set('hidden', false); track.set('order', '5000');
+      const tracks = new Y.Map();
+      tracks.set('vc:video', track);
+      tl.set('tracks', tracks);
+      const clips = new Y.Map();
+      for (let i = 0; i < 2; i++) {
+        const clip = new Y.Map();
+        clip.set('type', 'subtitle');
+        clip.set('span', { trackId: 'vc:video', start: i, duration: 1 });
+        clip.set('text', 'x'.repeat(150_000));
+        clip.set('visible', true);
+        clip.set('style', { fontSize: 16, letterSpacing: 0, color: '#fff' });
+        clips.set(`c${i}`, clip);
+      }
+      tl.set('clips', clips);
+      doc.getMap('timelines').set('vc', tl);
+      addNode(doc, 'keep', 32);
+    }, 'seed');
+    // 每块两帧过 validateFrameDeny 且 ≤262144 断言（块观测——update 帧全收）
+    const frames: Uint8Array[] = [];
+    doc.on('update', (u: Uint8Array) => frames.push(u));
+    const { svc } = buildSvc(gateway, doc);
+    const r = await svc.shrink('p1', 'u1', { deleteNodeIds: ['vc'] });
+    expect(r.result).toBe('ok');
+    expect(doc.getMap('nodes').has('vc')).toBe(false);
+    expect(doc.getMap('timelines').has('vc')).toBe(false);   // 已变小的 timelines 键进最后一笔
+    expect(doc.getMap('nodes').has('keep')).toBe(true);
+    for (const f of frames) {
+      expect(f.byteLength).toBeLessThanOrEqual(524_288);   // 每帧不过硬闸（262144 软闸按块预检——观测帧为合成后真帧）
+    }
+    // 至少 3 帧：两片段块（单笔全量超软闸→切块两笔）+最后一笔壳删除；块数≥片段块数+1
+    expect(frames.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('Y4a T5 块闸 fail-closed：任一块过不了 262144（单片段逆操作超限）→活文档一笔都不写+删除中止', async () => {
+    const gateway = buildGateway({ maxDocBytes: 8 * MiB });
+    const doc = seedDoc();
+    doc.transact(() => {
+      const n = new Y.Map();
+      n.set('type', 'videoEdit');
+      doc.getMap('nodes').set('huge', n);
+      const tl = new Y.Map();
+      tl.set('version', 1); tl.set('fps', 30);
+      const track = new Y.Map();
+      track.set('type', 'video'); track.set('name', '视频');
+      track.set('muted', false); track.set('hidden', false); track.set('order', '5000');
+      const tracks = new Y.Map();
+      tracks.set('huge:video', track);
+      tl.set('tracks', tracks);
+      const clips = new Y.Map();
+      const clip = new Y.Map();
+      clip.set('type', 'subtitle');
+      clip.set('span', { trackId: 'huge:video', start: 0, duration: 1 });
+      clip.set('text', 'x'.repeat(400_000));   // 单片段逆操作仍超 262144
+      clip.set('visible', true);
+      clip.set('style', { fontSize: 16, letterSpacing: 0, color: '#fff' });
+      clips.set('c0', clip);
+      tl.set('clips', clips);
+      doc.getMap('timelines').set('huge', tl);
+    }, 'seed');
+    const before = Y.encodeStateAsUpdate(doc);
+    const frames: Uint8Array[] = [];
+    doc.on('update', (u: Uint8Array) => frames.push(u));
+    const { svc } = buildSvc(gateway, doc);
+    const r = await svc.shrink('p1', 'u1', { deleteNodeIds: ['huge'] });
+    expect(r.result).toBe('noop');   // 删除整批拒——活文档零写（noop 语义=未删未校准）
+    expect(frames.length).toBe(0);   // 活文档一笔都不写
+    expect(Y.encodeStateAsUpdate(doc)).toEqual(before);   // 字节级零变更
+    expect(doc.getMap('nodes').has('huge')).toBe(true);
+    expect(doc.getMap('timelines').has('huge')).toBe(true);
+  });
+
+  // T5 评审 I#1（spec §0 条 4「任一块过不了 validateFrameDeny 或 262144」——validateFrameDeny 闸补齐）：
+  // 构造 struct 密度超限块（1000 片段×20 个微小键——整笔 undo 309227B>262144 走切块、贪心箱
+  // ~821 片段 undo ~254K 字节过预算、undo 帧 structs ~17.2K>FRAME_MAX_STRUCTS(16000)）。
+  // 修前红相：planner 只查 262144 字节、该箱字节合法照写活 doc（deny 拒失明）。
+  it('Y4a T5 块闸 deny 档（评审 I#1）：struct 密度超限块（字节预算内、structs>16000）→活文档一笔不写+noop', async () => {
+    const gateway = buildGateway({ maxDocBytes: 8 * MiB });
+    const doc = seedDoc();
+    doc.transact(() => {
+      const n = new Y.Map();
+      n.set('type', 'videoEdit');
+      doc.getMap('nodes').set('dense', n);
+      const tl = new Y.Map();
+      tl.set('version', 1); tl.set('fps', 30);
+      tl.set('tracks', new Y.Map());
+      const clips = new Y.Map();
+      for (let i = 0; i < 1000; i++) {
+        const clip = new Y.Map();
+        for (let k = 0; k < 20; k++) clip.set(String.fromCharCode(97 + (k % 26)), 1);   // 20 个微小键（1 字符键/整数值）——装回帧 struct 密度 0.0758/B
+        clips.set(`c${i}`, clip);
+      }
+      tl.set('clips', clips);
+      doc.getMap('timelines').set('dense', tl);
+    }, 'seed');
+    const before = Y.encodeStateAsUpdate(doc);
+    const frames: Uint8Array[] = [];
+    doc.on('update', (u: Uint8Array) => frames.push(u));
+    const { svc } = buildSvc(gateway, doc);
+    const r = await svc.shrink('p1', 'u1', { deleteNodeIds: ['dense'] });
+    expect(r.result).toBe('noop');   // deny 拒——活文档一笔不写（修前红：字节过闸照写=result 'ok'）
+    expect(frames.length).toBe(0);
+    expect(Y.encodeStateAsUpdate(doc)).toEqual(before);   // 字节级零变更
+    expect(doc.getMap('nodes').has('dense')).toBe(true);
+    expect((doc.getMap('timelines').get('dense') as Y.Map<unknown>).get('clips')).toBeTruthy();   // 片段原样
   });
 });
 

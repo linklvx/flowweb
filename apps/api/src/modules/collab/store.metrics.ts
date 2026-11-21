@@ -1301,7 +1301,7 @@ export const frameEffectsTotal = new Counter({
  *  （payload+delta 计入 Q-I2 appliedBytes）；帧无 touched=空 delta 零观测（C3a-4 投影跳过零开销）。 */
 export const bindingDeltaBytes = new Histogram({
   name: 'binding_delta_bytes',
-  help: '帧级 bindingDelta（touched 节点 collectMediaRefsForNode 终态快照——NODE_DELETED=null 槽位全删）序列化字节分布（计入 applied 队列预算；帧无 touched 不观测）',
+  help: '帧级 bindingDelta（touched 节点 collectNodeRefsUnion 并集终态快照〔Y4a T6——节点槽∪timeline clips；节点与 timelines 键双亡=null 槽位全删〕）序列化字节分布（计入 applied 队列预算；帧无 touched 不观测）',
   buckets: [128, 512, 2_048, 8_192, 32_768, 131_072, 524_288],
   registers: [register],
 });

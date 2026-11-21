@@ -54,6 +54,29 @@ const nodeFrame = (nodeId: string): Uint8Array => {
   return Y.encodeStateAsUpdate(d);
 };
 
+/** Y4a T6 剪辑节点帧：nodes.<id>{videoEdit,data}+timelines.<id>{clips:{<cid>:video mediaId}}（spec §0 条 11）。 */
+const clipMediaFrame = (nodeId: string, mediaId: string, clipId = 'c1'): Uint8Array => {
+  const d = new Y.Doc();
+  d.transact(() => {
+    const node = new Y.Map<unknown>();
+    const data = new Y.Map<unknown>();
+    data.set('label', 'clip-node');
+    node.set('type', 'videoEdit');
+    node.set('data', data);
+    (d.getMap('nodes') as Y.Map<unknown>).set(nodeId, node);
+    const entry = new Y.Map<unknown>();
+    const clips = new Y.Map<unknown>();
+    const c = new Y.Map<unknown>();
+    c.set('type', 'video');
+    c.set('span', { trackId: `${nodeId}:video`, start: 0, duration: 5 });
+    c.set('mediaId', mediaId);
+    clips.set(clipId, c);
+    entry.set('clips', clips);
+    (d.getMap('timelines') as Y.Map<unknown>).set(nodeId, entry);
+  });
+  return Y.encodeStateAsUpdate(d);
+};
+
 /** per-test 布景重置（C3a-4 resetDoc 同款）：binding/帙/快照行全清+建 CanvasDoc 行。 */
 async function resetDoc(prisma: PrismaClient, init: { pgSeq: bigint; mediaBindingSeq: bigint; dirty: boolean; generation?: number }, pid: string = PID): Promise<void> {
   await prisma.$transaction([
@@ -277,6 +300,28 @@ maybe('C3a-6：水位不变量闭环——rebuild CAS 四条件+loadForHydration
     const at2 = await repo.loadForHydrationAt(PID_H, { generation: 1, pgSeq: 2n });
     expect(at2.stateSeq).toBe(0n);
     expect(await replayNodes(at2)).toEqual(['s0', 'u1', 'u2']);
+  });
+
+  // ── 族⑥（Y4a T6——spec §0 条 11）：rebuild 后 clip binding 与帧投影同集（并集聚合单源）──
+  it('族⑥：剪辑节点 timeline clip 引用帧→rebuild 后 binding 含 clip 行（targetItemId=clipId）且==帧投影并集（增量=全量同集合）', async () => {
+    await resetDoc(prisma, { pgSeq: 0n, mediaBindingSeq: 0n, dirty: false });
+    // 剪辑节点帧：节点零槽引用、唯一引用=timeline clip mediaId（Y4a T6 并集域）
+    await repo.appendBatch(PID, [seedRow(clipMediaFrame('r-clip', M1), 5n)], { expectedPgSeq: 0n, newPgSeq: 5n, walCheckpointSeq: 5n });
+    const done = await svc.rebuildProjectBindings(PID);
+    expect(done).toMatchObject({ outcome: 'cleared', pgSeq: 5n });
+    const rs = await prisma.mediaBinding.findMany({ where: { projectId: PID } });
+    expect(slotKeysOf(rs)).toEqual([`r-clip|mediaId|c1=>${M1}`]);   // clip 行（targetItemId=clipId 非空——与节点槽空 targetItemId 不撞键）
+    // 递归重算 oracle：collectMediaRefs 聚合（Y4a T6 timelines 键∪nodes 键双枚举）与帧投影同集
+    const oracleDoc = createCanvasDoc();
+    try {
+      const at = await repo.loadForHydrationAt(PID, { generation: 1, pgSeq: 5n });
+      if (at.state) Y.applyUpdate(oracleDoc, new Uint8Array(at.state));
+      for (const u of at.updates) Y.applyUpdate(oracleDoc, new Uint8Array(u));
+      const oracle = slotKeysOf(collectMediaRefs(toDocLike(oracleDoc)).map((r) => ({ nodeId: r.nodeId, targetField: r.targetField, targetItemId: r.targetItemId, mediaId: r.mediaId })));
+      expect(slotKeysOf(rs)).toEqual(oracle);   // rebuild 后 clip binding 与帧投影同集
+      expect(oracle).toContain(`r-clip|mediaId|c1=>${M1}`);
+    } finally { oracleDoc.destroy(); }
+    await prisma.mediaBinding.deleteMany({ where: { projectId: PID } });
   });
 
   /** 恒 mediaBindingSeq<=pgSeq（§0 水位不变量——逐族断言）。 */
