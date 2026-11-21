@@ -16,10 +16,8 @@
 // 语义对齐（既有 resolveMediaDisposition/media-gc 引用图——scope 语义「projectId/workflowId not 被擦项目」）：
 //  - excludedProjectIds=排除项目并集（excludeProjectId ∪ includeDeletedProjects=false 时非 ACTIVE 项目）；
 //  - VideoWork/ObjectManifest 无项目/team 锚（作品行 detach 保留/claim 表全局）——恒全体计入不排除；
-//  - VideoProject.data=JSON 深扫（collectJsonMediaIds 单源——mediaId 词形递归）；
 //  - ObjectManifest 只认**在位 claim**（claimUntil>now=在飞物化保守保留——过期 claim 不算）。
 import { Prisma } from '@prisma/client';
-import { collectJsonMediaIds } from '../media-delivery/media-gc.service';
 
 /** 引用检查 DB 面（PrismaService ∥ $transaction tx——删除事务内 recheck 直供：两者 delegate 同构）。 */
 export type MediaRefDb = Prisma.TransactionClient;
@@ -50,8 +48,9 @@ export interface MediaReferrerEntry {
 }
 
 /**
- * structured/objectKey referrer 全集（十条目——spec §3.4-6 枚举面；新增 mediaId 列同批登记）。
- * 各 resolve=纯读（findFirst/findMany——零写面；VideoProject.data 深扫行集=team 域全量）。
+ * structured/objectKey referrer 全集（spec §3.4-6 枚举面；新增 mediaId 列同批登记）。
+ * 各 resolve=纯读（findFirst/findMany——零写面）。（Y4a T8：VideoProject.data 深扫臂随表整删——
+ * 时间轴引用经 MediaBinding 并集投影承载，非 JSON 深扫）
  */
 export const MEDIA_REFERRERS: readonly MediaReferrerEntry[] = [
   {
@@ -110,19 +109,6 @@ export const MEDIA_REFERRERS: readonly MediaReferrerEntry[] = [
       where: ex.length > 0 ? { outputFileId: mediaId, workflowId: { notIn: [...ex] } } : { outputFileId: mediaId },
       select: { id: true },
     }).then((r) => r != null),
-  },
-  {
-    // 剪辑工程 timeline（JSON 深扫——collectJsonMediaIds 单源 mediaId 词形递归；team 域+workflowId 排除）
-    table: 'VideoProject',
-    column: 'data',
-    kind: 'mediaId',
-    resolve: async ({ db, mediaId, teamId, excludedProjectIds: ex }) => {
-      const rows = await db.videoProject.findMany({
-        where: ex.length > 0 ? { teamId, workflowId: { notIn: [...ex] } } : { teamId },
-        select: { data: true },
-      });
-      return rows.some((vp) => collectJsonMediaIds(vp.data).has(mediaId));
-    },
   },
   {
     // 对象清单在位 claim（objectKey 臂——claimUntil>now=在飞物化保守保留；过期 claim 不算）

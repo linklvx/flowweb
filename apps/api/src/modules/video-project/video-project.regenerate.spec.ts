@@ -11,7 +11,7 @@ describe('regenerate（批5-1 直连真实节点——影子信箱删除）', ()
   const quota = { assertCanUpload: vi.fn() };
 
   beforeEach(() => {
-    prisma = { videoProject: { findUnique: vi.fn() } };
+    prisma = { canvasProject: { findUnique: vi.fn() } };   // Y4a T8：videoProject delegate 随表整删——mock 面同步清出
     // insertNode/removeNode 已随信箱删除——mock 不提供（regenerate 误用即红）；
     // writeNodeData 提供并断言零调用：产物落地（fileId/result 写真实节点）由 execute→artifactCommit 既有链承载
     collab = { readCanvas: vi.fn(), isLeaseServing: vi.fn(() => true), writeNodeData: vi.fn() }; // Y0a-3 T8 语义读门——默认放行
@@ -137,7 +137,7 @@ describe('批5 评审 H1：retake 幂等闭环（retakeId 归目标节点 + 上�
       { commitImage: vi.fn().mockResolvedValue({ outcome: 'committed', mediaId: 'media-t12' }), finalizeText: vi.fn().mockResolvedValue({ outcome: 'committed' }), finalizeVideo: vi.fn(async (p: any) => { succeeded.set(`${p.nodeId}:${undefined}`, p.sourceUrl); return { outcome: 'committed', mediaId: `media:${p.nodeId}` }; }) },   // T12：video finalize-first（replay 幂等闭环锚——resultRef=mediaId）
     );
     const vsvc = new VideoProjectService(
-      { videoProject: { findUnique: vi.fn() } } as any, perm as any, collab as any, execSvc as any, { assertCanUpload: vi.fn() } as any,
+      {} as any, perm as any, collab as any, execSvc as any, { assertCanUpload: vi.fn() } as any,   // Y4a T8：prisma 面 regenerate 不触（exportPrecheck 才查 canvasProject）
     );
     return { vsvc, apiCaller, teamCredit, intentService };
   }

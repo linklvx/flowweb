@@ -19,5 +19,8 @@
   },
   "20261121050000_canvas_schema_v5_default": {
     "migration.sql": "9aaa3656b47d589bda74dbdb7ff9b22cd3142d2d8444d77a9eb29cae303bd290"
+  },
+  "20261121060000_drop_video_project": {
+    "migration.sql": "ca07698fda8d7903c2cd0ee92dc066e74bb2b06cdb6410003407883adfa4380d"
   }
 }

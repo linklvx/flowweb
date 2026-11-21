@@ -13,7 +13,6 @@ import { message } from 'antd';
 import { loadImage, splitImageToBlobs, scaleToMaxSize, validateGridParams, isSubImageTooSmall, MIN_SUB_IMAGE_PX } from '@/utils/imageSplit';
 import { uploadSplitBlobs } from '@/utils/splitUploadService';
 import { getMediaUrl, mediaContentUrl } from '@/api/mediaApi';
-import { deleteProjectByNode } from '@/api/videoProjectApi';
 import { ensureParentOrder } from '@/utils/nodeOrder';
 import { canEdit, canEditCommand, type EditableCommandName } from './syncStatus';
 // Y4a T5（spec §0 条 3）：删除唯一控制流 executeDeleteSplit（三入口同一函数——deleteNode/
@@ -126,17 +125,6 @@ export function computeStoryboardCellsPatch(
     return { groupId: g.id, cells };
   });
 }
-
-/** videoEdit 节点删除时级联删 VideoProject（fire-and-forget；失败 console.error 留痕——deleteNode 与 onNodesChange removes 两条路径共用） */
-const cascadeDeleteVideoProject = (nodes: { id: string; type?: string }[], removedIds: string[]) => {
-  for (const id of removedIds) {
-    if (nodes.find((n) => n.id === id)?.type === NODE_TYPES.VIDEO_EDIT) {
-      deleteProjectByNode(id).catch((err) => {
-        console.error('[video-editor] delete project failed:', err); // 静默孤儿无法排查——失败必须留痕（项目暂无 Sentry 接入，console.error 先行）
-      });
-    }
-  }
-};
 
 // Module-level clipboard for group copy/paste（2a-6 schema）：records=ns 全量冻结快照 +
 // ids=拷贝时已裁决闭包 + edges=闭包内互连边。粘贴不重裁决——成员/hidden 态在复制与粘贴之间
@@ -283,9 +271,7 @@ export interface CanvasState {
   /** 批1 恢复 UI 分级（批1-1 watchdog 写入）：hint 非阻断、banner 批1-5 SyncBanner 消费——
    *  与 connStatus 正交（指示器 vs 恢复横幅）。不进 history/localStorage 快照 */
   connUi: 'ok' | 'hint' | 'banner';
-  /** B4 单向 latch（批0d）：编辑器有未落库修改——由 autosave onDirtyChange 维护（notifyChange 置位、
-   *  仅保存成功清零）；Shell 收起/dispose 清零。不进 history/localStorage 快照 */
-  editorDirty: boolean;
+  // （Y4a T8：editorDirty REST 闩随 autosave 链整删退场——beforeunload 护栏由 unsynced 单源承载〔unloadGuard〕）
   // ── Y0b-5 T6：横幅单链仲裁字段族（SyncBanner resolveCanvasBanner 消费——会话态不进快照）──
   /** diverged 闩锁（裁定 23⑨）：readOnly（collabReadOnly）期间产生本地 update 即置位——服务端
    *  已拒收期间的本地编辑（"自动合并"承诺为假）。三出边=导出 .yjs/放弃（discardLocalDiverged）/
@@ -1051,7 +1037,6 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   localDelta: 0,
   pendingGenerationReload: 0,
   connUi: 'ok',
-  editorDirty: false,
   canvasDiverged: false,
   canvasOversized: false,
   canvasDegraded: false,
@@ -1159,9 +1144,8 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
     const before = captureStoreProjection();
     // Cancel any in-progress process for this node
     get().cancelNodeProcess(id);
-    // videoEdit 节点：级联删除 VideoProject（fire-and-forget——T8 随时间轴入 doc 整链删除；
-    // 失败上报不阻塞画布删除；边由删除原语级联清除）
-    cascadeDeleteVideoProject(get().nodes, [id]);
+    // （Y4a T8：videoEdit 工程级联删除 REST 链随表整删退场——时间轴数据面在画布 doc，节点删除由
+    // executeDeleteSplit 同事务清 timelines.<nodeId>；边由删除原语级联清除）
     // 父组清理判定材料在删除前捕获（doc 写后 store 快照不再含父子关系）
     const prevParentId = get().nodes.find((n) => n.id === id)?.parentId;
     let deletedIds: string[] = [];
@@ -1895,11 +1879,9 @@ export const useCanvasStore = create<CanvasState>()((set, get) => {
   },
 
   onNodesChange: (changes) => {
-    // C1：键盘 Delete 手势路径——videoEdit 节点 remove 需在 applyNodeChanges 移除节点前用变更前 state 判型级联删工程
+    // Y4a T5/T8：键盘 Delete 手势路径——videoEdit 工程级联 REST 链随表整删退场（后代与时间轴由
+    // executeDeleteSplit 一次收齐）；组级联/二次级联废除——removedGroupsChildren 再走 deleteNode 的形态不再发生
     const removedIds = changes.filter((c) => c.type === 'remove').map((c) => (c as any).id);
-    if (removedIds.length > 0) cascadeDeleteVideoProject(get().nodes, removedIds);
-    // Y4a T5（spec §0 条 3）：组级联/二次级联废除——后代由 executeDeleteSplit 一次收齐（本函数
-    // 尾部 applyNodeChanges 之后恰一次）；removedGroupsChildren 再走 deleteNode 的形态不再发生
     const parentOfRemoved = new Map(   // set 之前捕获——filter 后丢失父子关系（deleteNode 同款）
       removedIds.map((id) => [id, get().nodes.find((n) => n.id === id)?.parentId]),
     );

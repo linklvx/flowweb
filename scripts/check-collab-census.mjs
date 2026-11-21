@@ -1853,7 +1853,7 @@ if (isMain()) {
       seenAlias.add(key);
       if (a.column === 'projectId' || a.column === 'teamId') details.push(`别名条目 ${key} 为字面列（属闭包清单域——别名表禁重复登记）`);
     }
-    if (aliases.length < 9) details.push(`别名条目数 ${aliases.length} < 9（plan ㉓ 五项+桥/谓词补全——条目删减须同步本下限）`);
+    if (aliases.length < 8) details.push(`别名条目数 ${aliases.length} < 8（plan ㉓ 五项+桥/谓词补全；Y4a T8：VideoProject.workflowId 随表整删清出——条目删减须同步本下限）`);
     report('㊲', `scope 列闭包+scope-alias-registry diff（C4-b——projectId 模型 ${schemaProjectModels.length}/${regProject.length}、teamId 模型 ${schemaTeamModels.length}/${regTeam.length}、别名 ${aliases.length} 条双向 diff；新增表/列未登记即红）`, details.length === 0, details);
   }
 
@@ -1948,7 +1948,7 @@ if (isMain()) {
       if (seen.has(key)) details.push(`registry 条目重复登记 ${key}`);
       seen.add(key);
     }
-    if (entries.length < 10) details.push(`registry 条目数 ${entries.length} < 10（spec §3.4-6 枚举面——条目删减须同步本下限）`);
+    if (entries.length < 9) details.push(`registry 条目数 ${entries.length} < 9（spec §3.4-6 枚举面；Y4a T8：VideoProject.data 条目随表整删清出——条目删减须同步本下限）`);
     // B. mediaId 命名列反向闭包（登记 ∥ 见证人/伴随列白名单）
     const WITNESS_OR_COMPANION_MEDIAID_COLUMNS = {
       'MediaBinding.mediaId': 'isMediaReferenced Binding 臂（media-reference.service——投影证人）',

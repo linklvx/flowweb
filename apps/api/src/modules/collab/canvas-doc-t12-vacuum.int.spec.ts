@@ -26,6 +26,7 @@ import { createLeaseStub } from './test-utils/lease-stub';
 import { gatewayFacade } from './test-utils/collab-gateway-test-facade';
 import { canvasDocName } from './doc-name.util';
 import { createCanvasDoc } from './canvas-doc.factory';
+import { stableStringify, exportTimelineView } from './collab-canary-semantic';   // Y4a T9：timelines 读回视图+稳定序列化单源（② 逐字节断言消费——禁第二份序列化）
 import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y2 C1：sv 布景常量化（翻禁批 sv=3 拒载）
 import { ensureProjectFixture, cleanupProjectFixture } from '../../test-utils/db-fixtures';
 import { makeSpoolDir } from '../../test-utils/spool-dir';
@@ -271,6 +272,55 @@ maybe('Y1c T12 复核残留 I1.2：era 定格 DB 真值化+expectedGeneration �
       expect(tl).toBeInstanceOf(Y.Map);
       const clipsOut = (tl as Y.Map<unknown>).get('clips') as Y.Map<unknown>;
       expect((clipsOut.get('c1') as Y.Map<unknown>).get('mediaId')).toBe('m-1');
+      // ── Y4a T9（spec §0 条 7）：②真时间轴 vacuum 前后 stableStringify(timelines) 逐字节相等 ──
+      //    （T2-B 档补断言——deepCopyYMap 搬内容后 exportTimelineView 单源视图两侧恒等）。
+      const entry = new Y.Map();
+      entry.set('version', 1);
+      entry.set('fps', 30);
+      const clips = new Y.Map();
+      clips.set('c1', new Y.Map([['type', 'video'], ['mediaId', 'm-1'], ['span', { trackId: 'n1:video', start: 0, duration: 5 }]]));
+      entry.set('clips', clips);
+      const source = createCanvasDoc();
+      try {
+        source.getMap('timelines').set('n1', entry);
+        // 逐字节断言（Y.Map 实例不可 toEqual——stableStringify 单源序列化后字符串恒等）
+        expect(stableStringify(exportTimelineView(revived.getMap('timelines')))).toBe(stableStringify(exportTimelineView(source.getMap('timelines'))));
+      } finally { source.destroy(); }
     } finally { revived.destroy(); }
+  }, 60_000);
+
+  // ══ Y4a T9（spec §0 条 7「哈希和真空等价比较包含 timelines」）：③负控——vacuumEquivalent
+  //    timelines 内容深比。修前红：:821-838 现只 shapeOf+toReadModel 双比（toReadModel 结构性
+  //    不含 timelines——公开零泄漏），深拷贝漏拷片段（fresh 缺 clip）仍判等价 ⇒ 断言 false 必红。 ══
+  it('Y4a T9 ③负控：fresh 缺一个片段（深拷贝漏拷形态）⇒ vacuumEquivalent 判假（修前只比 toReadModel/shapeOf——时间轴差异不可见=红）', async () => {
+    const { gateway } = await buildKit();
+    // old：带 timelines.n1 两片段工程（c1 mediaId=m-a/c2 mediaId=m-b）
+    const oldDoc = createCanvasDoc();
+    try {
+      oldDoc.getMap('nodes').set('n1', new Y.Map([['type', 'textInput']]));
+      const entry = new Y.Map();
+      entry.set('version', 1);
+      entry.set('fps', 30);
+      const clips = new Y.Map();
+      clips.set('c1', new Y.Map([['type', 'video'], ['mediaId', 'm-a'], ['span', { trackId: 'n1:video', start: 0, duration: 5 }]]));
+      clips.set('c2', new Y.Map([['type', 'video'], ['mediaId', 'm-b'], ['span', { trackId: 'n1:video', start: 5, duration: 3 }]]));
+      entry.set('clips', clips);
+      oldDoc.getMap('timelines').set('n1', entry);
+      // fresh=rebuildDocFaithful 产物形态（nodes/edges 经 toReadModel+fillDoc——公开读模型等价），
+      // 再模拟 deepCopyYMap 漏拷片段 c2（负控变异——「把信任 fillDoc 变成验证 fillDoc」的时间轴腿）。
+      const rebuilt = gateway.rebuildDocFaithful(oldDoc);
+      expect(rebuilt).not.toBeNull();
+      try {
+        ((rebuilt!.getMap('timelines').get('n1') as Y.Map<unknown>).get('clips') as Y.Map<unknown>).delete('c2');   // 漏拷变异
+        expect(gateway.vacuumEquivalent(oldDoc, rebuilt!)).toBe(false);   // ★核心先红档：修前无内容比较 ⇒ true
+      } finally { rebuilt!.destroy(); }
+      // 对照组：未变异的 rebuild 产物恒等价（内容比较不引入假红——nodes/edges 等价档）
+      const clean = gateway.rebuildDocFaithful(oldDoc);
+      expect(clean).not.toBeNull();
+      try { expect(gateway.vacuumEquivalent(oldDoc, clean!)).toBe(true); } finally { clean!.destroy(); }
+      // 对照组：空根档两侧恒等（T2-A 不破——fillDoc 物化空根形态）
+      const emptyOld = createCanvasDoc();
+      try { expect(gateway.vacuumEquivalent(emptyOld, gateway.rebuildDocFaithful(emptyOld)!)).toBe(true); } finally { emptyOld.destroy(); }
+    } finally { oldDoc.destroy(); }
   }, 60_000);
 });

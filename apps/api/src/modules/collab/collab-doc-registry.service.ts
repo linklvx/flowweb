@@ -26,6 +26,7 @@ import { observeOrderPathologyOnLoad } from './collab-pathology';
 import { toDocLike } from './doc-like.util';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { captureCollabException } from '../../utils/sentry-scrub';
+import { stableStringify, exportTimelineView } from './collab-canary-semantic';   // Y4a T9：vacuumEquivalent timelines 内容深比单源（三消费面同源——canary 文件注）
 import { PrismaService } from '../../prisma/prisma.service';   // Y2 D4t：装入重扫 Media 行读面（@Optional 尾参——gateway 自建传同实例）
 import type { HeapPressureSample } from './heap-pressure';
 import type { TryReleaseMotive, TryReleaseOutcome } from './collab-residency.service';
@@ -816,8 +817,11 @@ export class CollabDocRegistryService {
    *  搬运、shape 断言两侧行过滤对称豁免〔旧档源 exec 根丢弃合法〕）。
    *  Y4a T2（spec §0 条 7）：timelines 两侧 getMap 规约化——fillDoc 物化后 fresh 恒带根，
    *  旧档源（Y4a 前快照）无根 ⇒ 单侧造根=shapeOf 永假（meta :780-781 假红同根因——对称声明
-   *  修实现侧）；内容比较（stableStringify timelines）=T9 扩，本批只落两侧声明+shapeOf 天然
-   *  覆盖〔根集合守恒〕。 */
+   *  修实现侧）。
+   *  Y4a T9（spec §0 条 7「真空等价比较包含 timelines」）：timelines 内容深比——
+   *  stableStringify(exportTimelineView(...)) 两侧恒等判定（collab-canary-semantic 单源导出
+   *  ——键序稳定防深拷贝后假红；三消费面同源见其注）。负控：深拷贝漏拷片段（fresh 缺 clip）
+   *  ⇒ 比较为假（T12 int Y4a ③档钉死）。 */
   vacuumEquivalent(oldDoc: Y.Doc, newDoc: Y.Doc): boolean {
     // 三常驻根规约化（装载路径同款——根集合对称口径；空源 doc 键集合口径由此对称）。
     // T18：meta 规约化删除——legacy 根两侧自然对称（source 有 ⇒ fresh 深拷贝亦有；无 ⇒ 双无；
@@ -829,6 +833,9 @@ export class CollabDocRegistryService {
     const shapeOf = (d: Y.Doc) => [...d.share.keys()].filter((k) => k !== 'exec').sort().join('|');   // 根键名集合（wire 占位与本地实例 constructor 不可比——类型保型由 rebuild 判定结构性保证）
     if (shapeOf(oldDoc) !== shapeOf(newDoc)) return false;
     if (JSON.stringify(toReadModel(oldDoc)) !== JSON.stringify(toReadModel(newDoc))) return false;
+    // Y4a T9：timelines 内容深比（toReadModel 结构性不含 timelines——toReadModel 等价+shapeOf 等
+    // 不足以证时间轴等价；stableStringify 键排序稳定——Y.Map 键序不稳定深拷贝后字符串比较防假红）。
+    if (stableStringify(exportTimelineView(oldDoc.getMap('timelines'))) !== stableStringify(exportTimelineView(newDoc.getMap('timelines')))) return false;
     return true;
   }
 

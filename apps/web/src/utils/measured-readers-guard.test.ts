@@ -61,10 +61,10 @@ const CLASSIFICATION: Record<'A' | 'B', Record<string, number[]>> = {
     //（interface +9/初始值 +3）+rebindCopiedMedia helper +31——13 行整体 +40 漂移（集合不变）
     // C3a-8 批：HEAD=a953e55a（C3a-7 收口）在 canvasStore:561 附近注释段净 +1 行未同步本表
     //（本卡零 web 改动——机械行号同步，集合不变；隔离复跑绿）
-    'stores/canvasStore.ts': [1273, 1274, 1280, 1281, 1344, 1345, 1423, 1424, 1430, 1431, 1590, 2139, 2140],   // Y4a T5 评审 round1：deleteNode 拒绝路径分层/deleteTransformNode deletedIds 消费净增行——13 行机械漂移（集合语义不变）   // Y2 D1t：rebindCopiedMedia 重写净 +6 行——13 行机械同步（集合语义不变）   // Y2 B3：五写点退役+splitImageNode/放置面改写——行号机械同步（集合语义不变）   // Y2 A5：±行漂移机械同步（集合语义不变——computeStoryboardCellsPatch 读侧单源化/clearStoryboard 旧档回退删净等增删行所致）   // Y2 D5t：localPreview 表字段/清面/建链 helper 净 +89 行——13 行整体机械漂移（集合语义不变）
+    'stores/canvasStore.ts': [1257, 1258, 1264, 1265, 1328, 1329, 1407, 1408, 1414, 1415, 1574, 2121, 2122],   // Y4a T5 评审 round1：deleteNode 拒绝路径分层/deleteTransformNode deletedIds 消费净增行——13 行机械漂移（集合语义不变）   // Y2 D1t：rebindCopiedMedia 重写净 +6 行——13 行机械同步（集合语义不变）   // Y2 B3：五写点退役+splitImageNode/放置面改写——行号机械同步（集合语义不变）   // Y2 A5：±行漂移机械同步（集合语义不变——computeStoryboardCellsPatch 读侧单源化/clearStoryboard 旧档回退删净等增删行所致）   // Y2 D5t：localPreview 表字段/清面/建链 helper 净 +89 行——13 行整体机械漂移（集合语义不变）   // Y4a T8：cascadeDeleteVideoProject 函数删除（-11）/editorDirty 字段两处删除（-2）/onNodesChange 级联段删除（-2）——13 行整体 −16 机械漂移（集合不变）
     'pages/canvas/components/groups/GroupNode.tsx': [22, 23],   // Y2 B3：折叠卡 resolver 改写行漂移
     'utils/handleMenu.ts': [53, 54],  // Y1c T1：注释+import 插入 +4 漂移
-    'pages/canvas/video-editor/export/product-node.ts': [16],  // Y1c T1：import 插入 +1 漂移
+    'pages/canvas/video-editor/export/product-node.ts': [18],  // Y1c T1：import 插入 +1 漂移；Y4a T8 re-key 注释 +2——→18（集合不变）
   },
   B: {
     // 屏幕空间 UI+RF internals（measured 权威禁进投影）=27 行：六 Toolbar 12 + ImageGen setCenter 2 +

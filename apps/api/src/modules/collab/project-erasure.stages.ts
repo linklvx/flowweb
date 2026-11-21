@@ -11,17 +11,19 @@
 //    （同 path 覆盖+DB 索引 sha 同步——C4-c2 对象/Redis 清除经并集 manifest 重放；DB 行删除以 live
 //    DB 为准兜底：manifest−DB 现存=对象删除面，manifest∩DB 现存=保留〔detach〕行）；
 //  ②**无 FK 孤儿族 per-scope 批删**（registry 驱动——PROJECT_COLUMN_MODELS+PROJECT_SCOPE_ALIASES）：
-//    FK Cascade 族（CanvasDoc/CanvasDocSnapshot/CanvasDocUpdate/ProjectMember/VideoProject）随
-//    CanvasProject 行删除级联不重复删；ExecutionRequest/GenerationIntent=allowlist 计费行保留
+//    FK Cascade 族（CanvasDoc/CanvasDocSnapshot/CanvasDocUpdate/ProjectMember）随
+//    CanvasProject 行删除级联不重复删（Y4a T8：VideoProject 随表整删——级联族清出该名）；
+//    ExecutionRequest/GenerationIntent=allowlist 计费行保留
 //    （intent 只 scrub 内容列）；Template=worker 显式 DELETE WHERE projectId（FK 未改——产品裁定
 //    2026-11-05 随项目擦除）；桥表（ExecutionNodePlan/ExecutionInput 经 ExecutionRequest、
 //    RefundObligation/ReconcileAction 经 GenerationIntent）raw SQL 子查询批删；
 //  ③**Media 三档 registry**（红⑫）：库资产（folderId 非空∨isFavorite∨type='uploaded'——schema
 //    :346-348 素材库语义）→detach（projectId=NULL+清 nodeId/taskId+行对象保留）；他项目/已发布作品
 //    引用→detach 保留（引用图=VideoWork.videoMediaId/coverKey+NodeArtifact.mediaId+MediaBinding+
-//    VideoProject.data 深扫+LightingTask.resultMediaId+VideoTrimTask.sourceFileId/outputFileId+他项目
+//    LightingTask.resultMediaId+VideoTrimTask.sourceFileId/outputFileId+他项目
 //    引用〔collectMediaRefs 内部端点——api 不可达=本轮暂停不删 fail-closed〕+ObjectManifest claim
-//    〔在位 claim=在飞物化保守保留〕；resultRef 不进引用图——生成产物不跨 scope 仅 scrub）；独占
+//    〔在位 claim=在飞物化保守保留〕——Y4a T8：VideoProject.data 深扫臂随表整删，时间轴引用经
+//    MediaBinding 并集投影承载；resultRef 不进引用图——生成产物不跨 scope 仅 scrub）；独占
 //    （generated/temp 且无前两档）→删 DB 行（对象全版本删除归 C4-c2）+**两阶段复核**（首扫标记→
 //    下一轮 tick 跨 claim 周期复核仍独占才删——复核载体=manifest 目录 sidecar 标记文件，禁加列）；
 //  ④**VideoWork detach**（红⑬）：canvasProjectId=NULL——视频/封面/计费/审计保留；
@@ -275,7 +277,7 @@ async function applyProjectErasureWrites(
       if (alias.model === 'VideoTrimTask' || alias.model === 'VideoSeparateTask') {
         await del[delegateKey(alias.model)]!.deleteMany({ where: { workflowId: pid } });
       }
-      // VideoProject=FK Cascade；VideoWork=批一 detach；ExecutionNodePlan/ExecutionInput/RefundObligation/
+      // VideoWork=批一 detach；ExecutionNodePlan/ExecutionInput/RefundObligation/
       // ReconcileAction=下方桥批删；AuditLog=谓词行保留（断言钉死）
     }
     await tx.$executeRaw`DELETE FROM "ExecutionNodePlan" WHERE "requestId" IN (SELECT id FROM "ExecutionRequest" WHERE "projectId" = ${pid}::text)`;
@@ -283,7 +285,7 @@ async function applyProjectErasureWrites(
     await tx.$executeRaw`DELETE FROM "RefundObligation" WHERE "intentRowId" IN (SELECT id FROM "GenerationIntent" WHERE "projectId" = ${pid}::text)`;
     await tx.$executeRaw`DELETE FROM "ReconcileAction" WHERE "intentRowId" IN (SELECT id FROM "GenerationIntent" WHERE "projectId" = ${pid}::text)`;
     try {
-      await tx.canvasProject.delete({ where: { id: pid } });   // FK Cascade 载体（CanvasDoc/Snapshot/Update/ProjectMember/VideoProject）
+      await tx.canvasProject.delete({ where: { id: pid } });   // FK Cascade 载体（CanvasDoc/Snapshot/Update/ProjectMember——Y4a T8 起 VideoProject 不在级联族）
     } catch (e) {
       if ((e as { code?: string })?.code !== 'P2025') throw e;   // 行已删（kill -9 重跑）折幂等
     }

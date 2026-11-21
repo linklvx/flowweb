@@ -1,43 +1,10 @@
 // apps/web/src/api/videoProjectApi.ts
+// Y4a T8（spec §0 条 9）：VideoProject 表整删——upsertProject/patchProject/getProjectByNode/
+// deleteProjectByNode（REST autosave 链）随链退场；留存 regenerate/exportPrecheck/register/confirm
+// 四 fetch（全部零依赖表）。RegisterGeneratedInput 键 `videoProjectId`→`sourceNodeId` 同批 re-key
+//（doc 字符串非外键——spec §3.5）。
 import type { ExportResolution } from '@flowweb/shared';
 import { apiFetch } from './client';
-import { withSyncRetry } from './executionApi';
-
-export interface VideoProjectDto {
-  id: string;
-  sourceNodeId: string;
-  workflowId: string;
-  teamId: string; // 运行时 getByNode/upsert 回 Prisma 整行恒含（Shell 传 p.teamId → loadProject）
-  title: string;
-  data: import('@flowweb/shared').ProjectData;
-  updatedAt: string;
-}
-
-/** 首次全屏编辑 upsert by sourceNodeId（幂等防双击；update 分支亦返回全量）。
- *  data 由前端显式传（shared barrel 仅 Vite 侧可值导入——API 纯 TS 源码包运行时约束，服务端只留防御缺省——执行期修正） */
-export function upsertProject(input: { workflowId: string; sourceNodeId: string; title: string; data?: unknown }): Promise<VideoProjectDto> {
-  return apiFetch<VideoProjectDto>('/video-projects', { method: 'POST', body: JSON.stringify(input) });
-}
-
-// Y0b-5 T9（spec §5.3）：保存路径（autosave deps.patch）503 语义化——withSyncRetry 扩消费
-// （executionApi.ts:26 单源，禁三处复制；409 业务冲突不经 503 分支原样上抛=自动保存退避梯语义不变）。
-export function patchProject(id: string, body: { data: unknown; baseUpdatedAt: string }): Promise<VideoProjectDto> {
-  return withSyncRetry(() => apiFetch<VideoProjectDto>(`/video-projects/${id}`, { method: 'PATCH', body: JSON.stringify(body) }));
-}
-
-/** 删除剪辑节点时 fire-and-forget 调用（仅删工程记录，引用 Media 不动） */
-export function deleteProjectByNode(sourceNodeId: string): Promise<void> {
-  return apiFetch<void>(`/video-projects/by-node/${sourceNodeId}`, { method: 'DELETE' });
-}
-
-export async function getProjectByNode(sourceNodeId: string): Promise<VideoProjectDto | null> {
-  try {
-    return await apiFetch<VideoProjectDto>(`/video-projects/by-node/${sourceNodeId}`);
-  } catch (e) {
-    if ((e as { status?: number })?.status === 404) return null; // 工程不存在=空态（添加节点不建工程）
-    throw e;
-  }
-}
 
 export interface RegenerateInput { workflowId: string; sourceNodeId: string; kind: 'video' | 'audio'; retakeId: string; }
 /** Y0b-2 T5（Z95）：errors 结构化 {nodeId,status,error,errorCode?}——与 executionApi.ExecutionErrorEntry 同形 */
@@ -51,7 +18,7 @@ export function regenerateNode(input: RegenerateInput): Promise<RegenerateResult
   return apiFetch<RegenerateResult>('/video-projects/regenerate', { method: 'POST', body: JSON.stringify(input) });
 }
 
-export interface RegisterGeneratedInput { workflowId: string; videoProjectId: string; resolution: ExportResolution; durationSec: number; width?: number; height?: number; actualSize: number; clientRequestId: string; } // width/height 尺寸存档（后端 RegisterGeneratedDto 批5-4 可选字段；Task 19 起前端必传——resolution 无法表达 9:16 的 1080×1920）；clientRequestId 幂等键必填（后端 whitelist 静默剥离未声明字段——漏传则重试无幂等保护）
+export interface RegisterGeneratedInput { workflowId: string; sourceNodeId: string; resolution: ExportResolution; durationSec: number; width?: number; height?: number; actualSize: number; clientRequestId: string; } // width/height 尺寸存档（后端 RegisterGeneratedDto 批5-4 可选字段；Task 19 起前端必传——resolution 无法表达 9:16 的 1080×1920）；clientRequestId 幂等键必填（后端 whitelist 静默剥离未声明字段——漏传则重试无幂等保护）；sourceNodeId=剪辑节点自身 canvas nodeId（Y4a T8 re-key：doc 字符串非外键）
 export interface RegisterGeneratedResult { mediaId: string; upload: { url: string; fields: Record<string, string> } }
 
 export function registerGeneratedMedia(input: RegisterGeneratedInput): Promise<RegisterGeneratedResult> {

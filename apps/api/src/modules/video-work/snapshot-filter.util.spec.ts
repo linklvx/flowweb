@@ -72,15 +72,15 @@ describe('snapshot-filter 白名单（spec §4.6 表，键以 CanvasView nodeTyp
     expect(Object.keys(d).sort()).toEqual(['aiTool', 'aspectRatio']); // 无 extConfig 无 html 无 style 无 prompt（ext 节点提示词在 extConfig 内随整体剥离）
   });
 
-  it('videoGen：label/model/ratio/prompt.text/trim 保留；origin/videoProjectId/fileId 剥离', () => {
+  it('videoGen：label/model/ratio/prompt.text/trim 保留；origin/sourceNodeId/fileId 剥离（Y4a T8 re-key——旧键 videoProjectId 亦被白名单外剥离不回流）', () => {
     const input: RawCanvasData = {
-      nodes: [rawNode('n1', 'videoGen', { origin: 'video-edit', videoProjectId: 'vp1', fileId: 'f1', label: '末班地铁 · 导出 1', model: 'video-01', ratio: '16:9', prompt: { text: 'p', html: 'h' }, trimStart: 0, trimEnd: 5, status: 'done' })],
+      nodes: [rawNode('n1', 'videoGen', { origin: 'video-edit', sourceNodeId: 'edit-1', videoProjectId: 'vp-legacy', fileId: 'f1', label: '末班地铁 · 导出 1', model: 'video-01', ratio: '16:9', prompt: { text: 'p', html: 'h' }, trimStart: 0, trimEnd: 5, status: 'done' })],
       edges: [],
     };
     const out = buildFilteredSnapshot(input, base);
     const d = out.nodes[0].data;
     expect(d.label).toBe('末班地铁 · 导出 1');
-    expect(d.origin).toBeUndefined(); expect(d.videoProjectId).toBeUndefined(); expect(d.fileId).toBeUndefined();
+    expect(d.origin).toBeUndefined(); expect(d.sourceNodeId).toBeUndefined(); expect(d.videoProjectId).toBeUndefined(); expect(d.fileId).toBeUndefined();
   });
 
   it('audioGen：model/prompt 保留（类型键是 audioGen 非 audio；Y1c T15 content→prompt 同卡迁）', () => {

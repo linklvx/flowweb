@@ -23,7 +23,8 @@ export const mediaBindingReconcileOutcomeTotal = new Counter({
 /** media GC 逐动作计数（T16 指标面：GC 护栏命中/删除/对象删除失败）。
  *  outcome=deleted（软删+过 grace+引用图无引用→对象+行硬删——**无 mediaId FK**；孤儿 binding 行由
  *  只读漂移检测→置 dirty→runner rebuild 清理）/
- *  guarded（引用图命中——binding/NodeArtifact/VideoWork/VideoProject/doc 扫描任一引用真实命中）/
+ *  guarded（引用图命中——binding/NodeArtifact/VideoWork/doc 扫描任一引用真实命中——Y4a T8：
+ *  VideoProject 深扫臂随表整删，时间轴引用经 binding 并集投影承载）/
  *  valve-bailout（barrier bail-out/预算过期族的保守保留——卡② K8 起=围栏内判决面；T19 分桶：
  *  与 guarded 区分「引用增长」vs「围栏/预算异常」两个 SLO 信号）/
  *  object-delete-failed（MinIO 非 404 失败——行保留待下轮，pending-upload sweep 同语义）。 */

@@ -1,12 +1,15 @@
 // apps/api/src/modules/video-project/video-project.service.ts
-import { Injectable, Inject, ConflictException, BadRequestException, ForbiddenException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectPermissionService } from '../team/project-permission.service';
 import { CollabWritePort } from '../collab/collab-write.port';
-import { fenceProject, lockProject } from '../collab/project-lock';
 import { ExecutionService } from '../execution/execution.service';
 import { StorageQuotaService } from '../team/storage-quota.service'; // 实际在 team/ 模块（TeamModule 已 export，与 generated-media.service 同款引法）
 
+// Y4a T8（spec §0 条 9）：VideoProject 表整删——upsertByNode/getByNode/patch/deleteByNode/
+// defaultProjectData 随 REST autosave 链退场（时间轴数据面迁画布 doc timelines 根）。
+// 留存 regenerate/exportPrecheck 均零依赖表（regenerate 读 doc；exportPrecheck teamId 从
+// CanvasProject 派生）。
 @Injectable()
 export class VideoProjectService {
   constructor(
@@ -16,83 +19,6 @@ export class VideoProjectService {
     @Inject(ExecutionService) private readonly execution: ExecutionService, // Task 11 regenerate 用——签名一次到位，避免 Task 11 中途改构造器
     @Inject(StorageQuotaService) private readonly quota: StorageQuotaService, // Task 5 exportPrecheck 配额预检
   ) {}
-
-  /** 默认工程缺省（与前端 shared createDefaultProjectData 同构：单条空视频轨，其余轨道随素材动态创建——spec 勘误③）。
-   *  @flowweb/shared 已真构建（R1a：main→dist CJS）——生产源码值导入自 R1a 起合法，dist 陈旧时 dev/build/test 首段内联的 check-shared-dist 会拦（勿删内联段；见 admin.guard.ts 注释）；
-   *  前端 upsert 会显式传 data，此处仅为 API 直调方的防御缺省（Plan 2 浏览器验收发现原字面量 tracks:[] 与 spec 默认轨脱节） */
-  private static defaultProjectData(): object {
-    return {
-      version: 1, fps: 30,
-      tracks: [{ id: `track-${crypto.randomUUID()}`, type: 'video', name: '视频', muted: false, hidden: false, clips: [] }],
-      clips: {},
-    };
-  }
-
-  /** upsert by sourceNodeId（@unique）——幂等防双击；update 分支同样全量返回；
-   *  teamId 服务端从 workflowId 派生（assertEditor 只验 workflow 编辑权不验 teamId 归属——客户端传 teamId 会造不一致脏行） */
-  async upsertByNode(input: { workflowId: string; sourceNodeId: string; userId: string; title: string; data?: unknown }) {
-    await this.perm.assertEditor(input.workflowId, input.userId);
-    const project = await this.prisma.canvasProject.findUnique({
-      where: { id: input.workflowId },
-      select: { teamId: true },
-    });
-    if (!project) throw new BadRequestException('项目不存在'); // 显式抛错（与 Task 10 register 统一）——防 assertEditor 契约变更时 project! 静默 TypeError
-    const existing = await this.prisma.videoProject.findUnique({ where: { sourceNodeId: input.sourceNodeId } });
-    if (existing && existing.workflowId !== input.workflowId) {
-      throw new ForbiddenException('sourceNodeId 已属于其他画布'); // 归属校验——nodeId 全局唯一键下防跨画布读/抢占
-    }
-    // C4-b（R15 fence 接线·scope-alias 维）：VideoProject.workflowId=CanvasProject.id 别名列（registry
-    // PROJECT_SCOPE_ALIASES）——写事务 lockProject→fenceProject（DELETING 拒；读过滤+assertEditor 已使
-    // HTTP 面 404/403 先行，此处为 in-tx 关闭面）。
-    return this.prisma.$transaction(async (tx) => {
-      await lockProject(tx, input.workflowId);
-      await fenceProject(tx, input.workflowId);
-      return tx.videoProject.upsert({
-        where: { sourceNodeId: input.sourceNodeId },
-        create: {
-          teamId: project.teamId, userId: input.userId, workflowId: input.workflowId,
-          sourceNodeId: input.sourceNodeId, title: input.title,
-          data: (input.data ?? VideoProjectService.defaultProjectData()) as object,
-        },
-        update: {}, // 已存在则原样返回全量（title/data 不动——编辑器加载用）
-      });
-    });
-  }
-
-  async getByNode(sourceNodeId: string, userId: string) {
-    const proj = await this.prisma.videoProject.findUnique({ where: { sourceNodeId } });
-    if (!proj) return null;
-    await this.perm.assertEditor(proj.workflowId, userId);
-    return proj;
-  }
-
-  /** PATCH 单飞配合：乐观锁 baseUpdatedAt ≠ 库内值 → 409 */
-  async patch(id: string, userId: string, dto: { data: object; baseUpdatedAt: string }) {
-    const proj = await this.prisma.videoProject.findUnique({ where: { id } });
-    if (!proj) throw new NotFoundException('project not found'); // 404 语义——409 留给版本冲突（前端可静默停止自动保存）
-    await this.perm.assertEditor(proj.workflowId, userId);
-    if (proj.updatedAt.getTime() !== new Date(dto.baseUpdatedAt).getTime()) {
-      throw new ConflictException('project modified elsewhere');
-    }
-    // C4-b（R15 fence 接线·workflowId 别名维同 upsertByNode）：乐观锁判定后写前 in-tx fence。
-    return this.prisma.$transaction(async (tx) => {
-      await lockProject(tx, proj.workflowId);
-      await fenceProject(tx, proj.workflowId);
-      return tx.videoProject.update({ where: { id }, data: { data: dto.data as object } });
-    });
-  }
-
-  async deleteByNode(sourceNodeId: string, userId: string) {
-    const proj = await this.prisma.videoProject.findUnique({ where: { sourceNodeId } });
-    if (!proj) return;
-    await this.perm.assertEditor(proj.workflowId, userId);
-    // C4-b（R15 fence 接线同款）：删除=项目维写（DELETING 拒——工程行随 scope 批删归 worker）。
-    await this.prisma.$transaction(async (tx) => {
-      await lockProject(tx, proj.workflowId);
-      await fenceProject(tx, proj.workflowId);
-      await tx.videoProject.delete({ where: { sourceNodeId } });
-    });
-  }
 
   /**
    * 批5-1 retake 直连真实节点（落点 B——影子信箱删除）：
@@ -132,7 +58,7 @@ export class VideoProjectService {
       select: { teamId: true },
     });
     if (!project) throw new NotFoundException('画布不存在');
-    await this.quota.assertCanUpload(project.teamId, dto.estimatedSize); // teamId 服务端从 workflowId 派生（与 register 同款）
+    await this.quota.assertCanUpload(project.teamId, dto.estimatedSize); // teamId 服务端从 workflowId 派生（与 register 同款——Y4a T8 后零依赖 VideoProject 表）
     return { ok: true };
   }
 }

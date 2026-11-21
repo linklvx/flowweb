@@ -54,6 +54,12 @@ export const EXEMPTIONS = {
     ArtifactProjection: { reason: '同款两键域（mediaId|result）——①段 UPDATE 存量先行', owner: 'Y2 plan v6 用户确认（2026-11-17）', since: '2026-11-18' },
     MediaBinding: { reason: '九键域收六键（②段 DELETE 三退役键行先行）', owner: 'Y2 plan v6 用户确认（2026-11-17）', since: '2026-11-18' },
   },
+  // Y4a T8（spec §0 条 9 / 2026-11-20-y4a-timeline-domain 用户七轮收口 v7 裁定）：VideoProject 表
+  // 整张删除。放行依据=表零剩余读者（时间轴入 doc timelines 根；REST 工程面同批退场——upsert/patch/
+  // by-node 读写面随本 commit 消失，无 drain 期旧代码写面）+开发期无存量（reset runbook 同语义）。
+  '20261121060000_drop_video_project': {
+    VideoProject: { reason: 'Y4a T8 表整删——零剩余读者+开发期无存量（REST 工程面同 commit 退场）', owner: 'Y4a spec v10 用户七轮收口（2026-11-20）', since: '2026-11-21' },
+  },
 };
 
 /** BREAKING 语句所属表名提取（ALTER/DROP/TRUNCATE TABLE "X" 或 DROP TYPE "X" 首个引用）；
@@ -61,7 +67,7 @@ export const EXEMPTIONS = {
  *  已知边界（质评 Minor-4）：多目标 DROP TABLE（DROP TABLE "A", "B"）首目标命中即整语句豁免——
  *  Prisma 不产此形态，豁免登记与迁移同 commit 审阅兜底。 */
 export function breakingTable(stmt) {
-  return stmt.match(/\b(?:ALTER\s+TABLE|DROP\s+TABLE|TRUNCATE(?:\s+TABLE)?)\s+"([^"]+)"/i)?.[1]
+  return stmt.match(/\b(?:ALTER\s+TABLE|DROP\s+TABLE(?:\s+IF\s+EXISTS)?|TRUNCATE(?:\s+TABLE)?)\s+"([^"]+)"/i)?.[1]
     ?? stmt.match(/\bDROP\s+TYPE\s+"([^"]+)"/i)?.[1]
     ?? null;
 }

@@ -12,7 +12,7 @@ import { THUMBNAIL_GENERATOR_QUEUE } from '../material-library/constants/materia
 
 describe('GeneratedMediaService（复用状态机语义，方法自建）', () => {
   let svc: GeneratedMediaService; let prisma: any; let minio: any; let quota: any; let perm: any; let thumb: any;
-  const base = { userId: 'u1', workflowId: 'w1', videoProjectId: 'p1', resolution: '1080p', durationSec: 60 }; // 无 teamId——服务端派生
+  const base = { userId: 'u1', workflowId: 'w1', sourceNodeId: 'edit-1', resolution: '1080p', durationSec: 60 }; // 无 teamId——服务端派生；Y4a T8 re-key：videoProjectId→sourceNodeId（doc 字符串非外键）
 
   beforeEach(() => {
     prisma = {
@@ -45,10 +45,10 @@ describe('GeneratedMediaService（复用状态机语义，方法自建）', () =
   it('register 480p/900s 接受；显式 width/height 落 metadata（不传则无该键——勘误⑦：resolution 无法表达 9:16 的 1080×1920）', async () => {
     await svc.register({ ...base, resolution: '480p', durationSec: 900, actualSize: 100 });
     expect(prisma.media.create.mock.calls[0][0].data.metadata).toEqual(
-      { origin: 'video-project', videoProjectId: 'p1', resolution: '480p', durationSec: 900 }); // toEqual 忽略 undefined 键——未传即无该键
+      { origin: 'video-project', sourceNodeId: 'edit-1', resolution: '480p', durationSec: 900 }); // toEqual 忽略 undefined 键——未传即无该键
     await svc.register({ ...base, resolution: '480p', durationSec: 10, actualSize: 100, width: 854, height: 480 });
     expect(prisma.media.create.mock.calls[1][0].data.metadata).toEqual(
-      { origin: 'video-project', videoProjectId: 'p1', resolution: '480p', durationSec: 10, width: 854, height: 480 });
+      { origin: 'video-project', sourceNodeId: 'edit-1', resolution: '480p', durationSec: 10, width: 854, height: 480 });
   });
 
   it('confirm: statSize 实际大小落库 + 缩略图 seekSec 从 metadata.durationSec 读', async () => {
@@ -113,7 +113,7 @@ describe('GeneratedMediaService（复用状态机语义，方法自建）', () =
     await svc.register({ ...base, actualSize: 100, clientRequestId: 'req-2' });
     expect(prisma.media.findFirst).toHaveBeenCalled();
     expect(prisma.media.create.mock.calls[0][0].data.metadata).toEqual(
-      { origin: 'video-project', videoProjectId: 'p1', resolution: '1080p', durationSec: 60, clientRequestId: 'req-2' });
+      { origin: 'video-project', sourceNodeId: 'edit-1', resolution: '1080p', durationSec: 60, clientRequestId: 'req-2' });
   });
 
   it('confirm 成功置 expiresAt=null（completed 产物不进 24h 回收）', async () => {

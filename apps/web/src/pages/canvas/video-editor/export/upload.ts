@@ -4,7 +4,8 @@ import type { ExportResolution } from '@flowweb/shared';
 import { registerGeneratedMedia, confirmGeneratedMedia } from '@/api/videoProjectApi';
 import { toFlowaiUrl } from '@/api/mediaApi';
 
-export interface UploadProductInput { workflowId: string; videoProjectId: string; resolution: ExportResolution; durationSec: number; width: number; height: number; file: Blob | File; clientRequestId: string; }
+// Y4a T8（spec §3.5 re-key）：videoProjectId→sourceNodeId——doc 字符串非外键（表整删），=剪辑节点自身 id。
+export interface UploadProductInput { workflowId: string; sourceNodeId: string; resolution: ExportResolution; durationSec: number; width: number; height: number; file: Blob | File; clientRequestId: string; }
 
 /** 编码完成后登记（actualSize 过配额终判；width/height 尺寸存档——resolution 无法表达 9:16 的 1080×1920，
  *  R13① 必填防第二求值点）→ presigned POST 浏览器 FormData 直传（零新依赖）→ confirm 实际大小落库+缩略图。
@@ -13,7 +14,7 @@ export interface UploadProductInput { workflowId: string; videoProjectId: string
 export async function uploadExportedProduct(input: UploadProductInput): Promise<{ mediaId: string }> {
   const registerReq = {
     workflowId: input.workflowId,
-    videoProjectId: input.videoProjectId,
+    sourceNodeId: input.sourceNodeId,
     resolution: input.resolution,
     durationSec: input.durationSec,
     width: input.width,

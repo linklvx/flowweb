@@ -3,8 +3,8 @@
 //   ①副本引用媒体不被删（**决策面=并集单源**：doc 引用经 oracle 臂证人〔PG 帧真扫——投影未建窗的
 //     copy 引用〕；旧 doc 扫描面=C3b-5 起 shadow 对拍面）；
 //   ③grace 期内不删（软删期=素材库删除后悔窗——deletedAt 未过 MEDIA_GC_GRACE 不进候选）；
-//   ④引用图四源护栏（MediaBinding/NodeArtifact/VideoWork.videoMediaId/VideoProject.data 深扫——
-//     全员并集臂命中）；
+//   ④引用图三源护栏（MediaBinding/NodeArtifact/VideoWork.videoMediaId——全员并集臂命中；
+//     Y4a T8：VideoProject.data 深扫臂随表整删——时间轴引用经 binding 并集投影承载）；
 //   ⑤对象删除 404 容忍（对象已灭失仍删行——幂等）。
 //   P1#1（消费面切换形态）：referenceVideo 词形引用——oracle 候选无关 UUID 叶扫描命中（未知字段
 //     media UUID 同族——并集 Oracle 臂「候选无关」的实证面）；
@@ -164,6 +164,50 @@ const IN_GRACE = new Date(Date.now() - 3600_000);              // grace 期内
     expect(await prisma.media.findUnique({ where: { id: m.id } })).toBeNull();
   });
 
+  // Y4a T9（spec §0 条 11 媒体三件/brief GC 断言面）：doc 带 timeline clip 引用 mediaId ⇒
+  // isMediaReferenced 判 referenced（Oracle 臂——SCAN_ROOTS 含 timelines）⇒ GC 中止保留。
+  // GC 链=isMediaReferenced→Binding 臂+Oracle 臂（T6 并集投影承载；无独立直扫臂——本档只加断言零改 service）。
+  it('Y4a T9 timeline clip 引用：timelines.<nodeId>.clips 带 mediaId（零 binding 行）⇒ guarded 保留；删时间轴引用重扫 ⇒ 放行删除', async () => {
+    const m = await seedMedia('tl-clip-ref', GRACE_OLD);
+    // timelines 帧：clip c1 引用 mediaId（节点键不带引用词形——引用仅存于时间轴 clips）
+    const tlFrame = (): Uint8Array => {
+      const d = new Y.Doc();
+      try {
+        d.getMap('nodes').set('n-gc-tl', new Y.Map([['type', 'videoEdit']]));
+        const entry = new Y.Map<unknown>();
+        entry.set('version', 1);
+        entry.set('fps', 30);
+        const clips = new Y.Map<unknown>();
+        clips.set('c1', new Y.Map<unknown>([['type', 'video'], ['mediaId', m.id], ['span', { trackId: 'n-gc-tl:video', start: 0, duration: 5 }]]));
+        entry.set('clips', clips);
+        (d.getMap('timelines') as Y.Map<unknown>).set('n-gc-tl', entry);
+        return Y.encodeStateAsUpdate(d);
+      } finally { d.destroy(); }
+    };
+    const f = tlFrame();   // 原帧字节定格（removeTlFrame 须重放同源帧——regen 新 clientID=异源 tombstone 零效果，removeNodeFrame 同款纪律）
+    await appendPgFrame(f);   // PG 帧+oracle 真扫=决策面证人（SCAN_ROOTS 含 timelines——clip mediaId 入 oracle 行）
+    // 前置：无 binding 行（引用仅存时间轴——Oracle 臂独证）
+    await prisma.mediaBinding.deleteMany({ where: { mediaId: m.id } });
+
+    const s = await svc.sweep();
+    expect(s.guarded).toBeGreaterThanOrEqual(1);   // isMediaReferenced（Oracle 臂）命中——中止保留
+    expect(await prisma.media.findUnique({ where: { id: m.id } })).toBeTruthy();
+
+    // 清理：删时间轴引用（tombstone 帧——先应用原帧再删，携带原 item ID 同源纪律）→oracle 重扫→放行
+    const removeTlFrame = (): Uint8Array => {
+      const d = new Y.Doc();
+      try {
+        Y.applyUpdate(d, new Uint8Array(f));
+        (d.getMap('timelines') as Y.Map<unknown>).delete('n-gc-tl');
+        return Y.encodeStateAsUpdate(d);
+      } finally { d.destroy(); }
+    };
+    await appendPgFrame(removeTlFrame());
+    const s2 = await svc.sweep();
+    expect(s2.deleted).toBeGreaterThanOrEqual(1);
+    expect(await prisma.media.findUnique({ where: { id: m.id } })).toBeNull();
+  });
+
   it('③grace 期内不删（软删期=后悔窗——未过 7d 不进候选）', async () => {
     const m = await seedMedia('in-grace', IN_GRACE);
     const s = await svc.sweep();
@@ -173,11 +217,10 @@ const IN_GRACE = new Date(Date.now() - 3600_000);              // grace 期内
     await prisma.media.delete({ where: { id: m.id } });
   });
 
-  it('④引用图四源护栏（binding/NodeArtifact/VideoWork.videoMediaId/VideoProject.data 深扫——全员并集臂）', async () => {
+  it('④引用图三源护栏（binding/NodeArtifact/VideoWork.videoMediaId——全员并集臂；Y4a T8：VideoProject.data 深扫臂随表整删）', async () => {
     const mBind = await seedMedia('bind-ref', GRACE_OLD);
     const mArt = await seedMedia('art-ref', GRACE_OLD);
     const mWork = await seedMedia('work-ref', GRACE_OLD);
-    const mTimeline = await seedMedia('timeline-ref', GRACE_OLD);
     await prisma.mediaBinding.create({
       data: { mediaId: mBind.id, projectId: PID, nodeId: 'n-b', teamId: TID, role: 'primary', targetField: 'mediaId', targetItemId: '' },
     });
@@ -187,16 +230,10 @@ const IN_GRACE = new Date(Date.now() - 3600_000);              // grace 期内
     const w = await prisma.videoWork.create({
       data: { title: 'int-t16gc', authorName: 'x', videoKey: `int-t16gc/w-${randomUUID().slice(0, 8)}`, videoMediaId: mWork.id },
     });
-    const vp = await prisma.videoProject.create({
-      data: {
-        teamId: TID, userId: UID, workflowId: PID, sourceNodeId: `n-vp-${randomUUID().slice(0, 8)}`, title: 'int-t16gc',
-        data: { tracks: [{ id: 't1', type: 'video', name: 'v', muted: false, hidden: false, clips: [{ id: 'c1', type: 'video', trackId: 't1', start: 0, duration: 1, sourceStart: 0, mediaId: mTimeline.id }] }] },
-      },
-    });
 
     const s = await svc.sweep();
-    expect(s.guarded).toBeGreaterThanOrEqual(4);   // 四源各命中一行
-    for (const id of [mBind.id, mArt.id, mWork.id, mTimeline.id]) {
+    expect(s.guarded).toBeGreaterThanOrEqual(3);   // 三源各命中一行
+    for (const id of [mBind.id, mArt.id, mWork.id]) {
       expect(await prisma.media.findUnique({ where: { id } })).toBeTruthy();
     }
 
@@ -204,10 +241,9 @@ const IN_GRACE = new Date(Date.now() - 3600_000);              // grace 期内
     await prisma.mediaBinding.deleteMany({ where: { mediaId: mBind.id } });
     await prisma.nodeArtifact.deleteMany({ where: { mediaId: mArt.id } });
     await prisma.videoWork.delete({ where: { id: w.id } });
-    await prisma.videoProject.delete({ where: { id: vp.id } });
     const s2 = await svc.sweep();
-    expect(s2.deleted).toBeGreaterThanOrEqual(4);
-    for (const id of [mBind.id, mArt.id, mWork.id, mTimeline.id]) {
+    expect(s2.deleted).toBeGreaterThanOrEqual(3);
+    for (const id of [mBind.id, mArt.id, mWork.id]) {
       expect(await prisma.media.findUnique({ where: { id } })).toBeNull();
     }
   });
@@ -276,7 +312,7 @@ const IN_GRACE = new Date(Date.now() - 3600_000);              // grace 期内
     expect(await prisma.media.findUnique({ where: { id: mFree.id } })).toBeTruthy();
   });
 
-  it('collectJsonMediaIds：VideoProject.data JSON 深扫收集 clip.mediaId（纯函数）', () => {
+  it('collectJsonMediaIds：通用 JSON 深扫收集 mediaId 值（纯函数——Y4a T8：VideoProject 扫描臂已随表删，函数保留作通用工具面）', () => {
     const ids = collectJsonMediaIds({ tracks: [{ clips: [{ mediaId: 'm1' }, { mediaId: 'm2' }] }], nested: { deep: [{ mediaId: 'm1' }] } });
     expect([...ids].sort()).toEqual(['m1', 'm2']);
   });

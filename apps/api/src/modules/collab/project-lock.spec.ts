@@ -83,14 +83,14 @@ describe('C1-0 ★红⓪ 写锁门禁（registry 驱动——测试态 AsyncLoca
 
 // C4-b（plan Task C4-2 红⓪-b）：**registry 填充清单真实生效**——PrismaService 构造器消费
 // scope-column.registry GUARDED_WRITE_MODELS（fillWriteGateRegistry）：登记模型（抽检承载族三模型
-// +别名维 VideoProject +成员面 ProjectMember）经**真实 PrismaService 代理**无锁写入即抛
+// +成员面 ProjectMember——Y4a T8：VideoProject 随表整删清出登记）经**真实 PrismaService 代理**无锁写入即抛
 // WriteLockRequiredError（红测=登记清单空/未接线即本组红——C1-0 机制面在 stub 上证明，本组在
 // 真实装配面证明填充到位）。底层零触达=断言先于 DB（无 DATABASE_URL 亦成立——构造不连接）。
 describe('C4-b ★红⓪-b 写锁门禁 registry 填充生效（PrismaService 装配面——census 清单驱动）', () => {
-  it('登记模型事务外无锁直写即抛（GUARDED_WRITE_MODELS 抽检：CanvasDocUpdate/CanvasDoc/VideoProject/ProjectMember）', async () => {
+  it('登记模型事务外无锁直写即抛（GUARDED_WRITE_MODELS 抽检：CanvasDocUpdate/CanvasDoc/ProjectMember）', async () => {
     const { PrismaService } = await import('../../prisma/prisma.service');
     const prisma = new PrismaService();
-    for (const model of ['canvasDocUpdate', 'canvasDoc', 'videoProject', 'projectMember'] as const) {
+    for (const model of ['canvasDocUpdate', 'canvasDoc', 'projectMember'] as const) {
       await expect(
         (prisma as unknown as Record<string, { create: (a: unknown) => Promise<unknown> }>)[model].create({ data: {} }),
       ).rejects.toBeInstanceOf(WriteLockRequiredError);

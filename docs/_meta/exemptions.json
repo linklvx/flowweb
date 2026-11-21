@@ -777,6 +777,41 @@
    "symbol": "timeline/history.ts",
    "reason": "Y4a T7 整删 history.ts——设计 spec §3.4 历史记录性提及（行级锚）",
    "expires_at": "2027-02-19"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-09-30-collab-recovery-master-plan.md",
+   "line": 925,
+   "symbol": "apps/web/src/pages/canvas/video-editor/persist/autosave.ts",
+   "reason": "Y4a T8 整删 autosave.ts——恢复 master plan 历史记录性提及（行级锚）",
+   "expires_at": "2027-02-19"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+   "line": 368,
+   "symbol": "apps/web/src/pages/canvas/video-editor/persist/autosave.ts",
+   "reason": "Y4a T8 整删 autosave.ts——本批 plan T7 段历史记录性提及（行级锚）",
+   "expires_at": "2027-02-19"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+   "line": 427,
+   "symbol": "apps/web/src/pages/canvas/video-editor/persist/autosave.ts",
+   "reason": "Y4a T8 整删 autosave.ts——本批 plan T8 段历史记录性提及（行级锚）",
+   "expires_at": "2027-02-19"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+   "line": 112,
+   "symbol": "apps/web/src/pages/canvas/video-editor/persist/autosave.ts",
+   "reason": "Y4a T8 整删 autosave.ts——conn recovery spec 历史记录性提及（行级锚）",
+   "expires_at": "2027-02-19"
+  },
+  {
+   "file": "docs/superpowers/specs/2026-09-29-collab-conn-status-recovery-design.md",
+   "line": 474,
+   "symbol": "persist/autosave.ts",
+   "reason": "Y4a T8 整删 autosave.ts——conn recovery spec 历史记录性提及（行级锚）",
+   "expires_at": "2027-02-19"
   }
  ]
 }

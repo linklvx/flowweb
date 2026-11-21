@@ -455,7 +455,7 @@ describe('getProcessSnapshot（安全验收）', () => {
       // O0c-1 质评随 O0c-2 补种：storageKey/userId/email 三键入夹具——泄漏红线（键级 collectKeys+JSON 级）
       // 原先对这三键无牙齿（夹具无键 ⇒ 白名单漏剥也绿）；种入后两断言可判别（imageGen 白名单必剥）。
       { id: 'n2', type: 'imageGen', position: { x: 0, y: 0 }, data: { prompt: { text: 'cat', html: '<p>evil</p>' }, mediaId: 'f1', mediaUrl: 'http://secret', mediaName: 'a.png', storageKey: 'uploads/raw/n2.bin', userId: 'u-secret', email: 'author@x.test' } },   // Y2 B3 后作者键（旧 fileId 禁入）
-      { id: 'n3', type: 'videoGen', position: { x: 0, y: 0 }, data: { label: '末班地铁 · 导出 1', model: 'video-01', origin: 'video-edit', videoProjectId: 'vp1', fileId: 'f3' } },
+      { id: 'n3', type: 'videoGen', position: { x: 0, y: 0 }, data: { label: '末班地铁 · 导出 1', model: 'video-01', origin: 'video-edit', sourceNodeId: 'vp1', fileId: 'f3' } },   // Y4a T8 re-key：videoProjectId→sourceNodeId（旧键保留在 banned 红线）
       { id: 'n35', type: 'videoEdit', position: { x: 0, y: 0 }, data: { timeline: [1], draft: '内部时间轴' } }, // 第八轮：快照保留 videoEdit（仅结构字段，spec:228）
       { id: 'n4', type: 'multiImageGen', position: { x: 0, y: 0 }, data: { prompt: '分镜提示', images: [{ url: 'u' }], generationBatchId: 'g4', nodeStatus: 'done' } },
       // O0c-1 派生输入完备夹具：storyboard 组带完整 config+collapsed；g2=折叠 manual 组（collapsed:true——公开白名单两键都进 payload）
@@ -484,7 +484,7 @@ describe('getProcessSnapshot（安全验收）', () => {
       Array.isArray(o) ? o.flatMap(collectKeys) :
       o && typeof o === 'object' ? [...Object.keys(o), ...Object.values(o).flatMap(collectKeys)] : [];
     const keys = collectKeys(out);
-    for (const banned of ['html', 'fileId', 'mediaUrl', 'referencedImageIds', 'allImages', 'referenceImage', 'referenceVideo', 'referenceAudio', 'trimmedFileId', 'generationBatchId', 'mediaName', 'videoProjectId', 'origin', 'sourceId', 'storageKey', 'userId', 'email']) { // O0c-1：storageKey/userId/email 入泄漏红线
+    for (const banned of ['html', 'fileId', 'mediaUrl', 'referencedImageIds', 'allImages', 'referenceImage', 'referenceVideo', 'referenceAudio', 'trimmedFileId', 'generationBatchId', 'mediaName', 'videoProjectId', 'origin', 'sourceId', 'sourceNodeId', 'storageKey', 'userId', 'email']) { // O0c-1：storageKey/userId/email 入泄漏红线；Y4a T8：re-key 后 sourceNodeId 同入红线（videoGen 白名单外=必剥）、旧键 videoProjectId 维持红线
       expect(keys).not.toContain(banned);
     }
   });

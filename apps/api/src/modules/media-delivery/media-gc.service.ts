@@ -113,9 +113,13 @@ export interface MediaGcSweepSummary {
   objectDeleteFailed: number;
 }
 
-/** VideoProject.data JSON 深扫：收集 clip.mediaId 值（词形=shared types/video-project.ts
- *  VideoClip/ImageClip/AudioClip 三态 clip 均携 mediaId: string；递归扫任意嵌套——未来词形演进
- *  不漏）。数组/对象递归，string 叶子仅在键名==='mediaId' 时入集。 */
+/**
+ * Y4a T8：VideoProject.data JSON 深扫臂随表整删——时间轴引用经 MediaBinding 并集投影承载
+ * （节点 refs∪timeline clips mediaId，takeBindingDelta/collectMediaRefs/slot-write 三调用方单源），
+ * 非行内 JSON 深扫。函数保留：mediaId 词形递归扫描为通用 JSON 工具面（未来 JSON 载体列复用）。
+ * 收集 clip.mediaId 值（词形=shared types/video-project.ts VideoClip/ImageClip/AudioClip 三态 clip
+ * 均携 mediaId: string；递归扫任意嵌套——未来词形演进不漏）。数组/对象递归，string 叶子仅在键名==='mediaId' 时入集。
+ */
 export function collectJsonMediaIds(value: unknown, out: Set<string> = new Set()): Set<string> {
   if (Array.isArray(value)) {
     for (const v of value) collectJsonMediaIds(v, out);

@@ -11,7 +11,7 @@
 // ═══ fence 接线分档（census 清单 → 写点处置——非全量 fence，按写面性质三档）═══════════════
 //  A 档·in-tx fence（写事务首句 lockProject→fenceProject / lockScope→fenceTeam）：
 //    画布载体族（appendBatch/vacuumReplace/compact 发布/maintenance 关闸/genesis 创建）、admit 受理、
-//    intent claim、项目改名/成员写、VideoProject CRUD（workflowId 别名维）——用户内容写面。
+//    intent claim、项目改名/成员写——用户内容写面。（Y4a T8：VideoProject CRUD 随表整删退场）
 //  B 档·入口边界门（HTTP 层 TeamGuard/perm.resolve 链——读路径过滤 Proxy 先行 404）：team 维资金/成员
 //    面已由 C4-a 红⑥-a 全路径拦截（DISBANDING 403）+claimTx Z26 in-tx Team FOR SHARE；不逐资金
 //    事务加 lockScope（ledger 单写者纪律独立——加锁改变资金域串行化面）。
@@ -77,7 +77,6 @@ export const TEAM_COLUMN_MODELS = [
   'LightingTask',
   'VideoTrimTask',
   'VideoSeparateTask',
-  'VideoProject',
   'AuditLog',
   'TeamMember',
   'TeamBalance',
@@ -98,7 +97,6 @@ export const TEAM_COLUMN_MODELS = [
 /** 别名列（列名扫描找不到的项目关联列——plan ㉓：registry 与 schema 列存在性 CI diff；
  *  via=关联路径（直 FK/桥表/谓词），C4-c 介质 manifest/列级断言消费面）。 */
 export const PROJECT_SCOPE_ALIASES = [
-  { model: 'VideoProject', column: 'workflowId', via: 'CanvasProject.id（FK Cascade schema :493）' },
   { model: 'VideoWork', column: 'canvasProjectId', via: 'CanvasProject.id（可空——C4-c worker detach 置 NULL）' },
   { model: 'VideoTrimTask', column: 'workflowId', via: 'CanvasProject.id（无 FK 纯列——video-trim.service :94 derivedWorkflowId=media.projectId??workflowId 实证）' },
   { model: 'VideoSeparateTask', column: 'workflowId', via: 'CanvasProject.id（无 FK 纯列——video-separate.service :81 同族）' },
@@ -128,7 +126,6 @@ export const GUARDED_WRITE_MODELS = [
   'MaintenanceOperation',   // maintenance 请求/终态推进事务
   'DocAuditEvent',   // admit 受理/maintenance audit 族（export 单点同批接线）
   'ProjectMember',   // 成员授予/改角/移除
-  'VideoProject',   // workflowId 别名维 CRUD（upsert/patch/delete）
 ] as const;
 
 /** 门禁填充（PrismaService 构造器消费——幂等 Set.add；仅测试态生效——writeGateActive 判据单源）。

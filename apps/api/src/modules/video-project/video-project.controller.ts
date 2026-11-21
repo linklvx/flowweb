@@ -1,8 +1,12 @@
-import { Controller, Post, Get, Patch, Delete, Body, Param, Req, UsePipes, ValidationPipe, Inject } from '@nestjs/common';
+import { Controller, Post, Body, Req, UsePipes, ValidationPipe, Inject } from '@nestjs/common';
 import { VideoProjectService } from './video-project.service';
 import { GeneratedMediaService } from './generated-media.service';
-import { CreateVideoProjectDto, PatchVideoProjectDto, RegenerateDto, RegisterGeneratedDto, ConfirmGeneratedDto, ExportPrecheckDto } from './video-project.dto';
+import { RegenerateDto, RegisterGeneratedDto, ConfirmGeneratedDto, ExportPrecheckDto } from './video-project.dto';
 
+// Y4a T8（spec §0 条 9）：VideoProject 表整删——工程 CRUD 四路由（POST /、GET by-node、PATCH :id、
+// DELETE by-node）随 REST autosave 链退场；时间轴数据面迁画布 doc（timelines 根按剪辑节点 id 键控）。
+// 留存四路由全部零依赖表（regenerate 读 doc/export-precheck 从 CanvasProject 派生 teamId/register
+// 只写 Media 元数据/confirm 按 mediaId 收尾）。
 @Controller('api/video-projects')
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true })) // ValidationPipe 非全局，必须自挂
 export class VideoProjectController {
@@ -11,26 +15,6 @@ export class VideoProjectController {
     @Inject(VideoProjectService) private readonly svc: VideoProjectService,
     @Inject(GeneratedMediaService) private readonly generated: GeneratedMediaService,
   ) {}
-
-  @Post()
-  create(@Body() dto: CreateVideoProjectDto, @Req() req: any) {
-    return this.svc.upsertByNode({ ...dto, userId: req.user?.id });
-  }
-
-  @Get('by-node/:sourceNodeId')
-  byNode(@Param('sourceNodeId') sourceNodeId: string, @Req() req: any) {
-    return this.svc.getByNode(sourceNodeId, req.user?.id);
-  }
-
-  @Patch(':id')
-  patch(@Param('id') id: string, @Body() dto: PatchVideoProjectDto, @Req() req: any) {
-    return this.svc.patch(id, req.user?.id, dto);
-  }
-
-  @Delete('by-node/:sourceNodeId')
-  deleteByNode(@Param('sourceNodeId') sourceNodeId: string, @Req() req: any) {
-    return this.svc.deleteByNode(sourceNodeId, req.user?.id);
-  }
 
   @Post('generated-media/register')
   registerGenerated(@Body() dto: RegisterGeneratedDto, @Req() req: any) {

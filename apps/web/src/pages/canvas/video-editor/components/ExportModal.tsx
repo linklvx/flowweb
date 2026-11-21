@@ -18,13 +18,11 @@ import { createProductNode } from '../export/product-node';
 import { armUnloadWarning, disarmUnloadWarning } from '@/utils/unloadGuard';
 
 // R2-N11/R3-4：模块级取值函数（currentXxx 前缀防 react-hooks lint 误报；?? '' 归一返回 string——可空字段直接透传 strict 下 TS2345）
-// Y4a T7（brief 编辑器组件 identity 接线表）：sourceNodeId=工程身份（projectId/title 随 REST 链退场）——
-// currentEditorProjectId 改读 useVideoEditorStore.sourceNodeId（上传 register 载荷值链 T8 re-key）；
-// 标题=EditorTopBar 常量「多轨剪辑」同源口径；currentEditorSourceNodeId 已是正确主键保留。
+// Y4a T7/T8（brief 编辑器组件 identity 接线表）：sourceNodeId=工程身份（REST autosave 链已随表整删退场）；
+// 标题=EditorTopBar 常量「多轨剪辑」同源口径。
 const currentCanvasProjectId = () => useCanvasStore.getState().projectId ?? '';
-const currentEditorProjectId = () => useVideoEditorStore.getState().sourceNodeId ?? '';
-const currentEditorProjectTitle = () => '多轨剪辑';
 const currentEditorSourceNodeId = () => useVideoEditorStore.getState().sourceNodeId ?? '';
+const currentEditorProjectTitle = () => '多轨剪辑';
 
 // I-2：beforeunload 模块级守卫——以在飞 job 为依据安装/拆除，不随 Popover 卸载（收起编辑器后关页仍拦，对齐 R2-N12 后台完成语义）。
 // Y0b-5 T6 收编：handler 面归 utils/unloadGuard reason 集合单源（'export-inflight' 语义独立 reason）——
@@ -49,7 +47,7 @@ function fmtSize(bytes: number): string {
 // 无空壳 try/catch）；pendingProduct 先行登记，中途抛错/弹层收起均可经重试按钮仅补建节点（不重复上传）
 const publishProduct = async (mediaId: string, title: string) => {
   useEditorStore.getState().setPendingProduct({ mediaId, title });
-  createProductNode(currentEditorSourceNodeId(), currentEditorProjectId(), mediaId, title);
+  createProductNode(currentEditorSourceNodeId(), currentEditorSourceNodeId(), mediaId, title);
   useEditorStore.getState().clearPendingProduct();
 };
 
@@ -124,7 +122,7 @@ export function ExportPopover() {
     startingRef.current = true;
     try {
       if (!data) return;
-      if (!currentCanvasProjectId() || !currentEditorProjectId() || !currentEditorSourceNodeId()) {
+      if (!currentCanvasProjectId() || !currentEditorSourceNodeId()) {
         void message.warning('工程尚未就绪，请稍候重试'); // R4-1：静默 return 用户无感知——补提示
         return;
       } // R3-4：真值守卫（工程未就绪/上下文缺失不发单）
@@ -154,7 +152,7 @@ export function ExportPopover() {
         if (destination === 'canvas') {
           const file = r.fsa ? await target.handle.getFile() : r.blob; // R8-N5 择源——回退 Buffer 时读 blob（防 0 字节静默上传）
           const reqId = (exportReqIdRef.current ??= crypto.randomUUID()); // 首次生成；同尝试内 register 重试复用同幂等键（R19①）
-          const { mediaId } = await uploadExportedProduct({ workflowId: currentCanvasProjectId(), videoProjectId: currentEditorProjectId(), resolution, durationSec, width: out.width, height: out.height, file, clientRequestId: reqId });
+          const { mediaId } = await uploadExportedProduct({ workflowId: currentCanvasProjectId(), sourceNodeId: currentEditorSourceNodeId(), resolution, durationSec, width: out.width, height: out.height, file, clientRequestId: reqId }); // Y4a T8 re-key：register 载荷键名归真（doc 字符串非外键）
           await publishProduct(mediaId, currentEditorProjectTitle() || '多轨剪辑'); // R3③ 收拢 helper（建节点失败 → fail 态 + 重试仅补建）
           void message.success('导出完成，已添加到画布');
         } else if (target.kind === 'fsa' && r.fsa) {

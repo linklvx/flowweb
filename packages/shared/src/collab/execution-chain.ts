@@ -227,5 +227,5 @@ export function nextObligationQueueState(
 export const LIFECYCLE_OBLIGATION_REFUND_PATH = {
   EXEC_FINALIZE: 'EXEC_FINALIZE→RefundObligation（unique(intentRowId,execSeq)+reversesId 幂等逆转 exact settle row——删除节点在飞意图资金收口）',
   FEED_TOMBSTONE: 'FEED_TOMBSTONE 无资金面（投递 node.deleted 事件即 DONE）',
-  NODE_DELETED: 'NODE_DELETED 无资金面（MediaBinding/ArtifactProjection/VideoProject 三消费面清扫即 DONE）',
+  NODE_DELETED: 'NODE_DELETED 无资金面（MediaBinding/ArtifactProjection 两消费面清扫即 DONE——Y4a T8：VideoProject 级联随表整删退场）',
 } as const;

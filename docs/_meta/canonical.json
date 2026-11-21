@@ -230,14 +230,14 @@
           "text": "// Y4a T5（plan 2026-11-20-y4a-timeline-domain Task 5——spec §0 条 4）：恢复导入 timelines 三面"
         },
         {
+          "src": "apps/api/src/modules/collab/collab-timeline-collab.int.spec.ts",
+          "line": 2,
+          "text": "// Y4a T10（plan 2026-11-20-y4a-timeline-domain Task 10——spec §9 协作锚 2/4/7/8/9）："
+        },
+        {
           "src": "apps/web/src/pages/canvas/video-editor/components/VideoEditorShell.tsx",
           "line": 2,
           "text": "// Y4a T7（plan 2026-11-20-y4a-timeline-domain Task 7——spec §0 条 7）：Shell 改订阅既有"
-        },
-        {
-          "src": "apps/web/src/pages/canvas/video-editor/store/editorStore.ts",
-          "line": 2,
-          "text": "// Y4a T7（plan 2026-11-20-y4a-timeline-domain Task 7——spec §0 条 5/条 7 + §4）："
         }
       ]
     },

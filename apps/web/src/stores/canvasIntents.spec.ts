@@ -21,9 +21,6 @@ import { seedCanvas } from '@/test/fixtures/canvas';
 import { fillDoc, toDocLike } from '@/collab/ydocBuilder';
 import { toDocRecords, calcStoryboardSize, resolveStoryboardConfig } from '@flowweb/shared';
 import { Origin } from './canvasUndo';
-import { deleteProjectByNode } from '@/api/videoProjectApi';
-
-vi.mock('@/api/videoProjectApi', () => ({ deleteProjectByNode: vi.fn().mockResolvedValue(undefined) }));
 
 // O0a-1：可选键 null 夹具改缺键形态（运行时等价——fillDoc != null 判定 null≡缺键同跳过；
 // StoredNodeRecord 类型域无 null——键集表精神：不带键而非带 null 键）
@@ -308,16 +305,6 @@ describe('批4b-1：首批换芯接线锚（store action→intent 漏斗实贯�
     expect(useCanvasStore.getState().nodes.map((n: any) => n.id)).toEqual([n2]);
     expect(useNodeStore.getState().nodes[n1]).toBeUndefined();
     expect(checkProjectionInvariant(doc)).toBe(true);
-  });
-
-  it('rw 窗口 videoEdit 级联回归锚：cascade 判型读变更前 state（dispatch 投影 filter 不得提前删型）', () => {
-    useCanvasStore.setState({
-      nodes: [{ id: 'e1', type: 'videoEdit', position: { x: 0, y: 0 }, data: {} } as any],
-      edges: [], selectedId: null,
-    });
-    useCanvasStore.getState().deleteNode('e1');
-    expect(vi.mocked(deleteProjectByNode)).toHaveBeenCalledWith('e1'); // 投影已 filter 仍须判中型
-    expect(useCanvasStore.getState().nodes).toEqual([]);
   });
 
     // Y2 A4 退役注记：叶子 resize position 批常规路径锚（旧 beginLeafResize 标记豁免+逐帧

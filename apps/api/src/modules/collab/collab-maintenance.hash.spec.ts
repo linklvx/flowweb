@@ -4,7 +4,7 @@
 //
 // 负控语义（spec §0 条 7「哈希和真空等价比较包含 timelines」+§3.2 maintenance 行）：两份
 // hydration 记录 nodes/edges 逐位相同、仅 timelines stableStringify 分歧 ⇒ hash 面必不同——
-// 若 recordsOfHydration 的 timelines 字段（collab-maintenance.service.ts:402）被静默移除或
+// 若 recordsOfHydration 的 timelines 字段（collab-maintenance.service.ts:404）被静默移除或
 // canonical 重建（rebuildDocFaithful 委托链）丢整棵时间轴，两记录全等 ⇒ 本测试红。
 // 红方向验证法（负控可逆破坏）：临时删 recordsOfHydration 返回值的 timelines 字段 → 本测试
 // 红（hash 面对时间轴不敏感=清盘形态漏检）；恢复 → 绿。验证过程记入 task-2-report.md。

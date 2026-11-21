@@ -12,6 +12,7 @@ import { register } from 'prom-client';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CANVAS_DOC_SCHEMA_VERSION, QUOTA_DEFAULTS, toReadModel } from '@flowweb/shared';
+import { exportTimelineView, stableStringify } from './collab-canary-semantic';   // Y4a T9：exportFreshRun timelines 逐字节断言消费单源
 import { CollabGateway, TRUTH_COOLDOWN_MS, type QuotaConfig } from './collab.gateway';
 import { CollabShrinkService, SHRINK_QUEUE_TIMEOUT_MS } from './collab-shrink.service';
 import { CollabMaintenanceService } from './collab-maintenance.service';   // Y1c T27：vacuum 委托单换代入口
@@ -775,6 +776,33 @@ describe('POST /api/collab/doc/:projectId/export-fresh（Q-H——真实签名/�
     expect(r2.bytes).toBeGreaterThan(1024);                      // 前置：确实超限
     expect(typeof r2.warning).toBe('string');                    // warning 字段（Q-H——超限告知不阻断）
     expect(r2.projectId).toBe('p-new');
+  });
+
+  // Y4a T9（spec §0 条 7 重建三路②档）：exportFreshRun 路径 → 瘦身副本含 timelines
+  // （rebuildDocFaithful 单源链——gateway 转发 DR 唯一拷贝器；「toReadModel+fillDoc 直写」旧形态
+  // 丢整棵时间轴=禁形，本档回归锁）。装置=buildSvc 真 gateway（DR 直构经 gateway 装配链）。
+  it('Y4a T9 ②exportFreshRun：源 doc 带 timelines 工程 ⇒ 瘦身副本 timelines 逐字节随行（stableStringify 相等——重建单路不丢时间轴）', async () => {
+    const gateway = buildGateway();
+    const src = seedDoc();
+    addNode(src, 'n1', 64);
+    // timelines.n1 工程子树（clip c1 mediaId=m-ef-1——T2-B 同族形态）
+    const entry = new Y.Map<unknown>();
+    entry.set('version', 1);
+    entry.set('fps', 30);
+    const clips = new Y.Map<unknown>();
+    clips.set('c1', new Y.Map<unknown>([['type', 'video'], ['mediaId', 'm-ef-1'], ['span', { trackId: 'n1:video', start: 0, duration: 5 }]]));
+    entry.set('clips', clips);
+    src.getMap('timelines').set('n1', entry);
+    const fresh = new Y.Doc();
+    const { svc } = buildSvc(gateway, src, { docsByPid: new Map([['p1', src], ['p-new', fresh]]) });
+    const r = await svc.exportFresh('p1', 'u1');
+    expect(r.result).toBe('ok');
+    // 瘦身副本 timelines 逐字节断言（exportTimelineView 单源视图+stableStringify 序列化——Y.Map 实例不可 toEqual）
+    const tlOut = fresh.getMap('timelines').get('n1');
+    expect(tlOut).toBeInstanceOf(Y.Map);
+    expect(stableStringify(exportTimelineView(fresh.getMap('timelines')))).toBe(stableStringify(exportTimelineView(src.getMap('timelines'))));
+    const clipsOut = (tlOut as Y.Map<unknown>).get('clips') as Y.Map<unknown>;
+    expect((clipsOut.get('c1') as Y.Map<unknown>).get('mediaId')).toBe('m-ef-1');
   });
 
   it('in-flight latch：并发两请求新 project 数=1（第二请求复用同 Promise——create 调用数=1 不变量；指标分列 ok/in-flight 各一）', async () => {

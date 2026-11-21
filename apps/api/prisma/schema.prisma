@@ -38,7 +38,6 @@ model User {
   teamJoinRequests        TeamJoinRequest[]
   decidedTeamJoinRequests TeamJoinRequest[]  @relation("TeamJoinRequestDecidedBy")
   projectMembers          ProjectMember[]
-  videoProjects           VideoProject[]
   styleFavorites          StyleFavorite[]
   styleRecentUsages       StyleRecentUsage[]
 }
@@ -164,7 +163,6 @@ model CanvasProject {
   docSnapshots        CanvasDocSnapshot[] // Y1c T7：载体族快照反向关系（双侧全补）
   projectMembers      ProjectMember[]
   docUpdates          CanvasDocUpdate[]
-  videoProjects       VideoProject[]
   // C1-1（v5.2 终态）：MediaBinding.projectId FK Cascade 反向关系——项目删除零残留
   mediaBindings       MediaBinding[]
   // C3b-1（spec §3.4-2/v5.2 ⑧）：oracle 双表 project FK Cascade 反向关系——项目删除零残留
@@ -497,26 +495,6 @@ model VideoSeparateTask {
   @@index([sourceFileId])
 }
 
-model VideoProject {
-  id           String   @id @default(cuid())
-  teamId       String
-  userId       String // 取当前操作用户（assertEditor 通过者）——与 CanvasProject.userId 可空无关
-  workflowId   String // CanvasProject.id：regenerate/socket room/资产过滤/级联删除
-  sourceNodeId String   @unique // 视频剪辑节点自身 nodeId——一剪辑节点一工程
-  title        String
-  data         Json
-  createdAt    DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
-
-  team     Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workflow CanvasProject @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-
-  @@index([teamId])
-  @@index([userId])
-  @@index([workflowId])
-}
-
 // ========== 会员订阅 ==========
 
 enum SubscriptionTier {
@@ -763,7 +741,6 @@ model Team {
   lightingTasks      LightingTask[]
   videoTrimTasks     VideoTrimTask[]
   videoSeparateTasks VideoSeparateTask[]
-  videoProjects      VideoProject[]
   subscriptions      TeamSubscription[]
   joinRequests       TeamJoinRequest[]
 

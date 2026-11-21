@@ -4,8 +4,8 @@
 // 〔修正批 #10〕——T22 收口批 I-6：fire-and-forget 持锁真并发重叠；反向锁序恒死锁面由静态 lint+
 // 正常序压力替代）+「去 counter」负控（裸裸 INSERT 不走 upsert=期望重号冲突）+outbox claim/delete
 // 不出洞+首连快照信封（cursor 三元+minRetainedSeq+historyId）+保留期清理（minRetainedSeq 推进）
-// +FEED_TOMBSTONE 义务消费→node.deleted 事件+NODE_DELETED 三清扫（VideoProject 级联/投影拦截/
-// MediaBinding reconcile 入队 M-3 注桩）。
+// +FEED_TOMBSTONE 义务消费→node.deleted 事件+NODE_DELETED 两清扫（Y4a T8：VideoProject 级联臂
+// 随表整删——投影拦截/MediaBinding reconcile 入队 M-3 注桩）。
 // T22 收口批新增：C-3 快照竞态（RR+先 cursor 后 events+≤lastSeq 过滤）+I-5 租约
 // 重派崩溃窗+I-9 跨项目同 nodeId 串扰（claim 行 projectId 直用）。
 // G5 末轮小收口：C-3 命中窗确定性化（racer 事务持 RuntimeFeedCursor 表 ACCESS EXCLUSIVE 锁+pg_sleep——
@@ -48,7 +48,6 @@ let TID = '';
       await prisma.deliveryFence.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
       await prisma.lifecycleObligation.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
       await prisma.executionOutbox.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
-      await prisma.videoProject.deleteMany({ where: { workflowId: pid } }).catch(() => undefined);
       await prisma.artifactProjection.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
       await prisma.canvasDoc.deleteMany({ where: { projectId: pid } }).catch(() => undefined);
       await prisma.canvasProject.deleteMany({ where: { id: pid } }).catch(() => undefined);
@@ -205,8 +204,7 @@ let TID = '';
     expect(await prisma.runtimeEvent.count({ where: { projectId: PID, kind: 'node.deleted' } })).toBe(1);
   });
 
-  it('NODE_DELETED 三清扫：VideoProject 级联删+ArtifactProjection 在飞行置 orphaned+MediaBinding reconcile 入队（M-3 注桩断言）+EXEC_FINALIZE 消费=collect+drain（T23 接线——本例节点无在飞意图=零 RefundObligation 行直达 DONE）', async () => {
-    await prisma.videoProject.create({ data: { teamId: TID, userId: SEED_UID, workflowId: PID, sourceNodeId: 'n-del', title: 'x', data: {} } });
+  it('NODE_DELETED 两清扫：ArtifactProjection 在飞行置 orphaned+MediaBinding reconcile 入队（M-3 注桩断言）+EXEC_FINALIZE 消费=collect+drain（T23 接线——本例节点无在飞意图=零 RefundObligation 行直达 DONE；Y4a T8：VideoProject 级联臂随表整删）', async () => {
     await prisma.artifactProjection.create({ data: { artifactId: 'art-pending', artifactRev: 1, projectId: PID, nodeId: 'n-del', targetField: 'mediaId', targetItemId: '', mediaId: 'm-p', state: 'pending' } });
     await prisma.lifecycleObligation.create({ data: { projectId: PID, nodeId: 'n-del', kind: 'NODE_DELETED', walSeq: 42n } });
     await prisma.lifecycleObligation.create({ data: { projectId: PID, nodeId: 'n-del', kind: 'EXEC_FINALIZE', walSeq: 42n } });
@@ -220,7 +218,6 @@ let TID = '';
     } as never, teamCredit);
     await sweeperWithReconciler.tick();
     expect(reconcileCalls).toContain(PID);   // ①MediaBinding 惰性入队腿（fence 权威之外的第二清扫面）
-    expect(await prisma.videoProject.count({ where: { workflowId: PID, sourceNodeId: 'n-del' } })).toBe(0);   // ③级联（I-9：项目域过滤后）
     expect((await prisma.artifactProjection.findFirst({ where: { projectId: PID, nodeId: 'n-del' } }))?.state).toBe('orphaned');   // ②拦截
     const execFinalize = await prisma.lifecycleObligation.findFirst({ where: { projectId: PID, kind: 'EXEC_FINALIZE' } });
     expect(execFinalize?.state).toBe('DONE');   // T23 接线：collect（本节点无在飞意图=零行）+drain 完成→DONE

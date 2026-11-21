@@ -7,7 +7,7 @@ import type { VideoClip, ImageClip, AudioClip, SubtitleClip } from '@flowweb/sha
 /** 四类片段联合——timeline 纯函数/store 的统一操作对象 */
 export type Clip = VideoClip | ImageClip | AudioClip | SubtitleClip;
 
-/** 剪辑节点自身 data（一期基本为空——工程数据在 VideoProject 表，节点 id 先于工程存在） */
+/** 剪辑节点自身 data（一期基本为空——工程数据在画布 doc timelines.<nodeId>〔Y4a T8 起 VideoProject 表已整删〕，节点 id 先于工程存在） */
 export interface VideoEditNodeData {
   title?: string;
   [key: string]: unknown;

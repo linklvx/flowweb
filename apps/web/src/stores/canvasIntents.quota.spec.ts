@@ -24,8 +24,6 @@ import { canApplyIntent, dispatchCanvasIntent, _setIntentDocForTest, type Canvas
 import { undoCanvas, redoCanvas, getUndoManager, Origin } from './canvasUndo';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 
-vi.mock('@/api/videoProjectApi', () => ({ deleteProjectByNode: vi.fn().mockResolvedValue(undefined) }));
-
 const rec = (id: string, data: Record<string, unknown> = { content: 'hi' }): StoredNodeRecord => ({
   id, type: 'textInput', data,
 });

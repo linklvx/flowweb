@@ -5,8 +5,8 @@
 //  ① 直列模型（PROJECT_COLUMN_MODELS）：除 allowlist 外 `WHERE projectId=pid` **零行**；
 //  ② 别名模型（PROJECT_SCOPE_ALIASES）：VideoWork.detach/桥表（ExecutionNodePlan/ExecutionInput 经
 //     ExecutionRequest.requestId 桥、RefundObligation/ReconcileAction 经 GenerationIntent.intentRowId
-//     桥——raw SQL 子查询单源）/VideoTrimTask·VideoSeparateTask.workflowId 各自谓词零行；VideoProject=
-//     FK Cascade（CanvasProject 行删除级联——不直查）；**未登记谓词的新别名条目=违规红**（未来
+//     桥——raw SQL 子查询单源）/VideoTrimTask·VideoSeparateTask.workflowId 各自谓词零行；
+//     **未登记谓词的新别名条目=违规红**（未来
 //     registry 扩展强制断言面同步——防清点面死洞）；
 //  ③ allowlist 内容列全空：GenerationIntent（resultText/gestureKey/resultRef=NULL——计费列保留不查）、
 //     ExecutionRequest（计费行整行保留——零行断言豁免）、VideoWork（detach 行：canvasProjectId=pid 零行
@@ -114,7 +114,6 @@ export async function assertProjectErasureDbComplete(
   // ② 别名模型（alias 条目驱动）
   for (const alias of PROJECT_SCOPE_ALIASES) {
     const key = `${alias.model}.${alias.column}`;
-    if (alias.model === 'VideoProject') continue;   // FK Cascade（⑤承载——workflowId 级联随行删）
     if (alias.model === 'VideoWork' && alias.column === 'canvasProjectId') {
       const n = await countWhere(db, 'VideoWork', { canvasProjectId: pid });
       if (n > 0) violations.push(`VideoWork canvasProjectId=${pid} 残留 ${n} 行（detach 后应 NULL）`);

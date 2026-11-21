@@ -82,9 +82,9 @@ maybe('C3b-3：decision snapshot+isMediaReferenced+referrer registry', () => {
     intent: randomUUID(),    // GenerationIntent.resultRef
     trimSrc: randomUUID(),   // VideoTrimTask.sourceFileId
     trimOut: randomUUID(),   // VideoTrimTask.outputFileId
-    timeline: randomUUID(),  // VideoProject.data JSON 深扫
     claim: randomUUID(),     // ObjectManifest 在位 claim（objectKey 臂）
     videoMedia: randomUUID(),// VideoWork.videoMediaId（mediaId 臂）
+    // （Y4a T8：timeline/VideoProject.data 深扫条目随表整删——registry 缩九条目）
     // ── erasure 三形态 ──
     ab: randomUUID(),        // A 擦 B 引用→detach（binding@B）
     aOnly: randomUUID(),     // 仅 A 自引用→删（binding@A）
@@ -119,7 +119,6 @@ maybe('C3b-3：decision snapshot+isMediaReferenced+referrer registry', () => {
     await prisma.nodeArtifact.deleteMany({ where: { projectId: { in: ALL_PIDS } } });
     await prisma.lightingTask.deleteMany({ where: { projectId: { in: ALL_PIDS } } });
     await prisma.videoTrimTask.deleteMany({ where: { workflowId: { in: ALL_PIDS } } });
-    await prisma.videoProject.deleteMany({ where: { workflowId: { in: ALL_PIDS } } });
     await prisma.artifactProjection.deleteMany({ where: { projectId: { in: ALL_PIDS } } });
     await prisma.generationIntent.deleteMany({ where: { projectId: { in: ALL_PIDS } } });
     await prisma.objectManifest.deleteMany({ where: { objectKey: { in: ALL_MEDIA.map(objKeyOf) } } });
@@ -159,7 +158,6 @@ maybe('C3b-3：decision snapshot+isMediaReferenced+referrer registry', () => {
       },
     });
     await prisma.videoTrimTask.create({ data: { userId: FIXTURE_USER, workflowId: PID_B, nodeId: 'n-1', sourceFileId: M.trimSrc, startTime: 0, endTime: 1, teamId: FIXTURE_TEAM, status: 'done', outputFileId: M.trimOut } });
-    await prisma.videoProject.create({ data: { teamId: FIXTURE_TEAM, userId: FIXTURE_USER, workflowId: PID_B, sourceNodeId: 'c3b3-src-node', title: 'c3b3-tl', data: { clips: [{ mediaId: M.timeline }] } } });
     await prisma.objectManifest.create({ data: { objectKey: objKeyOf(M.claim), sizeBytes: 1n, claimOwner: 'c3b3', claimUntil: BigInt(Date.now() + 60_000), state: 'LIVE' } });
     await prisma.videoWork.create({ data: { id: WORK_IDS[1], title: 'c3b3-pub', authorName: 't', videoKey: 'c3b3/work-video-2', videoMediaId: M.videoMedia } });
     // ── erasure 三形态 ──
@@ -288,14 +286,12 @@ maybe('C3b-3：decision snapshot+isMediaReferenced+referrer registry', () => {
   }, 60_000);
 
   // ── ③b registry 全条目 sweep+负控 ──
-  it('③b registry sweep：其余 referrer 各自独立命中（LightingTask/ArtifactProjection/GenerationIntent.resultRef/VideoTrim source+output/VideoProject.data/ObjectManifest claim/VideoWork.videoMediaId）；过期 claim 不算；includeDeletedProjects=false 摘 DELETING 引用', async () => {
+  it('③b registry sweep：其余 referrer 各自独立命中（LightingTask/ArtifactProjection/GenerationIntent.resultRef/VideoTrim source+output/ObjectManifest claim/VideoWork.videoMediaId——Y4a T8：VideoProject.data 条目随表整删）；过期 claim 不算；includeDeletedProjects=false 摘 DELETING 引用', async () => {
     expect(await svc.isMediaReferenced(prisma, M.lighting, refOpts)).toBe(true);
     expect(await svc.isMediaReferenced(prisma, M.proj, refOpts)).toBe(true);
     expect(await svc.isMediaReferenced(prisma, M.intent, refOpts)).toBe(true);
     expect(await svc.isMediaReferenced(prisma, M.trimSrc, refOpts)).toBe(true);
     expect(await svc.isMediaReferenced(prisma, M.trimOut, refOpts)).toBe(true);
-    expect(await svc.isMediaReferenced(prisma, M.timeline, refOpts)).toBe(true);
-    expect(await svc.isMediaReferenced(prisma, M.timeline, { ...refOpts, excludeProjectId: PID_B })).toBe(false);   // VideoProject workflowId 摘除
     expect(await svc.isMediaReferenced(prisma, M.claim, refOpts)).toBe(true);           // 在位 claim（objectKey 臂）
     expect(await svc.isMediaReferenced(prisma, M.videoMedia, refOpts)).toBe(true);
     expect(await svc.isMediaReferenced(prisma, M.expiredClaim, refOpts)).toBe(false);   // 过期 claim 负控
@@ -314,9 +310,9 @@ maybe('C3b-3：decision snapshot+isMediaReferenced+referrer registry', () => {
     expect(await svc.isMediaReferenced(prisma, M.ab2, eraseA)).toBe(true);      // 形态3：B2 DELETING→默认仍计入
   }, 60_000);
 
-  // ── registry 载体自证：条目数+table/column/kind 三元（census ㊴ 联动门前置）──
-  it('registry 载体：十条目（table/column/kind 三元——ObjectManifest/VideoWork.coverKey=objectKey，VideoTrim=mediaId）', () => {
-    expect(MEDIA_REFERRERS.length).toBe(10);
+  // ── registry 载体自证：条目数+table/column/kind 三元（census ㊴ 联动门前置；Y4a T8：VideoProject.data 条目随表整删——十条目缩九）──
+  it('registry 载体：九条目（table/column/kind 三元——ObjectManifest/VideoWork.coverKey=objectKey，VideoTrim=mediaId）', () => {
+    expect(MEDIA_REFERRERS.length).toBe(9);
     const keys = MEDIA_REFERRERS.map((r) => `${r.table}.${r.column}:${r.kind}`).sort();
     expect(keys).toEqual([
       'ArtifactProjection.mediaId:mediaId',
@@ -324,7 +320,6 @@ maybe('C3b-3：decision snapshot+isMediaReferenced+referrer registry', () => {
       'LightingTask.resultMediaId:mediaId',
       'NodeArtifact.mediaId:mediaId',
       'ObjectManifest.objectKey:objectKey',
-      'VideoProject.data:mediaId',
       'VideoTrimTask.outputFileId:mediaId',
       'VideoTrimTask.sourceFileId:mediaId',
       'VideoWork.coverKey:objectKey',

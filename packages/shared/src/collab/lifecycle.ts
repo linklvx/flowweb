@@ -20,10 +20,10 @@ export type ObligationKind = typeof OBLIGATION_KINDS[number];
 export const OBLIGATION_KIND_CONSUMERS: Readonly<Record<ObligationKind, string>> = {
   /** 删除已提交→客户端清 Runtime Store 投影（node.deleted feed 事件=本义务的投递面） */
   FEED_TOMBSTONE: '删除已提交→客户端清 Runtime Store 投影（node.deleted 事件——feed 墓碑）',
-  /** 三消费面（census⑪）：①MediaBinding 惰性 reconcile 免周期全扫（帧级 effects 驱动）②ArtifactProjection
-   *  投递前拦截免一轮失败投递 ③VideoProject 级联（收编 web fire-and-forget cascadeDeleteVideoProject
-   *  缺口——失败留痕现状=明确缺口） */
-  NODE_DELETED: 'MediaBinding 帧级 effects 清扫+ArtifactProjection 投递前拦截+VideoProject 级联（收编 web fire-and-forget）——三消费面',
+  /** 两消费面（census⑪；Y4a T8：原第三消费面（剪辑工程表级联）随表整删退场）：
+   *  ①MediaBinding 惰性 reconcile 免周期全扫（帧级 effects 驱动）②ArtifactProjection
+   *  投递前拦截免一轮失败投递 */
+  NODE_DELETED: 'MediaBinding 帧级 effects 清扫+ArtifactProjection 投递前拦截——两消费面（Y4a T8：原级联第三面随表整删退场）',
   /** GenerationIntent 资金收口（观察者同事务 buffer——收口悬置窗，免 deadline-reaper 判龄兜底） */
   EXEC_FINALIZE: 'GenerationIntent 资金收口（观察者同事务 buffer——收口悬置窗）',
 };

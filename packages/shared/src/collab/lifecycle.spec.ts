@@ -16,12 +16,12 @@ describe('Y1c T5b 契约冻结：义务 closed enum（census⑪ 定员——新�
     expect([...OBLIGATION_KINDS]).toEqual(['FEED_TOMBSTONE', 'NODE_DELETED', 'EXEC_FINALIZE']);
     expect(new Set(OBLIGATION_KINDS).size).toBe(3);
   });
-  it('每值消费面注记：FEED_TOMBSTONE=清 Runtime Store 投影/NODE_DELETED=三消费面/EXEC_FINALIZE=GenerationIntent 资金收口', () => {
+  it('每值消费面注记：FEED_TOMBSTONE=清 Runtime Store 投影/NODE_DELETED=两消费面（Y4a T8：VideoProject 级联退场）/EXEC_FINALIZE=GenerationIntent 资金收口', () => {
     expect(Object.keys(OBLIGATION_KIND_CONSUMERS).sort()).toEqual([...OBLIGATION_KINDS].sort());
     expect(OBLIGATION_KIND_CONSUMERS.FEED_TOMBSTONE).toContain('Runtime Store');
     expect(OBLIGATION_KIND_CONSUMERS.NODE_DELETED).toContain('MediaBinding');
     expect(OBLIGATION_KIND_CONSUMERS.NODE_DELETED).toContain('ArtifactProjection');
-    expect(OBLIGATION_KIND_CONSUMERS.NODE_DELETED).toContain('VideoProject');
+    expect(OBLIGATION_KIND_CONSUMERS.NODE_DELETED).not.toContain('VideoProject');   // Y4a T8：级联臂随表整删
     expect(OBLIGATION_KIND_CONSUMERS.EXEC_FINALIZE).toContain('GenerationIntent');
   });
   it('排除候选留档（census⑪ 对照）：搜索/公开快照/doc bytes 配额——键域或生命周期不含 nodeId/请求时派生/异步收敛', () => {

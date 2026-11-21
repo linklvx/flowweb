@@ -7,8 +7,8 @@
 //  ②recheck 命中→中止回 ACTIVE+conflict 计数（media_deletion_conflict_total{reason}）+审计列留痕
 //    （deletionRequestedAt/RunId/Reason——回退保留=最近一次尝试的审计面）：②a 旧引用图命中档；
 //    ②b **删除事务内 isMediaReferenced recheck 档**（C3b-3 直供 tx——LightingTask.resultMediaId 是
-//    旧 GC 引用图盲区〔旧面四源：binding/NodeArtifact/VideoWork/VideoProject+doc 扫描——无 Lighting〕，
-//    改前红=行被删=误删实锚）；
+//    旧 GC 引用图盲区〔旧面四源：binding/NodeArtifact/VideoWork/VideoProject（Y4a T8 表整删）+doc 扫描
+//    ——无 Lighting〕，改前红=行被删=误删实锚）；
 //  ③删除序=对象先删（404 容忍）→行删（第六轮 P0-7：行先删则对象失败无重试锚）：③a 违序探针
 //    （对象删时行仍在——行先删即红）；③b NoSuchKey 容忍；③c 对象失败→行保留 DELETING+审计落值，
 //    陈旧化后下轮重试成功；

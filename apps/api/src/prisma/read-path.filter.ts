@@ -22,8 +22,8 @@
 // 拦截 API）。⇒ 裁定=**include 谓词注入**（可过滤处显式 where）+**白名单登记**（不可过滤处）：
 //  - 已收口：team.getMyTeams `_count.projects where lifecycleState='ACTIVE'`（M-8）；
 //  - 白名单（嵌套面不滤=设计语义）：Template.project（项目详情只读投影——详情入口已被顶层读
-//    过滤 404 先行）、VideoProject.workflow（同——assertEditor 门先行）、team.projects 列举仅存
-//    于 getMyTeams 计数（已滤）。新增「include CanvasProject 关系」面=同批补谓词或登记本处。
+//    过滤 404 先行）、team.projects 列举仅存于 getMyTeams 计数（已滤）。（Y4a T8：VideoProject.workflow
+//    随表整删——白名单登记清出该名）新增「include CanvasProject 关系」面=同批补谓词或登记本处。
 // read census（C4-b ㊳）=raw SQL CanvasProject 读点白名单（Proxy 旁路面机器执法）。
 import { AsyncLocalStorage } from 'node:async_hooks';
 

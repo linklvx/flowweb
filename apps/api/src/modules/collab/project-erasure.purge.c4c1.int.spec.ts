@@ -7,9 +7,10 @@
 //  ★红⑫ Media 三档：库资产（uploaded）→detach（projectId=NULL+清 nodeId/taskId）；他项目引用
 //   （MediaBinding 他项目行）→detach；已发布作品引用（VideoWork.videoMediaId）→detach；独占
 //   （generated 无引用）→两阶段复核（首扫标记 sidecar→跨 claim 周期复核仍独占才删 DB 行）；
-//   **他引用矩阵**（评审 P1-1 补钉）：引用图八要素逐要素独立 fixture——VideoProject.data 深扫/
-//   LightingTask.resultMediaId/VideoTrimTask source·output/VideoWork.coverKey/ObjectManifest claim/
-//   NodeArtifact.mediaId 各一例 detach 断言（删行决策面=误删不可逆——逐要素变异保护）；
+//   **他引用矩阵**（评审 P1-1 补钉；Y4a T8：VideoProject.data 深扫臂随表整删——原位改由
+//   MediaBinding 投影顶位）：引用图要素逐要素独立 fixture——LightingTask.resultMediaId/
+//   VideoTrimTask source·output/VideoWork.coverKey/ObjectManifest claim/NodeArtifact.mediaId/
+//   MediaBinding.mediaId 各一例 detach 断言（删行决策面=误删不可逆——逐要素变异保护）；
 //  ★红⑬ VideoWork detach：canvasProjectId=NULL——作品行/视频键/计费（viewCount）保留+getProcessSnapshot
 //   404+clone 404（video-work.service :370/clone-service :28 !canvasProjectId→NotFound 实证）；
 //  ★红⑯ 列级机器断言（registry 全表）：擦除后除 allowlist（GenerationIntent 内容列全空+计费保留/
@@ -122,9 +123,8 @@ const okBarrier = (): DeletionBarrierPort => ({
     // 别名族
     await prisma.videoTrimTask.create({ data: { userId: owner, workflowId: pid, nodeId: 'n1', sourceFileId: `${pid}-m-lib`, startTime: 0, endTime: 1, teamId } });
     await prisma.videoSeparateTask.create({ data: { userId: owner, workflowId: pid, nodeId: 'n1', sourceFileId: `${pid}-m-lib`, teamId } });
-    // FK Cascade 族样本（行删除级联面）
+    // FK Cascade 族样本（行删除级联面——Y4a T8：VideoProject 随表整删不再入级联样本）
     await prisma.projectMember.create({ data: { projectId: pid, userId: owner, role: 'PROJECT_OWNER' } });
-    await prisma.videoProject.create({ data: { teamId, userId: owner, workflowId: pid, sourceNodeId: 'n1', title: 'vp', data: {} } });
     // AuditLog 谓词行（保留+内容脱敏断言面——干净行：操作留痕非项目内容）
     await prisma.auditLog.create({ data: { operatorId: owner, operatorName: owner, teamId, targetType: 'PROJECT', targetId: pid, action: 'freeze_compact', beforeValue: { state: 'OPEN' }, afterValue: { state: 'FROZEN' } } });
     if (opts.withOtherProject) {
@@ -171,7 +171,6 @@ const okBarrier = (): DeletionBarrierPort => ({
     await prisma.executionRequest.deleteMany({ where: { projectId: { in: pids } } }).catch(() => undefined);
     await prisma.media.deleteMany({ where: { key: { startsWith: `c4c1-p-${stamp}` } } }).catch(() => undefined);
     await prisma.videoWork.deleteMany({ where: { id: { startsWith: `c4c1-p-${stamp}` } } }).catch(() => undefined);
-    await prisma.videoProject.deleteMany({ where: { workflowId: { in: pids } } }).catch(() => undefined);
     // C4-c1 评审 P1-1 他引用矩阵：p-other 侧引用行（stage 只清 pid 维——他项目行须显式回收）
     await prisma.lightingTask.deleteMany({ where: { projectId: { in: pids } } }).catch(() => undefined);
     await prisma.videoTrimTask.deleteMany({ where: { workflowId: { in: pids } } }).catch(() => undefined);
@@ -264,7 +263,6 @@ const okBarrier = (): DeletionBarrierPort => ({
     expect(await prisma.collabOpsGate.count({ where: { projectId: pid } })).toBe(0);
     expect(await prisma.videoTrimTask.count({ where: { workflowId: pid } })).toBe(0);
     expect(await prisma.projectMember.count({ where: { projectId: pid } })).toBe(0);   // FK Cascade（行删除级联）
-    expect(await prisma.videoProject.count({ where: { workflowId: pid } })).toBe(0);
     expect(await prisma.canvasProject.count({ where: { id: pid } })).toBe(0);   // 行本体已删
     // 擦除动作 AuditLog：单行在册（补位）+谓词行保留（freeze_compact 行未删）
     const audits = await prisma.auditLog.findMany({ where: { targetType: 'PROJECT', targetId: pid } });
@@ -557,22 +555,18 @@ const okBarrier = (): DeletionBarrierPort => ({
     await prisma.canvasProject.create({ data: { id: pid, name: 'matrix', teamId, userId: owner } });
     await prisma.canvasProject.create({ data: { id: other, name: 'matrix-other', teamId, userId: owner } });
     projects.push(pid, other);
-    // 七候选全 generated（非库资产档）——各自仅被一种引用面命中（逐要素独立归因）
+    // 七候选全 generated（非库资产档）——各自仅被一种引用面命中（逐要素独立归因；Y4a T8：VideoProject.data
+    // 深扫臂随表整删——原①位改由 MediaBinding 投影承载，矩阵缩为六候选）
     const mk = (suffix: string, extra: Record<string, unknown> = {}) => prisma.media.create({
       data: { id: `${pid}-m-${suffix}`, userId: owner, teamId, projectId: pid, bucket: 'flowai', key: `${pid}/${suffix}.bin`, originalName: suffix, mimeType: 'application/octet-stream', size: 1n, type: 'generated', ...extra },
     });
-    await mk('vp');                                                    // ① VideoProject.data 深扫
     await mk('light');                                                 // ② LightingTask.resultMediaId
-    await mk('tsrc');                                                  // ③a VideoTrimTask.sourceFileId
-    await mk('tout');                                                  // ③b VideoTrimTask.outputFileId
+    await mk('tsrc');                                                 // ③a VideoTrimTask.sourceFileId
+    await mk('tout');                                                 // ③b VideoTrimTask.outputFileId
     await mk('cover');                                                 // ④ VideoWork.coverKey（键引用面）
     await mk('claim', { objectKey: `${pid}/claim-ref.obj` });          // ⑤ ObjectManifest claim 在位
     await mk('art');                                                   // ⑥ NodeArtifact.mediaId
-    // ① 他项目 VideoProject.data 深扫（mediaId 词形**仅深嵌位**——顶层无：collectJsonMediaIds 递归实证）
-    await prisma.videoProject.create({
-      data: { teamId, userId: owner, workflowId: other, sourceNodeId: 'n-vp', title: 'other-vp',
-        data: { timeline: { tracks: [{ clips: [{ meta: { layers: [{ mediaId: `${pid}-m-vp` }] } }] }] } } },
-    });
+    await mk('bind');                                                  // ⑦ MediaBinding.mediaId（时间轴引用承载面——Y4a T8 新增档）
     // ② 他项目 LightingTask.resultMediaId（projectId≠pid）
     await prisma.lightingTask.create({ data: { userId: owner, nodeId: 'n-lt', projectId: other, originalImageUrl: 'http://x/l.png', params: {}, resultMediaId: `${pid}-m-light`, teamId } });
     // ③ 他项目 VideoTrimTask source/output（workflowId≠pid——同 fixture 双写触发两谓词）
@@ -583,6 +577,8 @@ const okBarrier = (): DeletionBarrierPort => ({
     await prisma.objectManifest.create({ data: { objectKey: `${pid}/claim-ref.obj`, claimOwner: 'materialize-inflight', claimUntil: BigInt(Date.now() + 60_000), state: 'LIVE' } });
     // ⑥ 他项目 NodeArtifact.mediaId
     await prisma.nodeArtifact.create({ data: { projectId: other, nodeId: 'n-na', teamId, targetField: 'mediaId', mediaId: `${pid}-m-art` } });
+    // ⑦ 他项目 MediaBinding.mediaId（Y4a T8：时间轴引用承载面——VideoProject 深扫臂随表整删后顶位）
+    await prisma.mediaBinding.create({ data: { mediaId: `${pid}-m-bind`, projectId: other, nodeId: 'n-bind', teamId } });
     // 全 pipeline：tombstone→DRAINING→执行体（七候选全 tier-b ⇒ 零独占 ⇒ 同 tick detach+批删+断言+前置位）
     await tombstone(pid);
     await poller.tick();
@@ -593,14 +589,14 @@ const okBarrier = (): DeletionBarrierPort => ({
       expect(m.projectId).toBeNull();
       expect(m.key).toContain(`${pid}/`);   // 行对象保留
     });
-    await detached(`${pid}-m-vp`);     // ① VideoProject.data 深扫
     await detached(`${pid}-m-light`);  // ② LightingTask.resultMediaId
     await detached(`${pid}-m-tsrc`);   // ③a VideoTrimTask.sourceFileId
     await detached(`${pid}-m-tout`);   // ③b VideoTrimTask.outputFileId
     await detached(`${pid}-m-cover`);  // ④ VideoWork.coverKey
     await detached(`${pid}-m-claim`);  // ⑤ ObjectManifest claim
     await detached(`${pid}-m-art`);    // ⑥ NodeArtifact.mediaId
-    expect(await prisma.media.count({ where: { id: { startsWith: `${pid}-m-` } } })).toBe(7);   // 零删（tier-b 全保留）
+    await detached(`${pid}-m-bind`);   // ⑦ MediaBinding.mediaId（Y4a T8 顶位档）
+    expect(await prisma.media.count({ where: { id: { startsWith: `${pid}-m-` } } })).toBe(7);   // 零删（tier-b 全保留——六旧档+bind 顶位档）
     const run = await prisma.projectErasureRun.findFirstOrThrow({ where: { scopeId: pid } });
     expect(run.state).toBe('PURGING_OBJECTS');   // 零独占=零 sidecar（变异 ⇒ 漏进独占集 ⇒ 滞留 PURGING_DB——整档门）
     // 引用行原样（他项目面不被擦除波及）
@@ -608,6 +604,7 @@ const okBarrier = (): DeletionBarrierPort => ({
     expect(await prisma.videoTrimTask.count({ where: { workflowId: other } })).toBe(1);
     expect(await prisma.nodeArtifact.count({ where: { projectId: other } })).toBe(1);
     expect(await prisma.objectManifest.count({ where: { objectKey: `${pid}/claim-ref.obj` } })).toBe(1);
+    expect(await prisma.mediaBinding.count({ where: { projectId: other } })).toBe(1);   // ⑦ 引用行原样
   }, 60_000);
 
   it('dryRun：走完整流程（二扫/判别）零写——不删行不 scrub 不改状态', async () => {

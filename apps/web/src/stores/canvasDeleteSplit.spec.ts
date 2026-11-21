@@ -25,7 +25,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 vi.mock('@hocuspocus/provider', () => ({ HocuspocusProvider: class MockProvider {} }));
 vi.mock('antd', () => ({ message: { warning: vi.fn(), error: vi.fn(), success: vi.fn() } }));
-vi.mock('@/api/videoProjectApi', () => ({ deleteProjectByNode: vi.fn().mockResolvedValue(undefined) }));
 import * as Y from 'yjs';
 import {
   TIMELINE_CHUNK_UNDO_BUDGET, deleteNodesWithTimelines,
@@ -154,8 +153,7 @@ afterEach(() => {
   detachUndoManager();
   detachTimelineUndo();
   _setIntentDocForTest(null);
-  // 无 vi.restoreAllMocks()：vitest 2.x 起 restore 也会复位 vi.mock 工厂产物
-  // （deleteProjectByNode → undefined——videoEdit 级联档在第二个用例起即炸）；
+  // 无 vi.restoreAllMocks()：vitest 2.x 起 restore 也会复位 vi.mock 工厂产物；
   // 本文件无 spyOn 面（观测走事务探针+call log），无需恢复。
 });
 

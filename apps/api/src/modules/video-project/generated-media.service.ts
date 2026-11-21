@@ -25,7 +25,7 @@ export class GeneratedMediaService {
    * teamId 服务端从 workflowId 派生（assertCanUpload 无成员校验——客户端传他团 teamId
    * 会打他团配额并把产物记到他团名下；对齐 storage.service.presignUpload 的 projectId 派生先例）。
    */
-  async register(input: { userId: string; workflowId: string; videoProjectId: string; resolution: string; durationSec: number; actualSize: number; width?: number; height?: number; clientRequestId?: string }) {
+  async register(input: { userId: string; workflowId: string; sourceNodeId: string; resolution: string; durationSec: number; actualSize: number; width?: number; height?: number; clientRequestId?: string }) {
     await this.perm.assertEditor(input.workflowId, input.userId);
     // 幂等重入（P1-D）：同 clientRequestId 的 register 重试返回同一 Media/presigned——插入点在
     // project 查询与 assertCanUpload 之前（插后者重试被二次配额拦截）、assertEditor 之后（不得绕过权限门）；
@@ -58,7 +58,8 @@ export class GeneratedMediaService {
         mimeType: 'video/mp4', size: input.actualSize,
         type: 'generated', status: 'pending',
         expiresAt: new Date(Date.now() + 24 * 3600_000), // 对象未 confirm 前可回收（temp-cleanup 按 expiresAt 扫 generated pending）
-        metadata: { origin: 'video-project', videoProjectId: input.videoProjectId, resolution: input.resolution, durationSec: input.durationSec, width: input.width, height: input.height, clientRequestId: input.clientRequestId },
+        // Y4a T8 re-key：metadata 键 videoProjectId→sourceNodeId（doc 字符串非外键——表已整删）
+        metadata: { origin: 'video-project', sourceNodeId: input.sourceNodeId, resolution: input.resolution, durationSec: input.durationSec, width: input.width, height: input.height, clientRequestId: input.clientRequestId },
       },
     });
     const upload = await this.minio.generatePresignedPost(key, 'video/mp4', input.actualSize);

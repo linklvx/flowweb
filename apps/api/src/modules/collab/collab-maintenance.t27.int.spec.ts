@@ -12,6 +12,10 @@
 //  ⑤SWITCHING 后 abort 不可回退（唯一不可回退点——abort 拒 NOT_ABORTABLE）；
 //  ⑥T12 vacuumReplace 独立换代入口仍生效=红（vacuum 委托状态机——MaintenanceOperation 行产生+
 //    「无在飞执行」前置对 vacuum 同样生效）。
+// Y4a T9（spec §0 条 7「哈希和真空等价比较包含 timelines」）三重建路回归锁档：①canonical 重建
+//    （run 驱动）timelines 仍在+EXPORTING/VERIFYING hash 两侧恒等；③负控=host 缝 mock 返回删掉
+//    timelines 的 fresh ⇒ VERIFYING hash mismatch（T2 已把 timelines 进 hash 面——本档=回归锁，
+//    预期即绿，锁死清盘形态不可回归）。
 // 运行：DATABASE_URL=postgresql://… pnpm --filter @flowweb/api test:int
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
@@ -37,6 +41,7 @@ import { OPS_GATE_COMPACT } from './project-governance.service';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';   // Y1c T27 收口红④：CLI 源词法面（doc-shape 静态门先例）
 import { makeSpoolDir } from '../../test-utils/spool-dir';
+import { stableStringify, exportTimelineView } from './collab-canary-semantic';   // Y4a T9：① 档 hash 复算消费单源（禁第二份序列化）
 import type { Logger } from '@nestjs/common';
 
 const hasDb = !!process.env.DATABASE_URL;
@@ -44,13 +49,24 @@ const maybe = hasDb ? describe : describe.skip;
 
 const noopLogger = { log: () => {}, warn: () => {}, error: () => {}, debug: () => {}, verbose: () => {}, fatal: () => {} } as unknown as Logger;
 
-/** 布景 doc：gen0 头+rev0 快照+两行增量（seq 1..2——insert-ratchet 直插形态）。返回 hydrate 形状。 */
-async function seedDoc(prisma: PrismaClient, pid: string): Promise<void> {
+/** 布景 doc：gen0 头+rev0 快照+两行增量（seq 1..2——insert-ratchet 直插形态）。返回 hydrate 形状。
+ *  Y4a T9：withTimelines=true ⇒ 快照带 timelines.n1 工程子树（clip c1 mediaId=m-tl-1——重建/hash
+ *  三路档布景形态；缺省 false=基线形态不变）。 */
+async function seedDoc(prisma: PrismaClient, pid: string, withTimelines = false): Promise<void> {
   const doc = createCanvasDoc();
   const node = new Y.Map(); const data = new Y.Map();
   data.set('model', 'm1');
   node.set('type', 'textInput'); node.set('data', data);
   doc.getMap('nodes').set('n1', node);
+  if (withTimelines) {
+    const entry = new Y.Map();
+    entry.set('version', 1);
+    entry.set('fps', 30);
+    const clips = new Y.Map();
+    clips.set('c1', new Y.Map([['type', 'video'], ['mediaId', 'm-tl-1'], ['span', { trackId: 'n1:video', start: 0, duration: 5 }]]));
+    entry.set('clips', clips);
+    doc.getMap('timelines').set('n1', entry);
+  }
   const state0 = Buffer.from(Y.encodeStateAsUpdate(doc));
   doc.destroy();
   await prisma.$executeRaw`INSERT INTO "CanvasDocSnapshot" ("projectId", generation, "snapshotRev", "stateSeq", state, "stateHash", "vacuumEpoch", "schemaVersion")
@@ -79,8 +95,10 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
   const PID = 'y1c-t27-main-int';
 
   /** 逐用例全新装置（spool 内存水位/actor appliedSeq 跨用例互染=drain 判定失真——T26 int 卫生先例）：
-   *  spool 独立目录+actor/maintenance 重构+租约 fixture（owner 与 repo 对齐——维护帧 PG 腿放行）。 */
-  async function buildKit(): Promise<void> {
+   *  spool 独立目录+actor/maintenance 重构+租约 fixture（owner 与 repo 对齐——维护帧 PG 腿放行）。
+   *  Y4a T9：hostOpts.rebuild 可注入 rebuildDocFaithful 变异替身（③负控=删掉 timelines 的 fresh
+   *  ——清盘形态回归锁档）；缺省=全量重编码替身（timelines 天然随行）。 */
+  async function buildKit(hostOpts: { rebuild?: (source: Y.Doc) => Y.Doc | null } = {}): Promise<void> {
     await spoolCleanup();
     const dir = await makeSpoolDir('y1c-t27-spool-');
     spoolCleanup = dir.cleanup;
@@ -105,11 +123,12 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
       // Y4a T2：rebuildDocFaithful host 缝（canonical 重建——生产=gateway 转发 DR 唯一拷贝器；
       // 本 int 装置=状态机编排替身：fresh doc 全量重编码（M-a drift 编舞只消费 stage 推进+换代行，
       // 重建内容非断言面——DR 直构过重〔repo+persistence〕不入装置）。
-      rebuildDocFaithful: (source) => {
+      // Y4a T9：hostOpts.rebuild 覆盖位（③负控替身注入缝）。
+      rebuildDocFaithful: hostOpts.rebuild ?? ((source) => {
         const fresh = createCanvasDoc();
         try { Y.applyUpdate(fresh, Y.encodeStateAsUpdate(source)); return fresh; }
         catch (e) { fresh.destroy(); throw e; }
-      },
+      }),
     });
     // gateway 生产接线形态复刻：actor freeze 面经 host 读 maintenance（4413 拒帧判定源）
     actor.bindHost({
@@ -568,6 +587,91 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
     expect(switchedWal).toContainEqual({ pid: PID, generation: 1 });
     expect(closed.some((c) => c.code === CollabCloseCode.GENERATION_SUPERSEDED)).toBe(true);
     expect((await prisma.maintenanceOperation.findUnique({ where: { maintenanceId: req.maintenanceId } }))?.stage).toBe('COMPLETED');
+  }, 30_000);
+
+  // ═══ Y4a T9（spec §0 条 7「哈希和真空等价比较包含 timelines」）：重建路回归锁档 ═══
+  // T2 已把 timelines 进 hash 面（recordsOfHydration timelines 腿）+重建单路（rebuildDocFaithful
+  // 委托）——本组=回归锁性质（预期即绿；个别档真红则按红因归位先红留证）。
+  /** 布景重置+带 timelines 重播（beforeEach 基线快照已 gen0 rev0——ON CONFLICT DO NOTHING 挡
+   *  重插；CanvasDocSnapshot FK 锚=CanvasProject 非 CanvasDoc——doc 行删不级联快照，须显式清）。
+   *  本族用例先清 doc 三表行再 seedDoc(withTimelines)。 */
+  async function reseedWithTimelines(): Promise<void> {
+    await prisma.canvasDocUpdate.deleteMany({ where: { projectId: PID } });
+    await prisma.canvasDocSnapshot.deleteMany({ where: { projectId: PID } });   // FK 锚=project——doc 删不级联（红根因）
+    await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
+    await seedDoc(prisma, PID, true);
+  }
+
+  it('Y4a T9 ①canonical 重建三路档：带 timelines doc → run 驱动 canonical 重建 → timelines 仍在+EXPORTING/VERIFYING hash 两侧恒等（COMPLETED 即证）', async () => {
+    await reseedWithTimelines();   // 布景改带 timelines（beforeEach 基线重播）
+    const req = await maintenance.request({ projectId: PID, idempotencyKey: `k-${randomUUID()}`, requestedBy: 'int', source: 'rest' });
+    expect(req.ok).toBe(true);
+    if (!req.ok) return;
+    const run = await maintenance.run(req.maintenanceId, { drainBudgetMs: 3_000 });
+    // COMPLETED ⇒ 链内三证全过：EXPORTING hash（recordsOfHydration timelines 腿）落 audit 行 →
+    // canonical 重建（host 缝替身全量重编码——timelines 天然随行）→ VERIFYING 重载 hash 等值。
+    expect(run.result).toBe('completed');
+    // 新代快照重放：timelines.n1 工程随重建入新代（clip c1 在——canonical 重建不丢时间轴）
+    const snap = await prisma.$queryRaw<{ state: Buffer }[]>`
+      SELECT state FROM "CanvasDocSnapshot" WHERE "projectId" = ${PID}::text AND generation = 1::int AND "snapshotRev" = 0::bigint`;
+    expect(snap).toHaveLength(1);
+    const revived = createCanvasDoc();
+    try {
+      Y.applyUpdate(revived, new Uint8Array(snap[0].state));
+      const tl = revived.getMap('timelines').get('n1');
+      expect(tl).toBeInstanceOf(Y.Map);
+      const clipsOut = (tl as Y.Map<unknown>).get('clips') as Y.Map<unknown>;
+      expect((clipsOut.get('c1') as Y.Map<unknown>).get('mediaId')).toBe('m-tl-1');
+    } finally { revived.destroy(); }
+    // EXPORTING audit 行在档（hash 面 anchor——timelines 腿进 hash 的间接真值；run 各段均写
+    // audit 行〔advance 同拍〕——按 stage 过滤取 EXPORTING 行）
+    const auditRows = await prisma.docAuditEvent.findMany({ where: { requestId: req.maintenanceId, kind: 'maintenance' }, orderBy: { createdAt: 'asc' }, select: { payload: true } });
+    const payload = (auditRows.map((r) => r.payload as { stage?: string; exportHash?: string }).find((p) => p.stage === 'EXPORTING')) ?? null;
+    // 新代重载 hash 逐字节复算（verifyingStage 同口径——timelines 内容参与 hash 的直接证）
+    const hydrate = await repo.loadForHydration(PID);
+    const docReload = createCanvasDoc();
+    try {
+      if (hydrate.state) Y.applyUpdate(docReload, new Uint8Array(hydrate.state));
+      for (const u of hydrate.updates) Y.applyUpdate(docReload, new Uint8Array(u));
+      const records = {
+        nodes: [] as unknown[], edges: [] as unknown[], timelines: '',
+      };
+      const base = toReadModel(docReload);
+      records.nodes = base.nodes as unknown[];
+      records.edges = base.edges as unknown[];
+      records.timelines = stableStringify(exportTimelineView(docReload.getMap('timelines')));
+      const actual = createHash('sha256').update(JSON.stringify(records)).digest('hex');
+      expect(payload?.stage).toBe('EXPORTING');
+      expect(payload?.exportHash).toBe(actual);   // 两侧恒等（timelines 摘要进 hash——逐字节）
+    } finally { docReload.destroy(); }
+  }, 30_000);
+
+  it('Y4a T9 ③负控：host 缝 mock 返回删掉 timelines 的 fresh（清盘形态回归）⇒ VERIFYING hash mismatch → FAILED 只读', async () => {
+    await reseedWithTimelines();   // 布景带 timelines（EXPORTING 基准含 timelines 摘要）
+    await buildKit({
+      // 清盘形态替身：canonical 重建丢整棵 timelines（模拟「只 toReadModel+fillDoc 直写」回归）
+      rebuild: (source) => {
+        const fresh = createCanvasDoc();
+        try {
+          Y.applyUpdate(fresh, Y.encodeStateAsUpdate(source));
+          fresh.getMap('timelines').delete('n1');   // 重建丢时间轴（负控变异）
+          return fresh;
+        } catch (e) { fresh.destroy(); throw e; }
+      },
+    });
+    const req = await maintenance.request({ projectId: PID, idempotencyKey: `k-${randomUUID()}`, requestedBy: 'int', source: 'rest' });
+    expect(req.ok).toBe(true);
+    if (!req.ok) return;
+    const run = await maintenance.run(req.maintenanceId, { drainBudgetMs: 3_000 });
+    // ★回归锁核心：timelines 已进 hash 面（T2）⇒ 重建丢时间轴必使 VERIFYING hash mismatch ⇒ FAILED
+    // 修前（timelines 不进 hash）此档假绿=completed——本档锁死清盘形态不可回归。
+    expect(run.result).toBe('failed');
+    expect(run.result === 'failed' ? run.error : '').toContain('export hash mismatch');
+    const op = await prisma.maintenanceOperation.findUnique({ where: { maintenanceId: req.maintenanceId } });
+    expect(op?.stage).toBe('FAILED');
+    // FAILED 只读维持（红③语义同款——maintenanceId 不清+freeze 在）
+    expect((await prisma.canvasDoc.findUnique({ where: { projectId: PID }, select: { maintenanceId: true } }))?.maintenanceId).toBe(req.maintenanceId);
+    expect(maintenance.isFrozen(PID)).toBe(true);
   }, 30_000);
 
 });

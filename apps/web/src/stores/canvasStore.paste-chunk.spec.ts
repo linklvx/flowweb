@@ -21,8 +21,6 @@ import { fillDoc } from '@/collab/ydocBuilder';
 import { getUndoManager } from './canvasUndo';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 
-vi.mock('@/api/videoProjectApi', () => ({ deleteProjectByNode: vi.fn().mockResolvedValue(undefined) }));
-
 const lastInstance = () => (HocuspocusProvider as any).instances.at(-1) as any;
 const Mocks = HocuspocusProvider as any;
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));

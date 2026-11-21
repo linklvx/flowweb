@@ -72,6 +72,7 @@ test('裁定1 豁免未命中=维持硬拦：未登记表/未登记迁移/表名
 test('裁定1 breakingTable 形态：ALTER/DROP/TRUNCATE TABLE 与 DROP TYPE 取表名，无表引用=null', () => {
   assert.equal(breakingTable('ALTER TABLE "Media" DROP COLUMN "status"'), 'Media');
   assert.equal(breakingTable('DROP TABLE "CanvasDoc"'), 'CanvasDoc');
+  assert.equal(breakingTable('DROP TABLE IF EXISTS "VideoProject"'), 'VideoProject');   // Y4a T8：手写删表迁移形态（不可提取=豁免面死洞）
   assert.equal(breakingTable('TRUNCATE "Media"'), 'Media');
   assert.equal(breakingTable('TRUNCATE TABLE "Media"'), 'Media');
   assert.equal(breakingTable('DROP TYPE "MediaStatus"'), 'MediaStatus');
@@ -82,7 +83,8 @@ test('C1-1 rebaseline：EXEMPTIONS 旧六登记随旧链目录删除清零（新
   // Y2 B1（2026-11-18）：y2_author_slot_frozen 冻结两列终态化登记（plan v6 用户确认——回填前置覆盖全部余行）
   // Y2 B4（2026-11-18）：y2_target_field_mediaid 三表 CHECK 域收紧登记（spec 第③步 6「约束与写者同一次提交」——段序①UPDATE 存量先行）
   // Y2 D1t（20261119022027_y2_bind_command）为纯 additive 迁移零 BREAKING 语句——无豁免登记面
-  assert.deepEqual(Object.keys(EXEMPTIONS), ['20261118140000_y2_author_slot_frozen', '20261118142000_y2_target_field_mediaid']);
+  // Y4a T8（2026-11-21）：drop_video_project 表整删登记（spec v10 用户七轮收口——零剩余读者+开发期无存量）
+  assert.deepEqual(Object.keys(EXEMPTIONS), ['20261118140000_y2_author_slot_frozen', '20261118142000_y2_target_field_mediaid', '20261121060000_drop_video_project']);
 });
 
 test('S0.1 EXEMPTIONS 元数据完备（每条豁免必带 reason/owner/since 非空字符串——永久登记可追溯，禁裸字符串条目；C1-1 后空集为未来登记留结构门）', () => {

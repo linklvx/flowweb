@@ -60,11 +60,11 @@ export const CANVAS_INVARIANTS: Record<CanvasInvariantId, CanvasInvariantEntry> 
     anchors: '已有=写侧 membership 变更点剥键纪律+读侧 DEV 断言族（assertions.ts——applyDocToStore 尾挂）；缺口=服务端写面（writeNodeData 对组 data 无 storyboard 形态守卫）——移交 Y1c-3 裁度',
   },
   clipSourceNodeExists: {
-    criterion: '时间轴 clip.sourceNodeId（在时）指向存在的画布节点（video-project ProjectData 域）',
+    criterion: '时间轴 clip.sourceNodeId（在时）指向存在的画布节点（doc timelines 域——Y4a T8 起数据面在画布 doc，VideoProject 表已整删）',
     readSide: '全函数不抛：sourceNodeId 类型层可选（VideoClip/ImageClip/AudioClip 三类可选键——缺省=无源引用合法档）；导出/播放面按 mediaId 消费，悬挂 sourceNodeId 不参与渲染路径',
-    writeSide: '客户端级联清理（best-effort）：节点删除时 deleteProjectByNode 显式清理源引用（canvasStore——.catch 吞错不阻塞删除主流程）；建面=upsert by sourceNodeId 幂等（videoProjectApi 防双击）；无存在性守卫（悬挂引用可产生——best-effort 清理失败窗内）',
+    writeSide: '客户端写前检查（spec §3.4）：源节点不在就不发事务；并发删除后悬挂 id 只忽略（导出/播放走 mediaId 继续）——服务端不拒已写帧。REST upsert/deleteProjectByNode 级联链已随表整删退场（Y4a T8）',
     status: 'partial',
-    anchors: '已有=客户端删除级联清理（best-effort）+建面幂等；缺口=清理失败窗悬挂引用无服务端守卫——移交 Y1c-3 裁度（服务端 FK 类校验或读侧清扫）',
+    anchors: '已有=客户端写前检查+读侧悬挂忽略；缺口=并发删除窗内悬挂引用无服务端守卫（帧谓词不查节点存在性——spec §3.4 钦定 partial）',
   },
   execWithoutNodeVoid: {
     criterion: 'exec 条目无对应 node 时视同不存在（读侧兜底语义——E22 已裁）',

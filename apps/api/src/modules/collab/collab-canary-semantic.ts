@@ -34,11 +34,26 @@ export function stableStringify(value: unknown): string {
  *  时**必须**同步扩本视图根列表——否则该根数据丢失在 canary 侧降归 hash-encoding-mismatch
  *  只计数不 freeze（digest 判据对未覆盖根不敏感）。
  *  Y4a T2：+timelines（spec §0 条 7「哈希和真空等价比较包含 timelines」——时间轴进 doc 后
- *  仅 timelines 差异=语义不等）。 */
+ *  仅 timelines 差异=语义不等）。
+ *  Y4a T9：timelines 腿改消费 exportTimelineView 单源（三消费面同源——见其注）。 */
 export function canonicalDocView(doc: Y.Doc): string {
-  return (['nodes', 'edges', 'timelines'] as const)
+  return (['nodes', 'edges'] as const)
     .map((r) => `${r}:${stableStringify(Object.fromEntries(doc.getMap(r).entries()))}`)
+    .concat([`timelines:${stableStringify(exportTimelineView(doc.getMap('timelines')))}`])
     .join('|');
+}
+
+/** timelines 根读回视图单源（Y4a T9——spec §0 条 7）：`Object.fromEntries(root.entries())` 的
+ *  唯一出口。**三消费面同源**（禁第二份实现）：
+ *  ①canary canonicalDocView timelines 腿（本文件——canary 语义摘要）；
+ *  ②maintenance recordsOfHydration timelines 腿（collab-maintenance.service——EXPORTING/
+ *    VERIFYING 记录 hash 面；**hash 输出逐字节不变**〔canonical pin/历史 hash 锚不可漂移——
+ *    换单源前后同 doc 实测相等〕）；
+ *  ③DR vacuumEquivalent timelines 内容深比（collab-doc-registry.service——真空等价断言）。
+ *  出口形状=plain record（Y.Map/Y.Text 值经 stableStringify 的 toJSON 递归折叠——与换源前
+ *  inline `Object.fromEntries` 形态逐字节恒等）。 */
+export function exportTimelineView(root: Y.Map<unknown>): Record<string, unknown> {
+  return Object.fromEntries(root.entries());
 }
 
 /** 语义摘要（SHA-256 hex 64——捕获④落 pin.semanticDigest〔迁移笔三 Char(64) 列〕/verify 兜底

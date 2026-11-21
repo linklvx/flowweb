@@ -3,7 +3,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { VideoProjectService } from './video-project.service';
 
 const mkPrisma = (over: any = {}) => ({
-  videoProject: { findUnique: vi.fn() },
   canvasProject: { findUnique: vi.fn().mockResolvedValue({ teamId: 't1' }) }, // teamId 派生查询（与 register 同款）
   media: { create: vi.fn() },
   ...over,

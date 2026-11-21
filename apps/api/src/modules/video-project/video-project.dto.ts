@@ -1,16 +1,7 @@
 // apps/api/src/modules/video-project/video-project.dto.ts
-import { IsString, IsObject, IsOptional, IsDateString, IsIn, IsNumber, Min, Max } from 'class-validator';
+// Y4a T8（spec §0 条 9）：CreateVideoProjectDto/PatchVideoProjectDto 随 REST 工程面退场（表整删）。
+import { IsString, IsOptional, IsIn, IsNumber, Min, Max } from 'class-validator';
 
-export class CreateVideoProjectDto {
-  @IsString() workflowId!: string;
-  @IsString() sourceNodeId!: string;
-  @IsString() title!: string;
-  @IsOptional() @IsObject() data?: object; // 可选——service.upsertByNode 缺省空工程（Plan 2 浏览器验收发现：DTO 必填与 service data? 语义脱节，首开编辑器 3 字段 upsert 被 400）
-}
-export class PatchVideoProjectDto {
-  @IsObject() data!: object;
-  @IsDateString() baseUpdatedAt!: string; // 乐观锁基准
-}
 export class RegenerateDto {
   @IsString() sourceNodeId!: string; // 素材源节点（非剪辑节点）
   @IsString() workflowId!: string;   // 漏了它 whitelist 会剥离 → svc.assertEditor(undefined) 真机挂（服务层测试直传对象测不到）
@@ -20,7 +11,9 @@ export class RegenerateDto {
 
 export class RegisterGeneratedDto {
   @IsString() workflowId!: string;
-  @IsString() videoProjectId!: string;
+  // Y4a T8（spec §3.5 导出注册链 re-key）：`videoProjectId`→`sourceNodeId`——doc 字符串非 PG 外键
+  //（VideoProject 表已整删）；=剪辑节点自身 canvas nodeId。
+  @IsString() sourceNodeId!: string;
   @IsIn(['480p', '720p', '1080p']) resolution!: string;
   @IsNumber() @Min(0) @Max(900) durationSec!: number; // 15min 上限服务端同步（spec 5.5）
   @IsOptional() @IsNumber() @Min(1) width?: number;  // 产物尺寸（metadata 存档——resolution 无法表达 9:16 的 1080×1920）；可选防老前端 400

@@ -63,7 +63,7 @@ import { RuntimeFeedService } from './runtime-feed.service';
 import { ProjectionBackfillRunner } from './projection-backfill.runner';   // C3a-8：vacuum 换代后 binding 回填入队
 import { createCanvasDoc } from './canvas-doc.factory';
 import { readCanvasDocHead } from './canvas-doc-head';   // 契约 1 豁免读面（缺头三态——CanvasDoc 头行读不绕 repository 装载单源）
-import { stableStringify } from './collab-canary-semantic';   // Y4a T2：records hash 面 timelines 稳定序列化单源（T9 vacuumEquivalent 同函数）
+import { stableStringify, exportTimelineView } from './collab-canary-semantic';   // Y4a T2：records hash 面 timelines 稳定序列化单源；Y4a T9：读回视图单源（三消费面同源）
 import { collabMaintenanceCloseTotal, collabMaintenanceRequestedTotal, collabMaintenanceStageAdvanceTotal } from './collab-maintenance.metrics';
 import { fenceProject, lockProject } from './project-lock';
 
@@ -389,7 +389,9 @@ export class CollabMaintenanceService {
   /** 装载行→records（EXPORTING/VERIFYING 共用——快照+增量尾重放后 toReadModel）。
    *  Y4a T2（spec §0 条 7「哈希和真空等价比较包含 timelines」）：返回值加 timelines 根稳定
    *  序列化（stableStringify——collab-canary-semantic 单源导出，键序稳定防深拷贝后假红）进
-   *  hash 面；节点/边公开读模型保持原样（toReadModel 结构性不含 timelines——公开零泄漏）。 */
+   *  hash 面；节点/边公开读模型保持原样（toReadModel 结构性不含 timelines——公开零泄漏）。
+   *  Y4a T9：timelines 腿改消费 exportTimelineView 单源（inline 形态换单源——**hash 输出逐字节
+   *  不变**〔canonical pin/迁移历史 hash 锚不可漂移〕；三消费面同源见 canary 文件注）。 */
   private recordsOfHydration(hydrate: HydrationRow): { nodes: unknown[]; edges: unknown[]; timelines: string } {
     const doc = createCanvasDoc();
     try {
@@ -399,7 +401,7 @@ export class CollabMaintenanceService {
       return {
         nodes: records.nodes as unknown[],
         edges: records.edges as unknown[],
-        timelines: stableStringify(Object.fromEntries(doc.getMap('timelines').entries())),
+        timelines: stableStringify(exportTimelineView(doc.getMap('timelines'))),
       };
     } finally { doc.destroy(); }
   }
