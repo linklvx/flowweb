@@ -437,272 +437,6 @@
   },
   {
    "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 137,
-   "symbol": "packages/shared/src/canvas/canvas-doc-manifest.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 149,
-   "symbol": "src/canvas/canvas-doc-manifest.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 158,
-   "symbol": "src/canvas/canvas-doc-manifest.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 180,
-   "symbol": "apps/api/src/modules/collab/timelines-observer.wiring.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 205,
-   "symbol": "src/canvas/timeline-codec.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 205,
-   "symbol": "src/canvas/timeline-frame-predicate.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 214,
-   "symbol": "src/canvas/timeline-codec.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 214,
-   "symbol": "src/canvas/timeline-frame-predicate.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 230,
-   "symbol": "apps/web/src/stores/timelineUndo.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 233,
-   "symbol": "apps/web/src/stores/timelineUndo.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 234,
-   "symbol": "apps/web/src/stores/canvasUndo.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 261,
-   "symbol": "src/stores/timelineUndo.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 261,
-   "symbol": "src/stores/canvasUndo.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 269,
-   "symbol": "src/stores/timelineUndo.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 269,
-   "symbol": "src/stores/canvasUndo.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 279,
-   "symbol": "apps/web/src/stores/canvasDeleteSplit.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 287,
-   "symbol": "apps/web/src/stores/canvasDeleteSplit.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 311,
-   "symbol": "src/stores/canvasDeleteSplit.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 320,
-   "symbol": "src/stores/canvasDeleteSplit.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 320,
-   "symbol": "src/stores/canvasUndo.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 320,
-   "symbol": "src/modules/collab/collab-recovery-import.service.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 334,
-   "symbol": "packages/shared/src/canvas/media-refs.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 335,
-   "symbol": "apps/api/src/modules/collab/collab-project-actor.service.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 347,
-   "symbol": "src/canvas/media-refs.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 347,
-   "symbol": "src/modules/collab/collab-project-actor.service.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 356,
-   "symbol": "src/modules/collab/collab-project-actor.service.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 370,
-   "symbol": "apps/web/src/pages/canvas/video-editor/store/editorStore.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 392,
-   "symbol": "src/pages/canvas/video-editor/store/editorStore.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 401,
-   "symbol": "src/pages/canvas/video-editor/store/editorStore.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 429,
-   "symbol": "apps/api/src/modules/collab/lifecycle-obligation.sweeper.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 441,
-   "symbol": "src/modules/collab/lifecycle-obligation.sweeper.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 511,
-   "symbol": "apps/api/src/modules/collab/collab-timeline-collab.int.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 530,
-   "symbol": "src/modules/collab/collab-timeline-collab.int.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 537,
-   "symbol": "src/modules/collab/collab-timeline-collab.int.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 553,
-   "symbol": "apps/web/src/stores/undoUiStore.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 556,
-   "symbol": "apps/web/src/stores/undoUiStore.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 569,
-   "symbol": "src/stores/undoUiStore.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
-   "line": 580,
-   "symbol": "src/stores/undoUiStore.spec.ts",
-   "reason": "Y4a 施工单引用批内待建文件（T2-T12 落地前 dead-path；本批消费完成即移除豁免）",
-   "expires_at": "2027-02-18"
-  },
-  {
-   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
    "line": 292,
    "symbol": "CanvasNode",
    "reason": "Y4a 施工单叙述性提及历史类型名（现行 CanvasNodeRecord——splitDeletePlan 签名沿用旧名叙述）",
@@ -812,6 +546,104 @@
    "symbol": "persist/autosave.ts",
    "reason": "Y4a T8 整删 autosave.ts——conn recovery spec 历史记录性提及（行级锚）",
    "expires_at": "2027-02-19"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+   "line": 137,
+   "symbol": "packages/shared/src/canvas/canvas-doc-manifest.spec.ts",
+   "reason": "Y4a 落地实名漂移（施工单引用规划名 .spec.ts 落地为 .test.ts/就近接线——功能已落地，历史记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+   "line": 149,
+   "symbol": "src/canvas/canvas-doc-manifest.spec.ts",
+   "reason": "Y4a 落地实名漂移（施工单引用规划名 .spec.ts 落地为 .test.ts/就近接线——功能已落地，历史记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+   "line": 158,
+   "symbol": "src/canvas/canvas-doc-manifest.spec.ts",
+   "reason": "Y4a 落地实名漂移（施工单引用规划名 .spec.ts 落地为 .test.ts/就近接线——功能已落地，历史记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+   "line": 180,
+   "symbol": "apps/api/src/modules/collab/timelines-observer.wiring.ts",
+   "reason": "Y4a 落地实名漂移（施工单引用规划名 .spec.ts 落地为 .test.ts/就近接线——功能已落地，历史记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+   "line": 320,
+   "symbol": "src/modules/collab/collab-recovery-import.service.spec.ts",
+   "reason": "Y4a 落地实名漂移（施工单引用规划名 .spec.ts 落地为 .test.ts/就近接线——功能已落地，历史记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+   "line": 334,
+   "symbol": "packages/shared/src/canvas/media-refs.spec.ts",
+   "reason": "Y4a 落地实名漂移（施工单引用规划名 .spec.ts 落地为 .test.ts/就近接线——功能已落地，历史记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+   "line": 335,
+   "symbol": "apps/api/src/modules/collab/collab-project-actor.service.spec.ts",
+   "reason": "Y4a 落地实名漂移（施工单引用规划名 .spec.ts 落地为 .test.ts/就近接线——功能已落地，历史记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+   "line": 347,
+   "symbol": "src/canvas/media-refs.spec.ts",
+   "reason": "Y4a 落地实名漂移（施工单引用规划名 .spec.ts 落地为 .test.ts/就近接线——功能已落地，历史记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+   "line": 347,
+   "symbol": "src/modules/collab/collab-project-actor.service.spec.ts",
+   "reason": "Y4a 落地实名漂移（施工单引用规划名 .spec.ts 落地为 .test.ts/就近接线——功能已落地，历史记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+   "line": 356,
+   "symbol": "src/modules/collab/collab-project-actor.service.spec.ts",
+   "reason": "Y4a 落地实名漂移（施工单引用规划名 .spec.ts 落地为 .test.ts/就近接线——功能已落地，历史记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+   "line": 370,
+   "symbol": "apps/web/src/pages/canvas/video-editor/store/editorStore.spec.ts",
+   "reason": "Y4a 落地实名漂移（施工单引用规划名 .spec.ts 落地为 .test.ts/就近接线——功能已落地，历史记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+   "line": 392,
+   "symbol": "src/pages/canvas/video-editor/store/editorStore.spec.ts",
+   "reason": "Y4a 落地实名漂移（施工单引用规划名 .spec.ts 落地为 .test.ts/就近接线——功能已落地，历史记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+   "line": 401,
+   "symbol": "src/pages/canvas/video-editor/store/editorStore.spec.ts",
+   "reason": "Y4a 落地实名漂移（施工单引用规划名 .spec.ts 落地为 .test.ts/就近接线——功能已落地，历史记录）",
+   "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-20-y4a-timeline-domain.md",
+   "line": 441,
+   "symbol": "src/modules/collab/lifecycle-obligation.sweeper.spec.ts",
+   "reason": "Y4a 落地实名漂移（施工单引用规划名 .spec.ts 落地为 .test.ts/就近接线——功能已落地，历史记录）",
+   "expires_at": "2027-01-02"
   }
  ]
 }

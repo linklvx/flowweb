@@ -1,12 +1,23 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as Y from 'yjs';
+import { seedEmptyTimeline } from '@flowweb/shared';
+import { setTimelineDocRef, executeTimelineCommit } from '@/stores/timelineUndo';
 
 vi.mock('@/stores/canvasUndo', () => ({ stopCapturing: vi.fn() }));
 vi.mock('../timeline/auto-edges', () => ({ ensureAutoEdges: vi.fn() }));
+// Y4b T2：timelineUndo 部分 mock——只接管 executeTimelineCommit（主用例 B 拒绝路径注入点，
+// writeTimelineToDoc 对 doc ref/entry 缺席返 true=本地推进，故须 mock 到执行器这层才拒得下来）；
+// 其余导出（setTimelineDocRef/loadProject 水合/undo 管线）全走真实实现，本套其余用例零感知。
+vi.mock('@/stores/timelineUndo', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/stores/timelineUndo')>();
+  return { ...actual, executeTimelineCommit: vi.fn(actual.executeTimelineCommit) };
+});
 
 import { useEditorStore } from './editorStore';
 import { createDefaultProjectData, type ProjectData, type VideoClip } from '../types';
 import { stopCapturing } from '@/stores/canvasUndo';
 import { ensureAutoEdges } from '../timeline/auto-edges';
+import { useVideoEditorStore } from '@/stores/videoEditorStore';
 
 // Y4a T7（spec §4）：undo/redo=时间轴栈（Y-backed——editorStore.timeline.spec 锁 doc 管线）；
 // 本套只锁纯本地数据面（placement/guard/keyframe 归一化——离线无 doc ref：commit 本地推进、
@@ -15,6 +26,23 @@ const ready = (data?: ProjectData) => {
   const d = data ?? createDefaultProjectData();
   useEditorStore.setState({ status: 'ready', data: d, sourceNodeId: 'edit1', playhead: 0 });
   return d;
+};
+
+/** 实水合夹具（Y4b T1，Task 2 复用）：timelines 根 set('edit1', seedEmptyTimeline('edit1'))
+ *  〔禁用空 Y.Map——readTimelineFromDoc 对空 Map 返 null（version!==1/缺 tracks/clips）、
+ *  loadProject :263 早退到不了 :279、对账计数停 0=夹具不合法非产品缺陷〕+nodes Map 一个
+ *  非剪辑节点；edges 根空。doc ref 直登（setTimelineDocRef——生产接线 canvasCollabRuntime）。 */
+const hydratedDocFixture = (): Y.Doc => {
+  const doc = new Y.Doc();
+  doc.transact(() => {
+    const node = new Y.Map();
+    node.set('id', 'n0');
+    node.set('type', 'note');
+    doc.getMap('nodes').set('n0', node);
+    doc.getMap('timelines').set('edit1', seedEmptyTimeline('edit1'));
+  }, 'local-user');
+  setTimelineDocRef(doc);
+  return doc;
 };
 
 describe('editorStore（纯本地数据面——Y4a T7 离线档）', () => {
@@ -241,5 +269,89 @@ describe('editorStore（纯本地数据面——Y4a T7 离线档）', () => {
     expect(s.teamId).toBeUndefined();
     expect(s.saveState).toBeUndefined();
     expect(s.history).toBeUndefined();
+  });
+});
+
+describe('m#4 水合 AutoEdge 对账锚（Y4a 终审批外债）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useEditorStore.getState().reset();
+  });
+
+  afterEach(() => {
+    useEditorStore.getState().reset();   // 拆监听+卸时间轴栈（reset 内含 detachDocListeners/detachTimelineUndo）
+    setTimelineDocRef(null);   // doc ref 摘除（模块级单源——reset 不摘 ref，此处补位）
+  });
+
+  it("主用例 1：loadProject('edit1') 水合 → afterStructuralChange 恰对账一次（ensureAutoEdges 调用 1 次）", () => {
+    hydratedDocFixture();
+    expect(useEditorStore.getState().loadProject('edit1')).toBe(true);   // 水合成功（键在+可读）——对账已发生的前置
+    expect(useEditorStore.getState().status).toBe('ready');
+    expect(ensureAutoEdges).toHaveBeenCalledTimes(1);   // m#4：水合完成 AutoEdge 对账一次（:279——补崩溃窗没写上的边）
+  });
+
+  it('主用例 2：水合后 timelines 根键 Map 替换（另一棵 seedEmptyTimeline）→ :186 路径恰再对账一次（累计 2）', () => {
+    const doc = hydratedDocFixture();
+    expect(useEditorStore.getState().loadProject('edit1')).toBe(true);
+    expect(ensureAutoEdges).toHaveBeenCalledTimes(1);   // 基线=水合对账一次
+    // 根键替换（远端换键同款语义——装置直写模拟；禁用空 Y.Map 替换：readTimelineFromDoc
+    // 返 null、:186 next!==null 守卫不再对账）
+    doc.transact(() => {
+      doc.getMap('timelines').set('edit1', seedEmptyTimeline('edit1'));
+    }, 'remote-peer');
+    expect(ensureAutoEdges).toHaveBeenCalledTimes(2);   // Map 替换路径 :186 对账恰一次（累计+1）
+  });
+
+  it('用例 3（裁决附录 2）：替换后再删 timelines 键 → status idle+编辑器壳关（:158/:185 复活——修前替换后监听绑 null id 恒早退）', async () => {
+    const doc = hydratedDocFixture();
+    expect(useEditorStore.getState().loadProject('edit1')).toBe(true);
+    doc.transact(() => {
+      doc.getMap('timelines').set('edit1', seedEmptyTimeline('edit1'));
+    }, 'remote-peer');
+    useVideoEditorStore.setState({ open: true, sourceNodeId: 'edit1', miniPlaybackNodeId: null });   // 壳开着——键删除该关掉
+    doc.transact(() => {
+      doc.getMap('timelines').delete('edit1');
+    }, 'remote-peer');
+    expect(useEditorStore.getState().status).toBe('idle');
+    expect(useVideoEditorStore.getState().open).toBe(false);
+  });
+});
+
+describe('Y4b T2：m#5 addClip 写前检查锚 + commit boolean 返形统一', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useEditorStore.getState().reset();
+  });
+
+  afterEach(() => {
+    useEditorStore.getState().reset();   // 拆监听+卸时间轴栈（reset 内含 detachDocListeners/detachTimelineUndo）
+    setTimelineDocRef(null);   // doc ref 摘除（模块级单源——reset 不摘 ref，此处补位）
+  });
+
+  it('主用例 A（m#5 写前检查锚——回归锁）：水合态 addClip 指向不存在源节点 → 返 null、doc 零 update、本地不含新片', () => {
+    const doc = hydratedDocFixture();
+    const updateListener = vi.fn();
+    doc.on('update', updateListener);
+    expect(useEditorStore.getState().loadProject('edit1')).toBe(true);   // 水合（key 前置——非空本地态；sourceNodeId 已随水合落位）
+    updateListener.mockClear();   // 水合装载笔不计入（本用例只量 addClip 之后的写面）
+    const trackId = useEditorStore.getState().data!.tracks[0].id;
+    const before = useEditorStore.getState().data!;
+    const result = useEditorStore.getState().addClip({ type: 'video', mediaId: 'm1', sourceNodeId: 'src1', trackId, start: 0 });   // nodes 根无 'src1'（夹具只含 n0）
+    expect(result).toBeNull();   // 悬挂引用不产生（写前检查拒——不发事务不建片）
+    expect(updateListener).not.toHaveBeenCalled();   // doc 零 update 事件（不发事务=真行为面）
+    expect(useEditorStore.getState().data!.clips).toEqual(before.clips);   // 本地不含新片
+    doc.destroy();
+  });
+
+  it('主用例 B（commit 返形统一——红锚）：水合态执行器拒（executeTimelineCommit→false）→ addClip 返 null 且本地保持 prev', () => {
+    const doc = hydratedDocFixture();
+    expect(useEditorStore.getState().loadProject('edit1')).toBe(true);
+    const trackId = useEditorStore.getState().data!.tracks[0].id;
+    const prev = useEditorStore.getState().data!;
+    vi.mocked(executeTimelineCommit).mockReturnValue(false);   // 写拒注入（writeTimelineToDoc 只在此层可拒）
+    const result = useEditorStore.getState().addClip({ type: 'video', mediaId: 'm1', trackId, start: 0 });
+    expect(result).toBeNull();   // 现状红在拒时仍返 id——commit 须返 false、addClip 据此返 null
+    expect(useEditorStore.getState().data).toBe(prev);   // 本地保持 prev（拒不落 next）
+    doc.destroy();
   });
 });

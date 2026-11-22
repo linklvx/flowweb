@@ -173,8 +173,12 @@ const bindDocListeners = (nodeId: string, entry: Y.Map<unknown>): void => {
     // Map 被换 → 重绑当前这棵：销毁旧 UndoManager（先 clear()——避免对已脱离父键的 Map 再 undo）
     // 再绑、本地覆盖层作废、时间轴栈从空栈开始；data 立即读回新 Map。
     // Y4a T11：旧栈退订由 detachTimelineUndo 内部序首位收口；新栈订阅=attach 紧邻处返回值直交
+    // Y4b T1（m#4 根修）：nodeId 在 detach 前捕获——detachDocListeners 置 observedNodeId=null，
+    // 修前 :177/:185/:186 消费全拿 null（撤销栈 null 挂接+重绑监听绑 null id 后 :158 恒早退+
+    // 对账死守卫）。
+    const nodeId = observedNodeId;   // :158 守卫已保非空
     detachDocListeners();
-    attachTimelineUi(attachTimelineUndo(observedNodeId, current));
+    attachTimelineUi(attachTimelineUndo(nodeId, current));
     pendingOverlay = null;   // 覆盖层随旧 Map 作废（模块级单源——state 镜像由下方 set 落）
     const next = readTimelineFromDoc(current);
     useEditorStore.setState({
@@ -182,8 +186,8 @@ const bindDocListeners = (nodeId: string, entry: Y.Map<unknown>): void => {
       pendingOverlay: null,
       selectedClipId: null, selectedKeyframeId: null,
     });
-    bindDocListeners(observedNodeId, current);
-    if (next !== null && observedNodeId) afterStructuralChange(observedNodeId, next);   // 水合完成 AutoEdge 对账一次
+    bindDocListeners(nodeId, current);
+    if (next !== null) afterStructuralChange(nodeId, next);   // 水合完成 AutoEdge 对账一次
   };
   root.observe(rootKeyHandler);
 };
@@ -207,17 +211,20 @@ export const useEditorStore = create<EditorState>()((set, get) => {
    *  评审回包 I#2（拒绝回滚）：doc 写**先行**、本地 set 延后到写成功——执行器拒（软闸/自检/
    *  切块计划拒）时本地保持 prev（不写被拒态），before 每笔重读 doc 真值→被拒 delta 不复含。
    *  Y4a T7：before=doc 已合入状态（readTimelineFromDoc(entry)——远端合入不被回写；doc ref 缺席
-   *  =无协作会话——本地态照旧（写面休眠零差异）。 */
-  const commit = (mutate: (data: ProjectData) => ProjectData, opts?: { structural?: boolean; capture?: TimelineCaptureKind }) => {
+   *  =无协作会话——本地态照旧（写面休眠零差异）。
+   *  Y4b T2（m#5 返形统一）：boolean 返形——true=已应用（含 doc ref 缺席本地推进）、false=写被拒
+   *  （含早退分支）。原 void 返回值零调用方消费——签名变更无破坏；addClip 沿此值返 id|null。 */
+  const commit = (mutate: (data: ProjectData) => ProjectData, opts?: { structural?: boolean; capture?: TimelineCaptureKind }): boolean => {
     const s = get();
-    if (!s.data || s.status !== 'ready') return;
+    if (!s.data || s.status !== 'ready') return false;
     const prev = s.data;
     let next = mutate(prev);
     next = sortTrackClips(next);
     // doc 写先行（无协作会话=本地序先行——写面休眠零差异）
-    if (s.sourceNodeId && !writeTimelineToDoc(s.sourceNodeId, prev, next, opts?.capture ?? 'structural')) return;   // 拒→本地保持 prev（不 set）
+    if (s.sourceNodeId && !writeTimelineToDoc(s.sourceNodeId, prev, next, opts?.capture ?? 'structural')) return false;   // 拒→本地保持 prev（不 set）
     set({ data: next });
     if (opts?.structural !== false && s.sourceNodeId) afterStructuralChange(s.sourceNodeId, next);
+    return true;
   };
 
   /** doc 写路径（timeline-user 事务——两级执行器编排）。
@@ -350,11 +357,12 @@ export const useEditorStore = create<EditorState>()((set, get) => {
         : input.type === 'image'
           ? { ...base, type: 'image', transform: { x: 0, y: 0, scale: 1, rotation: 0, opacity: 1 }, keyframes: [] } as ImageClip
           : { ...base, type: 'audio', sourceStart: 0, volume: 1, fade: { in: 0, out: 0 }, playbackSpeed: 1, keyframes: [] } as AudioClip;
-      commit((d) => ({
+      // Y4b T2（m#5 返形统一）：commit 写拒→null（悬挂引用/执行器拒同形收口）、过→id；本地 data 保持 prev（commit 内已回滚）
+      if (!commit((d) => ({
         ...d,
         clips: { ...d.clips, [id]: clip },
         tracks: d.tracks.map(t => t.id === input.trackId ? { ...t, clips: [...t.clips, id] } : t),
-      }), { capture: 'structural' });
+      }), { capture: 'structural' })) return null;
       return id;
     },
 
