@@ -159,6 +159,15 @@ describe('Y4b T6 checkThreadEntry 负控矩阵（spec §2.1 键矩阵）', () =>
     expect(checkThreadEntry('t1', keyDrift, 'u1')).toContain('c1');
   });
 
+  it('数组形 comments 红（comments=Y.Map 容器——数组 Object.entries 下标当 Map 键、「评论 id=键」退化；timeline 先例 tracks/clips 同为容器类型封闭）', () => {
+    // 单条数组形（Object.keys([x]).length===1——正是 L2 根键 add 「至少一条」档的穿透形态）
+    const arr = entryObj((e) => { e.comments = [{ id: 'c1', authorId: 'u1', body: 'ok', createdAt: 0 }]; });
+    expect(checkThreadEntry('t1', arr, 'u1')).toContain('comments');
+    // 空数组形同样红
+    const emptyArr = entryObj((e) => { e.comments = []; });
+    expect(checkThreadEntry('t1', emptyArr, 'u1')).toContain('comments');
+  });
+
   it('标量槽 Y.Map/Y.Array/Y.Text 全拒（v 直传 yjs 容器=toJSON 漏接的兜底——谓词收普通值但容器非普通对象拒）', () => {
     for (const poison of [new Y.Map(), new Y.Array(), new Y.Text()]) {
       expect(checkThreadEntry('t1', poison, 'u1')).toContain('thread');
@@ -245,10 +254,10 @@ describe('Y4b T6 buildThreadEntry/buildThreadComment（工厂）', () => {
       const entry = buildThreadEntry({
         id: 't1', nodeId: 'n1', kind: 'node', resolved: false, createdAt: 0, createdBy: 'u1',
       });
-      const comments = new Y.Map();
-      comments.set('c1', buildThreadComment({ id: 'c1', authorId: 'u1', body: 'hello', createdAt: 0 }));
-      entry.set('comments', comments);
       doc.getMap('threads').set('t1', entry);
+      // 首条评论挂进工厂预建的 comments 容器（attach 后 doc 读路径——detached get 抛 Invalid access）
+      const comments = (doc.getMap('threads').get('t1') as Y.Map<unknown>).get('comments') as Y.Map<unknown>;
+      comments.set('c1', buildThreadComment({ id: 'c1', authorId: 'u1', body: 'hello', createdAt: 0 }));
     });
     const entry = doc.getMap('threads').get('t1') as Y.Map<unknown>;
     expect(entry).toBeInstanceOf(Y.Map);
@@ -259,9 +268,16 @@ describe('Y4b T6 buildThreadEntry/buildThreadComment（工厂）', () => {
     expect(checkThreadComment('c1', (comments.get('c1') as Y.Map<unknown>).toJSON(), 'u1')).toBeUndefined();
   });
 
-  it('工厂不带 comments 键（创建面单事务自组——落成后必有至少一条）', () => {
-    const entry = buildThreadEntry({ id: 't1', nodeId: 'n1', kind: 'node', resolved: false, createdAt: 0, createdBy: 'u1' });
-    expect(entry.has('comments')).toBe(false);   // comments 由调用方在同一事务挂上
+  it('工厂预建 comments 空容器（§2.1 键矩阵 comments=Y.Map 容器——web store 不自建 new Y.Map）+落成后过谓词', () => {
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      doc.getMap('threads').set('t1', buildThreadEntry({ id: 't1', nodeId: 'n1', kind: 'node', resolved: false, createdAt: 0, createdBy: 'u1' }));
+    });
+    const entry = doc.getMap('threads').get('t1') as Y.Map<unknown>;
+    const comments = entry.get('comments');
+    expect(comments).toBeInstanceOf(Y.Map);   // 工厂出口自带容器
+    expect((comments as Y.Map<unknown>).size).toBe(0);   // 空容器——首条评论由调用方同事务挂
+    expect(checkThreadEntry('t1', entry.toJSON(), 'u1')).toBeUndefined();   // 空容器过纯字段谓词（「至少一条」归 L2 根键 add 档）
   });
 
   it('工厂签名 strict：文本锚两键可选传入（kind=text 两锚必写出）', () => {
@@ -288,16 +304,14 @@ function captureThreads(doc: Y.Doc): Array<Y.YMapEvent<unknown>> {
   return events;
 }
 
-/** 装一整棵合法线程（entry+comments 容器+首条评论——同事务单帧形态）。 */
+/** 装一整棵合法线程（工厂 entry 预建 comments 容器+首条评论同事务挂入——单帧形态）。 */
 function seedThread(doc: Y.Doc, threadId = 't1', actor = 'u1'): void {
   doc.transact(() => {
     doc.getMap('threads').set(threadId, buildThreadEntry({
       id: threadId, nodeId: 'n1', kind: 'node', resolved: false, createdAt: 0, createdBy: actor,
     }));
-    const entry = doc.getMap('threads').get(threadId) as Y.Map<unknown>;
-    const comments = new Y.Map();
+    const comments = (doc.getMap('threads').get(threadId) as Y.Map<unknown>).get('comments') as Y.Map<unknown>;
     comments.set('c1', buildThreadComment({ id: 'c1', authorId: actor, body: 'hello', createdAt: 0 }));
-    entry.set('comments', comments);
   });
 }
 
@@ -309,7 +323,7 @@ describe('Y4b T6 threadEventErr：path=[] 根键档', () => {
     expect(threadEventErr(events[0] as Y.YMapEvent<unknown>, doc.getMap('threads'), { actorUserId: 'u1' })).toBeUndefined();
   });
 
-  it('根键 add 落成值非法拒：缺 createdBy（半截）/comments 空/评论 authorId≠actorUserId', () => {
+  it('根键 add 落成值非法拒：缺 createdBy（半截）/comments 空/评论 authorId≠actorUserId/数组形 comments', () => {
     // 半截 entry：同事务只建 entry Map、不挂 createdBy（字段补下一帧=父出帧 4411——非合法创建路径）
     const doc = new Y.Doc();
     const events = captureThreads(doc);
@@ -319,13 +333,11 @@ describe('Y4b T6 threadEventErr：path=[] 根键档', () => {
       doc.getMap('threads').set('t1', entry);
     });
     expect(threadEventErr(events[0] as Y.YMapEvent<unknown>, doc.getMap('threads'), { actorUserId: 'u1' })).toContain('created-by');
-    // comments 空容器（创建时至少一条）
+    // comments 空容器（创建时至少一条）——工厂预建容器空挂即红
     const doc2 = new Y.Doc();
     const events2 = captureThreads(doc2);
     doc2.transact(() => {
       doc2.getMap('threads').set('t1', buildThreadEntry({ id: 't1', nodeId: 'n1', kind: 'node', resolved: false, createdAt: 0, createdBy: 'u1' }));
-      const entry = doc2.getMap('threads').get('t1') as Y.Map<unknown>;
-      entry.set('comments', new Y.Map());
     });
     expect(threadEventErr(events2[0] as Y.YMapEvent<unknown>, doc2.getMap('threads'), { actorUserId: 'u1' })).toContain('comments');
     // 首条评论 authorId 冒名
@@ -333,12 +345,18 @@ describe('Y4b T6 threadEventErr：path=[] 根键档', () => {
     const events3 = captureThreads(doc3);
     doc3.transact(() => {
       doc3.getMap('threads').set('t1', buildThreadEntry({ id: 't1', nodeId: 'n1', kind: 'node', resolved: false, createdAt: 0, createdBy: 'u1' }));
-      const entry = doc3.getMap('threads').get('t1') as Y.Map<unknown>;
-      const comments = new Y.Map();
+      const comments = (doc3.getMap('threads').get('t1') as Y.Map<unknown>).get('comments') as Y.Map<unknown>;
       comments.set('c1', buildThreadComment({ id: 'c1', authorId: 'u2', body: 'hello', createdAt: 0 }));
-      entry.set('comments', comments);
     });
     expect(threadEventErr(events3[0] as Y.YMapEvent<unknown>, doc3.getMap('threads'), { actorUserId: 'u1' })).toContain('author-id');
+    // 数组形 comments（Object.keys([x]).length===1 会过「至少一条」档——L2 根键 add 档必拒）
+    const doc4 = new Y.Doc();
+    const events4 = captureThreads(doc4);
+    doc4.transact(() => {
+      doc4.getMap('threads').set('t1', buildThreadEntry({ id: 't1', nodeId: 'n1', kind: 'node', resolved: false, createdAt: 0, createdBy: 'u1' }));
+      (doc4.getMap('threads').get('t1') as Y.Map<unknown>).set('comments', [buildThreadComment({ id: 'c1', authorId: 'u1', body: 'x', createdAt: 0 })]);
+    });
+    expect(threadEventErr(events4[0] as Y.YMapEvent<unknown>, doc4.getMap('threads'), { actorUserId: 'u1' })).toContain('comments');
   });
 
   it('根键 delete 允许（删整条线程——不按作者分权限）；根键 update 拒（整棵 entry Map 被换掉）', () => {

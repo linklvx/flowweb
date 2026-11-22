@@ -89,7 +89,9 @@ export function checkThreadEntry(id: string, v: unknown, actorUserId?: string): 
   if (typeof e.createdBy !== 'string' || e.createdBy === '') return `thread-created-by:${id}`;
   if (actorUserId !== undefined && e.createdBy !== actorUserId) return `thread-created-by:${id}`;
   if (e.comments !== undefined) {
-    if (isYjsContainer(e.comments) || typeof e.comments !== 'object') return `thread-comments:${id}`;
+    // comments=Y.Map 容器（spec §2.1 键矩阵）——数组形拒（Object.entries 把下标当 Map 键、
+    // 「评论 id=Map 键」退化为下标；timeline 先例 tracks/clips/keyframes 同为 instanceof 类型封闭）。
+    if (Array.isArray(e.comments) || isYjsContainer(e.comments) || typeof e.comments !== 'object') return `thread-comments:${id}`;
     const comments = e.comments as Record<string, unknown>;
     for (const [cid, cv] of Object.entries(comments)) {
       const cErr = checkThreadComment(cid, cv, actorUserId);
@@ -164,7 +166,7 @@ export function decodeAnchorBase64(s: string): Uint8Array {
 
 // ═══════════════════ Y.Map 工厂（唯一 new Y.Map 创建点——web store 只调用不自建） ═══════════════════
 
-/** 线程 entry 工厂入参（kind='text' 时两锚必传；comments 由调用方在同一事务挂上——创建面单事务）。 */
+/** 线程 entry 工厂入参（kind='text' 时两锚必传）。 */
 export interface ThreadEntryInit {
   id: string;
   nodeId: string;
@@ -184,8 +186,11 @@ export interface ThreadCommentInit {
   createdAt: number;
 }
 
-/** 线程 entry Y.Map 工厂（本模块=threads 域唯一 `new Y.Map` 创建点——census 组㉓ 只扫 apps 生产文件，
- *  写在 web store 会红；timeline 的 Map 创建在 shared timeline-codec 同一先例）。 */
+/** 线程 entry Y.Map 工厂（本模块=threads 域唯一 `new Y.Map` 创建点——含 comments 容器预建
+ *  〔spec §2.1 键矩阵 comments=Y.Map 容器/§3.1 createThread 单事务=envelope+comments 容器+
+ *  首条评论——census 组㉓ 只扫 apps 生产文件，写在 web store 会红；timeline 的 Map 创建在
+ *  shared timeline-codec 同一先例〕）。调用方同事务挂首条评论（L2 根键 add 的
+ *  comments-empty 拒兜住漏挂——创建时至少一条 spec §2.1）。 */
 export function buildThreadEntry(init: ThreadEntryInit): Y.Map<unknown> {
   const entry = new Y.Map<unknown>();
   entry.set('id', init.id);
@@ -198,6 +203,7 @@ export function buildThreadEntry(init: ThreadEntryInit): Y.Map<unknown> {
   entry.set('resolved', init.resolved);
   entry.set('createdAt', init.createdAt);
   entry.set('createdBy', init.createdBy);
+  entry.set('comments', new Y.Map<unknown>());
   return entry;
 }
 
@@ -246,7 +252,8 @@ export function threadEventErr(ev: Y.YMapEvent<unknown>, threadsRoot: Y.Map<unkn
       const entryErr = checkThreadEntry(threadId, plain, actorUserId);
       if (entryErr !== undefined) return entryErr;
       const comments = plain !== null && typeof plain === 'object' ? (plain as Record<string, unknown>)['comments'] : undefined;
-      if (comments === undefined || comments === null || typeof comments !== 'object') return `thread-comments:${threadId}`;
+      // comments=Y.Map 容器（spec §2.1）——数组形拒（Object.keys([x]).length===1 会过「至少一条」档）
+      if (comments === undefined || comments === null || Array.isArray(comments) || typeof comments !== 'object') return `thread-comments:${threadId}`;
       const commentCount = Object.keys(comments as Record<string, unknown>).length;
       if (commentCount === 0) return `thread-comments-empty:${threadId}`;   // 创建时至少一条评论
     }
