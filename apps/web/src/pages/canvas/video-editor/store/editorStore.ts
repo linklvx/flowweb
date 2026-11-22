@@ -631,11 +631,18 @@ export const useEditorStore = create<EditorState>()((set, get) => {
     // I#1（fix round 2）：抑制窗先关再弹栈——um.undo() 事务同步收尾即触发 observeDeep，此刻模块级
     // 覆盖层必须已 null（修前 null 化在弹栈之后→自身读回早退→本地留幽灵片段+afterStructuralChange
     // 拿陈旧 data 重投幽灵 auto: 边）。非手势档 pendingOverlay 本来就 null、行为不变。
+    // m#7：历史跳转（成功弹栈）作废覆盖层；被拒（无 manager、栈空、undo 装回闸）保留模块级覆盖层，
+    // 且不写 state 镜像——被拒安全依据=timelineUndo/timelineRedo 四条 false 返回都在 um.undo()/um.redo()
+    // 之前（事务未发生）。成功路径先后与现状相同（投机关抑制窗→弹栈→set）。
     undo: () => {
       const s = get();
+      const saved = pendingOverlay;
       pendingOverlay = null;   // 抑制窗先关——undo 事务落笔时读回自然同步
       const ok = timelineUndo();
-      if (!ok) return false;
+      if (!ok) {
+        pendingOverlay = saved;   // 被拒（无 manager/栈空/装回闸）——按引用放回，抑制窗复活；禁 set（镜像保持进入时对象）
+        return false;
+      }
       const next = get().data;   // observeDeep 读回已同步（undo 事务同步收尾）
       set({ selectedClipId: null, selectedKeyframeId: null, pendingOverlay: null });
       if (s.sourceNodeId && next) afterStructuralChange(s.sourceNodeId, next);   // 边跟随回滚
@@ -644,9 +651,13 @@ export const useEditorStore = create<EditorState>()((set, get) => {
 
     redo: () => {
       const s = get();
+      const saved = pendingOverlay;
       pendingOverlay = null;   // 抑制窗先关（I#1 同款——redo 事务落笔时读回自然同步）
       const ok = timelineRedo();
-      if (!ok) return false;
+      if (!ok) {
+        pendingOverlay = saved;   // 被拒（无 manager/redoStack 空）——同 undo：放回+禁 set
+        return false;
+      }
       const next = get().data;
       set({ selectedClipId: null, selectedKeyframeId: null, pendingOverlay: null });
       if (s.sourceNodeId && next) afterStructuralChange(s.sourceNodeId, next);

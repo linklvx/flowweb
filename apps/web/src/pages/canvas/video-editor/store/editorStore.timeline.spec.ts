@@ -311,6 +311,43 @@ describe('Y4a T7 ②写穿 roundtrip：commit→doc→observeDeep→setState 读
     expect(getTimelineUndoManager()!.undoStack.length).toBe(stackBefore - 1);   // 只有弹掉的那笔
     live.destroy();
   });
+
+  it('m#7：拖拽中 undo/redo 被拒（两向空栈）→覆盖层保留（抑制窗活着+松手仍落笔+镜像不破）', () => {
+    const { live, clips } = setupHydrated();
+    // 夹具纪律：水合后 undo/redo 两向天然空栈（种子=local-user、UndoManager 只跟 timeline-user）、
+    // c1 在 start 5——直接拖 c1，不先 addClip 再 undo 到底（那会弹掉刚加的片段、moveClip 对已删 id
+    // 返 false——红落在错误原因上）
+    useEditorStore.getState().selectClip('c1');
+    useEditorStore.getState().beginTransient();
+    expect(useEditorStore.getState().moveClip('c1', 20, undefined, { transient: true })).toBe(true);
+    const overlay = useEditorStore.getState().pendingOverlay;
+    // 两向被拒（空栈）：覆盖层保留——模块变量按引用放回、镜像不动、不写 state
+    expect(useEditorStore.getState().undo()).toBe(false);
+    expect(useEditorStore.getState().redo()).toBe(false);
+    const s1 = useEditorStore.getState();
+    expect(s1.pendingOverlay).toBe(overlay);   // 镜像仍是刚才那个对象（同引用——TimelinePanel 仍认为手势在进行）
+    expect(s1.selectedClipId).toBe('c1');   // 被拒不 set——选中不残留清除
+    expect(getTimelineUndoManager()!.undoStack.length).toBe(0);   // 两向栈长仍 0
+    expect(getTimelineUndoManager()!.redoStack.length).toBe(0);
+    expect(s1.data!.clips.c1!.start).toBe(20);   // 本地 transient 终值保持
+    // remote-peer 把 c2 的 start 写成 0.5（装置直写同款先例 :359）——读回被抑制（抑制窗活着）
+    live.transact(() => {
+      const c2 = clips.get('c2') as Y.Map<unknown>;
+      c2.set('span', { ...(c2.get('span') as Record<string, unknown>), start: 0.5 });
+    }, 'remote-peer');
+    const s2 = useEditorStore.getState();
+    expect(s2.data!.clips.c1!.start).toBe(20);   // 本地 transient 不被远端合入砸掉
+    expect(s2.data!.clips.c2!.start).toBe(0);   // 读回被抑制（修前：模块变量已空→远端整表读回盖掉本地）
+    // 松手：组合基线一笔落 doc——c1 终值 20、c2 远端值留在 doc（diff 不含未改键）
+    expect(useEditorStore.getState().endTransient()).toBe(true);
+    const c1Span = (clips.get('c1') as Y.Map<unknown>).get('span') as Record<string, unknown>;
+    const c2Span = (clips.get('c2') as Y.Map<unknown>).get('span') as Record<string, unknown>;
+    expect(c1Span.start).toBe(20);   // 手势笔落 doc
+    expect(c2Span.start).toBe(0.5);   // 远端值留在 doc（diff 不含未改键）
+    expect(useEditorStore.getState().pendingOverlay).toBeNull();   // 镜像闭口
+    expect(getTimelineUndoManager()!.undoStack.length).toBe(1);   // 松手恰一笔
+    live.destroy();
+  });
 });
 
 describe('Y4a T7 ③拖动覆盖层（spec §0 条 5）：transient 零 doc 笔；松手组合基线一笔；并发删除丢覆盖层', () => {
