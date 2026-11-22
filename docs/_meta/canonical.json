@@ -242,6 +242,27 @@
       ]
     },
     {
+      "path": "docs/superpowers/plans/2026-11-22-y4b-annotation-security.md",
+      "criteria": "C1",
+      "evidence": [
+        {
+          "src": "packages/shared/src/canvas/threads-frame-predicate.test.ts",
+          "line": 2,
+          "text": "// Y4b T6（plan 2026-11-22-y4b-annotation-security Task 6——spec §0 条 6/7/14〔§2.1/§2.3〕）："
+        },
+        {
+          "src": "packages/shared/src/canvas/threads-frame-predicate.ts",
+          "line": 2,
+          "text": "// Y4b T6（plan 2026-11-22-y4b-annotation-security Task 6——spec §0 条 6/7/14〔§2.1 键矩阵/§2.3 单源〕）："
+        },
+        {
+          "src": "packages/shared/src/index.ts",
+          "line": 189,
+          "text": "// Y4b T6（plan 2026-11-22-y4b-annotation-security Task 6——spec §0 条 6/7/14）：threads 批注域帧谓词"
+        }
+      ]
+    },
+    {
       "path": "docs/superpowers/plans/collab-e2e-gate-checklist.md",
       "criteria": "C1",
       "evidence": [

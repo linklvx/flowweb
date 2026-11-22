@@ -644,6 +644,69 @@
    "symbol": "src/modules/collab/lifecycle-obligation.sweeper.spec.ts",
    "reason": "Y4a 落地实名漂移（施工单引用规划名 .spec.ts 落地为 .test.ts/就近接线——功能已落地，历史记录）",
    "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-22-y4b-annotation-security.md",
+   "line": 91,
+   "symbol": "apps/web/src/pages/canvas/video-editor/__tests__/collab-video-editor-a2.int.spec.ts",
+   "reason": "Y4b 施工单前向引用规划文件（组2/组3 未落地——Task 7-10 落地后引用转活；期间历史记录性提及）",
+   "expires_at": "2027-02-20"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-22-y4b-annotation-security.md",
+   "line": 101,
+   "symbol": "src/pages/canvas/video-editor/__tests__/collab-video-editor-a2.int.spec.ts",
+   "reason": "Y4b 施工单前向引用规划文件（组2/组3 未落地——Task 7-10 落地后引用转活；期间历史记录性提及）",
+   "expires_at": "2027-02-20"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-22-y4b-annotation-security.md",
+   "line": 228,
+   "symbol": "src/modules/collab/collab-threads-conservation.int.spec.ts",
+   "reason": "Y4b 施工单前向引用规划文件（组2/组3 未落地——Task 7-10 落地后引用转活；期间历史记录性提及）",
+   "expires_at": "2027-02-20"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-22-y4b-annotation-security.md",
+   "line": 239,
+   "symbol": "apps/api/src/modules/collab/collab-threads-gate.int.spec.ts",
+   "reason": "Y4b 施工单前向引用规划文件（组2/组3 未落地——Task 7-10 落地后引用转活；期间历史记录性提及）",
+   "expires_at": "2027-02-20"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-22-y4b-annotation-security.md",
+   "line": 267,
+   "symbol": "apps/web/src/stores/threadsStore.ts",
+   "reason": "Y4b 施工单前向引用规划文件（组2/组3 未落地——Task 7-10 落地后引用转活；期间历史记录性提及）",
+   "expires_at": "2027-02-20"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-22-y4b-annotation-security.md",
+   "line": 293,
+   "symbol": "apps/web/src/pages/canvas/components/NodeContextMenu.tsx",
+   "reason": "Y4b 施工单前向引用规划文件（组2/组3 未落地——Task 7-10 落地后引用转活；期间历史记录性提及）",
+   "expires_at": "2027-02-20"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-22-y4b-annotation-security.md",
+   "line": 294,
+   "symbol": "apps/web/src/pages/canvas/components/threads/ThreadComposer.tsx",
+   "reason": "Y4b 施工单前向引用规划文件（组2/组3 未落地——Task 7-10 落地后引用转活；期间历史记录性提及）",
+   "expires_at": "2027-02-20"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-22-y4b-annotation-security.md",
+   "line": 295,
+   "symbol": "apps/web/src/pages/canvas/components/threads/ThreadsPanel.tsx",
+   "reason": "Y4b 施工单前向引用规划文件（组2/组3 未落地——Task 7-10 落地后引用转活；期间历史记录性提及）",
+   "expires_at": "2027-02-20"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-11-22-y4b-annotation-security.md",
+   "line": 317,
+   "symbol": "apps/web/src/pages/canvas/__tests__/collab-threads-collab.int.spec.ts",
+   "reason": "Y4b 施工单前向引用规划文件（组2/组3 未落地——Task 7-10 落地后引用转活；期间历史记录性提及）",
+   "expires_at": "2027-02-20"
   }
  ]
 }

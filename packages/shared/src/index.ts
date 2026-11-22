@@ -186,3 +186,8 @@ export * from './canvas/canvas-node-delete';
 // +canvas/timeline-codec.spec.ts。
 export * from './canvas/timeline-frame-predicate';
 export * from './canvas/timeline-codec';
+// Y4b T6（plan 2026-11-22-y4b-annotation-security Task 6——spec §0 条 6/7/14）：threads 批注域帧谓词
+// 单源（checkThreadEntry/checkThreadComment 纯字段三路同函数+threadEventErr L2 动作矩阵按 path 四档
+// +encodeAnchorBase64/decodeAnchorBase64+buildThreadEntry/buildThreadComment 唯一 Y.Map 工厂）——
+// frame-deny L1/L2（T7 接线）与 web threadsStore 写前自检（T10）共用。契约测试=canvas/threads-frame-predicate.test.ts。
+export * from './canvas/threads-frame-predicate';
