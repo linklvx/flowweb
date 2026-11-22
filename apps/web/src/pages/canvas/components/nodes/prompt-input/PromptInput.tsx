@@ -22,6 +22,7 @@ import { buildPromptInputSchemaExtensions } from './extensions';
 import { resolveDoc } from '@/stores/canvasIntents';
 import { resolveNodeXmlFragment, ySyncHostExtension, richTextOfFragment } from '@/collab/yXmlFragmentBinding';
 import { recordCollabDiag } from '@/utils/collabDiagnostics';
+import { sanitizeRichTextHtml } from '@/utils/sanitizeRichTextHtml';
 
 export interface PromptInputRef {
   focus: () => void;
@@ -496,7 +497,7 @@ const PromptInput = forwardRef<PromptInputRef, PromptInputProps>(
         <div
           className="prompt-editor outline-none"
           style={{ minHeight: 80, maxHeight, overflowY: 'auto', fontSize: 14, lineHeight: '24px' }}
-          dangerouslySetInnerHTML={{ __html: fallbackHtml }}
+          dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(fallbackHtml) }}
         />
       );
     }

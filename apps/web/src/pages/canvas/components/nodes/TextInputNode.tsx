@@ -7,6 +7,7 @@ import { useNodeStore, isTextNode } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { resolveDoc } from '@/stores/canvasIntents';
 import { resolveNodeXmlFragment, ySyncHostExtension } from '@/collab/yXmlFragmentBinding';
+import { sanitizeRichTextHtml } from '@/utils/sanitizeRichTextHtml';
 import { buildTextContentSchemaExtensions } from './textExtensions';
 import { TextConfigPanel } from './TextConfigPanel';
 import { TextNodeToolbar } from './TextNodeToolbar';
@@ -196,7 +197,7 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
                 <EditorContent editor={editor} />
               ) : (
                 // Y1c T16 只读回退：容器缺失=结构错误（不懒建不掩盖）——读模型 html 静态展示
-                <div className="tiptap-content" dangerouslySetInnerHTML={{ __html: fallbackHtml }} />
+                <div className="tiptap-content" dangerouslySetInnerHTML={{ __html: sanitizeRichTextHtml(fallbackHtml) }} />
               )}
             </div>
           )}
