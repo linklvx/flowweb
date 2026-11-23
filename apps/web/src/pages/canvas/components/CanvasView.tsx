@@ -48,6 +48,8 @@ import { canEdit } from '@/stores/syncStatus';
 import { StoryboardTitlesLayer } from './groups/StoryboardTitlesLayer';
 import { GroupToolbar } from './groups/GroupToolbar';
 import { GroupContextMenu } from './groups/GroupContextMenu';
+import { NodeContextMenu } from './NodeContextMenu';
+import { requestThreadCompose } from './threads/ThreadComposer';
 import { ConfirmModal } from './ConfirmModal';
 import { AspectRatioDropdown } from './groups/AspectRatioDropdown';
 import { GridSizeDropdown } from './groups/GridSizeDropdown';
@@ -100,6 +102,8 @@ function CanvasViewComponent(_props: Props) {
   const [minimapOpen, setMinimapOpen] = useState(false);
   const [snapEnabled, setSnapEnabled] = useState(false);
   const [groupContextMenu, setGroupContextMenu] = useState<{ groupId: string; x: number; y: number } | null>(null);
+  // Y4b T11 入口 A：非组节点右键「批注」——GroupContextMenu 同款定位模式（clientX/Y 原样落位）
+  const [nodeContextMenu, setNodeContextMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   // Y2 A2b（D2 双轨）→Y2 A3 收敛：React Flow+几何面（拖放判定 absoluteRectsOf/加号锚框/handle
   // 菜单）读渲染列表（rel 域——父链累加数学原样成立）；nodes=作者缓存轨道（abs 读模型）承数据/
   // 会籍/组选择（selected 经 onNodesChange 结构批双写在场）
@@ -292,11 +296,19 @@ function CanvasViewComponent(_props: Props) {
     if (node.type === NODE_TYPES.GROUP) {
       event.preventDefault();
       setGroupContextMenu({ groupId: node.id, x: event.clientX, y: event.clientY });
+      return;
     }
+    // Y4b T11 入口 A（spec §3.2）：非组节点右键「批注」——菜单坐标=clientX/Y（GroupContextMenu 同款）
+    event.preventDefault();
+    setNodeContextMenu({ nodeId: node.id, x: event.clientX, y: event.clientY });
   }, []);
 
   const closeGroupContextMenu = useCallback(() => {
     setGroupContextMenu(null);
+  }, []);
+
+  const closeNodeContextMenu = useCallback(() => {
+    setNodeContextMenu(null);
   }, []);
 
   // 2d-6：右键「重命名」→ store 瞬态信号 → NormalGroupRenderer 消费进编辑态（与双击共享）
@@ -306,6 +318,7 @@ function CanvasViewComponent(_props: Props) {
 
   const onPaneClick = useCallback(() => {
     closeGroupContextMenu();
+    closeNodeContextMenu();
     const ns = useNodeStore.getState();
     if (ns.activeEditNodeId) {
       if (!ns.getEditOverlayDragging()) {
@@ -316,7 +329,7 @@ function CanvasViewComponent(_props: Props) {
     } else {
       selectNode(null);
     }
-  }, [selectNode, closeGroupContextMenu]);
+  }, [selectNode, closeGroupContextMenu, closeNodeContextMenu]);
 
   // ── handle 拖拽弹菜单（spec 2026-09-26-image-node-panel-redesign §3.3）──
   // 起点经 ref 写入：onConnectEnd 同 tick 读取，避免闭包旧值
@@ -790,6 +803,16 @@ function CanvasViewComponent(_props: Props) {
           y={groupContextMenu.y}
           onRename={handleGroupMenuRename}
           onClose={closeGroupContextMenu}
+        />
+      )}
+      {/* Y4b T11 入口 A：非组节点右键菜单「批注」→ 请求页面级 composer（node 形态） */}
+      {nodeContextMenu && (
+        <NodeContextMenu
+          nodeId={nodeContextMenu.nodeId}
+          x={nodeContextMenu.x}
+          y={nodeContextMenu.y}
+          onAnnotate={(nodeId) => requestThreadCompose({ nodeId, kind: 'node' })}
+          onClose={closeNodeContextMenu}
         />
       )}
     </div>

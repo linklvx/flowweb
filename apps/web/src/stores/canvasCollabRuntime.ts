@@ -29,6 +29,8 @@ import { useNodeStore, toAppNode, NODE_TYPES } from './nodeStore';
 import { Origin, attachUndoManager, detachUndoManager, getUndoManager } from './canvasUndo';
 // Y4a T4：时间轴执行器 doc 引用登记（轻量模块——yjs+shared 零画布依赖）
 import { setTimelineDocRef } from './timelineUndo';
+// Y4b T10：threads 批注投影挂载（getSynced 闭包调用时才求值——空 doc 早挂零时序风险）
+import { attachThreads } from './threadsStore';
 // Y4a T11（spec §5/§9 锚 6）：canUndo/canRedo 事件驱动 UI——画布栈订阅（attach 紧邻同点、禁双源）
 import { attachCanvasUi, detachCanvasUi } from './undoUiStore';
 export { Origin } from './canvasUndo';
@@ -2074,6 +2076,7 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
   // Y4a T4：时间轴执行器 doc 引用登记（editorStore.commit 消费——attach 在空文档上早于同步：
   // 同名根同对象、早挂零时序风险；timelineUndo 轻量模块零画布依赖）
   setTimelineDocRef(doc);
+  attachThreads(doc, () => provider?.isSynced === true);   // Y4b T10：批注投影挂载（getSynced 闭包调用时求值；判据=provider.isSynced===true 首包同步完成）
   mountLocalDeltaTracker(doc);   // Y0b-4 T10：localDelta 插值器（doc 销毁随会话拆除）
   mountUnsyncedDirtyTracker(doc);   // Y0b-5 T6：单源置位+diverged 判定+T8 Σpending 累计监听（doc 绑定——新 doc 自然隔离）
   // Y0b-5 T8：结构性变更（增删节点——浅 observe，嵌套 data 变更不触发）→置脏+提前到期。

@@ -1,6 +1,6 @@
 import { initCollab, destroyCollab, safeReload, type CollabSessionMeta } from '@/stores/canvasCollabRuntime';
 import { attachSpecbPerfProbe } from '@/stores/specbPerfProbe';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router';
 import { message, Spin } from 'antd';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
@@ -30,6 +30,15 @@ import { useGroupKeyboard } from '@/hooks/useGroupKeyboard';
 import { useVideoEditorStore } from '@/stores/videoEditorStore';
 import { createCanvas, getProjectFolder } from '@/api/canvasApi';
 import { apiFetch } from '@/api/client';
+// Y4b T11：批注面板+会话身份（threadsStore 接线单点——组件侧全 props 注入）
+import { useAuth } from '@/components/AuthProvider';
+import { ThreadsPanel, type ThreadsViewData } from './components/threads/ThreadsPanel';
+import {
+  ThreadComposer, THREADS_COMPOSE_EVENT, type ThreadComposeRequest, type ThreadCreateInput,
+} from './components/threads/ThreadComposer';
+import {
+  setSessionUserId, threadsView$, subscribeThreadsView, cleanupOrphans, addComment, setResolved, createThread,
+} from '@/stores/threadsStore';
 
 const PROJECT_ID_KEY = 'flowweb_projectId';
 
@@ -301,6 +310,39 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => { triggerRef.current = triggerEl; }, [triggerEl]);
 
+  // Y4b T11（spec §3.1）：会话用户挂载——threadsStore 写前谓词的作者比较输入；本轮登出/切号即时反映
+  const { user } = useAuth();
+  useEffect(() => {
+    setSessionUserId(user?.id ?? null);
+  }, [user?.id]);
+
+  // Y4b T11：批注侧滑面板开合（TopBar「批注」按钮经 window 事件触达——顶栏不引面板/store）
+  const [threadsOpen, setThreadsOpen] = useState(false);
+  useEffect(() => {
+    const open = () => setThreadsOpen(true);
+    window.addEventListener('threads:open', open);
+    return () => window.removeEventListener('threads:open', open);
+  }, []);
+  // 面板视图（T10 threadsView$ 投影：三组互斥；未 attach 时返空三组——面板走空态）。
+  // 重算触发=线程投影自广播（T10 subscribeThreadsView——threads observeDeep/nodes 键增删/文本锚
+  // 片段变化三面归一受体）。Y4b 组3 收口：改投订阅面而非 doc.on('update')——后者需经
+  // resolveDoc() 触 canvasCollabRuntime 内部（page.test.tsx 的 runtime mock 无 getDoc 导出，
+  // 26 例连带红）；订阅面零 runtime 依赖，且只在线程域真变更时重算（不再被节点几何更新空触发）。
+  const [threadsTick, setThreadsTick] = useState(0);
+  useEffect(() => {
+    const bump = () => setThreadsTick((v) => v + 1);
+    return subscribeThreadsView(bump);
+  }, []);
+  const threadsView: ThreadsViewData = useMemo(() => threadsView$(), [threadsTick, projectId]);
+
+  // Y4b T11：composer 开窗请求（入口 A=节点右键 / 入口 B=文本选区浮标——组件侧零 store 依赖）
+  const [composeReq, setComposeReq] = useState<ThreadComposeRequest | null>(null);
+  useEffect(() => {
+    const onCompose = (e: Event) => setComposeReq((e as CustomEvent<ThreadComposeRequest>).detail);
+    window.addEventListener(THREADS_COMPOSE_EVENT, onCompose);
+    return () => window.removeEventListener(THREADS_COMPOSE_EVENT, onCompose);
+  }, []);
+
   // Sync projectId to canvasStore so React Flow nodes can access it for socket room join
   useEffect(() => {
     useCanvasStore.getState().setProjectId(projectId);
@@ -382,6 +424,23 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
         <NodePalette onToggleShortcuts={() => setShortcutsOpen((v) => !v)} />
         <CanvasView projectId={projectId} />
         <CanvasTopBar projectId={projectId} />
+        {/* Y4b T11：批注侧滑面板（TopBar「批注」按钮开；三组互斥+清理入口） */}
+        <ThreadsPanel
+          view={threadsView}
+          open={threadsOpen}
+          onClose={() => setThreadsOpen(false)}
+          onCleanup={() => { cleanupOrphans(); }}
+          onAddComment={addComment}
+          onSetResolved={setResolved}
+        />
+        {/* Y4b T11：composer（入口 A/B 共用开窗点——createThread 接线单点） */}
+        {composeReq && (
+          <ThreadComposer
+            input={{ ...composeReq, body: '' }}
+            onSubmit={(input: ThreadCreateInput) => createThread(input)}
+            onClose={() => setComposeReq(null)}
+          />
+        )}
         {/* Y0b-3 T9 Step6：协作横幅（终态分档/write-frozen/connUi 分级——非阻断，批1-5 connUi 消费者） */}
         <SyncBanner />
         {/* Y0b-4 T11：配额横幅（三级：软阈通告/硬阈双主按钮/4404·4410 终态档——与 SyncBanner 独立同挂载点） */}

@@ -117,7 +117,7 @@
       "evidence": [
         {
           "src": "apps/web/src/pages/canvas/components/CanvasView.tsx",
-          "line": 321,
+          "line": 334,
           "text": "// ── handle 拖拽弹菜单（spec 2026-09-26-image-node-panel-redesign §3.3）──"
         },
         {
@@ -148,7 +148,7 @@
         },
         {
           "src": "apps/web/scripts/eslint-rules/collab-static-asserts.js",
-          "line": 218,
+          "line": 221,
           "text": "'（spec 2026-09-30-collab-recovery-master-plan 批5）。';"
         }
       ]
@@ -329,7 +329,7 @@
       "evidence": [
         {
           "src": "apps/web/src/pages/canvas/components/CanvasView.tsx",
-          "line": 321,
+          "line": 334,
           "text": "// ── handle 拖拽弹菜单（spec 2026-09-26-image-node-panel-redesign §3.3）──"
         },
         {

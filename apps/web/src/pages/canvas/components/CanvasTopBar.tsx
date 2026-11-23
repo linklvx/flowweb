@@ -6,7 +6,7 @@ import { getAwareness } from '@/stores/canvasCollabRuntime';
 import type { AwarenessState } from '@/collab/awareness';
 import { Dropdown, Popover } from 'antd';
 import type { MenuProps } from 'antd';
-import { UserOutlined, SettingOutlined, LogoutOutlined, TeamOutlined, UndoOutlined, RedoOutlined } from '@ant-design/icons';
+import { UserOutlined, SettingOutlined, LogoutOutlined, TeamOutlined, UndoOutlined, RedoOutlined, CommentOutlined } from '@ant-design/icons';
 import { useCreditsStore } from '@/stores/creditsStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 // Y4a T11（spec §5/§9 锚 6）：画布撤销/重做按钮（undoCanvas/redoCanvas）——disabled=canvasUndo
@@ -155,6 +155,17 @@ export function CanvasTopBar({ projectId }: Props) {
           className="flex items-center bg-surface backdrop-blur px-2 py-1.5 rounded-full border border-overlay-2 shadow-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <RedoOutlined className="text-xs text-text" />
+        </button>
+        {/* Y4b T11（spec §3.2）：批注面板入口——既有 icon button 同款胶囊族（零新设计面）；
+            点击开侧滑面板（ThreadsPanel 挂载在 page.tsx，store 接线单点） */}
+        <button
+          type="button"
+          data-testid="threads-trigger"
+          aria-label="批注"
+          onClick={() => window.dispatchEvent(new CustomEvent('threads:open'))}
+          className="flex items-center bg-surface backdrop-blur px-2 py-1.5 rounded-full border border-overlay-2 shadow-lg cursor-pointer"
+        >
+          <CommentOutlined className="text-xs text-text" />
         </button>
         {/* Y0b-4 T13（Q-M）：成员表入口——挂既有 ProjectMembersPanel（角色 Tag/逐行角色下拉/DELETE 全
             复用 projectMemberApi 既有端点，零新端点零新面板）；计数=远端在线+本机 */}

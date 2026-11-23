@@ -7,6 +7,10 @@ import { useNodeStore, isTextNode } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { resolveDoc } from '@/stores/canvasIntents';
 import { resolveNodeXmlFragment, ySyncHostExtension } from '@/collab/yXmlFragmentBinding';
+import { ySyncPluginKey, getRelativeSelection } from 'y-prosemirror';
+import * as Y from 'yjs';
+import { encodeAnchorBase64 } from '@flowweb/shared';
+import { requestThreadCompose } from '../threads/ThreadComposer';
 import { sanitizeRichTextHtml } from '@/utils/sanitizeRichTextHtml';
 import { buildTextContentSchemaExtensions } from './textExtensions';
 import { TextConfigPanel } from './TextConfigPanel';
@@ -71,6 +75,44 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
 
   // Background color for editor area
   const [bgColor, setBgColor] = useState<string | null>(null);
+
+  // ── Y4b T11 入口 B：文本精锚（spec §3.1 创建序——相对位置先读、base64 后开 composer） ──
+  // 选区非空 → 浮标「批注」；点击时 getRelativeSelection 读 anchor/head（右到左先对调），
+  // Y.encodeRelativePosition → encodeAnchorBase64（谓词模块的标准 base64）→ 请求页面级 composer。
+  // 禁把评论写进 ySyncPluginKey 编辑事务（comments 独立 threads-user 事务，在 threadsStore 内）。
+  const [hasSelection, setHasSelection] = useState(false);
+  useEffect(() => {
+    if (!editor) return;
+    // editor.state 在 useEditor 首帧/测试替身可能缺省——空选区语义由 false 兜底
+    const update = () => setHasSelection(Boolean(editor.state && !editor.state.selection.empty));
+    update();
+    editor.on('selectionUpdate', update);
+    editor.on('transaction', update);
+    return () => {
+      editor.off('selectionUpdate', update);
+      editor.off('transaction', update);
+    };
+  }, [editor]);
+
+  const handleAnnotateSelection = useCallback(() => {
+    if (!editor) return;
+    const binding = ySyncPluginKey.getState(editor.state)?.binding;
+    const fragmentNow = resolveNodeXmlFragment(resolveDoc(), id, 'content');
+    if (!binding || !fragmentNow) return;   // 结构错误档（无绑定/缺容器）——入口不出现亦不动作
+    const rel = getRelativeSelection(binding, editor.state) as {
+      anchor: Y.RelativePosition; head: Y.RelativePosition;
+    };
+    // 右到左选区：两端对调（spec §3.1——起点恒在终点之前）
+    const [start, end] = (editor.state.selection.anchor <= editor.state.selection.head)
+      ? [rel.anchor, rel.head]
+      : [rel.head, rel.anchor];
+    requestThreadCompose({
+      nodeId: id,
+      kind: 'text',
+      anchorStart: encodeAnchorBase64(Y.encodeRelativePosition(start)),
+      anchorEnd: encodeAnchorBase64(Y.encodeRelativePosition(end)),
+    });
+  }, [editor, id]);
 
   // Fullscreen state
   const [fullscreen, setFullscreen] = useState(false);
@@ -211,6 +253,18 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
             border: selected ? '3px solid #9CA3AF' : '1px solid var(--fw-border)',
           }}
         />
+        {/* Y4b T11 入口 B：选区浮标「批注」（非空选区才出现；绑定额外挂 ySync 才可读相对位置） */}
+        {hasSelection && fragment && editor && (
+          <button
+            type="button"
+            data-testid="annotate-selection-trigger"
+            className="nodrag absolute top-2 right-2 z-[6] px-2 py-1 rounded-md text-xs bg-surface border border-overlay-2 text-text shadow cursor-pointer"
+            onMouseDown={(e) => e.preventDefault()}   // 保编辑器选区：Tiptap 在 mousedown 因焦点转移清空选区→锚点读不到（TextNodeToolbar:216 同款先例）
+            onClick={handleAnnotateSelection}
+          >
+            批注
+          </button>
+        )}
       </div>
 
       {/* Source handle — outside card body to avoid overflow clipping */}

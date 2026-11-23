@@ -69,6 +69,9 @@ const GETMAP_FILES = [
   'src/stores/canvasDeleteSplit.ts',                      // 删除分割函数（节点+timelines 同名键删除原语——§0 条 3）
   'src/pages/canvas/video-editor/store/editorStore.ts',   // 时间轴 codec 写穿（editor 域 timelines 读写+observeDeep）
   'src/pages/canvas/components/nodes/VideoEditNode.tsx',  // 剪辑节点时间轴入口读（timelines 键挂节点——§0 条 7）
+  // Y4b T10 白名单登记：threads 域写/读点（spec 2026-11-22-y4b-annotation-security §3.1——threads 根
+  // +写链五动作/投影订阅单点；同 timelines 域先例，非旁路新增）
+  'src/stores/threadsStore.ts',
 ];
 
 // C. setState 直调白名单：协作数据写入路径（canvasHistory 为 0.5 接线前瞻项，现状无命中）

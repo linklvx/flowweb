@@ -132,6 +132,14 @@ export const GEOMETRY_SETSTATE_TEST_ALLOWLIST = [
   //   规则 G 形态判违例〕；seedCanvas 夹具不写 videoEdit 装置布景）→ 352/69。T5 落地漏登记（当时
   //   静态断言 5 违例早退遮蔽——先例同 T18 漏列），T11 披露 42 存量违例、T12 批末收口补登。
   'src/stores/canvasDeleteSplit.spec.ts',
+  // Y4b 批末补登（2026-11-23）：两文件分别来自不同笔，共同点是都绕过了 verify:fast 的 web-lint 步。
+  //   ①`video-editor-a2.spec.ts` = Y4b 组0 T3 A2 零放大锚新建 +1 处（FakeHocuspocusProvider 真事件序
+  //     装置 beforeEach resetStore 复位——conn.spec 同族 sanctioned 例外，setState 是用例存在目的）；
+  //   ②`useTeamAssets.test.ts` = **Y4a T7（283446c9）** 写入的 +6 处（teamId 上下文注入/清理——存量
+  //     文件，setState 同样是用例存在目的），一直都在 allow-list 外，只因 Y4a 各 commit 仅跑 verify:fast
+  //     而未暴露；本批 T13 前全量回归暴露后补登。T17/T18/Y2 批末同型漏登先例；棘轮只降不升轴维持。
+  'src/pages/canvas/video-editor/hooks/useTeamAssets.test.ts',
+  'src/stores/__tests__/video-editor-a2.spec.ts',
 ];
 
 /** 棘轮基线（lint-gate 输出报数；锚测试 apps/web/src/stores/geometryTrap.test.ts 锚③同口径）。 */
@@ -186,9 +194,13 @@ export const GEOMETRY_SETSTATE_RATCHET_BASELINE = {
   //   +2——diverged 档盘上导出分档+ss2 档对照注入，存量 allow-list 文件，store 注入是用例的
   //   存在目的〔同 T9/T4/T11 例外〕；+2 破线首次暴露 T8 时 t8.spec allow-list 漏列——上方位组
   //   同批补登，O0b-4「报数≤基线不进破线分支从未暴露」先例）→ 306 处 / 54 文件。
-  effective: { count: 352, files: 69 },   // Y4a T12 批末收口（2026-11-20）：T5 漏网补登——canvasDeleteSplit.spec
-  //   +26 处/+1 文件（删除分割装置 store 镜像，上 allow-list 组同批）→ lint-gate 实测 352/69 重钉有效基线
-  //   （只降不升轴维持；漏网机理=规则 G 42 存量违例早退遮蔽报数行——T17/T18 同型）。前史：Y2 批末收口
+  effective: { count: 353, files: 70 },   // Y4b 批末补登（2026-11-23）：useTeamAssets.test.ts +6 处
+  //   （Y4a T7/283446c9 写入、一直漏登）+video-editor-a2.spec.ts +1 处（Y4b 组0 T3 A2 零放大锚
+  //   beforeEach resetStore 装置——conn.spec 同族 sanctioned 例外）。共同漏网机理=两批各 commit
+  //   时 verify:fast 16 步不含 web-lint → 本批 T13 前全量回归暴露后补登。lint-gate 实测
+  //   353/70 重钉有效基线（只降不升轴维持；漏登机理=fast 前缀不含 web-lint 步——T17/T18/Y2 同型）。
+  //   前史 Y4a T12 批末收口（2026-11-20）：T5 漏网补登——canvasDeleteSplit.spec
+  //   +26 处/+1 文件（删除分割装置 store 镜像，上 allow-list 组同批）→ 352/69 重钉。
   //   （2026-11-19）A 段净移重钉 331/68（A 段各 commit 仅 verify:fast 不含 web-lint）；T25b→Y1c T25 曾 333/62。
 };
 // T18 补登（2026-10-22）：canvasG34.readonlyCommands.test.ts +3 处/1 新文件（T17 G34 只读门
