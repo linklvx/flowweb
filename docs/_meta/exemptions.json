@@ -451,21 +451,21 @@
   },
   {
    "file": "docs/superpowers/specs/2026-10-06-canvas-yjs-arch-upgrade-review.md",
-   "line": 223,
+   "line": 225,
    "symbol": "zundo",
    "reason": "同上——旧方案退役历史注记（spec 标 historical 体裁）",
    "expires_at": "2027-02-18"
   },
   {
    "file": "docs/superpowers/specs/2026-10-06-canvas-yjs-arch-upgrade-review.md",
-   "line": 281,
+   "line": 283,
    "symbol": "zundo",
    "reason": "同上——旧方案退役历史注记（评估结论叙述）",
    "expires_at": "2027-02-18"
   },
   {
    "file": "docs/superpowers/specs/2026-10-06-canvas-yjs-arch-upgrade-review.md",
-   "line": 294,
+   "line": 296,
    "symbol": "zundo",
    "reason": "同上——旧方案退役历史注记（enhancements spec 引述）",
    "expires_at": "2027-02-18"
@@ -479,14 +479,14 @@
   },
   {
    "file": "docs/superpowers/specs/2026-10-06-canvas-yjs-arch-upgrade-review.md",
-   "line": 223,
+   "line": 225,
    "symbol": "video-editor/timeline/history.ts",
    "reason": "Y4a T7 整删 history.ts——canonical 审查文档历史记录性提及（行级锚）",
    "expires_at": "2027-02-19"
   },
   {
    "file": "docs/superpowers/specs/2026-10-06-canvas-yjs-arch-upgrade-review.md",
-   "line": 306,
+   "line": 308,
    "symbol": "timeline/history.ts",
    "reason": "Y4a T7 整删 history.ts——canonical 审查文档历史记录性提及（行级锚）",
    "expires_at": "2027-02-19"

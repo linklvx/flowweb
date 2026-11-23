@@ -77,7 +77,7 @@
 
 - **来源**：批 0c-8 注记（app.module.ts 代码注释同步登记）
 - **现状（2026-10-06 例行核查漂移）**：main.ts:85 已设 `app.set('trust proxy', true)`（b9fa64a4 随 SmsModule 接线）——「未设置」原债已消，但 `true`=信任全链跃点，客户端可自带伪造 X-Forwarded-For 使 Express 取最左假 IP，限流桶仍可被轮换伪造绕过；部署形态=Nginx 单层反代
-- **修复方向**：`true` → `1`（只信任一层）；同批更新过时锚点注释 app.module.ts:93/execution.gateway.ts:14
+- **修复方向**：~~`true` → `1`（只信任一层）；同批更新过时锚点注释 app.module.ts:93/execution.gateway.ts:14~~ **已核销（2026-11-23 v12 回填核查）**：实态已被 Y0b-3 T1（`a9fb59d2`）收口为 `app.set('trust proxy', 'loopback')`（main.ts:126——与 WS 侧 X-Real-IP 同信任前提，较台账建议的 `1` 更严：仅回环环上首跳可信，Nginx 反代不在 loopback 段时按新链路为准）；app.module.ts:117 注释已同步勘正（Y0c T36 核销注）。execution.gateway.ts:14 锚点随 Y3 批 /execution 网关整体删除不复存在。本条目核销关闭。
 
 ### TD-25 付费能力新队列静默继承全局 attempts:3
 
