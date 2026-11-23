@@ -663,8 +663,8 @@
    "file": "docs/superpowers/plans/2026-11-22-y4b-annotation-security.md",
    "line": 317,
    "symbol": "apps/web/src/pages/canvas/__tests__/collab-threads-collab.int.spec.ts",
-   "reason": "Y4b 施工单前向引用规划文件（组2/组3 未落地——Task 7-10 落地后引用转活；期间历史记录性提及）",
-   "expires_at": "2027-02-20"
+   "reason": "Y4b 落地实名漂移（施工单引用规划名 web int 路径，落地为 apps/api/src/modules/collab/collab-threads-collab.int.spec.ts——组3 纠偏裁定：apps/web 无 vitest.int.config.ts 且无法 import api test-utils；功能已落地，历史记录）",
+   "expires_at": "2027-01-02"
   }
  ]
 }
