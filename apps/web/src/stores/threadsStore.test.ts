@@ -346,6 +346,23 @@ describe('threadsStore（Y4b T10 写链+投影）', () => {
     expect(afterView.orphan.map((t) => t.id).sort()).toEqual(['t-a', 't-b', 't-c', anchorItem?.id].sort());
     expect(Y.encodeStateAsUpdate(doc)).toEqual(beforeProjection);   // 投影纯读
 
+    // 补回 nodes 键（undo 语义的 doc 面等价）→ 该 nodeId 的线程离开孤儿组回到 active：
+    // 靠 nodes 订阅驱动，零新 threads 事务（spec §0 条 5「删节点再撤销后线程离开孤儿组，靠 nodes 订阅」）。
+    // 注：文本锚指向已销毁的旧片段——补回后仍可能因锚失效留在孤儿组（另见档⑤）；本档只锁「nodeId 存在
+    // 即不再是 nodeId∉nodes 档孤儿」这条判定腿。
+    const callsBeforeRestore = listener.mock.calls.length;
+    doc.transact(() => {
+      const node = new Y.Map<unknown>();
+      node.set('type', 'textInput');
+      node.set('data', new Y.Map<unknown>());
+      doc.getMap('nodes').set('n1', node);
+    }, 'remote-5');
+    const restored = threadsView$();
+    const nodeOrphans = restored.orphan.filter((t) => t.kind === 'node');
+    expect(nodeOrphans, '补回节点→node 类孤儿全消（nodes 订阅驱动，非新 threads 事务）').toHaveLength(0);
+    expect(restored.active.some((g) => g.nodeId === 'n1'), 'n1 组回到 active（其 node 类线程）').toBe(true);
+    expect(listener.mock.calls.length).toBeGreaterThan(callsBeforeRestore);
+
     unsubscribe();
   });
 

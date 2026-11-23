@@ -34,7 +34,9 @@ import { basename } from 'node:path';
 // 开关+barrier bail-out 保守保留+erasure 删除窗三例）→218。
 // C3b-5 spec 评审收口（f842c98e）：+2 例（⑨ release→行删竞窗 in-tx recheck 拦下/⑩ GC 逐候选预算
 // 自查）→220。
-const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 220);
+// Y4b T6-T12 增补（2026-11-23）：三新 int 文件 +15 例（conservation 6/gate 4/collab 5——threads 第六
+// 根守恒+L1L2 分层执法+双端协作；X16 纪律「新增 int 文件 ⇒ 同步上调本值」）→235。
+const MIN_TOTAL = Number(process.env.INT_MIN_TOTAL ?? 235);
 
 // Y0b-1 资金门 6 文件逐文件下限（T7 标定——记录现状非拔高，初值为 plan 预估、实测全部 ≥ 初值故按实测落库：
 // ledger-invariants 14/pricing-resolver 10/funds-four-way 3/credit-ledger 10/team-lifecycle-funds 4/di-smoke 2）。

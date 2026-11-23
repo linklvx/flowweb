@@ -314,9 +314,9 @@ export class CollabPersistenceService {
     }
     let storeT0: number | null = null;   // Y0b-5 T10：store 耗时（取批→落定主体段；noop 空转档不计时——readCanvas 空转近 0 样本稀释直方图）
     try {   // Y2：兜底 catch 在此层（钩子直通本方法——Serialized 的 catch 盖不到；spool 失败的正常 return false 不经过这里）
-      // Y4b T9：stash 按 appliedSeq 过滤（链化 peek 只挡「截断后发起」；截断前已捕获的毒帧会经维护
-      // 通道豁免全链落 PG 并复用回拨 walSeq）。截断把 appliedSeq 定在毒帧之前；apply 成功即 noteApplied
-      // ⇒ 已提交前缀恒 ≤ appliedSeq 不误丢。确认记账只对幸存帧做（stashIds 同源）。
+      // Y4b T9：stash 按 appliedSeq 过滤——毒帧若已被前次 peek 捕获（竞态窗内），会经维护通道豁免全链
+      // 落 PG 并复用回拨 walSeq。毒帧从不 apply ⇒ appliedSeq 恒停其前（生产 actor 路径恒等）⇒ 过滤与
+      // 截断时序无关；被截帧已由 truncate 物理移除，本过滤只丢内存快照，无确认义务（stashIds 同源）。
       const appliedFloor = this.spool.watermark(projectId)?.appliedSeq;
       const stashFramesAll = await this.peekSpoolFrames(projectId);
       const stashFrames = appliedFloor == null ? stashFramesAll : stashFramesAll.filter((f) => f.walSeq <= appliedFloor);
