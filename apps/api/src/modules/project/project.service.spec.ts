@@ -352,8 +352,7 @@ describe('ProjectService', () => {
 
       const result = await service.findById('p1', 'u9');
       expect(result.collabGeneration).toBe(7);
-      expect(result.collabSchemaVersion).toBe(5);   // Y4a T2 版本 5：行值透传（=CANVAS_DOC_SCHEMA_VERSION）——IDB 缓存键 s 维与装载列门同源
-      expect(CANVAS_DOC_SCHEMA_VERSION).toBe(5);
+      expect(result.collabSchemaVersion).toBe(CANVAS_DOC_SCHEMA_VERSION);   // Y4b T8 版本 6：行值透传（=CANVAS_DOC_SCHEMA_VERSION 单源）——IDB 缓存键 s 维与装载列门同源；值锚行删（互等锚驻 shared schema.test/collab-protocol.test——T7r1「互等或删行」纪律同批收口）
       expect(result.collabViewerUid).toBe('u9');
       expect(prisma.canvasDoc.findUnique).toHaveBeenCalledWith({
         where: { projectId: 'p1' },

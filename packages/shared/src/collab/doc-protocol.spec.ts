@@ -323,9 +323,7 @@ describe('Y1c T5a 契约冻结：ACK 三档+UI 四态+版本门拆分（偏离 3
     expect([...states].sort()).toEqual(['applied', 'durable', 'local', 'spooled']);
   });
   it('版本门硬三元 {protocolVersion,schemaVersion,historyId}——server 基准与既有单源常量对齐', () => {
-    expect(VERSION_GATE_SERVER_BASE).toEqual({ protocolVersion: CLIENT_PROTOCOL_VERSION, schemaVersion: CANVAS_DOC_SCHEMA_VERSION });
-    expect(VERSION_GATE_SERVER_BASE.protocolVersion).toBe(5);   // Y4a T2 版本 5（timeline 根物化批——双常量同批）
-    expect(VERSION_GATE_SERVER_BASE.schemaVersion).toBe(5);
+    expect(VERSION_GATE_SERVER_BASE).toEqual({ protocolVersion: CLIENT_PROTOCOL_VERSION, schemaVersion: CANVAS_DOC_SCHEMA_VERSION });   // Y4b T7：327-328 toBe(5) 双行删除（本行已读常量——bump 时零改动；:496 帧级故障计数非版本字面量不动）
   });
   it('resolveVersionGate：三元精确匹配→allow；任一缺失/不匹配→client-outdated（硬门无区间协商）', () => {
     const server: VersionGateHardTriple = { protocolVersion: 3, schemaVersion: 3, historyId: 'h1' };

@@ -51,9 +51,10 @@ class FakeDoc implements DocLike {
   createXmlText = (): { insert(): void; setAttribute(): void } => ({ insert: () => {}, setAttribute: () => {} });
 }
 
-describe('CANVAS_DOC_SCHEMA_VERSION=5（Y4a T2 版本 5——spec §0 条 9 与 CLIENT_PROTOCOL_VERSION 同笔 bump；行值≠5 由 api 装载列门拒载）', () => {
-  it('常量钉 5（双常量同 bump——timeline 根物化批；懒插入落 4 被版本门拒载故 schema @default(5) 同批）', () => {
-    expect(CANVAS_DOC_SCHEMA_VERSION).toBe(5);
+describe('CANVAS_DOC_SCHEMA_VERSION（Y4b T7 版本 6——spec §0 条 2 与 CLIENT_PROTOCOL_VERSION 同笔 bump；行值≠6 由 api 装载列门拒载；数字只驻两常量+Prisma 默认——本文件读常量互等不自比）', () => {
+  it('双常量同 bump 互等锚（threads 根物化批；懒插入落 5 被版本门拒载故 schema @default(6) 同批）', async () => {
+    const { CLIENT_PROTOCOL_VERSION } = await import('../constants/collab-protocol');
+    expect(CLIENT_PROTOCOL_VERSION).toBe(CANVAS_DOC_SCHEMA_VERSION);   // 两常量互等（禁常量自比字面量——bump 时本行零改动）
   });
 });
 

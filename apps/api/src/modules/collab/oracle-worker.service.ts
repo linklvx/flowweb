@@ -51,9 +51,11 @@ const SCAN_MAX_DEPTH = 32;
  *  路径须回头扩本口径。） */
 export const UUID_LEAF_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-/** 扫描域根（nodes+edges+timelines 三根——canonicalDocView 根单源同族；新增可写根必须同步扩本列表。
- *  Y4a T2：timelines 根入扫描域——时间轴 clip mediaId 与节点 refs 同集保护（悬空键照投）。 */
-const SCAN_ROOTS = ['nodes', 'edges', 'timelines'] as const;
+/** 扫描域根（nodes+edges+timelines+threads 四根——canonicalDocView 根单源同族；新增可写根必须同步扩本列表。
+ *  Y4a T2：timelines 根入扫描域——时间轴 clip mediaId 与节点 refs 同集保护（悬空键照投）。
+ *  Y4b T8：threads 根入扫描域——threads 评论 body 内 media UUID 叶照采（仅批注引用也构成删除
+ *  保护证人；悬空引用形态=节点域零内容的 threads-only doc 同款照投）。 */
+const SCAN_ROOTS = ['nodes', 'edges', 'timelines', 'threads'] as const;
 
 /** 扫描预算超时 typed error（bail-out——header FAILED 落 error 文案）。 */
 export class OracleScanBudgetError extends Error {

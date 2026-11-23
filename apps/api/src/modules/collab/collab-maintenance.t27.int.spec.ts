@@ -41,7 +41,7 @@ import { OPS_GATE_COMPACT } from './project-governance.service';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';   // Y1c T27 收口红④：CLI 源词法面（doc-shape 静态门先例）
 import { makeSpoolDir } from '../../test-utils/spool-dir';
-import { stableStringify, exportTimelineView } from './collab-canary-semantic';   // Y4a T9：① 档 hash 复算消费单源（禁第二份序列化）
+import { stableStringify, exportTimelineView, exportThreadsView } from './collab-canary-semantic';   // Y4a T9：① 档 hash 复算消费单源（禁第二份序列化）；Y4b T8：threads 腿同源复算
 import type { Logger } from '@nestjs/common';
 
 const hasDb = !!process.env.DATABASE_URL;
@@ -634,12 +634,15 @@ maybe('Y1c T27 维护状态机（真 PG）', () => {
       if (hydrate.state) Y.applyUpdate(docReload, new Uint8Array(hydrate.state));
       for (const u of hydrate.updates) Y.applyUpdate(docReload, new Uint8Array(u));
       const records = {
-        nodes: [] as unknown[], edges: [] as unknown[], timelines: '',
+        nodes: [] as unknown[], edges: [] as unknown[], timelines: '', threads: '',
       };
       const base = toReadModel(docReload);
       records.nodes = base.nodes as unknown[];
       records.edges = base.edges as unknown[];
       records.timelines = stableStringify(exportTimelineView(docReload.getMap('timelines')));
+      // Y4b T8：threads 腿同口径复算（recordsOfHydration 加 threads 腿同批——本 spec 的「逐字节
+      // 复算」锚与新摘要形状同步；不为旧 hash 拿掉腿）
+      records.threads = stableStringify(exportThreadsView(docReload.getMap('threads')));
       const actual = createHash('sha256').update(JSON.stringify(records)).digest('hex');
       expect(payload?.stage).toBe('EXPORTING');
       expect(payload?.exportHash).toBe(actual);   // 两侧恒等（timelines 摘要进 hash——逐字节）

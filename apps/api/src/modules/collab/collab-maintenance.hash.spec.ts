@@ -17,10 +17,11 @@ import { createHash } from 'node:crypto';
 import * as Y from 'yjs';
 import { CollabMaintenanceService } from './collab-maintenance.service';
 import type { HydrationRow } from './canvas-doc-update.repository';
+import { buildThreadEntry, buildThreadComment, CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';   // Y4b T8：threads 工厂单源+版本读常量
 
 /** hydrate 行（state=单帧全量——updates 空数组；行值零 DB 触达）。 */
 function rowOf(doc: Y.Doc): HydrationRow {
-  return { state: Buffer.from(Y.encodeStateAsUpdate(doc)), updates: [], stateSeq: 0n, generation: 0, schemaVersion: 5 };
+  return { state: Buffer.from(Y.encodeStateAsUpdate(doc)), updates: [], stateSeq: 0n, generation: 0, schemaVersion: CANVAS_DOC_SCHEMA_VERSION };   // Y4b T8：夹具改读常量（原字面量 5——bump 后必红的字面量族）
 }
 
 /** timelines 工程子树（spec §3.1 形态——entry{version,fps,clips}）。 */
@@ -82,5 +83,68 @@ describe('Y4a T2-fix：maintenance 记录 hash 面 timelines 摘要负控（EXPO
     const hashOf = (r: { nodes: unknown[]; edges: unknown[]; timelines: string }) =>
       createHash('sha256').update(JSON.stringify(r)).digest('hex');
     expect(hashOf(ra)).toBe(hashOf(rb));
+  });
+
+  // ── Y4b T8（spec §0 条 2/7）：threads 腿档——互比形态加 threads（防手挑字段实现静默出 hash）──
+  it('Y4b T8 threads 腿：两边 nodes/edges/timelines 相同、仅一条线程 resolved 不同 ⇒ records 不全等+hash 不等（threads 字段被删/手挑字段实现 ⇒ 本测试红）', () => {
+    /** threads 线程夹具（T6 工厂+T7 held-ref 形态——自建 comments 覆写工厂预建同引用持有）。 */
+    const threadOf = (resolved: boolean): Y.Map<unknown> => {
+      const comments = new Y.Map<unknown>();
+      const entry = buildThreadEntry({ id: 't1', nodeId: 'n1', kind: 'node', resolved, createdAt: 1_000, createdBy: 'u1' });
+      entry.set('comments', comments);
+      comments.set('c1', buildThreadComment({ id: 'c1', authorId: 'u1', body: '首条评论', createdAt: 1_001 }));
+      return entry;
+    };
+    /** 双 doc：nodes/edges/timelines 逐位同、threads.t1 唯一 resolved 分歧。 */
+    const mkDoc = (resolved: boolean): Y.Doc => {
+      const d = new Y.Doc();
+      d.getMap('nodes').set('n1', new Y.Map([['type', 'textInput'], ['data', new Y.Map([['model', 'm']])]]));
+      d.getMap('timelines').set('n1', timelinesEntry('media-same'));
+      d.getMap('threads').set('t1', threadOf(resolved));
+      return d;
+    };
+    const a = mkDoc(false);
+    const b = mkDoc(true);
+    try {
+      const ra = recordsOfHydration(rowOf(a));
+      const rb = recordsOfHydration(rowOf(b));
+      // ①公开读模型面恒等（toReadModel 结构性不含 threads/timelines——公开零泄漏锁同源）
+      expect(ra.nodes).toEqual(rb.nodes);
+      expect(ra.edges).toEqual(rb.edges);
+      // ②timelines 摘要面恒等（本档唯一变量=threads resolved）
+      expect(ra.timelines).toBe(rb.timelines);
+      // ③threads 摘要面分歧必达 hash（recordsOfHydration threads 字段被静默移除/手挑字段实现
+      //   〔只哈希部分键〕⇒ records 全等 ⇒ 断言红——resolved 必须进 hash 面）
+      const hashOf = (r: { nodes: unknown[]; edges: unknown[]; timelines: string }) =>
+        createHash('sha256').update(JSON.stringify(r)).digest('hex');
+      expect(JSON.stringify(ra)).not.toBe(JSON.stringify(rb));   // 序列化面先决
+      expect(hashOf(ra)).not.toBe(hashOf(rb));   // threads resolved 翻转=hash 面 sensible（丢 threads 腿=红）
+    } finally { a.destroy(); b.destroy(); }
+  });
+
+  it('Y4b T8 threads 正控：两侧 threads 同 ⇒ records 全等+hash 等（threads 腿无假阳性——threads 无漂移的换代校验仍过）', () => {
+    const threadOf = (): Y.Map<unknown> => {
+      const comments = new Y.Map<unknown>();
+      const entry = buildThreadEntry({ id: 't1', nodeId: 'n1', kind: 'node', resolved: false, createdAt: 1_000, createdBy: 'u1' });
+      entry.set('comments', comments);
+      comments.set('c1', buildThreadComment({ id: 'c1', authorId: 'u1', body: '首条评论', createdAt: 1_001 }));
+      return entry;
+    };
+    const a = new Y.Doc();
+    a.getMap('nodes').set('n1', new Y.Map([['type', 'textInput']]));
+    a.getMap('timelines').set('n1', timelinesEntry('media-same'));
+    a.getMap('threads').set('t1', threadOf());
+    const b = new Y.Doc();
+    b.getMap('nodes').set('n1', new Y.Map([['type', 'textInput']]));
+    b.getMap('timelines').set('n1', timelinesEntry('media-same'));
+    b.getMap('threads').set('t1', threadOf());
+    try {
+      const ra = recordsOfHydration(rowOf(a));
+      const rb = recordsOfHydration(rowOf(b));
+      expect(JSON.stringify(ra)).toBe(JSON.stringify(rb));   // threads 同 ⇒ VERIFYING 恒过
+      const hashOf = (r: { nodes: unknown[]; edges: unknown[]; timelines: string }) =>
+        createHash('sha256').update(JSON.stringify(r)).digest('hex');
+      expect(hashOf(ra)).toBe(hashOf(rb));
+    } finally { a.destroy(); b.destroy(); }
   });
 });

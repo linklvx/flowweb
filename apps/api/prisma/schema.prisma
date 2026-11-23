@@ -877,9 +877,10 @@ model CanvasDoc {
   // vacuum ⑥ 单事务 n+1——新 docName(#g) 换代通道）。
   generation         Int           @default(0)
   // Y1b T2（Z9''-v14）：doc schema 版本移 PG 列承载（meta.schemaVersion 删除——客户端无从篡改）；
-  // Y2 C1：版本 4=翻禁执法+作者键 mediaId 域；Y4a T2（spec §0 条 9）版本 5=timelines 顶层根物化
-  // ——@default(5)=本批固定值（存量建行走默认；sv=4 旧档行拒载重置文档——不 UPDATE 旧行纪律）。
-  schemaVersion      Int           @default(5)
+  // Y2 C1：版本 4=翻禁执法+作者键 mediaId 域；Y4a T2（spec §0 条 9）版本 5=timelines 顶层根物化；
+  // Y4b T8（spec §0 条 2）版本 6=threads 第六根物化——@default(6)=本批固定值（存量建行走默认；
+  // sv=5 旧档行拒载重置文档——不 UPDATE 旧行纪律）。
+  schemaVersion      Int           @default(6)
   updatedAt          DateTime      @updatedAt @db.Timestamptz(3)
   // ── Y1c T7（方案 B 增量）：v1.7 载体头行新列（spec §4.4/§5.1 水位拆义+§6.6 行级关闸）──
   // vacuumEpoch：压缩操作代次（遥测——无行为分支）；currentSnapshotRev：当前快照指针（compact 发布推进）

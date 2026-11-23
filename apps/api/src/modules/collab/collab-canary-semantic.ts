@@ -9,6 +9,8 @@
 // 零环；纯 yjs+crypto 闭包（census ⑰ 零 controller/Http 面）。
 // Y4a T2（spec §0 条 7/§3.2 表 canary 行）：根清单扩 timelines（三根）+stableStringify 导出
 // （T9 vacuumEquivalent 内容比较与 maintenance 记录 hash 面共消费——单源禁私有函数）。
+// Y4b T8（spec §0 条 2/7）：根清单扩 threads（四根）+exportThreadsView 导出（整棵
+// Object.fromEntries——maintenance hash 面加 threads 腿同批）。
 import { createHash } from 'node:crypto';
 import * as Y from 'yjs';
 
@@ -27,19 +29,22 @@ export function stableStringify(value: unknown): string {
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`).join(',')}}`;
 }
 
-/** nodes+edges+timelines 三根 canonical JSON 视图（语义比对真值面——三根必须齐：节点复活/边丢失/
- *  时间轴丢失均为语义不等；「同逻辑状态不同 integration order」下三视图恒等〔deleteSet/tombstone
- *  不进视图〕）。
+/** nodes+edges+timelines+threads 四根 canonical JSON 视图（语义比对真值面——四根必须齐：节点复活/
+ *  边丢失/时间轴丢失/线程丢失或评论漂移均为语义不等；「同逻辑状态不同 integration order」下四视图
+ *  恒等〔deleteSet/tombstone 不进视图〕）。
  *  【未来根不变量（C2-2b 评审 Minor#6）】客户端新增可写根（vacuum U-2 守恒面明确预留未知未来根）
  *  时**必须**同步扩本视图根列表——否则该根数据丢失在 canary 侧降归 hash-encoding-mismatch
  *  只计数不 freeze（digest 判据对未覆盖根不敏感）。
  *  Y4a T2：+timelines（spec §0 条 7「哈希和真空等价比较包含 timelines」——时间轴进 doc 后
  *  仅 timelines 差异=语义不等）。
- *  Y4a T9：timelines 腿改消费 exportTimelineView 单源（三消费面同源——见其注）。 */
+ *  Y4a T9：timelines 腿改消费 exportTimelineView 单源（三消费面同源——见其注）。
+ *  Y4b T8（spec §0 条 2/7）：+threads 腿（threads 进 doc 后仅线程差异=语义不等——A7′ 负控：
+ *  少一条评论/resolved 翻转必致摘要不等；消费 exportThreadsView 单源整棵导出）。 */
 export function canonicalDocView(doc: Y.Doc): string {
   return (['nodes', 'edges'] as const)
     .map((r) => `${r}:${stableStringify(Object.fromEntries(doc.getMap(r).entries()))}`)
     .concat([`timelines:${stableStringify(exportTimelineView(doc.getMap('timelines')))}`])
+    .concat([`threads:${stableStringify(exportThreadsView(doc.getMap('threads')))}`])
     .join('|');
 }
 
@@ -53,6 +58,19 @@ export function canonicalDocView(doc: Y.Doc): string {
  *  出口形状=plain record（Y.Map/Y.Text 值经 stableStringify 的 toJSON 递归折叠——与换源前
  *  inline `Object.fromEntries` 形态逐字节恒等）。 */
 export function exportTimelineView(root: Y.Map<unknown>): Record<string, unknown> {
+  return Object.fromEntries(root.entries());
+}
+
+/** threads 根读回视图单源（Y4b T8——spec §0 条 2/7）：`Object.fromEntries(root.entries())` 整棵
+ *  导出（**禁手挑字段**——resolved/评论集合全部进守恒面；exportTimelineView 同形 :55）。
+ *  三消费面同源（禁第二份实现）：
+ *  ①canary canonicalDocView threads 腿（本文件——canary 语义摘要）；
+ *  ②maintenance recordsOfHydration threads 腿（collab-maintenance.service——EXPORTING/VERIFYING
+ *    记录 hash 面加 threads 腿，Y4b T8 起 hash 摘要随本批变更）；
+ *  ③DR vacuumEquivalent threads 内容深比（collab-doc-registry.service——真空等价断言第六根腿）。
+ *  出口形状=plain record（嵌套 entry/comments Y.Map 值经 stableStringify 的 toJSON 递归折叠——
+ *  「同逻辑状态不同 integration order」恒等）。 */
+export function exportThreadsView(root: Y.Map<unknown>): Record<string, unknown> {
   return Object.fromEntries(root.entries());
 }
 

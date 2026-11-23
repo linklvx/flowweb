@@ -246,19 +246,19 @@
       "criteria": "C1",
       "evidence": [
         {
-          "src": "packages/shared/src/canvas/threads-frame-predicate.test.ts",
-          "line": 2,
-          "text": "// Y4b T6（plan 2026-11-22-y4b-annotation-security Task 6——spec §0 条 6/7/14〔§2.1/§2.3〕）："
+          "src": "apps/api/prisma/migrations/20261123020651_threads_root_schema6/migration.sql",
+          "line": 1,
+          "text": "-- Y4b T8（spec 2026-11-22-y4b-annotation-security §0 条 2）：CanvasDoc.schemaVersion 缺省值"
         },
         {
-          "src": "packages/shared/src/canvas/threads-frame-predicate.ts",
+          "src": "apps/api/src/modules/collab/collab-threads-conservation.int.spec.ts",
           "line": 2,
-          "text": "// Y4b T6（plan 2026-11-22-y4b-annotation-security Task 6——spec §0 条 6/7/14〔§2.1 键矩阵/§2.3 单源〕）："
+          "text": "// Y4b T8（plan 2026-11-22-y4b-annotation-security Task 8——spec §0 条 2/7）：schema 5→6 硬切"
         },
         {
-          "src": "packages/shared/src/index.ts",
-          "line": 189,
-          "text": "// Y4b T6（plan 2026-11-22-y4b-annotation-security Task 6——spec §0 条 6/7/14）：threads 批注域帧谓词"
+          "src": "apps/api/src/modules/collab/collab-threads-gate.int.spec.ts",
+          "line": 2,
+          "text": "// Y4b T9（plan 2026-11-22-y4b-annotation-security Task 9——spec §0 条 6/14）：threads 服务端准入"
         }
       ]
     },

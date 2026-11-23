@@ -12,15 +12,16 @@ import type { StoredNodeRecord } from './collab-doc-ops';
 import type { DocEdgeRecord } from './docShape';
 
 // ── 层①：顶层 map 集合（生产 getMap 面实测 2026-10-14：nodes/meta/edges/exec 四 map；
-//    Y4a T2 +timelines——spec §3.2 manifest 行「新增顶层域七处单源」）──
-export const DOC_TOP_LEVEL_MAPS = ['meta', 'nodes', 'edges', 'exec', 'timelines'] as const;
+//    Y4a T2 +timelines；Y4b T7 +threads——spec §0 条 2「第六顶层 Y.Map 根」）──
+export const DOC_TOP_LEVEL_MAPS = ['meta', 'nodes', 'edges', 'exec', 'timelines', 'threads'] as const;
 export type DocTopLevelMap = (typeof DOC_TOP_LEVEL_MAPS)[number];
 
 // ── 层④：归属面+撤销 scope 词汇 ──
 /** 键事实归属：doc=doc 内真值 / exec=exec map 语义域 / pg=PG 列真值 / projection=投影合成（非存储键）。 */
 export type DocKeyOwnership = 'doc' | 'exec' | 'pg' | 'projection';
-/** 撤销 scope：client-undo=客户端意图写面可撤销 / server-only=服务端写（客户端 undo 不达）。 */
-export type DocUndoScope = 'client-undo' | 'server-only';
+/** 撤销 scope：client-undo=客户端意图写面可撤销 / server-only=服务端写（客户端 undo 不达）/
+ *  none=不入任何撤销栈（Y4b T7 threads——批注删除/清理不可 Ctrl+Z 终裁语义）。 */
+export type DocUndoScope = 'client-undo' | 'server-only' | 'none';
 
 // ── 层②：E27 嵌套唯一创建者登记（语义面；census 组㉓=lexical 白名单执法面）──
 export interface NestedCreatorEntry {
@@ -201,6 +202,22 @@ export const DOC_KEY_MANIFEST: Record<DocTopLevelMap, readonly DocKeyManifestEnt
       writers: ['canvasIntents.applyIntentToDoc(addNode/deleteNode)（LocalUser——节点与 timelines.<nodeId> 同笔创建/删除）', 'editorStore diff 写路径（timeline-user——结构 diff 只改碰到的键）'],
       readers: ['视频编辑器（编辑器只读已存在键——键不在不创建）', '导出/预览（runExport 消费）', '迷你画布（轨道缩略）', 'oracle/GC 扫描（SCAN_ROOTS+clip mediaId 并集）', 'vacuum/canary 语义面（shapeOf+stableStringify）'],
       ownership: 'doc', undo: 'client-undo',
+    },
+  ],
+  threads: [
+    {
+      // Y4b T7（spec §0 条 2/3 + §2.2 处 1）：threads 批注域顶层根登记——键=threadId（1~128 且=
+      // Map 键）；entry=Y.Map{id,nodeId,kind,anchorStart,anchorEnd,resolved,createdAt,createdBy,
+      // comments}、评论=Y.Map{id,authorId,body,createdAt}（键封闭谓词单源=threads-frame-predicate）。
+      // undo='none'=首消费 DocUndoScope 第三值：threads-user origin 不入任何撤销栈
+      // （UNDO_STACK_BASE 三根不动+不建 threads 专栈——undo-policy THREADS_ORIGIN 单源）。
+      // 帧执法（Task 7 接线）：L1 frame-deny 深链档（framePathOf 收成普通对象调谓词）+L2
+      // validateAppliedL2 root-identity 分支（threadEventErr 动作矩阵）；L2/恢复导入 actorUserId
+      // 缺省=fail-closed 全拒。threads 永不进公开面（toReadModel 只拼 nodes/edges——负控 A7）。
+      map: 'threads', path: 'threads.*（每线程一棵 entry Y.Map+comments 评论容器——键封闭谓词单源 threads-frame-predicate）',
+      writers: ['threadsStore 写路径（threads-user——THREADS_ORIGIN 单源；全部单事务 createThread/addComment/setResolved/deleteThread/cleanupOrphans）'],
+      readers: ['threadsStore 投影订阅（threads.observeDeep+nodes 键增删+文本锚 content 片段 observeDeep）', 'oracle/GC 扫描（SCAN_ROOTS+threads——评论正文整段恰为团队媒体 id 时推迟回收）', '守恒三面（exportThreadsView 整棵导出/vacuumEquivalent/canonicalDocView/recordsOfHydration）'],
+      ownership: 'doc', undo: 'none',
     },
   ],
 };

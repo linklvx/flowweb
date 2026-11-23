@@ -26,8 +26,10 @@ describe('decideAuthAdmission（§3.1bis 门序钉死 heap→version→docName�
     expect(decideAuthAdmission({ ...PASS_CTX, csv: '1' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SCHEMA_OUTDATED, source: 'version' });
     expect(decideAuthAdmission({ ...PASS_CTX, csv: '2' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SCHEMA_OUTDATED, source: 'version' });   // 历史档同拒
     expect(decideAuthAdmission({ ...PASS_CTX, csv: '3' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SCHEMA_OUTDATED, source: 'version' });   // 历史档同拒
-    expect(decideAuthAdmission({ ...PASS_CTX, csv: '4' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SCHEMA_OUTDATED, source: 'version' });   // Y4a T2 真实旧客户端档（Y2 存量 bundle——bump 5 后 4 即旧）
-    expect(decideAuthAdmission({ ...PASS_CTX, csv: '6' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SERVER_OUTDATED, source: 'version' });
+    expect(decideAuthAdmission({ ...PASS_CTX, csv: '4' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SCHEMA_OUTDATED, source: 'version' });   // 历史档同拒
+    expect(decideAuthAdmission({ ...PASS_CTX, csv: '5' })).toMatchObject({ proceed: false, reason: CollabAuthReason.SCHEMA_OUTDATED, source: 'version' });   // Y4a T2 真实旧客户端档（Y2 存量 bundle）——Y4b T8 bump 6 后 5 即真实旧客户端（历史档顺延）
+    expect(decideAuthAdmission({ ...PASS_CTX, csv: String(CLIENT_PROTOCOL_VERSION - 1) })).toMatchObject({ proceed: false, reason: CollabAuthReason.SCHEMA_OUTDATED, source: 'version' });   // Y4b T8：current-1=真实旧客户端档（滚动读常量——bump 后零改动防再红）
+    expect(decideAuthAdmission({ ...PASS_CTX, csv: String(CLIENT_PROTOCOL_VERSION + 1) })).toMatchObject({ proceed: false, reason: CollabAuthReason.SERVER_OUTDATED, source: 'version' });   // Y4b T8：current+1=服务端旧档（滚动读常量——原 csv:'6' 字面量在 bump 7 后必红）
   });
   it('gate3 先于 gate4：docName 无效∧draining 并存 → invalid-doc-name（确定性拒绝零 DB，序漂移即红）', () => {
     expect(decideAuthAdmission({ ...PASS_CTX, docNameValid: false, shuttingDown: true }))

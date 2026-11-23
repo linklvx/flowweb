@@ -847,7 +847,7 @@
         "after": {
           "is_nullable": "NO",
           "data_type": "integer",
-          "column_default": "5"
+          "column_default": "6"
         }
       },
       {

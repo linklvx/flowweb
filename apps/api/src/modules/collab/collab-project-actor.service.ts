@@ -351,6 +351,20 @@ export class FrameEffectsCollector {
       }
       noteEvents(events);
     });
+    // Y4b T8（spec §0 条 2/14）：threads observeDeep——timelines 同形（**只做 void ev.changes 物化
+    // +noteEvents 两件事、touched.add 不复制**——threads 首段=threadId 非剪辑节点 id，误入 touched
+    // 会把 threadId 当 nodeId 混进 binding delta 投影；threads 批注域无 media 槽位语义〔谓词键
+    // 封闭集 id/nodeId/kind/anchors/resolved/createdAt/createdBy/comments——body 内 UUID 叶照采归
+    // oracle SCAN_ROOTS 面〕）。回调内先物化 ev.changes（YEvent.changes getter 在事务清理后读抛
+    // errorComputeChanges——timelines :334 同款根因：不物化=事务结束 L2 一读即抛→actor 收成
+    // l2-internal 毒帧 4411 关全部连接、每笔 threads 编辑都触发）。fail-closed 执法=validateAppliedL2
+    // threads 身份分支（T7 已建 threadEventErr——actorUserId 缺省全拒；本观察者只管事件可达性）。
+    doc.getMap('threads').observeDeep((events) => {
+      for (const ev of events) {
+        void ev.changes;
+      }
+      noteEvents(events);
+    });
   }
 }
 
@@ -1172,7 +1186,9 @@ export class CollabProjectActorService {
         }
         // ① DENY 矩阵（Y1c T24 激活——shared validateFrameDeny：root 白名单〔exec 删除〕/meta 白名单/
         //    未知类型/未知键/值类型/容器替换/预算〔DS=Σ区间数〕；解码失败=4411 毒帧面；帧外父深链归 L2）
-        const shape = validateFrameDeny(item.payload);
+        //    Y4b T8（spec §0 条 6）：opts.actorUserId=本帧认领者（threads 同帧新建档作者身份执法——
+        //    T7 二参形态服务端接线；缺省=fail-closed 全拒 threads 帧故恒传；维护帧上方 continue 豁免）。
+        const shape = validateFrameDeny(item.payload, { actorUserId: item.actor.userId });
         if (!shape.ok) {
           this.host.hardClose(item.conn, shape.code, shape.reason);
           this.rejectItem(item, new FrameRejectError(shape.code, shape.reason));
@@ -1392,7 +1408,9 @@ export class CollabProjectActorService {
         const l2Events = collector.takeEvents();
         let l2: ReturnType<typeof validateAppliedL2>;
         try {
-          l2 = validateAppliedL2(document, l2Events, { allowedUrlHosts: XML_ATTR_URL_ALLOWED_HOSTS });
+          // Y4b T8（spec §0 条 14）：actorUserId=本帧认领者（threads L2 谓词身份执法输入——T7
+          // L2Options.actorUserId 服务端接线；缺省=fail-closed 谓词首行 thread-actor-missing 全拒）。
+          l2 = validateAppliedL2(document, l2Events, { allowedUrlHosts: XML_ATTR_URL_ALLOWED_HOSTS, actorUserId: item.actor.userId });
         } catch (l2Err) {
           // Y1c T24 收口 C-1②（M-3 并入）：L2 内部异常的毒帧级 containment——validateAppliedL2 在
           // applyGate try/catch 外，未捕获异常=unhandled rejection+批帧 submit promise 永不 settle；

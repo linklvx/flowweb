@@ -130,4 +130,21 @@ import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';(hasDb ? describe : 
     expect(v5Sql).toMatch(/ALTER TABLE "CanvasDoc" ALTER COLUMN "schemaVersion" SET DEFAULT 5/);
     expect(v5Sql).not.toMatch(/UPDATE/i);   // 不 UPDATE 旧行（spec §0 条 9）
   });
+
+  it('⑥Y4b T8 @default 缺省插入落 6（schemaVersion 不写列——漏写该列的插入落 5 被装载版本门拒载；ALTER COLUMN SET DEFAULT 6 迁移进库后即绿）', async () => {
+    await prisma.canvasDoc.deleteMany({ where: { projectId: PID } });
+    // 缺省插入（data 不含 schemaVersion 列——走 PG 表 DEFAULT）
+    await prisma.$executeRaw`INSERT INTO "CanvasDoc" ("projectId", generation, "updatedAt") VALUES (${PID}::text, 0::int, now())`;
+    const doc = await prisma.canvasDoc.findUniqueOrThrow({ where: { projectId: PID }, select: { schemaVersion: true } });
+    expect(doc.schemaVersion).toBe(CANVAS_DOC_SCHEMA_VERSION);   // 修前红：DB DEFAULT 尚 5 ≠ 6（SET DEFAULT 6 迁移未进库）
+    // Y4b T8 默认值迁移形态钉：新迁移匹配 SET DEFAULT 6 且不匹配 UPDATE（不 UPDATE 旧行——
+    // 开发库已 5 的行被版本门拒载重置文档=预期形态不写数据迁移）
+    const sqlOf = (d: string) => readFileSync(join(MIG_DIR, d, 'migration.sql'), 'utf8');
+    const initDirs = readdirSync(MIG_DIR).filter((d) => /^\d+_/.test(d));
+    const v6Dirs = initDirs.filter((d) => /_threads_root_schema6$/.test(d));
+    expect(v6Dirs.length, 'Y4b T8 缺省值迁移目录必在（threads_root_schema6）').toBe(1);
+    const v6Sql = sqlOf(v6Dirs[0]).replace(/--[^\n]*/g, '');
+    expect(v6Sql).toMatch(/ALTER TABLE "CanvasDoc" ALTER COLUMN "schemaVersion" SET DEFAULT 6/);
+    expect(v6Sql).not.toMatch(/UPDATE/i);   // 不 UPDATE 旧行（只 SET DEFAULT——spec 版本硬切纪律）
+  });
 });

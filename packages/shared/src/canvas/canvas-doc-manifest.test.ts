@@ -158,8 +158,8 @@ describe('Y0c T4 manifest 结构完整性（E38 四层——编译断言的运�
     }
   });
 
-  it('层①顶层 map 集合+层③④种子条目：五 map 全登记且 nodes/edges/exec 非空', () => {
-    expect([...DOC_TOP_LEVEL_MAPS].sort()).toEqual(['edges', 'exec', 'meta', 'nodes', 'timelines']);
+  it('层①顶层 map 集合+层③④种子条目：六 map 全登记且 nodes/edges/exec 非空', () => {
+    expect([...DOC_TOP_LEVEL_MAPS].sort()).toEqual(['edges', 'exec', 'meta', 'nodes', 'threads', 'timelines']);
     for (const map of DOC_TOP_LEVEL_MAPS) {
       expect(DOC_KEY_MANIFEST[map], `种子条目缺 map=${map}`).toBeDefined();
     }
@@ -193,6 +193,24 @@ describe('Y0c T4 manifest 结构完整性（E38 四层——编译断言的运�
       expect(e.readers.join('|')).toMatch(/GC|扫描/);
       // 层④ undo scope=客户端可撤销（UNDO_STACK_BASE 三根——T1 单源）
       expect(e.undo).toBe('client-undo');
+    }
+  });
+
+  // Y4b T7（spec §0 条 2/3 + §2.2 处 1）：threads 顶层根入册——先红（threads 未登记）后绿。
+  it('Y4b T7：DOC_TOP_LEVEL_MAPS 含 threads 且层③④种子条目对齐（写者=threads-user、undo scope=none——批注不入任何撤销栈）', () => {
+    expect(DOC_TOP_LEVEL_MAPS).toContain('threads');
+    const entries = DOC_KEY_MANIFEST.threads;
+    expect(entries, 'threads 种子条目缺 map（层③④登记面）').toBeDefined();
+    expect(entries.length).toBeGreaterThan(0);
+    for (const e of entries) {
+      expect(e.map).toBe('threads');
+      // 层③写者=threads-user 单 origin（spec §0 条 3——THREADS_ORIGIN 单源）
+      expect(e.writers.join('|')).toMatch(/threads-user/);
+      // 层③读者非空+层④归属=doc（线程/评论=Y.Map 条目真值驻 doc）
+      expect(e.readers.length).toBeGreaterThan(0);
+      expect(e.ownership).toBe('doc');
+      // 层④ undo scope=none：threads 不入任何撤销栈（DocUndoScope 扩第三值——manifest 首消费）
+      expect(e.undo).toBe('none');
     }
   });
 

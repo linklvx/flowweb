@@ -30,6 +30,7 @@ import { QUOTA_DEFAULTS } from '../constants/collab-quota';
 import { validateXmlSubtree, XML_TEXT_MAX_BYTES } from './xml-schema';
 import { isValidOrderKey } from './order-key';
 import { checkTimelineEntryValue, checkTimelineClipMap } from './timeline-frame-predicate';
+import { checkThreadEntry, checkThreadComment, threadEventErr } from './threads-frame-predicate';
 
 /** 片段四型键矩阵（L2 事件面消费——timeline-frame-predicate CLIP_KEYS 同源；本文件谓词闭包
  *  直用 ReadonlySet 形态）。 */
@@ -42,8 +43,10 @@ const CLIP_KEY_SETS: Record<string, ReadonlySet<string>> = {
 
 /** root 白名单（exec 根删除——spec §3.1 顶层根集；写 exec 根=DENY）。
  *  Y4a T2（spec §3.2 表）：+timelines——L1 只收根准入（本帧插入即可达）；timelines 帧谓词
- *  详细执法（封闭键集/四类片段/三轨/字面量）在 T3 timeline-frame-predicate，非本白名单。 */
-export const FRAME_DENY_ROOTS = new Set(['nodes', 'edges', 'meta', 'timelines']);
+ *  详细执法（封闭键集/四类片段/三轨/字面量）在 T3 timeline-frame-predicate，非本白名单。
+ *  Y4b T7（spec §0 条 6）：+threads——L1 只收根准入+直档/深链档；threads 帧谓词详细执法
+ *  （键封闭/锚 base64/作者比较）在 T6 threads-frame-predicate，非本白名单。 */
+export const FRAME_DENY_ROOTS = new Set(['nodes', 'edges', 'meta', 'timelines', 'threads']);
 
 /** 结构预算工程值（T9 P1 承接——structs ≤8×maxNodesPerTx）。
  *  Y1c T24 收口 I-6：DS 区间 cap 与 structs 同值单源派生（原独立 4096 误拒合法交错删史——
@@ -124,8 +127,12 @@ function containerKindMatches(yType: DataKeySpec['yType'], kind: ReturnType<type
 /**
  * DENY 矩阵 frame-local 执法（准入链 ①——T24 激活；P1 shape 升格：root/预算面保留+全类型矩阵）。
  * 纯解码级；帧外父深链（既有节点/子树挂接）不判定（归 L2）；XML 域结构不判定（归 L1/L2 单源）。
+ * Y4b T7（spec §0 条 6）：opts.actorUserId——threads 同帧新建档作者身份执法输入（连接帧传
+ * item.actor.userId〔Task 8〕）。**缺省=fail-closed**：带任何 threads 变更（本帧 threads 路径
+ * 任何 struct）的帧直接拒（恢复导入 origin='import' 不传——空 threads 根物化放行、带
+ * parentSub 条目拒——导入旁路不冒名）。追加评论/改键（父出帧）本面不可判定归 L2。
  */
-export function validateFrameDeny(update: Uint8Array): FrameDenyVerdict {
+export function validateFrameDeny(update: Uint8Array, opts?: { actorUserId?: string }): FrameDenyVerdict {
   let decoded: ReturnType<typeof Y.decodeUpdate>;
   try {
     decoded = Y.decodeUpdate(update);
@@ -160,6 +167,20 @@ export function validateFrameDeny(update: Uint8Array): FrameDenyVerdict {
     return undefined;
   };
 
+  // T7r1（Important 1）：threads 帧内收成集**记忆化**——全帧只收集一次、深链档逐 struct 复用
+  // （修前逐 value-struct 重跑 collectThreadFrameObjects 整帧链遍历=攻击者大小合法帧
+  // 〔FRAME_MAX_STRUCTS=16,000〕的 O(structs²) 准入路径 DoS 面；validateFrameDeny 须保持
+  // 唯一线性准入路径）。惰性收集：帧内无 threads struct 时零开销；记忆化集=同帧全部 struct
+  // 的确定性函数，逐 struct 复用行为与修前逐次重收集恒等（帧内 struct 集在执法期不变）。
+  let threadObjects: { entries: Map<string, Record<string, unknown>> } | undefined;
+  const threadFrameObjects = (): { entries: Map<string, Record<string, unknown>> } => {
+    if (threadObjects === undefined) {
+      const collected = collectThreadFrameObjects(inFrame, framePathOf);
+      threadObjects = { entries: collected.entries };
+    }
+    return threadObjects;
+  };
+
   for (const st of structs) {
     if (!(st instanceof Y.Item)) continue;
     const parent = st.parent as unknown;
@@ -179,6 +200,20 @@ export function validateFrameDeny(update: Uint8Array): FrameDenyVerdict {
       if (parent === 'timelines' && st.parentSub != null) {
         if (contentTypeOf(st) !== 'map') {
           return { ok: false, code: CollabCloseCode.FRAME_MALFORMED, reason: `timeline-entry-not-map:${st.parentSub}` };
+        }
+      }
+      // Y4b T7（spec §0 条 6——L1 直档，:179-183 timelines 同形）：threads 根直接子项必须是
+      // Y.Map（threads.<threadId>=线程 entry Map；标量毒值拒）。**actorUserId 缺省=fail-closed**：
+      // 带 parentSub 条目的 threads 根直接子项（=任何 threads 变更）即拒——恢复导入空根物化
+      // （parentSub=null）放行。entry 字段执法=同帧深链档（threadsThreadStructErr——本帧可解析
+      // 路径全覆盖）；半截 entry（Map 在帧内、必填键不齐）由深链档字段齐备性拒（字段补下一帧=
+      // 父出帧落 4411 非合法创建路径——Review Focus 3）。删除集不进 L1（timelines 同款）。
+      if (parent === 'threads' && st.parentSub != null) {
+        if (opts?.actorUserId === undefined) {
+          return { ok: false, code: CollabCloseCode.FRAME_MALFORMED, reason: 'thread-actor-missing' };
+        }
+        if (contentTypeOf(st) !== 'map') {
+          return { ok: false, code: CollabCloseCode.FRAME_MALFORMED, reason: `thread-entry:${st.parentSub}` };
         }
       }
       continue;
@@ -208,6 +243,17 @@ export function validateFrameDeny(update: Uint8Array): FrameDenyVerdict {
       // 删除集不执法（L1 只查插入——纯删帧 0 structs+DS 本档天然跳过）。
       const tErr = timelineStructErr(keys, st);
       if (tErr !== undefined) return { ok: false, code: CollabCloseCode.FRAME_MALFORMED, reason: tErr };
+      continue;
+    }
+    if (root === 'threads') {
+      // Y4b T7（spec §0 条 6）：threads 帧内深链档——帧内可解析路径的 threads struct 逐路径收集
+      // 进普通对象（**解码态不能 Y.Map.get**〔:174-175 头注〕——本帧 ContentAny 逐键收成），
+      // 整棵收齐后跑 checkThreadEntry/checkThreadComment 单源谓词（含 createdBy/authorId=
+      // opts.actorUserId 比较——同帧新建只断本连接）。半截 entry（Map 在帧内、必填键不齐）由
+      // 谓词字段齐备性拒（字段补下一帧=父出帧 4411 非合法创建路径——Review Focus 3）。容器创建
+      // （comments Map/评论 Map）本身放行、其内容值由同帧更深 struct 收进对象执法。删除集不执法。
+      const thErr = threadStructErr(threadFrameObjects(), keys, st, opts);
+      if (thErr !== undefined) return { ok: false, code: CollabCloseCode.FRAME_MALFORMED, reason: thErr };
       continue;
     }
     if (root !== 'nodes') continue;
@@ -485,9 +531,79 @@ function clipTransitionErr(clipId: string, slot: string, v: unknown): string | u
   return undefined;
 }
 
+// ═══════════ Y4b T7（spec §0 条 6/§2.3）：threads 帧内深链档（L1——纯解码级收成普通对象）═══════════
+
+/** 帧内 threads 子树收成器：沿 framePathOf 把 threads 根下本帧全部 struct 按键路径归位成
+ *  普通对象（ContentAny 逐键取值/ContentType 记容器占位——谓词对 comments Map 键集执法只需
+ *  其内层值；**解码态不能 Y.Map.get**〔:174-175 头注——_map 仅 integrate 时填充〕）。
+ *  半截形态（entry Map 在帧内、必填键缺席）自然收成缺键普通对象——checkThreadEntry 字段
+ *  齐备性检查拒（Review Focus 3）。 */
+function collectThreadFrameObjects(
+  inFrame: Map<string, Y.Item>,
+  framePathOf: (st: Y.Item) => { root: string; keys: string[] } | undefined,
+): { entries: Map<string, Record<string, unknown>>; comments: Map<string, Record<string, Record<string, unknown>>> } {
+  const entries = new Map<string, Record<string, unknown>>();
+  const comments = new Map<string, Record<string, Record<string, unknown>>>();
+  for (const st of inFrame.values()) {
+    const path = framePathOf(st);
+    if (path === undefined || path.root !== 'threads') continue;
+    const keys = path.keys;
+    const threadId = keys[0] ?? '';
+    if (threadId === '') continue;
+    if (!entries.has(threadId)) entries.set(threadId, {});
+    const entry = entries.get(threadId)!;
+    if (keys.length === 1) continue;   // entry 容器创建本体（ContentType）——无键值可收
+    const seg1 = keys[1] ?? '';
+    if (seg1 === 'comments') {
+      if (!comments.has(threadId)) comments.set(threadId, {});
+      const threadComments = comments.get(threadId)!;
+      if (keys.length === 2) continue;   // comments 容器创建本体
+      const cid = keys[2] ?? '';
+      if (cid === '') continue;
+      if (!(cid in threadComments)) threadComments[cid] = {};
+      if (keys.length === 3) continue;   // 评论容器创建本体
+      const ck = keys[3] ?? '';
+      const v = anyValueOf(st);
+      if (v === NOT_ANY) continue;
+      threadComments[cid][ck] = v;
+      continue;
+    }
+    const v = anyValueOf(st);
+    if (v === NOT_ANY) continue;
+    entry[seg1] = v;
+  }
+  // 评论归位进各自 entry 的 comments 槽（普通对象形态——谓词三路同函数吃普通值）
+  for (const [tid, threadComments] of comments) {
+    const entry = entries.get(tid);
+    if (entry !== undefined) entry.comments = threadComments;
+  }
+  return { entries, comments };
+}
+
+/** threads 帧内深链档逐 struct 执法（T7r1：收成集由调用方记忆化传入——全帧收集恰一次，
+ *  逐 struct 复用同一份 entries；帧内对象集=同帧全部 struct 的确定性函数）。
+ *  fail-closed：opts.actorUserId 缺省时任何 threads 深链 struct 拒（直档同款）。 */
+function threadStructErr(
+  collected: { entries: Map<string, Record<string, unknown>> },
+  keys: readonly string[],
+  st: Y.Item,
+  opts?: { actorUserId?: string },
+): string | undefined {
+  const actorUserId = opts?.actorUserId;
+  if (actorUserId === undefined) return 'thread-actor-missing';   // fail-closed：缺省=任何变更拒
+  const threadId = keys[0] ?? '';
+  if (threadId === '') return `thread-entry:${threadId}`;
+  // 容器创建本体（entry/comments/评论 Map——ContentType 匹配即放行）；键值执法走同帧收成
+  if (contentTypeOf(st) === 'map') return undefined;
+  const entry = collected.entries.get(threadId);
+  if (entry === undefined) return undefined;   // 容器壳无可收值——归键完整性档（空 Map 毒值直档已拦）
+  const err = checkThreadEntry(threadId, entry, actorUserId);
+  return err;
+}
+
 // ═══════════════════ L2：apply 后 changed-subtree 语义执法（§3.2——事件级）═══════════════════
 
-export interface L2Options { allowedUrlHosts?: readonly string[] }
+export interface L2Options { allowedUrlHosts?: readonly string[]; actorUserId?: string }
 export type L2Verdict = { ok: true } | { ok: false; reason: string };
 
 /** 节点 live 类型读取（事件路径 nodeId → doc nodes map——apply 后临界区内存读）。 */
@@ -518,6 +634,11 @@ export function validateAppliedL2(doc: Y.Doc, events: readonly Y.YEvent<never>[]
   // 不再 getMap）。装载重扫 SERVER_TRANSACT_ORIGIN 在 applyGate 之外、下一帧 begin() 清
   // eventBuffer——不进本函数、不为重扫再开一路 L2。
   const timelinesRoot = doc.getMap('timelines');
+  // Y4b T7（spec §0 条 14）：threads 根身份=同款入口 getMap 一次（threadEventErr 谓词内禁
+  // getMap）；opts.actorUserId 由服务端调用点恒传（Task 8 actor:1395 传 item.actor.userId）；
+  // 缺省=fail-closed（谓词首行 thread-actor-missing 全拒——timelineUndo.ts:273 时间轴自检
+  // 只观察 timelines 不误伤）。
+  const threadsRoot = doc.getMap('threads');
   for (const ev of events) {
     // timelines 身份分支——**循环第一行、path.length===0 那个总会 continue 的块之前**（插到
     // 节点启发式之前不够：path 空事件已 continue、根上整棵新工程不检查=漏检面）。path 空与非空
@@ -527,6 +648,14 @@ export function validateAppliedL2(doc: Y.Doc, events: readonly Y.YEvent<never>[]
     if ((ev.currentTarget as unknown) === timelinesRoot) {
       const tErr = timelineEventErr(ev, timelinesRoot);
       if (tErr !== undefined) return { ok: false, reason: tErr };
+      continue;
+    }
+    // Y4b T7（spec §0 条 14）：threads 身份分支——timelines 同形（循环第一行、path 空块之前；
+    // root 事件与子 Map 事件〔path=[threadId]/path=[threadId,comments,cid,…〕〕同走 threadEventErr
+    // 动作矩阵并结束这条事件）。actorUserId 缺省全拒由谓词首行执法（thread-actor-missing）。
+    if ((ev.currentTarget as unknown) === threadsRoot) {
+      const thErr = threadEventErr(ev as unknown as Y.YMapEvent<unknown>, threadsRoot, { actorUserId: opts.actorUserId });
+      if (thErr !== undefined) return { ok: false, reason: thErr };
       continue;
     }
     const path = ev.path as readonly string[];

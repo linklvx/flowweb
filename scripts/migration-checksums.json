@@ -22,5 +22,8 @@
   },
   "20261121060000_drop_video_project": {
     "migration.sql": "ca07698fda8d7903c2cd0ee92dc066e74bb2b06cdb6410003407883adfa4380d"
+  },
+  "20261123020651_threads_root_schema6": {
+    "migration.sql": "1272967fdd155fbec2c81e33de89430eedf9de14cb6c7edd68440711183deaca"
   }
 }

@@ -239,6 +239,33 @@ describe('Y1c T4 DocCodec：v3 纯 JSON doc——toReadModel ≡ readRecordsFrom
     expect(Object.keys(out).sort()).toEqual(['edges', 'nodes']);   // 修前已绿（读侧根本不遍历 timelines）——本条=回归锁
     expect(out.nodes.map((n) => n.id).sort()).toEqual(['au1', 'g1', 'ig1', 'ti1']);
   });
+
+  // Y4b T7（spec §0 条 7/§2.2 ⑨——负控 A7）：threads 永不进公开面——带 threads 的 doc 进
+  // toReadModel → JSON 不含 threadId 与评论正文。与 timelines 回归锁同段（doc-codec 零改动
+  // 的结构性锁：toReadModel 只拼 nodes/edges，登记防未来枚举根回归）。
+  it('Y4b T7 负控 A7：doc 带 threads entry ⇒ toReadModel JSON 无 threadId 与评论正文（读侧根本不遍历 threads——负控锚钉死；T7r1 夹具 threadId=断言串同形，泄漏即红）', () => {
+    const doc = buildV3FixtureDoc();
+    const entry = new Y.Map<unknown>();
+    entry.set('id', 't1-secret-thread');   // T7r1（Important 2）：entry id=断言串同形——threads 根整体泄漏时本断言必红（修前夹具 id='t1' 与断言串不匹配=空洞断言）
+    entry.set('nodeId', 'ti1');
+    entry.set('kind', 'node');
+    entry.set('resolved', false);
+    entry.set('createdAt', 0);
+    entry.set('createdBy', 'u1');
+    const comments = new Y.Map<unknown>();
+    const c1 = new Y.Map<unknown>();
+    c1.set('id', 'c1');
+    c1.set('authorId', 'u1');
+    c1.set('body', '评论正文秘密内容');
+    c1.set('createdAt', 0);
+    comments.set('c1', c1);
+    entry.set('comments', comments);
+    doc.getMap('threads').set('t1-secret-thread', entry);   // map key 同形（评论 Map 键同理恒等谓词面）
+    const out = toReadModel(doc);
+    const json = JSON.stringify(out);
+    expect(json).not.toContain('t1-secret-thread');   // threadId（entry id+map key 同串——泄漏即红）
+    expect(json).not.toContain('评论正文秘密内容');   // 评论正文
+  });
 });
 
 describe('Y1c T4 DocCodec：v4 嵌套类型 doc round-trip（语义相等非字节相等）', () => {

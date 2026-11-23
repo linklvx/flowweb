@@ -500,6 +500,27 @@ describe('Y1c T9 收口 S-I1：truncateWalAfter 逐被截帧清去重索引—�
   });
 });
 
+// ═══ Y4b T9（Important）：毒帧截断×断连维护通道竞态——peek 与 truncateWalAfter 的 await 窗 ═══
+// 红相（修前）：L2 毒帧 4411 的 hardClose 同步触发 gateway.disconnect → storeDocumentUnlocked 在
+// 截断完成前 peek 到毒 WAL 帧 → 经维护帧通道（actor 准入首行无条件豁免全链）落 PG；截断回拨 walSeq
+// 后维护帧复用同号 seq → 毒内容随重装载复活。通用面：任何 L2 毒帧域（nodes/timelines/XML）同中招。
+// 绿相（修后）：peek 纳入 per-project chainWalIo，与 truncate 串行——竞态窗内发起的 peek 恒排在
+// 截断之后，只读到干净前缀（下方用「截断未 settle 时并发 peek」钉住串行语义）。
+describe('Y4b T9：peek 与 truncateWalAfter 串行（毒帧截断×断连维护通道竞态根修）', () => {
+  it('truncate 未 settle 时并发 peek → peek 排在截断之后（读到截断后前缀，非毒帧）', async () => {
+    const s = svc();
+    const f1 = new Uint8Array([1, 1]);
+    const poison = new Uint8Array([2, 2]);
+    await s.appendBatch('p1', [f1, poison]);          // appliedSeq=1 前缀 + 毒帧 seq=2
+    // 并发：截断（保留 seq1 前缀）与 peek 同 tick 发起——链序=发起序，peek 必见截断后状态
+    const truncating = s.truncateWalAfter('p1', 1n);
+    const peeking = s.peek('p1');
+    const [removed, frames] = await Promise.all([truncating, peeking]);
+    expect(removed, '截断恰移除毒帧一条').toBe(1);
+    expect(frames.map((f) => f.walSeq), 'peek 只读到截断后的干净前缀（毒帧不在——红相=含 seq2）').toEqual([1n]);
+  });
+});
+
 // ═══ Y1c T9 复核收口 N1（Important）：上轮 S-I1 附带修复引入的回归——appendBatchRaw 写循环
 // mutate frameCount（fsync 前），可恢复档回滚只还原 bytes/goodBytes→计数未回滚。后果三面：
 // ①peek 假报「spool truncated」ERROR+yjs_spool_truncated_total 虚增；②confirmedCount 永达不到

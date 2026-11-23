@@ -43,6 +43,13 @@ export const UNDO_TRACKED_ORIGINS_T18_ADDENDUM = 'ySyncPluginKey' as const;
  *  timeline-user 写时经 options.trackedOrigins 覆盖）。 */
 export const UNDO_TIMELINE_ORIGIN = 'timeline-user' as const;
 
+/** Y4b T7 threads 批注编辑 origin（spec §0 条 3——**不入任何撤销栈**：UNDO_STACK_BASE 三根不动、
+ *  不建 threads 专栈；批注删除/清理不可 Ctrl+Z=终裁语义。manifest threads 条目 undo='none'
+ *  〔canvas-doc-manifest DocUndoScope 第三值首消费〕同义登记）。消费现状（Task 10）：threadsStore
+ *  单事务 createThread/addComment/setResolved/deleteThread/cleanupOrphans 全以本值提交；域隔离由
+ *  origin 保证（画布/时间轴栈 trackedOrigins 均不含本值——undo 负控 A6 钉死）。 */
+export const THREADS_ORIGIN = 'threads-user' as const;
+
 /** 溢出判定（纯函数——入栈后栈长>UNDO_STACK_LIMIT 即整栈 clear） */
 export function undoOverflowAction(newStackItemCount: number): 'within-limit' | 'clear-whole-stack' {
   return newStackItemCount > UNDO_STACK_LIMIT ? 'clear-whole-stack' : 'within-limit';

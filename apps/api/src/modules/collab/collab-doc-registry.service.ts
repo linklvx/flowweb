@@ -26,7 +26,7 @@ import { observeOrderPathologyOnLoad } from './collab-pathology';
 import { toDocLike } from './doc-like.util';
 import { createCanvasDoc } from './canvas-doc.factory';
 import { captureCollabException } from '../../utils/sentry-scrub';
-import { stableStringify, exportTimelineView } from './collab-canary-semantic';   // Y4a T9：vacuumEquivalent timelines 内容深比单源（三消费面同源——canary 文件注）
+import { stableStringify, exportTimelineView, exportThreadsView } from './collab-canary-semantic';   // Y4a T9：vacuumEquivalent timelines 内容深比单源（三消费面同源——canary 文件注）；Y4b T8：threads 同款单源
 import { PrismaService } from '../../prisma/prisma.service';   // Y2 D4t：装入重扫 Media 行读面（@Optional 尾参——gateway 自建传同实例）
 import type { HeapPressureSample } from './heap-pressure';
 import type { TryReleaseMotive, TryReleaseOutcome } from './collab-residency.service';
@@ -588,10 +588,16 @@ export class CollabDocRegistryService {
       // Y4a T2（spec §0 条 7）装载物化缝：水合/spool 重放完成后、actor observeDeep 安装前——
       // 旧档帧（Y4a 前快照）无 timelines 根，装载链主动补根：SERVER_TRANSACT_ORIGIN 一笔空事务
       // getMap('timelines') 不放工程（已有根零事务——**同名根就是同一对象**〔doc.getMap 返回既有
-      // 实例〕，不存在两客户端各造一棵根的问题；两客户端造根的形态由版本门〔sv≠5 拒载〕+同名根
+      // 实例〕，不存在两客户端各造一棵根的问题；两客户端造根的形态由版本门〔sv≠current 拒载〕+同名根
       // 同对象共同挡掉）。fillDoc 消费面（种子/重建）物化同款根——装载链与其对称。
       if (!document.share.has('timelines')) {
         document.transact(() => { document.getMap('timelines'); }, SERVER_TRANSACT_ORIGIN);
+      }
+      // Y4b T8（spec §0 条 2）：threads 根同款装载物化缝——旧档帧（Y4b 前快照）无 threads 根，
+      // 水合 applyUpdate 不经 fillDoc ⇒ 装载链主动补根（timelines 同形一笔空事务；fillDoc 尾
+      // 〔T7〕物化同款根——装载链与其对称；被拒文档不达本段——版本门拒载先于重放）。
+      if (!document.share.has('threads')) {
+        document.transact(() => { document.getMap('threads'); }, SERVER_TRANSACT_ORIGIN);
       }
       // Y1c T24 收口 I-1：装载内容全量入 doc 后的索引重建缝（gateway 转发 actor.noteDocIndexRebuild
       // ——原挂 noteDocLoadedPrefix 缝在 applyReplayed 之前=对空 doc 执行，且重放走 replay 抑制窗
@@ -821,7 +827,11 @@ export class CollabDocRegistryService {
    *  Y4a T9（spec §0 条 7「真空等价比较包含 timelines」）：timelines 内容深比——
    *  stableStringify(exportTimelineView(...)) 两侧恒等判定（collab-canary-semantic 单源导出
    *  ——键序稳定防深拷贝后假红；三消费面同源见其注）。负控：深拷贝漏拷片段（fresh 缺 clip）
-   *  ⇒ 比较为假（T12 int Y4a ③档钉死）。 */
+   *  ⇒ 比较为假（T12 int Y4a ③档钉死）。
+   *  Y4b T8（spec §0 条 2/7）：threads 两侧 getMap 规约化+内容深比腿——fillDoc 尾（T7）物化
+   *  threads 根后 fresh 恒带根，旧档源无根 ⇒ 两侧对称声明（timelines 同根因）；threads 差异
+   *  （少一条评论/resolved 翻转）=语义不等——exportThreadsView 单源视图（canonicalDocView/
+   *  recordsOfHydration hash 面同源——三消费面见 canary 文件注）。 */
   vacuumEquivalent(oldDoc: Y.Doc, newDoc: Y.Doc): boolean {
     // 三常驻根规约化（装载路径同款——根集合对称口径；空源 doc 键集合口径由此对称）。
     // T18：meta 规约化删除——legacy 根两侧自然对称（source 有 ⇒ fresh 深拷贝亦有；无 ⇒ 双无；
@@ -829,6 +839,8 @@ export class CollabDocRegistryService {
     oldDoc.getMap('nodes'); oldDoc.getMap('edges');
     // Y4a T2：timelines 同款两侧对称声明（fillDoc 物化后 fresh 恒带根——old 侧同造根才 shapeOf 等）。
     oldDoc.getMap('timelines'); newDoc.getMap('timelines');
+    // Y4b T8：threads 同款两侧对称声明（fillDoc 尾 T7 物化后 fresh 恒带根——old 侧同造根才 shapeOf 等）。
+    oldDoc.getMap('threads'); newDoc.getMap('threads');
     // T32：exec 键两侧行过滤（rebuild 不搬运源 exec 根——已知死根豁免；未过滤即旧档源必假失败）
     const shapeOf = (d: Y.Doc) => [...d.share.keys()].filter((k) => k !== 'exec').sort().join('|');   // 根键名集合（wire 占位与本地实例 constructor 不可比——类型保型由 rebuild 判定结构性保证）
     if (shapeOf(oldDoc) !== shapeOf(newDoc)) return false;
@@ -836,6 +848,9 @@ export class CollabDocRegistryService {
     // Y4a T9：timelines 内容深比（toReadModel 结构性不含 timelines——toReadModel 等价+shapeOf 等
     // 不足以证时间轴等价；stableStringify 键排序稳定——Y.Map 键序不稳定深拷贝后字符串比较防假红）。
     if (stableStringify(exportTimelineView(oldDoc.getMap('timelines'))) !== stableStringify(exportTimelineView(newDoc.getMap('timelines')))) return false;
+    // Y4b T8：threads 内容深比（toReadModel 结构性不含 threads——A7′ 负控：深拷贝漏拷评论/
+    // resolved 翻转必判不等价；stableStringify 键排序稳定防假红——threads-conservation int ③档钉死）。
+    if (stableStringify(exportThreadsView(oldDoc.getMap('threads'))) !== stableStringify(exportThreadsView(newDoc.getMap('threads')))) return false;
     return true;
   }
 

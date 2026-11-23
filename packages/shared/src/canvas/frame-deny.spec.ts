@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import * as Y from 'yjs';
 import { validateFrameDeny, validateAppliedL2, countDsRanges, FRAME_DENY_ROOTS, FRAME_MAX_DS_RANGES, FRAME_MAX_STRUCTS } from './frame-deny';
 import { DOC_SCHEMA_V4 } from './doc-schema-v4';
+import { buildThreadEntry, buildThreadComment } from './threads-frame-predicate';
 
 function frameOf(mutate: (d: Y.Doc) => void): Uint8Array {
   const d = new Y.Doc();
@@ -722,5 +723,195 @@ describe('Y4a T3-fix ②：L2 keyframes 容器事件档（path=[nodeId,clips,cli
       kf.set('k1', { id: 'k1', t: 1, property: 'opacity', value: 0.5, easing: 'linear' });   // 整值更新
     });
     expect(validateAppliedL2(doc, events)).toEqual({ ok: true });
+  });
+});
+
+// ═══════════ Y4b T7（spec §0 条 2/3/6/14）：threads 根接线 frame-deny 双面 ═══════════
+// 谓词单源=threads-frame-predicate.ts（负控矩阵在其 .test.ts）；本段锁 frame-deny.ts 的
+// **接线面**：L1 直档（:179-183 timelines 同形）+L1 深链档（:203-211 同形——framePathOf 把
+// 本帧 ContentAny 收成普通对象调 checkThreadEntry/checkThreadComment）+L2 root-identity 分支
+// （:527-531 同形——事件循环第一行、path.length===0 continue 之前）+fail-closed 缺省档。
+
+/** 整棵合法线程 Y.Map（entry+comments 容器+首条评论——frameOf 单帧插入用；工厂出自 Task 6 谓词模块）。
+ *  detached Y.Map.get 抛 Invalid access——评论挂入径=同帧持有 comments 引用先写后 attach（T6 fix r1
+ *  held-ref 消费径同款）。overCb=entry 覆写（detached set 可行）；overComments=评论容器覆写。 */
+function legalThreadMap(
+  threadId: string,
+  actor: string,
+  overEntry?: (e: Y.Map<unknown>) => void,
+  overComments?: (c: Y.Map<unknown>) => void,
+): Y.Map<unknown> {
+  const comments = new Y.Map<unknown>();
+  const entry = buildThreadEntry({
+    id: threadId, nodeId: 'n1', kind: 'node', resolved: false, createdAt: 0, createdBy: actor,
+  });
+  entry.set('comments', comments);   // 覆写工厂预建容器=同引用持有（测试构造自由度——帧内形状与工厂同形）
+  comments.set('c1', buildThreadComment({ id: 'c1', authorId: actor, body: '首条评论正文', createdAt: 0 }));
+  overComments?.(comments);
+  overEntry?.(entry);
+  return entry;
+}
+
+describe('Y4b T7 ②：L1 同帧新建档（整棵线程同帧插入+opts.actorUserId——spec §0 条 6）', () => {
+  it('合法整棵线程（createdBy/authorId=actorUserId、resolved:false 在帧内）→ 放行（修前红：unknown-root:threads）', () => {
+    const f = frameOf((d) => { d.getMap('threads').set('t1', legalThreadMap('t1', 'u1')); });
+    expect(validateFrameDeny(f, { actorUserId: 'u1' })).toEqual({ ok: true });
+  });
+
+  it('冒名（createdBy/authorId=u2≠opts.actorUserId=u1）→ 拒', () => {
+    const f = frameOf((d) => { d.getMap('threads').set('t1', legalThreadMap('t1', 'u2')); });
+    expect(validateFrameDeny(f, { actorUserId: 'u1' }).ok).toBe(false);
+  });
+
+  it('缺省 opts（不传 actorUserId）带 threads 条目帧 → 拒（fail-closed——恢复导入空根放行带 parentSub 条目拒）', () => {
+    const f = frameOf((d) => { d.getMap('threads').set('t1', legalThreadMap('t1', 'u1')); });
+    expect(validateFrameDeny(f).ok).toBe(false);
+  });
+
+  it('空 threads 根（帧内只物化根、零条目）→ 缺省 opts 放行（恢复导入装载缝形态）', () => {
+    const f = frameOf((d) => { d.getMap('threads'); });
+    expect(validateFrameDeny(f)).toEqual({ ok: true });
+  });
+
+  it('半截 entry（只有 entry Map、缺 createdBy 等必填键——字段补下一帧=父出帧 4411 非合法创建路径）→ 拒（Review Focus 3）', () => {
+    const f = frameOf((d) => {
+      const entry = buildThreadEntry({ id: 't1', nodeId: 'n1', kind: 'node', resolved: false, createdAt: 0, createdBy: 'u1' });
+      entry.delete('createdBy');   // 同帧只留 Map 骨架、必填键缺席
+      d.getMap('threads').set('t1', entry);
+    });
+    expect(validateFrameDeny(f, { actorUserId: 'u1' }).ok).toBe(false);
+  });
+});
+
+describe('Y4b T7 ③：L1 非法矩阵（深链档 ContentAny 收成普通对象调谓词——spec §2.3 三路同函数）', () => {
+  it('entry 非 Map（根直接子项标量毒值）→ 拒（:179-183 timelines 直档同形）', () => {
+    const f = frameOf((d) => { d.getMap('threads').set('t1', 'not-a-map'); });
+    expect(validateFrameDeny(f, { actorUserId: 'u1' }).ok).toBe(false);
+  });
+
+  it('kind 越界（weird）→ 拒（深链档收成对象跑 checkThreadEntry）', () => {
+    const f = frameOf((d) => { d.getMap('threads').set('t1', legalThreadMap('t1', 'u1', (e) => { e.set('kind', 'weird'); })); });
+    expect(validateFrameDeny(f, { actorUserId: 'u1' }).ok).toBe(false);
+  });
+
+  it('垃圾 base64（kind=text 帧内直写锚值）→ 拒', () => {
+    const f = frameOf((d) => {
+      const entry = legalThreadMap('t1', 'u1', (e) => {
+        e.set('kind', 'text');
+        e.set('anchorStart', 'AA==');
+        e.set('anchorEnd', 'AA==');
+      });
+      d.getMap('threads').set('t1', entry);
+    });
+    expect(validateFrameDeny(f, { actorUserId: 'u1' }).ok).toBe(false);
+  });
+
+  it('空白 body 首条评论 → 拒（评论深链档收成对象跑 checkThreadComment）', () => {
+    const f = frameOf((d) => { d.getMap('threads').set('t1', legalThreadMap('t1', 'u1', undefined, (c) => {
+      c.set('c1', buildThreadComment({ id: 'c1', authorId: 'u1', body: '   ', createdAt: 0 }));
+    })); });
+    expect(validateFrameDeny(f, { actorUserId: 'u1' }).ok).toBe(false);
+  });
+
+  // T7r1（Important 1 覆盖性锚——收成集记忆化后行为不变）：深链档多 threads value-struct 帧是
+  // 修前逐 struct 重收集的 O(structs²) 面——本档用**多线程多 value-struct 帧**（每线程一条评论、
+  // 评论区在 entry 逐 struct 之后——判定依赖全帧收成集而非首个 struct 的局部视图）钉死修后
+  // 语义恒等：合法全过、任一线程毒值拒（含末位线程——修前重收集形态下末位判定同样依赖整帧集）。
+  it('T7r1 记忆化行为锚：多线程多 value-struct 帧合法全过；末位线程毒值拒（收集恰一次、逐 struct 复用同集——行为与逐次重收集恒等）', () => {
+    // 30 线程 × 每线程 entry 6 值 struct+评论 4 值 struct ≈ 300 value-struct——深链档复用面实载
+    const mk = (tid: string, actor: string, bad?: boolean): Y.Map<unknown> =>
+      legalThreadMap(tid, actor, undefined, (c) => {
+        if (bad) c.set('c1', buildThreadComment({ id: 'c1', authorId: actor, body: '   ', createdAt: 0 }));
+      });
+    const good = frameOf((d) => {
+      for (let i = 0; i < 30; i++) d.getMap('threads').set(`t${i}`, mk(`t${i}`, 'u1'));
+    });
+    expect(validateFrameDeny(good, { actorUserId: 'u1' })).toEqual({ ok: true });
+    // 末位线程毒值：直档放行（Map 容器合法）、深链档末个 value-struct 收成集判拒——修前修后同拒
+    const bad = frameOf((d) => {
+      for (let i = 0; i < 29; i++) d.getMap('threads').set(`t${i}`, mk(`t${i}`, 'u1'));
+      d.getMap('threads').set('t29', mk('t29', 'u1', true));
+    });
+    expect(validateFrameDeny(bad, { actorUserId: 'u1' }).ok).toBe(false);
+  });
+});
+
+/** threads 事件捕获装置（observeDeep 回调内物化——Task 8 actor observer 同形；不物化=事务后读抛）。 */
+function captureThreadsEvents(doc: Y.Doc): Array<Y.YEvent<never>> {
+  const events: Array<Y.YEvent<never>> = [];
+  doc.getMap('threads').observeDeep((evs) => {
+    for (const e of evs) void e.changes;
+    (events as unknown[]).push(...evs);
+  });
+  return events;
+}
+
+describe('Y4b T7 ④：L2 动作矩阵（validateAppliedL2 threads 分支——物化事件按 spec §0 条 14）', () => {
+  it('合法新建线程整次 add → 放行（落成后形状+comments 至少一条——threadEventErr 根键 add 档）', () => {
+    const doc = new Y.Doc();
+    const events = captureThreadsEvents(doc);
+    doc.transact(() => { doc.getMap('threads').set('t1', legalThreadMap('t1', 'u1')); });
+    expect(events.length).toBeGreaterThan(0);
+    expect(validateAppliedL2(doc, events, { actorUserId: 'u1' })).toEqual({ ok: true });
+  });
+
+  it('resolved 置布尔 → 合法（唯一可更新键）', () => {
+    const doc = new Y.Doc();
+    doc.transact(() => { doc.getMap('threads').set('t1', legalThreadMap('t1', 'u1')); });
+    const events = captureThreadsEvents(doc);
+    doc.transact(() => { (doc.getMap('threads').get('t1') as Y.Map<unknown>).set('resolved', true); });
+    expect(validateAppliedL2(doc, events, { actorUserId: 'u1' })).toEqual({ ok: true });
+  });
+
+  it('根键 update（已存在 threads.<id> set 新 Map）→ 拒', () => {
+    const doc = new Y.Doc();
+    doc.transact(() => { doc.getMap('threads').set('t1', legalThreadMap('t1', 'u1')); });
+    const events = captureThreadsEvents(doc);
+    doc.transact(() => { doc.getMap('threads').set('t1', legalThreadMap('t1', 'u1')); });
+    expect(validateAppliedL2(doc, events, { actorUserId: 'u1' }).ok).toBe(false);
+  });
+
+  it('body 改动（已有评论上 set body=该键 update 形态）→ 拒（评论内部键全拒）', () => {
+    const doc = new Y.Doc();
+    doc.transact(() => { doc.getMap('threads').set('t1', legalThreadMap('t1', 'u1')); });
+    const events = captureThreadsEvents(doc);
+    doc.transact(() => {
+      const c1 = ((doc.getMap('threads').get('t1') as Y.Map<unknown>).get('comments') as Y.Map<unknown>).get('c1') as Y.Map<unknown>;
+      c1.set('body', 'edited');
+    });
+    expect(validateAppliedL2(doc, events, { actorUserId: 'u1' }).ok).toBe(false);
+  });
+
+  it('追加评论 authorId=u2≠opts.actorUserId=u1 → 拒（冒名评论）', () => {
+    const doc = new Y.Doc();
+    doc.transact(() => { doc.getMap('threads').set('t1', legalThreadMap('t1', 'u1')); });
+    const events = captureThreadsEvents(doc);
+    doc.transact(() => {
+      const comments = (doc.getMap('threads').get('t1') as Y.Map<unknown>).get('comments') as Y.Map<unknown>;
+      comments.set('c2', buildThreadComment({ id: 'c2', authorId: 'u2', body: 'reply', createdAt: 1 }));
+    });
+    expect(validateAppliedL2(doc, events, { actorUserId: 'u1' }).ok).toBe(false);
+  });
+
+  it('opts.actorUserId 缺省 → threads 事件全拒（fail-closed；合法新建 add 也拒）', () => {
+    const doc = new Y.Doc();
+    const events = captureThreadsEvents(doc);
+    doc.transact(() => { doc.getMap('threads').set('t1', legalThreadMap('t1', 'u1')); });
+    expect(validateAppliedL2(doc, events).ok).toBe(false);
+    // 缺省档对合法 resolved 更新同拒（全拒词面）
+    const doc2 = new Y.Doc();
+    doc2.transact(() => { doc2.getMap('threads').set('t1', legalThreadMap('t1', 'u1')); });
+    const events2 = captureThreadsEvents(doc2);
+    doc2.transact(() => { (doc2.getMap('threads').get('t1') as Y.Map<unknown>).set('resolved', true); });
+    expect(validateAppliedL2(doc2, events2).ok).toBe(false);
+  });
+
+  it('回归：nodes/timelines 事件照旧执法（threads 分支不得劫持——既有面负控）', () => {
+    const doc = new Y.Doc();
+    doc.getMap('nodes').set('n1', legalNode('textInput'));
+    const events: Array<Y.YEvent<never>> = [];
+    doc.getMap('nodes').observeDeep((evs) => { for (const e of evs) void e.changes.keys; (events as unknown[]).push(...evs); });
+    doc.transact(() => { (doc.getMap('nodes').get('n1') as Y.Map<unknown>).set('type', 'imageGen'); });
+    expect(validateAppliedL2(doc, events)).toMatchObject({ ok: false, reason: 'type-immutable' });
   });
 });

@@ -48,16 +48,17 @@ export interface DocEdgeRecord {
   target?: string;
 }
 
-/** doc schema 版本常量（Y4a T2 版本 5）——**版本判据唯一承载=CanvasDoc.schemaVersion PG 列**
- *  （schema.prisma `schemaVersion Int @default(5)`；装载判定=api loadDocument 读行值≠5 拒载）。
+/** doc schema 版本常量（Y4b T7 版本 6）——**版本判据唯一承载=CanvasDoc.schemaVersion PG 列**
+ *  （schema.prisma `schemaVersion Int @default(6)`；装载判定=api loadDocument 读行值≠6 拒载）。
  *  沿革：O0a-1 常量随 fillDoc 上移 shared；O0b-0 格式批 1→2（rel→abs 翻转）；Y1b T2（Z9''-v14）
  *  版本移 PG 列承载——meta.schemaVersion 整链退役（客户端无从篡改）；T18（Y1c）双常量 bump=3
  *  （与 CLIENT_PROTOCOL_VERSION 同批——硬切非兼容层）；Y2 C1 bump 3→4（翻禁执法+作者键
- *  mediaId 域）；**Y4a T2（spec §0 条 9）bump 4→5**=timelines 顶层根物化（fillDoc 装载装载根
- * +manifest/frame-deny/oracle/canary 四门禁入册——与 CLIENT_PROTOCOL_VERSION 同笔同值）。
+ *  mediaId 域）；Y4a T2 bump 4→5（timelines 顶层根物化）；**Y4b T7（spec §0 条 2）bump 5→6**
+ *  =threads 顶层根物化（fillDoc 装载根+manifest/frame-deny 两门禁入册——与 CLIENT_PROTOCOL_VERSION
+ *  同笔同值；旧 v5 bundle csv=5 → schema-outdated）。
  *  本常量消费面=PG 列门比对+世代缓存键
  *  （web local-cache-key s 维经 REST collabSchemaVersion 行值透传）。 */
-export const CANVAS_DOC_SCHEMA_VERSION = 5;
+export const CANVAS_DOC_SCHEMA_VERSION = 6;
 
 /** Y0c T4（B12 键集收编）：canvas 数据键集 shared 单源——web 私有副本删除（键集零私有副本出口）。
  *  EPHEMERAL_DATA_KEYS=本地瞬态 UI 键（Spec B editMode 口径 13，v3.16 终裁 53）：editMode/transformMode
@@ -163,6 +164,10 @@ export function fillDoc(
   // 装载缝〔registry loadDocument〕与重建〔rebuildDocFaithful〕同款主动补根；**同名根就是同一
   // 对象**——doc.getMap 返回既有实例，不产生第二棵根）。
   doc.getMap('timelines');
+  // Y4b T7（spec §0 条 2/§2.2 处 4）：threads 根物化——timelines 同形（空文档也声明这棵根、
+  // 不放线程；线程写归 threadsStore threads-user 事务〔Task 10〕；水合走 applyUpdate 不经
+  // fillDoc ⇒ 服务端装载缝〔registry——Task 8〕同款主动补根；同名根就是同一对象）。
+  doc.getMap('threads');
 }
 
 /** doc 直读（readRecordsFromMaps 单源）：出口=作者态 StoredNodeRecord（键可选——doc 无键⇄records 同形

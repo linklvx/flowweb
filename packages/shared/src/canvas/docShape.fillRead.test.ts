@@ -110,7 +110,8 @@ describe('fillDoc → readRecordsFromMaps round-trip 恒等（docShape 单源—
     const doc = new FakeDoc();
     fillDoc(doc, [], []);
     expect(doc.getMap('meta').get('schemaVersion')).toBeUndefined();
-    expect(CANVAS_DOC_SCHEMA_VERSION).toBe(5);   // Y4a T2 版本 5（timelines 根物化批——与 CLIENT_PROTOCOL_VERSION 同 bump）
+    // T7r1（Important 3）：原值锚行删除——版本数字只驻两常量/Prisma 默认/版本门拒载夹具；
+    // 两常量互等锚在 docShape.schema.test.ts（bump 时零改动，禁值锚重新武装「改回 5」诱惑）。
   });
 });
 
