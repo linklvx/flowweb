@@ -157,7 +157,6 @@ maybe('Y4b T8：schema 5→6 硬切+threads 守恒三面（真 gateway+真 PG）
 
   // ── ③守恒负控 A7′+Review Focus 4：vacuumEquivalent threads 内容深比+canonicalDocView threads 腿 ──
   it('③守恒负控：副本少一条评论 ⇒ vacuumEquivalent false+canonicalDocView 摘要不+；仅 resolved 翻转 ⇒ 等价仍 false（防手挑字段——resolved 必须进守恒面）', async () => {
-    const { gateway: g } = { gateway };
     const a = threadsBaseDoc(false);
     try {
       // A7′ 1：rebuild 拷贝器产 clean 对照组（等价基线——内容比较不引入假红）
@@ -296,7 +295,7 @@ describe('Y4b T8 ⑤：actor threads observeDeep 物化档（非法 threads 事�
     c.begin(2n);
     Y.applyUpdate(doc, poison);
     const events = c.takeEvents();
-    expect(events.length).toBeGreaterThan(0), 'threads 事件必须进缓冲（现状红=无观察者零缓冲）';
+    expect(events.length, 'threads 事件必须进缓冲（现状红=无观察者零缓冲）').toBeGreaterThan(0);
     const verdict = validateAppliedL2(doc, events, { actorUserId: 'u1' });
     expect(verdict.ok, '非法 threads 事件可达 L2 ⇒ fail-closed 谓词拒（现状红=L2 恒不见事件放行 {ok:true}）').toBe(false);
   });

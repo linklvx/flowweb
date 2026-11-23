@@ -8,7 +8,6 @@
 import { describe, it, expect, expectTypeOf } from 'vitest';
 import {
   fillDoc, readRecordsFromMaps, stripDerivedKeys,
-  CANVAS_DOC_SCHEMA_VERSION,
   type DocLike, type DocEdgeRecord,
 } from './docShape';
 import { applyRecordToYMap, type DocMapLike, type StoredNodeRecord } from './collab-doc-ops';
