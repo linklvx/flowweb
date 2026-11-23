@@ -1402,16 +1402,12 @@ export class CollabSpoolService {
    *  unproven-tail 链断后续段=零帧（未过链校验网不可证连续——复核 R1：旧实现混入 chain-stopped
    *  致 peek 泄漏未证帧）。过滤=白名单（下方 filter）：null+chain-stopped 之外一律零帧。
    *  循环内解析失败=tripwire：计数+停读。
-   *  Y4b T9（毒帧截断×断连维护通道竞态根修）：本方法**纳入 per-project WAL IO 链**——`peek` 与
-   *  `truncateWalAfter` 之间存在 await 窗时，L2 毒帧 4411 的 hardClose 会同步触发 gateway.disconnect
-   *  → storeDocumentUnlocked 在截断完成前 peek 到**未截断的毒 WAL 帧**，经维护帧通道（actor 准入
-   *  首行无条件豁免）落 PG——截断回拨 walSeq 后维护帧复用同号 seq，毒内容随重装载复活（通用面：
-   *  任何 L2 毒帧域同中招）。链内串行化后 disconnect-peek 恒排在截断之后，只读到干净前缀。 */
-  peek(projectId: string): Promise<SpoolFrame[]> {
-    return this.chainWalIo(projectId, () => this.peekInner(projectId));
-  }
-
-  private async peekInner(projectId: string): Promise<SpoolFrame[]> {
+   *  Y4b T9（毒帧截断×维护通道复活）：本方法**不入 WAL IO 链**（曾试链化，但破坏
+   *  handoffOnUnload/handoffPendingToSpool 的同步队列语义——collab.gateway.spec 三例回归）。
+   *  复活面改由消费侧关断：persistence.storeDocumentUnlocked 取 stash 后按 watermark.appliedSeq
+   *  过滤（毒帧从未 noteApplied，故截断前后 appliedSeq 都低于毒帧 walSeq——过滤与截断时序无关，
+   *  两个窗一并关断）。 */
+  async peek(projectId: string): Promise<SpoolFrame[]> {
     const segs = this.index.get(projectId);
     if (!segs) return [];
     const frames: SpoolFrame[] = [];
