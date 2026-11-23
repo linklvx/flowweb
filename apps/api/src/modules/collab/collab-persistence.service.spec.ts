@@ -294,6 +294,29 @@ describe('CollabPersistenceService 独立实例化全链（RC2——不启 WS Se
     expect(sink).toHaveBeenCalledTimes(1);
     expect(sink.mock.calls[0][2]).toBeUndefined();
   });
+
+  it('Y4b R-2 白盒锁：storeDocumentUnlocked 按 walSeq<=appliedSeq 过滤——peek 含 N/N+1，维护写入只含 N（删过滤或写反必红）', async () => {
+    const doc = new Y.Doc();
+    svc.observeDocument(doc, PID, NAME);
+    const keep = new Y.Doc();
+    keep.getMap('nodes').set('n-keep', '1');
+    const poison = new Y.Doc();
+    poison.getMap('nodes').set('n-poison', '1');
+    const appended = await spool.appendBatch(PID, [Y.encodeStateAsUpdate(keep), Y.encodeStateAsUpdate(poison)]);
+    expect(appended.map((a) => a.walSeq), '布景：两帧 walSeq=N/N+1').toEqual([1n, 2n]);
+    expect((await spool.peek(PID)).map((f) => f.walSeq), 'peek 同时给出两帧').toEqual([1n, 2n]);
+    spool.noteApplied(PID, appended[0]?.walSeq ?? 0n);   // appliedSeq=N（毒帧不 apply）
+    const writes: Uint8Array[] = [];
+    vi.spyOn(svc as unknown as { runMaintenanceChannel: (pid: string, payload: Uint8Array) => Promise<void> }, 'runMaintenanceChannel')
+      .mockImplementation(async (_pid, payload) => { writes.push(payload); });
+    const ok = await svc.storeDocumentUnlocked({ document: doc, documentName: NAME });
+    expect(writes, '维护写入一次').toHaveLength(1);
+    const rebuilt = new Y.Doc();
+    for (const w of writes) Y.applyUpdate(rebuilt, w);
+    expect(rebuilt.getMap('nodes').has('n-keep'), 'walSeq=N 保留').toBe(true);
+    expect(rebuilt.getMap('nodes').has('n-poison'), 'walSeq=N+1 被过滤').toBe(false);
+    expect(ok).toBe(true);
+  });
 });
 
 describe('TD-33 C1b T13：终态族（擦除）短路面', () => {
