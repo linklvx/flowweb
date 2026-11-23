@@ -500,12 +500,6 @@ describe('Y1c T9 收口 S-I1：truncateWalAfter 逐被截帧清去重索引—�
   });
 });
 
-// ═══ Y4b T9（Important）：毒帧截断×断连维护通道竞态——peek 与 truncateWalAfter 的 await 窗 ═══
-// 红相（修前）：L2 毒帧 4411 的 hardClose 同步触发 gateway.disconnect → storeDocumentUnlocked 在
-// 截断完成前 peek 到毒 WAL 帧 → 经维护帧通道（actor 准入首行无条件豁免全链）落 PG；截断回拨 walSeq
-// 后维护帧复用同号 seq → 毒内容随重装载复活。通用面：任何 L2 毒帧域（nodes/timelines/XML）同中招。
-// 绿相（修后）：peek 纳入 per-project chainWalIo，与 truncate 串行——竞态窗内发起的 peek 恒排在
-// 截断之后，只读到干净前缀（下方用「截断未 settle 时并发 peek」钉住串行语义）。
 // ═══ Y4b T9（Important）：毒帧截断×维护通道复活——消费侧水位过滤的语义前提 ═══
 // 复活面（通用，任何 L2 毒帧域）：截断把 walSeq 回拨后，被截毒帧若已在别处被 peek 捕获并经维护通道
 // （actor 准入首行豁免全链）落 PG，毒内容会随重装载复活。关断点在消费侧：

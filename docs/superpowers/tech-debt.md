@@ -197,3 +197,14 @@
 - **状态**：立项不实现（2026-11-15，C3 T26 登记）。**触发**=run 行历史增长使 registry load 全表扫成本/内存压力显现。
 - **方案**：`ProjectErasureTombstone(projectId PK, erasedAt)` 与 run 同事务写、registry 查 tombstone；gauge 五枚（blocked/purgeable/restore-pending/purgeable_bytes/registry_age）已为其供数。备选（硬化优先）=DB trigger 拒 DELETE（测试清理需绕过），不新表。
 - **约束**：当前 `ProjectErasureRun` 行=墓碑，禁清理（runbook §18①）。
+
+## Y4b parked Minor 保留项登记（2026-11-23，HEAD 770cd964 核查）
+
+- **来源**：Y4b 批末 parked Minor triage（2026-11-23，HEAD 770cd964 核查）；本轮只登记保留项，代码不动。
+- **T5-2 @types/dompurify 弃用存根**（`apps/web/package.json:59`）：dompurify 自带类型，存根依赖可删；**修复方向**=随独立依赖批移除并验证 tsc，本批不动 lockfile。
+- **T6-1 anchor 字段逐键测试**（`packages/shared/src/canvas/threads-frame-predicate.test.ts`）：谓词已有 46 用例，逐键断言缺失；**修复方向**=补逐键断言。重提须带评审原句+行号（原文未落盘，无源句不开工）。
+- **T6-2 跨作者 delete 档缺失**（同上）：评审称缺跨作者删除覆盖，产品语义未判缺陷；**修复方向**=补测试档；重提须带源句+行号。
+- **T6-5 死语句 `test:413`**（同上）：评审原文未落盘，行号漂移无法定位；**修复方向**=重提须带原句+当前行号后删除。
+- **T9 M-1 peek 全量读 head-of-line**（`apps/api/src/modules/collab/collab-spool.service.ts:1414-1438`）：peek 读全部未 confirm 帧、replayAll 才 slice；**修复方向**=读上限下沉 `peekInner` 或新增 `peekLimited`（带读时长观测）；**不**把 peek 重新纳入 `chainWalIo`，**不**在 spool 侧加第二道 seq 过滤。
+- **T11 M-3 cleanupOrphans 返回值被吞**（`apps/web/src/pages/canvas/page.tsx:432`）：清理语义在 store，UI 对 -1/0/>0 无反馈；**修复方向**=UI 批按返回值分档文案，本轮不加 toast。
+- **T12 M-4 observeDeep 计变更非事务**（`apps/api/src/modules/collab/collab-threads-collab.int.spec.ts:161-188`）：活性探针已在档③后半；**修复方向**=严格化则另加 `doc.on('update')` origin 计数，不改观察器。

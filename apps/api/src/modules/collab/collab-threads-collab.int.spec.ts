@@ -15,11 +15,10 @@
 //    线程、且按 orphan 判据 nodeId∉nodes 成立。threadsView$ 的孤儿投影实现在 apps/web（T10）——
 //    本装置**不复制**投影实现（避免第二实现），投影正确性由 T10 档⑤/⑥单元覆盖；
 //  ③A15′：A 删节点 → UndoManager.undo()（画布栈）→ 节点回 → thread 自动离开孤儿判据 + **threads
-//    根零变更**（observeDeep 监听器 vi.fn 未触发=撤销只写 nodes 根、零新 threads-user 事务——
-//    域隔离反向锚）；
+//    根本笔无变更**（observeDeep 监听器 vi.fn 未触发=撤销只写 nodes 根——域隔离反向锚）；
 //  ④A 端单 threads-user 事务删孤儿 thread → B 端读回消失（双端 threads 根一致）；
-//  ⑤服务端闸全链（隐含主档）：合法 threads 帧经 actor L1/L2 准入后广播 + **全程零 close**
-//    （provider on('close') 观测——与 T9 执法档的分界：合法帧不被任何层拒/断连）。
+//  ⑤服务端闸全链（隐含主档）：合法 threads 帧经 actor L1/L2 准入后广播 + **同步完成后全程零 close**
+//    （provider on('close') 观测，watchClose 装在双方 synced 之后——与 T9 执法档的分界：合法帧不被任何层拒/断连）。
 //
 // UndoManager 在本 spec 内直构（int 装置不能 import apps/web——apps/api tsconfig 无该路径；形态
 // 对齐 web canvasUndo.ts attach 面）：scope=UNDO_STACK_BASE 三根（nodes/edges/timelines）+
@@ -104,7 +103,7 @@ describe('Y4b T12：threads 双端协作（装置=dual-client-server 真 WS）',
     const b = kit.connect(DOC_NAME);
     pair = { kit, a, b };
     await Promise.all([a.synced, b.synced]);
-    // 全程零 close 观测（合法帧链路——任何层拒/断连都会落 code 非 null）
+    // 同步完成后全程零 close 观测（watchClose 装在双方 synced 之后——合法帧链路任何层拒/断连都会落 code 非 null）
     aClose = watchClose(a.provider);
     bClose = watchClose(b.provider);
     // 布景：A 建节点 n1（local-user 画布域——档②/③ 的孤儿基线）；B 读回=互见前提就位
@@ -142,9 +141,12 @@ describe('Y4b T12：threads 双端协作（装置=dual-client-server 真 WS）',
     const nodeId = t1.get('nodeId') as string;
     expect(nodeId).toBe('n1');
     expect(pair.a.ydoc.getMap('nodes').has(nodeId), 'orphan 判据成立=nodeId∉nodes').toBe(false);
+    const t1b = pair.b.ydoc.getMap('threads').get('t1') as Y.Map<unknown>;
+    expect(t1b.get('nodeId'), 'B 端同判据').toBe('n1');
+    expect(pair.b.ydoc.getMap('nodes').has('n1'), 'B 端 nodes 不含 n1').toBe(false);
   }, 20_000);
 
-  it('③A15′：A 删节点→undo→节点回→thread 自动离开 orphan 判据 + threads 根零变更（零新 threads-user 事务）', async () => {
+  it('③A15′：A 删节点→undo→节点回→thread 自动离开 orphan 判据 + threads 根本笔无变更（观察器未触发）', async () => {
     // 独立布景 n2/t2（不与②的 n1/t1 夹具串扰——同 timeline-collab 隔离纪律）
     pair.a.ydoc.transact(() => {
       pair.a.ydoc.getMap('nodes').set('n2', videoEditNode());
@@ -185,10 +187,10 @@ describe('Y4b T12：threads 双端协作（装置=dual-client-server 真 WS）',
       // 尾部静默窗（防在途 update 迟到误计）
       await settle(300);
       // threads 根零变更（前后恒持有 t2 + 监听器一次未触发——撤销只写 nodes 根、零新 threads-user 事务）
-      expect(threadsListener, '零新 threads-user 事务（threads 根 observeDeep 未触发）').not.toHaveBeenCalled();
+      expect(threadsListener, 'threads 根本笔无变更（observeDeep 未触发；负断言后活性探针见下）').not.toHaveBeenCalled();
       expect(pair.a.ydoc.getMap('threads').has('t2')).toBe(true);
       expect(canvasUm.redoStack.length).toBe(1);   // 装置活性：undo 真弹栈非 no-op
-      // 观察器活性自证（防上面 not.toHaveBeenCalled 是空断言——T9 takeEvents 自证同款）：
+      // 观察器活性自证（防上面 not.toHaveBeenCalled 是空断言）：负断言之后用一笔 threads-user 写证明监听器接上了。
       // 追加评论一笔 threads-user 事务必须触发监听器（合法帧经服务端闸广播）
       pair.a.ydoc.transact(() => {
         const entry = pair.a.ydoc.getMap('threads').get('t2') as Y.Map<unknown>;
@@ -222,13 +224,13 @@ describe('Y4b T12：threads 双端协作（装置=dual-client-server 真 WS）',
     expect(keysA).toEqual(['t2']);
   }, 20_000);
 
-  it('⑤服务端闸全链（隐含主档）+全程零 close：合法 createThread 帧准入后广播', async () => {
+  it('⑤服务端闸全链（隐含主档）+同步完成后全程零 close：合法 createThread 帧准入后广播', async () => {
     aCreateThreadTx(pair.a.ydoc, 't5', 'n2', 'u1');
     await pollUntil(() => pair.b.ydoc.getMap('threads').has('t5'), 5_000);
     const bEntry = pair.b.ydoc.getMap('threads').get('t5') as Y.Map<unknown>;
     expect((bEntry.get('comments') as Y.Map<unknown>).size).toBe(1);
-    // 显式零 close：A/B 全程未收到 close（合法帧 L1/L2 全过闸——不拒/不断连）
-    expect(aClose.code(), 'A 全程零 close（服务端闸准入后广播）').toBeNull();
+    // 显式零 close：同步完成后 A/B 全程未收到 close（合法帧 L1/L2 全过闸——不拒/不断连）
+    expect(aClose.code(), 'A 同步完成后全程零 close（服务端闸准入后广播）').toBeNull();
     expect(bClose.code()).toBeNull();
   }, 20_000);
 });

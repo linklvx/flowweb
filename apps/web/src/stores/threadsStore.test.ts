@@ -7,6 +7,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { buildThreadComment, buildThreadEntry, encodeAnchorBase64, THREADS_ORIGIN } from '@flowweb/shared';
 import {
+  __resetThreadsStoreForTests,
   addComment,
   attachThreads,
   cleanupOrphans,
@@ -87,7 +88,7 @@ function seedThread(doc: Y.Doc, init: SeedInit): void {
 
 describe('threadsStore（Y4b T10 写链+投影）', () => {
   afterEach(() => {
-    setSessionUserId(null);
+    __resetThreadsStoreForTests();
   });
 
   it('档①主用例：createThread 单事务写 envelope+comments 容器+首条评论（threads-user origin）', () => {

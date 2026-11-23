@@ -30,7 +30,7 @@ import { QUOTA_DEFAULTS } from '../constants/collab-quota';
 import { validateXmlSubtree, XML_TEXT_MAX_BYTES } from './xml-schema';
 import { isValidOrderKey } from './order-key';
 import { checkTimelineEntryValue, checkTimelineClipMap } from './timeline-frame-predicate';
-import { checkThreadEntry, checkThreadComment, threadEventErr } from './threads-frame-predicate';
+import { checkThreadEntry, threadEventErr } from './threads-frame-predicate';
 
 /** 片段四型键矩阵（L2 事件面消费——timeline-frame-predicate CLIP_KEYS 同源；本文件谓词闭包
  *  直用 ReadonlySet 形态）。 */
@@ -592,7 +592,7 @@ function threadStructErr(
   const actorUserId = opts?.actorUserId;
   if (actorUserId === undefined) return 'thread-actor-missing';   // fail-closed：缺省=任何变更拒
   const threadId = keys[0] ?? '';
-  if (threadId === '') return `thread-entry:${threadId}`;
+  if (threadId === '') return 'thread-id-empty';
   // 容器创建本体（entry/comments/评论 Map——ContentType 匹配即放行）；键值执法走同帧收成
   if (contentTypeOf(st) === 'map') return undefined;
   const entry = collected.entries.get(threadId);

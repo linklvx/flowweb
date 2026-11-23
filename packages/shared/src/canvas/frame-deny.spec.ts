@@ -813,6 +813,13 @@ describe('Y4b T7 ③：L1 非法矩阵（深链档 ContentAny 收成普通对象
     expect(validateFrameDeny(f, { actorUserId: 'u1' }).ok).toBe(false);
   });
 
+  it('空 threadId 键（threads 根键为 \'\' 的深链帧）→ 拒（thread-id-empty 固定原因码）', () => {
+    const f = frameOf((d) => { d.getMap('threads').set('', legalThreadMap('', 'u1')); });
+    const r = validateFrameDeny(f, { actorUserId: 'u1' });
+    if (r.ok) throw new Error('expected denial');
+    expect(r.reason).toBe('thread-id-empty');
+  });
+
   // T7r1（Important 1 覆盖性锚——收成集记忆化后行为不变）：深链档多 threads value-struct 帧是
   // 修前逐 struct 重收集的 O(structs²) 面——本档用**多线程多 value-struct 帧**（每线程一条评论、
   // 评论区在 entry 逐 struct 之后——判定依赖全帧收成集而非首个 struct 的局部视图）钉死修后

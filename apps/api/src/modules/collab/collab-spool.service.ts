@@ -878,6 +878,7 @@ export class CollabSpoolService {
    *  的段文件 open 'r+'/写偏移竞态=ENOENT 中批拒绝——「wal-append-failed」假档）。链化不改语义：
    *  两操作本就 per-project 逻辑串行，仅时序窗收口；失败不断链（catch 吞后继）。 */
   private readonly walIoChains = new Map<string, Promise<unknown>>();
+  /** 同项目操作串行链。链内禁再调任何链化方法（peek/appendBatch/confirm/truncate/…）——会等待自己的 tail 形成死锁；调用点只在各 *Inner 之外。 */
   private chainWalIo<T>(projectId: string, op: () => Promise<T>): Promise<T> {
     const prev = this.walIoChains.get(projectId) ?? Promise.resolve();
     const next = prev.then(op, op);

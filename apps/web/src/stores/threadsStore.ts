@@ -70,6 +70,12 @@ export function setSessionUserId(uid: string | null): void {
   sessionUserId = uid;
 }
 
+/** 测试隔离：模块级 listeners Set 与会话态跨用例复位（生产零调用）。 */
+export function __resetThreadsStoreForTests(): void {
+  setSessionUserId(null);
+  listeners.clear();
+}
+
 function notify(): void {
   for (const listener of listeners) listener();
 }
@@ -128,6 +134,7 @@ function analyzeText(a: Attachment, entry: Y.Map<unknown>): { orphan: boolean; e
   const excerpt = excerptOf(start, end);
   const withExcerpt = excerpt === undefined ? {} : { excerpt };
   if (!fragment) return { orphan: true, ...withExcerpt };
+  // 任一端解不出就不是存活锚（spec §2.5）——不带摘录；缺片段但仍能解出 XmlText 的孤儿才保留摘录。
   if (!start || !end) return { orphan: true };
   if (!isInside(fragment, start.type) || !isInside(fragment, end.type)) return { orphan: true, ...withExcerpt };
   if (!(start.type instanceof Y.XmlText) || !(end.type instanceof Y.XmlText)) return { orphan: true };

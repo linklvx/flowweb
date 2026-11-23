@@ -147,7 +147,7 @@ describe('Y0b-3 T5 版本门（四档拒+双计数+DB 前短路）', () => {
 });
 
 describe('T18 版本硬切：CanvasDoc.schemaVersion PG 列门（Y1b T2——meta.schemaVersion 退役）', () => {
-  it('旧 doc（行 schemaVersion=2≠current 4）→ 拒载：throw 附 reason=schema-outdated+schemaRefusal 标记（客户端 handleVersionTerminal 一次 reload 通路）——doc meta 残留任何值不再参与判定', async () => {
+  it('旧 doc（行 schemaVersion=2 ≠ current 6）→ 拒载：throw 附 reason=schema-outdated+schemaRefusal 标记（客户端 handleVersionTerminal 一次 reload 通路）——doc meta 残留任何值不再参与判定', async () => {
     const { gateway, repo } = buildGateway();
     const stale = new Y.Doc();   // doc 内容：满节点+旧 meta 残留（历史载荷——列门不解释）
     stale.getMap('meta').set('schemaVersion', 2);
@@ -167,7 +167,7 @@ describe('T18 版本硬切：CanvasDoc.schemaVersion PG 列门（Y1b T2——met
     expect(rejected.store.pendingStructs).toBeNull();
   });
 
-  it('Y4a T2 版本 5 批：行 schemaVersion=4（Y2 旧档）→ 拒载（bump 5 后 4 即旧 doc——sv=4 拒载红档）；行=5（当前）→ 放行；行缺失（null，懒建档）→ 放行（首 store 建行 @default(5)）', async () => {
+  it('行 5 拒载；行 6（读 CANVAS_DOC_SCHEMA_VERSION）放行并物化 threads 根；行缺失放行，首存 @default(6)', async () => {
     // sv=5 拒载（Y4a 前红：5=current 放行——bump 6 后必拒；开发库已 5 的行被拒载重置文档=预期形态不写数据迁移）
     {
       const { gateway, repo } = buildGateway();
