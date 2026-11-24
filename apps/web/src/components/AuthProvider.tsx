@@ -7,7 +7,9 @@ import { purgeUidCaches } from '@/collab/local-cache-key';
 import {
   bindLogoutEpochTeardown, bumpAuthEpoch, fetchMeWithProof, setAuthSuppressed,
 } from '@/collab/local-session-proof';
-import { deleteSessionRow, getSessionRows } from '@/collab/local-yjs-store';
+import {
+  deleteBindingRowsForUid, deleteNameRowsForUid, deleteSessionRow, getSessionRows,
+} from '@/collab/local-yjs-store';
 import { invokeCollabSessionTeardown } from '@/collab/auth-teardown-registry';
 
 interface User {
@@ -93,9 +95,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Y0b-5 T5：登出/切用户清本 uid 全部本地缓存库（G27「登出经页面卸载路径复位」的缓存侧在
     // 登出动作点落位——destroyCollab 无法区分登出/切项目，无差别 purge 会误删他标签在用库）
     if (uid) {
-      // ④ 本 uid session 行清理（names/bindings 行删除 API 未产出——三表清理归 Task 13；
-      //    此处失败不回滚登出主链）
-      try { await deleteSessionRow(uid); } catch { /* fail-soft：本地清理失败不阻断登出 */ }
+      // ④ 三表清理（§0.6 登出行）：session 行 + 该 uid 的 names/bindings 行。残留 binding
+      //    指向已删库会让离线路径复活空库（v4 A2），故三删全发；单删失败不阻断其余与登出主链。
+      await Promise.all([
+        deleteSessionRow(uid),
+        deleteNameRowsForUid(uid),
+        deleteBindingRowsForUid(uid),
+      ]).catch(() => { /* fail-soft：本地清理失败不阻断登出 */ });
       // Task 13 回填点：await purgeUidDbs(uid)（文档库删除+blocked→names 墓碑；实装见
       // local-yjs-store 计划接口）
     }

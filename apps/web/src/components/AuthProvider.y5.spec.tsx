@@ -31,7 +31,8 @@ import {
   bumpAuthEpoch, fetchMeWithProof, readAuthEpoch, readAuthSuppressed, setAuthSuppressed,
 } from '@/collab/local-session-proof';
 import {
-  getSessionRows, openMetaDb, putSessionRow, type SessionRow, type UserSnapshot,
+  buildYjsDbName, getSessionRows, listNameRows, openMetaDb, putBindingRow, putNameRow,
+  putSessionRow, type BindingRow, type NameRow, type SessionRow, type UserSnapshot,
 } from '@/collab/local-yjs-store';
 import { registerCollabSessionTeardown } from '@/collab/auth-teardown-registry';
 import { SESSION_KEEPALIVE_MS, useSessionKeepalive } from '@/hooks/useSessionKeepalive';
@@ -91,21 +92,6 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-async function clearSessionStore(): Promise<void> {
-  const db = await openMetaDb();
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction('session', 'readwrite');
-      tx.objectStore('session').clear();
-      tx.oncomplete = () => { resolve(); };
-      tx.onerror = () => { reject(tx.error ?? new Error('session clear failed')); };
-      tx.onabort = () => { reject(tx.error ?? new Error('session clear aborted')); };
-    });
-  } finally {
-    db.close();
-  }
-}
-
 /** 绕 API 直写多行（单活行 API 不可达形态——验收 29 歧义腿前置）。 */
 async function seedSessionRowsRaw(rows: SessionRow[]): Promise<void> {
   const db = await openMetaDb();
@@ -117,6 +103,40 @@ async function seedSessionRowsRaw(rows: SessionRow[]): Promise<void> {
       tx.oncomplete = () => { resolve(); };
       tx.onerror = () => { reject(tx.error ?? new Error('seed session failed')); };
       tx.onabort = () => { reject(tx.error ?? new Error('seed session aborted')); };
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** 清 meta 三表（跨用例隔离——登出用例会写 names/bindings 行）。 */
+async function clearMetaStores(): Promise<void> {
+  const db = await openMetaDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(['names', 'session', 'bindings'], 'readwrite');
+      for (const name of ['names', 'session', 'bindings']) tx.objectStore(name).clear();
+      tx.oncomplete = () => { resolve(); };
+      tx.onerror = () => { reject(tx.error ?? new Error('meta clear failed')); };
+      tx.onabort = () => { reject(tx.error ?? new Error('meta clear aborted')); };
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/** 直读 bindings 键（断言该 uid 行已清——getBindingRow 逐键太窄）。 */
+async function rawBindingKeys(): Promise<IDBValidKey[]> {
+  const db = await openMetaDb();
+  try {
+    return await new Promise<IDBValidKey[]>((resolve, reject) => {
+      const tx = db.transaction('bindings', 'readonly');
+      const req = tx.objectStore('bindings').getAllKeys();
+      let keys: IDBValidKey[] = [];
+      req.onsuccess = () => { keys = req.result; };
+      tx.oncomplete = () => { resolve(keys); };
+      tx.onerror = () => { reject(tx.error ?? new Error('binding keys read failed')); };
+      tx.onabort = () => { reject(tx.error ?? new Error('binding keys read aborted')); };
     });
   } finally {
     db.close();
@@ -167,7 +187,7 @@ beforeAll(() => {
 beforeEach(async () => {
   localStorage.clear();
   window.history.replaceState(null, '', '/');
-  await clearSessionStore();
+  await clearMetaStores();
   vi.mocked(fetchMeWithProof).mockReset();
   vi.mocked(setAuthSuppressed).mockReset();
   vi.mocked(fetchMeWithProof).mockImplementation(
@@ -273,6 +293,38 @@ describe('C2 登出同步段（验收 28/29）', () => {
     await act(async () => { signOut.resolve(jsonResponse({})); });
     await expectUid('none');
     expect(await getSessionRows()).toEqual([]);
+  });
+
+  it('登出清三表（§0.6）：session 行空 + 本 uid names/bindings 行全空、他 uid 行保留', async () => {
+    installFetch((url) => (url.includes('/api/auth/sign-out') ? jsonResponse({}) : meOk()));
+    renderProvider();
+    await expectUid('u-a');
+
+    // 预置：本 uid 两 names 行 + 两 bindings 行；他 uid 各一行（登出不得波及）
+    const dbNameA1 = buildYjsDbName('u-a', 'p-1', 2, 1, 'h-2026-10-24-a');
+    const dbNameA2 = buildYjsDbName('u-a', 'p-2', 2, 1, 'h-2026-10-24-a');
+    const dbNameB = buildYjsDbName('u-b', 'p-1', 2, 1, 'h-2026-10-24-a');
+    const nameRow = (uid: string, pid: string): NameRow => ({
+      uid, pid, generation: 2, schemaVersion: 1, historyToken: 'h-2026-10-24-a', hold: true,
+    });
+    const bindingRow = (uid: string): BindingRow => ({
+      uid, generation: 1, schemaVersion: 1, historyToken: 'h-2026-10-24-a', name: `项目-${uid}`, teamId: null,
+    });
+    await putNameRow(dbNameA1, nameRow('u-a', 'p-1'));
+    await putNameRow(dbNameA2, nameRow('u-a', 'p-2'));
+    await putNameRow(dbNameB, nameRow('u-b', 'p-1'));
+    await putBindingRow('u-a', 'p-1', bindingRow('u-a'));
+    await putBindingRow('u-a', 'p-2', bindingRow('u-a'));
+    await putBindingRow('u-b', 'p-1', bindingRow('u-b'));
+    expect((await getSessionRows()).map((row) => row.uid)).toEqual(['u-a']);
+
+    await act(async () => { screen.getByText('logout').click(); });
+    await expectUid('none');
+
+    // 三表：session 空；names/bindings 只剩他 uid 行
+    expect(await getSessionRows()).toEqual([]);
+    expect((await listNameRows()).map((row) => row.dbName)).toEqual([dbNameB]);
+    expect(await rawBindingKeys()).toEqual(['u-b\u0000p-1']);
   });
 
   it('他标签整页刷新在途时登出：迟到 200+user 不复活行（epoch 丢弃）', async () => {

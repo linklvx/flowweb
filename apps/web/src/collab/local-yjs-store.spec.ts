@@ -15,6 +15,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   buildYjsDbName, openMetaDb, putSessionRow, deleteSessionRow, getSessionRows,
   putBindingRow, getBindingRow, putNameRow, listNameRows, snapshotFromUser,
+  deleteNameRow, deleteNameRowsForUid, deleteBindingRowsForUid,
   type SessionRow, type BindingRow, type NameRow, type UserSnapshot,
 } from './local-yjs-store';
 
@@ -214,6 +215,57 @@ describe('names 行', () => {
     const bad = { ...nameRow('u-a', 'p-1'), hold: () => true } as unknown as NameRow;
     await expect(putNameRow(dbName, bad)).rejects.toBeTruthy();
     expect(await listNameRows()).toEqual([]);
+  });
+});
+
+describe('meta 行删除 API（§0.6 登出三表清理）', () => {
+  it('deleteNameRow 只删指定库名行', async () => {
+    const dbNameA = buildYjsDbName('u-a', 'p-1', 2, 1, 'h-2026-10-24-a');
+    const dbNameB = buildYjsDbName('u-a', 'p-2', 2, 1, 'h-2026-10-24-a');
+    await putNameRow(dbNameA, nameRow('u-a', 'p-1'));
+    await putNameRow(dbNameB, nameRow('u-a', 'p-2'));
+
+    await deleteNameRow(dbNameA);
+
+    expect((await listNameRows()).map((row) => row.dbName)).toEqual([dbNameB]);
+  });
+
+  it('deleteNameRowsForUid(uid a)：删 a 的两行（不同 pid）、保留他 uid 行', async () => {
+    const a1 = buildYjsDbName('u-a', 'p-1', 2, 1, 'h-2026-10-24-a');
+    const a2 = buildYjsDbName('u-a', 'p-2', 2, 1, 'h-2026-10-24-a');
+    const b1 = buildYjsDbName('u-b', 'p-1', 2, 1, 'h-2026-10-24-a');
+    await putNameRow(a1, nameRow('u-a', 'p-1'));
+    await putNameRow(a2, nameRow('u-a', 'p-2'));
+    await putNameRow(b1, nameRow('u-b', 'p-1'));
+
+    await deleteNameRowsForUid('u-a');
+
+    expect(await listNameRows()).toEqual([{ ...nameRow('u-b', 'p-1'), dbName: b1 }]);
+  });
+
+  it('deleteBindingRowsForUid(uid a)：删 a 的两行、保留 b 行（键=uid\\u0000pid）', async () => {
+    await putBindingRow('u-a', 'p-1', bindingRow('u-a'));
+    await putBindingRow('u-a', 'p-2', bindingRow('u-a', 2));
+    await putBindingRow('u-b', 'p-1', bindingRow('u-b'));
+
+    await deleteBindingRowsForUid('u-a');
+
+    expect((await rawKeys('bindings'))).toEqual(['u-b\u0000p-1']);
+    expect(await getBindingRow('u-b', 'p-1')).toEqual(bindingRow('u-b'));
+    expect(await getBindingRow('u-a', 'p-1')).toBeNull();
+    expect(await getBindingRow('u-a', 'p-2')).toBeNull();
+  });
+
+  it('deleteNameRowsForUid / deleteBindingRowsForUid 无匹配行时零动作（幂等）', async () => {
+    const b1 = buildYjsDbName('u-b', 'p-1', 2, 1, 'h-2026-10-24-a');
+    await putNameRow(b1, nameRow('u-b', 'p-1'));
+    await putBindingRow('u-b', 'p-1', bindingRow('u-b'));
+
+    await deleteNameRowsForUid('u-a');
+    await deleteBindingRowsForUid('u-a');
+
+    expect((await listNameRows()).map((row) => row.dbName)).toEqual([b1]);
+    expect(await rawKeys('bindings')).toEqual(['u-b\u0000p-1']);
   });
 });
 

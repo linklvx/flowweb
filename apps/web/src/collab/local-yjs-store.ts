@@ -213,6 +213,48 @@ export async function listNameRows(): Promise<Array<NameRow & { dbName: string }
   });
 }
 
+/** 删单个 names 行（键=完整库名）——登出三表清理（§0.6）与删除闸共用。 */
+export async function deleteNameRow(dbName: string): Promise<void> {
+  await runMetaTx(STORE_NAMES, 'readwrite', (tx) => {
+    tx.objectStore(STORE_NAMES).delete(dbName);
+    return () => undefined;
+  });
+}
+
+/** 删该 uid 全部 names 行（§0.6 登出行）：同事务内扫值按 row.uid 匹配再删——
+ *  键是库名（含 pid/generation/token），无法按 uid 前缀直删。 */
+export async function deleteNameRowsForUid(uid: string): Promise<void> {
+  await runMetaTx(STORE_NAMES, 'readwrite', (tx) => {
+    const store = tx.objectStore(STORE_NAMES);
+    const keysReq = store.getAllKeys();
+    const valuesReq = store.getAll();
+    valuesReq.onsuccess = () => {
+      const keys = keysReq.result as string[];
+      const values = valuesReq.result as NameRow[];
+      keys.forEach((key, index) => {
+        if (values[index]?.uid === uid) store.delete(key);
+      });
+    };
+    return () => undefined;
+  });
+}
+
+/** 删该 uid 全部 bindings 行（§0.6 登出行）：键=`uid\u0000pid`，同事务内按键前缀匹配再删。
+ *  副作用：值被写坏（行 uid 与键不符）时仍按键删——登出以「账号隔离」为准，键才是查找载体。 */
+export async function deleteBindingRowsForUid(uid: string): Promise<void> {
+  await runMetaTx(STORE_BINDINGS, 'readwrite', (tx) => {
+    const store = tx.objectStore(STORE_BINDINGS);
+    const keysReq = store.getAllKeys();
+    keysReq.onsuccess = () => {
+      const prefix = `${uid}\u0000`;
+      for (const key of keysReq.result as string[]) {
+        if (key.startsWith(prefix)) store.delete(key);
+      }
+    };
+    return () => undefined;
+  });
+}
+
 /** 整行 Prisma User→十字段快照白名单裁剪（/me 返回整行含 openid/unionid；落盘不得带敏感字段）。 */
 export function snapshotFromUser(user: Record<string, unknown>): UserSnapshot {
   return {
