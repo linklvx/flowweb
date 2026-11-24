@@ -24,15 +24,15 @@ vi.mock('@hocuspocus/provider', async () => {
 });
 
 // purge 面 mock（挂点/顺序断言——真实行为归 local-cache-key.test）；exportRawYjsBackup spy
-// （换代族草稿导出收参侧可观测——记录原始字节供内容断言）
-const familyExportLog: Array<{ yjs: Uint8Array; tag?: string }> = [];
+// （换代族草稿导出收参侧可观测——记录原始字节+帧头供内容断言）
+const familyExportLog: Array<{ yjs: Uint8Array; header: { schemaVersion: number; historyToken: string }; tag?: string }> = [];
 vi.mock('@/collab/canvas-local-backup', async (importOriginal) => {
   const orig = await importOriginal<Record<string, unknown>>();
   return {
     ...orig,
-    exportRawYjsBackup: (yjs: Uint8Array, opts?: { tag?: string }) => {
-      familyExportLog.push({ yjs, tag: opts?.tag });
-      return (orig.exportRawYjsBackup as (y: Uint8Array, o?: { tag?: string }) => number | null)(yjs, opts);
+    exportRawYjsBackup: (yjs: Uint8Array, header: { schemaVersion: number; historyToken: string }, opts?: { tag?: string }) => {
+      familyExportLog.push({ yjs, header, tag: opts?.tag });
+      return (orig.exportRawYjsBackup as (y: Uint8Array, h: { schemaVersion: number; historyToken: string }, o?: { tag?: string }) => number | null)(yjs, header, opts);
     },
   };
 });
@@ -267,6 +267,8 @@ describe('T18 换代清整族：先保存可恢复脏草稿再清（禁静默丢
     // 可回灌字节含两好 dirty 记录节点、不含 clean 记录专属节点/坏记录内容
     expect(familyExportLog.length).toBe(1);
     expect(familyExportLog[0]!.tag).toContain('oldgen');   // oldgen-family 标注（世代被超的编辑）
+    // Y5 T6b：族导出带当前会话帧头（META.schemaVersion=2；未收 auth-receipt=空纪元串）
+    expect(familyExportLog[0]!.header).toEqual({ schemaVersion: 2, historyToken: '' });
     const tmp = new Y.Doc();
     Y.applyUpdate(tmp, familyExportLog[0]!.yjs);           // 可回灌（importLocalBackup 同格式）
     expect(tmp.getMap('nodes').get('fam-old')).toBeTruthy();       // 旧代库 dirty 草稿

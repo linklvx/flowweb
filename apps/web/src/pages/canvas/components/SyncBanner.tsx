@@ -25,7 +25,7 @@ import {
   SS2_OVER_LIMIT_TERMINAL_REASON,
 } from '@flowweb/shared';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { escapeWithLocalExport, safeReload, getDoc, discardLocalDiverged, exportDivergedContent, acceptServerRestoredRecovery } from '@/stores/canvasCollabRuntime';
+import { escapeWithLocalExport, safeReload, getDoc, discardLocalDiverged, exportDivergedContent, acceptServerRestoredRecovery, getCurrentBackupHeader } from '@/stores/canvasCollabRuntime';
 import { exportLocalBackup } from '@/collab/canvas-local-backup';
 import { loginUrl } from '@/utils/loginRedirect';
 
@@ -72,7 +72,7 @@ function DivergedActions({ exportFromDisk = false }: { exportFromDisk?: boolean 
         onClick={() => {
           try {
             if (exportFromDisk) exportDivergedContent();
-            else exportLocalBackup(getDoc());
+            else exportLocalBackup(getDoc(), getCurrentBackupHeader());
           } catch { /* 导出失败可重试 */ }
         }}
         className="shrink-0 px-3 h-7 rounded-lg bg-overlay-3 hover:bg-overlay-2 text-text text-xs border border-overlay-2"

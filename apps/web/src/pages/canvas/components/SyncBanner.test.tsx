@@ -15,6 +15,7 @@ vi.mock('@/stores/canvasCollabRuntime', () => ({
   getDoc: vi.fn(() => null),
   discardLocalDiverged: vi.fn(),
   exportDivergedContent: vi.fn(),
+  getCurrentBackupHeader: vi.fn(() => ({ schemaVersion: 6, historyToken: '' })),
 }));
 
 const reset = () => useCanvasStore.setState({

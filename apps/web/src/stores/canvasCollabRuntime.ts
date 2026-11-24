@@ -82,7 +82,7 @@ import { buildLocalCacheKey, purgeForeignCaches, purgePidCaches } from '@/collab
 import { LocalCollabCache, LOCAL_CACHE_MAX_DOC_BYTES, collectFamilyDirtyRecords, type LocalCacheRecord } from '@/collab/local-collab-cache';
 // Y0b-5 T6：导出双产物+导入核（纯模块——doc/provider 注入，无会话态依赖）；卸载警告 reason 集合
 // Y1c T18：exportRawYjsBackup——换代清族前他 tab 脏草稿保全（单 .yjs 可回灌）
-import { exportLocalBackup, exportRawYjsBackup, applyLocalBackup, type LocalBackupArtifact } from '@/collab/canvas-local-backup';
+import { exportLocalBackup, exportRawYjsBackup, applyLocalBackup, type LocalBackupArtifact, type LocalBackupHeader } from '@/collab/canvas-local-backup';
 import { armUnloadWarning, disarmUnloadWarning } from '@/utils/unloadGuard';
 // Y1c T21：barrier/ensureDurable 注入缝接线（循环依赖裁定同 supervisor——顶层仅函数声明，
 // initCollab 运行时注册；executionApi 对本模块的 getStateVector import 不受影响）
@@ -1100,6 +1100,16 @@ export function getActiveCacheKey(): string | undefined {
   return session?.cacheKey;
 }
 
+/** Y5 T6b（P4）：当前会话的 .yjs 备份帧头期望值（导出帧+导入校验单一取值点）。
+ *  schemaVersion=会话元数据（缺省 CANVAS_DOC_SCHEMA_VERSION）；historyToken=模块已跟踪的当前纪元
+ *  （auth-receipt 回执/持久化；首连前无回执=空串，与信封 historyId 同口径）。 */
+export function getCurrentBackupHeader(): LocalBackupHeader {
+  return {
+    schemaVersion: session?.collabSchemaVersion ?? CANVAS_DOC_SCHEMA_VERSION,
+    historyToken: knownHistoryId ?? '',
+  };
+}
+
 export function safeReload(
   reason: SafeReloadReason = 'generic',
   opts?: { generationCacheKey?: string; generationTag?: number; beforeReload?: () => Promise<void> | void },
@@ -1112,7 +1122,7 @@ export function safeReload(
     // T6 M2：tag=调度时刻快照（与 key 同时点——执行窗口内 store 变化不渗入）;未传兜底 0（'oldgen'）
     const tag = opts?.generationTag ?? 0;
     try {
-      exportLocalBackup(doc, { tag: tag > 0 ? `oldgen${tag}` : 'oldgen' });
+      exportLocalBackup(doc, getCurrentBackupHeader(), { tag: tag > 0 ? `oldgen${tag}` : 'oldgen' });
     } catch { /* 导出失败不阻断 purge+reload——世代隔离是正确性主锚（jsdom/无 createObjectURL 同此路径） */ }
   }
   void (async () => {
@@ -1131,7 +1141,7 @@ export function safeReload(
           : null;
         if (familyMerged !== null && familyMerged.byteLength > 0) {
           const tag = opts?.generationTag ?? 0;
-          exportRawYjsBackup(familyMerged, { tag: tag > 0 ? `oldgen${tag}-family` : 'oldgen-family' });
+          exportRawYjsBackup(familyMerged, getCurrentBackupHeader(), { tag: tag > 0 ? `oldgen${tag}-family` : 'oldgen-family' });
         }
       } catch { /* fail-soft——禁静默丢是尽力义务，非阻断闸 */ }
       await purgeForeignCaches(key);
@@ -1150,7 +1160,7 @@ export function safeReload(
  *  旧实现无条件 reload=唯一持有者销毁；SyncBanner 按钮文案同步去「并刷新」承诺词）。 */
 export function escapeWithLocalExport(): void {
   try {
-    exportLocalBackup(doc);
+    exportLocalBackup(doc, getCurrentBackupHeader());
     // T6 质量修复 C1：导出完成=逃生待决态消亡——pending 复位（用户可再触发 reload；dirty 仍在,
     // beforeunload 守卫不失）；导出失败（catch）不复位——用户可重试点击
     useCanvasStore.setState({ collabEscapePending: false });
@@ -1178,11 +1188,11 @@ export function discardLocalDiverged(): void {
  *  捕获——用户可重试点击（SyncBanner 动作面 try/catch 同 escapeWithLocalExport 形态）。 */
 export function exportDivergedContent(): LocalBackupArtifact | null {
   const snap = bootDivergedSnapshot;
-  if (!snap) return exportLocalBackup(doc, { tag: 'diverged' });
+  if (!snap) return exportLocalBackup(doc, getCurrentBackupHeader(), { tag: 'diverged' });
   const tmp = new Y.Doc();
   try {
     Y.applyUpdate(tmp, snap);
-    return exportLocalBackup(tmp, { tag: 'diverged' });
+    return exportLocalBackup(tmp, getCurrentBackupHeader(), { tag: 'diverged' });
   } finally {
     tmp.destroy();
   }
@@ -1193,14 +1203,24 @@ export function exportDivergedContent(): LocalBackupArtifact | null {
  *  ★导入后显式置 unsyncedDirty：suppress-origin（origin===provider）同时抑制库 unsyncedChanges
  *  计数与单源置位监听——显式标记兜住 beforeunload/执行门判据（禁"已缓存"文案对导入内容撒谎）。
  *  超上限明示「该备份会使画布超过单文档上限」（>8MB 恢复唯一通道=merge 端点，Y5 必做——评估输入
- *  Y.encodeStateAsUpdate(doc,sv) SV 分区公开 API）。 */
+ *  Y.encodeStateAsUpdate(doc,sv) SV 分区公开 API）。
+ *  Y5 T6b：expected=当前会话帧头（getCurrentBackupHeader——schemaVersion+historyToken）；版本/纪元
+ *  不符与格式无效分别提示，均返回 false 且不 applyUpdate。 */
 export function importLocalBackup(bin: Uint8Array): boolean {
   const d = doc;
   const p = provider;
   if (!d || !p) return false;
-  const r = applyLocalBackup(bin, { doc: d, provider: p });
+  const r = applyLocalBackup(bin, { doc: d, provider: p }, getCurrentBackupHeader());
   if (!r.ok) {
-    message.error(`该备份会使画布超过单文档上限（${(r.limitBytes / 1024 / 1024).toFixed(1)}MB），无法导入；超大备份恢复通道建设中`);
+    if (r.reason === 'over-limit') {
+      message.error(`该备份会使画布超过单文档上限（${(r.limitBytes / 1024 / 1024).toFixed(1)}MB），无法导入；超大备份恢复通道建设中`);
+    } else if (r.reason === 'schema-mismatch') {
+      message.error('该备份的画布版本与当前版本不一致，无法导入');
+    } else if (r.reason === 'epoch-mismatch') {
+      message.error('该备份属于其他历史纪元，无法导入当前画布');
+    } else {
+      message.error('备份文件格式无效或已损坏，无法导入');
+    }
     return false;
   }
   markDocUnsyncedDirty(d);

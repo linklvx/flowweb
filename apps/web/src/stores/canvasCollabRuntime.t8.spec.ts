@@ -29,9 +29,9 @@ vi.mock('@/collab/canvas-local-backup', async (importOriginal) => {
   const orig = await importOriginal<Record<string, unknown>>();
   return {
     ...orig,
-    exportLocalBackup: (d: unknown, opts?: { tag?: string }) => {
+    exportLocalBackup: (d: unknown, header: unknown, opts?: { tag?: string }) => {
       exportOptsLog.push(opts ?? {});
-      return (orig.exportLocalBackup as (d: unknown, opts?: { tag?: string }) => unknown)(d, opts);
+      return (orig.exportLocalBackup as (d: unknown, header: unknown, opts?: { tag?: string }) => unknown)(d, header, opts);
     },
   };
 });

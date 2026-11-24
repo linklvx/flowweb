@@ -9,6 +9,7 @@ import { useCanvasStore } from './canvasStore';
 import * as runtime from './canvasCollabRuntime';
 import { Origin } from './canvasUndo';
 import { QUOTA_DEFAULTS } from '@flowweb/shared';
+import { encodeYjsFrame } from '@/collab/canvas-local-backup';
 import { _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 import { _resetUnloadGuardForTest, shouldWarnUnload } from '@/utils/unloadGuard';
 
@@ -24,9 +25,9 @@ vi.mock('@/collab/canvas-local-backup', async (importOriginal) => {
   const orig = await importOriginal<Record<string, unknown>>();
   return {
     ...orig,
-    exportLocalBackup: (d: unknown, opts?: { tag?: string }) => {
+    exportLocalBackup: (d: unknown, header: unknown, opts?: { tag?: string }) => {
       exportOptsLog.push(opts ?? {});
-      return (orig.exportLocalBackup as (d: unknown, opts?: { tag?: string }) => unknown)(d, opts);
+      return (orig.exportLocalBackup as (d: unknown, header: unknown, opts?: { tag?: string }) => unknown)(d, header, opts);
     },
   };
 });
@@ -327,7 +328,7 @@ describe('Y0b-5 T6：importLocalBackup', () => {
     const d = runtime.getDoc()!;
     const src = new Y.Doc();
     src.transact(() => { src.getMap('nodes').set('n-imp', new Y.Map([['id', 'n-imp']])); });
-    const bin = Y.encodeStateAsUpdate(src);
+    const bin = encodeYjsFrame(Y.encodeStateAsUpdate(src), runtime.getCurrentBackupHeader());   // Y5 T6b：当前库帧头
     expect(runtime.hasUnsyncedCanvasChanges()).toBe(false);
     expect(runtime.importLocalBackup(bin)).toBe(true);
     expect(d.getMap('nodes').get('n-imp')).toBeDefined();       // 已回灌
@@ -339,10 +340,36 @@ describe('Y0b-5 T6：importLocalBackup', () => {
   it('超上限（>maxDocBytes 同源判据）明示拒绝：不 apply 不 forceSync 返回 false——「该备份会使画布超过单文档上限」（merge 端点=Y5 必做；评估输入=Y.encodeStateAsUpdate(doc,sv) SV 分区公开 API）', async () => {
     const p = await driveToSynced();
     const d = runtime.getDoc()!;
-    const big = new Uint8Array(QUOTA_DEFAULTS.maxDocBytes + 1);
+    const big = encodeYjsFrame(new Uint8Array(QUOTA_DEFAULTS.maxDocBytes + 1), runtime.getCurrentBackupHeader());
     const nodesBefore = d.getMap('nodes').size;
     expect(runtime.importLocalBackup(big)).toBe(false);
     expect(d.getMap('nodes').size).toBe(nodesBefore);            // 未回灌
+    expect(p.forceSync).not.toHaveBeenCalled();
+  });
+
+  it('Y5 T6b：帧头 schemaVersion 与当前会话不一致→拒绝返回 false、不 apply 不 forceSync（版本不符禁回放）', async () => {
+    const p = await driveToSynced();
+    const d = runtime.getDoc()!;
+    const cur = runtime.getCurrentBackupHeader();
+    const src = new Y.Doc();
+    src.transact(() => { src.getMap('nodes').set('n-wrong-sv', new Y.Map([['id', 'n-wrong-sv']])); });
+    const bin = encodeYjsFrame(Y.encodeStateAsUpdate(src), { ...cur, schemaVersion: cur.schemaVersion + 1 });
+    const nodesBefore = d.getMap('nodes').size;
+    expect(runtime.importLocalBackup(bin)).toBe(false);
+    expect(d.getMap('nodes').size).toBe(nodesBefore);
+    expect(p.forceSync).not.toHaveBeenCalled();
+  });
+
+  it('Y5 T6b：帧头 historyToken 与当前纪元不一致→拒绝返回 false、不 apply 不 forceSync（旧纪元字节禁回放新纪元 log）', async () => {
+    const p = await driveToSynced();
+    const d = runtime.getDoc()!;
+    const cur = runtime.getCurrentBackupHeader();
+    const src = new Y.Doc();
+    src.transact(() => { src.getMap('nodes').set('n-wrong-epoch', new Y.Map([['id', 'n-wrong-epoch']])); });
+    const bin = encodeYjsFrame(Y.encodeStateAsUpdate(src), { ...cur, historyToken: `${cur.historyToken}-other` });
+    const nodesBefore = d.getMap('nodes').size;
+    expect(runtime.importLocalBackup(bin)).toBe(false);
+    expect(d.getMap('nodes').size).toBe(nodesBefore);
     expect(p.forceSync).not.toHaveBeenCalled();
   });
 });

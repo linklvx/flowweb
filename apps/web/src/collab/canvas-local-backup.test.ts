@@ -1,15 +1,20 @@
 // apps/web/src/collab/canvas-local-backup.test.ts
 // Y0b-5 T6：导出双产物（.yjs 二进制可回灌+doc 反投影 JSON——禁 store 投影）+导入核
 // （applyLocalBackup——applyUpdate 以 provider 为 origin 抑制 Update 帧回发+forceSync SS2 差分）。
+// Y5 T6b：.yjs 产物=带版本+纪元帧头（decodeYjsFrame 解帧断言）；JSON 侧车格式不变。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import * as Y from 'yjs';
 import { QUOTA_DEFAULTS } from '@flowweb/shared';
 import {
-  buildLocalBackupPayload, exportLocalBackup, applyLocalBackup, LOCAL_BACKUP_MAX_BYTES,
+  buildLocalBackupPayload, exportLocalBackup, exportRawYjsBackup, applyLocalBackup,
+  encodeYjsFrame, decodeYjsFrame, LOCAL_BACKUP_MAX_BYTES,
 } from './canvas-local-backup';
 import { readCanvasFromDoc } from './ydocBuilder';
+
+/** Y5 T6b：测试固定帧头（纯模块入参注入——不读会话/全局） */
+const HEADER = { schemaVersion: 6, historyToken: 'h-epoch-test' };
 
 /** jsdom 无 URL.createObjectURL——静态方法注入 */
 function stubBlobUrls(sink: Blob[]): { restore: () => void } {
@@ -32,20 +37,47 @@ function docWithNode(key: string): Y.Doc {
   return d;
 }
 
+/** 解帧断言（.yjs 下载产物=FWYJS1\n 帧——旧版裸 encodeStateAsUpdate 不兼容）。
+ *  jsdom Blob 无 arrayBuffer/text ⇒ FileReader（jsdom 已实现）读取。 */
+function blobBytes(blob: Blob): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(blob);
+  });
+}
+
+async function decodeBlob(blob: Blob) {
+  const decoded = decodeYjsFrame(await blobBytes(blob));
+  expect(decoded.ok).toBe(true);
+  if (!decoded.ok) throw new Error(`bad frame: ${decoded.reason}`);
+  return decoded;
+}
+
 describe('Y0b-5 T6：buildLocalBackupPayload——doc 反投影（禁 store 投影）', () => {
-  it('产物=encodeStateAsUpdate 二进制+readCanvasFromDoc 反投影 JSON（store 为空也可导出——hydration failed 空画布根修）', () => {
+  it('产物=带帧头的 .yjs + readCanvasFromDoc 反投影 JSON（store 为空也可导出——hydration failed 空画布根修）', () => {
     const d = docWithNode('n-1');
-    const payload = buildLocalBackupPayload(d);
+    const payload = buildLocalBackupPayload(d, HEADER);
     expect(payload).not.toBeNull();
     expect(payload!.yjs).toBeInstanceOf(Uint8Array);
     expect(payload!.yjs.byteLength).toBeGreaterThan(0);
+    // Y5 T6b：.yjs 带三字段头（magic/schemaVersion/historyToken）+原始 update
+    const framed = decodeYjsFrame(payload!.yjs);
+    expect(framed.ok).toBe(true);
+    if (framed.ok) {
+      expect(framed.header).toEqual({ magic: 'flowweb-yjs', ...HEADER });
+      const tmp = new Y.Doc();
+      Y.applyUpdate(tmp, framed.update);
+      expect(tmp.getMap('nodes').get('n-1')).toBeDefined();      // 帧尾=可回灌 update
+    }
     const json = JSON.parse(payload!.json);
     expect(json.nodes.map((n: { id: string }) => n.id)).toContain('n-1');
     expect(Array.isArray(json.edges)).toBe(true);
     expect(payload!.nodeCount).toBe(1);
   });
   it('null doc→null（无会话零产物——调用方 fail-soft）', () => {
-    expect(buildLocalBackupPayload(null)).toBeNull();
+    expect(buildLocalBackupPayload(null, HEADER)).toBeNull();
   });
 });
 
@@ -55,7 +87,7 @@ describe('Y0b-5 T6：exportLocalBackup——双产物下载', () => {
   beforeEach(() => { sink = []; restore = stubBlobUrls(sink).restore; });
   afterEach(() => restore());
 
-  it('两文件下载：.yjs（octet-stream）+.json（json）；tag 标注入文件名（oldgen 标注旧代）', () => {
+  it('两文件下载：.yjs（octet-stream，带帧头）+.json（json，侧车格式不变）；tag 标注入文件名（oldgen 标注旧代）', async () => {
     const clicks: string[] = [];
     const origCreate = document.createElement.bind(document);
     vi.spyOn(document, 'createElement').mockImplementation(((tag: string) => {
@@ -63,18 +95,50 @@ describe('Y0b-5 T6：exportLocalBackup——双产物下载', () => {
       if (tag === 'a') (el as HTMLAnchorElement).click = () => { clicks.push((el as HTMLAnchorElement).download); };
       return el;
     }) as typeof document.createElement);
-    const art = exportLocalBackup(docWithNode('n-2'), { tag: 'oldgen9' });
+    const art = exportLocalBackup(docWithNode('n-2'), HEADER, { tag: 'oldgen9' });
     expect(art).not.toBeNull();
     expect(sink).toHaveLength(2);
     expect(sink[0].type).toBe('application/octet-stream');
     expect(sink[1].type).toBe('application/json');
+    const framed = await decodeBlob(sink[0]);                    // .yjs=版本+纪元帧
+    expect(framed.header).toEqual({ magic: 'flowweb-yjs', ...HEADER });
+    // .json 侧车不加头（文本面断言——FileReader 同款读取）
+    const jsonText = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result as string);
+      r.onerror = () => reject(r.error);
+      r.readAsText(sink[1]);
+    });
+    expect(JSON.parse(jsonText)).toHaveProperty('nodes');
     expect(clicks.filter((n) => n.endsWith('.yjs'))).toHaveLength(1);
     expect(clicks.filter((n) => n.endsWith('.json'))).toHaveLength(1);
     expect(clicks.every((n) => n.includes('oldgen9'))).toBe(true);
     vi.restoreAllMocks();
   });
   it('null doc→null 且零下载', () => {
-    expect(exportLocalBackup(null)).toBeNull();
+    expect(exportLocalBackup(null, HEADER)).toBeNull();
+    expect(sink).toHaveLength(0);
+  });
+});
+
+describe('Y0b-5 T6：exportRawYjsBackup——单 .yjs 带帧头', () => {
+  let sink: Blob[] = [];
+  let restore: () => void;
+  beforeEach(() => { sink = []; restore = stubBlobUrls(sink).restore; });
+  afterEach(() => restore());
+
+  it('裸 update 入参→下载体=当前 epoch 帧（update 原样为帧尾）；返回值=落盘帧字节数', async () => {
+    const raw = Y.encodeStateAsUpdate(docWithNode('n-raw'));
+    const bytes = exportRawYjsBackup(raw, HEADER, { tag: 'oldgen-family' });
+    expect(bytes).not.toBeNull();
+    expect(sink).toHaveLength(1);
+    const framed = await decodeBlob(sink[0]);
+    expect(framed.header).toEqual({ magic: 'flowweb-yjs', ...HEADER });
+    expect(framed.update).toEqual(raw);
+    expect(bytes).toBe(sink[0].size);
+  });
+  it('空字节→null 零下载', () => {
+    expect(exportRawYjsBackup(new Uint8Array(0), HEADER)).toBeNull();
     expect(sink).toHaveLength(0);
   });
 });
@@ -82,13 +146,14 @@ describe('Y0b-5 T6：exportLocalBackup——双产物下载', () => {
 describe('Y0b-5 T6：applyLocalBackup——导入核（裁定 25⑷）', () => {
   /** provider 缝：只需 forceSync 可观测（origin 判定按引用相等） */
   const makeProvider = () => ({ forceSync: vi.fn() });
+  const frame = (update: Uint8Array, header = HEADER) => encodeYjsFrame(update, header);
 
-  it('≤上限：Y.applyUpdate(doc,bin,provider) 回灌+forceSync()（SS2 差分上行——≤2 次尝试收敛锚：1008 退避重试由 supervisor 全局承接,见实现注释）', () => {
+  it('≤上限：Y.applyUpdate(doc,update,provider) 回灌+forceSync()（SS2 差分上行——≤2 次尝试收敛锚：1008 退避重试由 supervisor 全局承接,见实现注释）', () => {
     const doc = new Y.Doc();
     const provider = makeProvider();
     const src = docWithNode('n-3');
-    const bin = Y.encodeStateAsUpdate(src);
-    const r = applyLocalBackup(bin, { doc, provider });
+    const bin = frame(Y.encodeStateAsUpdate(src));
+    const r = applyLocalBackup(bin, { doc, provider }, HEADER);
     expect(r.ok).toBe(true);
     expect(doc.getMap('nodes').get('n-3')).toBeDefined();      // 已回灌（可回灌=导出双产物存在的意义）
     expect(provider.forceSync).toHaveBeenCalledTimes(1);
@@ -99,27 +164,27 @@ describe('Y0b-5 T6：applyLocalBackup——导入核（裁定 25⑷）', () => {
     src.transact(() => {
       for (let i = 0; i < 210; i++) src.getMap('nodes').set(`n-${i}`, new Y.Map([['id', `n-${i}`], ['content', filler]]));
     });
-    const bin = Y.encodeStateAsUpdate(src);
-    expect(bin.byteLength).toBeGreaterThanOrEqual(2 * 1024 * 1024);        // 构造判据：编码后确 ≥2MB
-    expect(bin.byteLength).toBeLessThanOrEqual(LOCAL_BACKUP_MAX_BYTES);   // 2MB<8MB——恒过 over-limit 闸
+    const update = Y.encodeStateAsUpdate(src);
+    expect(update.byteLength).toBeGreaterThanOrEqual(2 * 1024 * 1024);        // 构造判据：编码后确 ≥2MB
+    expect(update.byteLength).toBeLessThanOrEqual(LOCAL_BACKUP_MAX_BYTES);   // 2MB<8MB——恒过 over-limit 闸
     const doc = new Y.Doc();
     const provider = makeProvider();
-    const r = applyLocalBackup(bin, { doc, provider });
+    const r = applyLocalBackup(frame(update), { doc, provider }, HEADER);
     expect(r.ok).toBe(true);
     expect(doc.getMap('nodes').size).toBe(210);                 // 全量回灌（不因尺寸截断/分批）
     expect(provider.forceSync).toHaveBeenCalledTimes(1);        // 上行走 SS2 差分单发（收敛语义同上用例——supervisor 全局承接）
   });
   it('origin=provider 语义锚：applyUpdate 第三参传 provider 实例——documentUpdateHandler esm:762 if(origin===this) return 抑制整 bin Update 帧回发（512KB 闸拒绝 3MB 备份=导出 8MB/导入 512KB 不对称的逃生断点）', () => {
-    // 静态形态锁：实现必须以 provider 为 origin（防回退为默认 null=整帧上送）。
+    // 静态形态锁：实现必须以 provider 为 origin（防回退为默认 null=整帧上送）；帧尾 update 输入。
     // vitest jsdom 的 import.meta.url 非 file scheme——cwd=包根（vitest 约定）拼相对路径。
     const src = readFileSync(path.resolve(process.cwd(), 'src/collab/canvas-local-backup.ts'), 'utf8');
-    expect(src).toMatch(/applyUpdate\(\s*deps\.doc\s*,\s*bin\s*,\s*deps\.provider\s*\)/);
+    expect(src).toMatch(/applyUpdate\(\s*deps\.doc\s*,\s*framed\.update\s*,\s*deps\.provider\s*\)/);
   });
-  it('超上限（>LOCAL_BACKUP_MAX_BYTES=QUOTA_DEFAULTS.maxDocBytes 同源）拒：over-limit+limitBytes/backupBytes 明示,不 apply 不 forceSync', () => {
+  it('超上限（update 长度>LOCAL_BACKUP_MAX_BYTES=QUOTA_DEFAULTS.maxDocBytes 同源）拒：over-limit+limitBytes/backupBytes 明示,不 apply 不 forceSync', () => {
     const doc = new Y.Doc();
     const provider = makeProvider();
-    const big = new Uint8Array(QUOTA_DEFAULTS.maxDocBytes + 1);
-    const r = applyLocalBackup(big, { doc, provider });
+    const big = new Uint8Array(QUOTA_DEFAULTS.maxDocBytes + 1);   // 帧结构合法（解帧只验形状）——超限判据在 update 字节
+    const r = applyLocalBackup(frame(big), { doc, provider }, HEADER);
     expect(r.ok).toBe(false);
     if (!r.ok && r.reason === 'over-limit') {
       expect(r.limitBytes).toBe(QUOTA_DEFAULTS.maxDocBytes);
