@@ -356,6 +356,64 @@ describe('clearSessionRows：登出清整张 session 表（T7 评审 I5）', () 
   });
 });
 
+describe('否认路径的清理失败不得改判 transient（T7 评审 R2）', () => {
+  /** 只让 session store 的 readwrite 事务抛错（读仍可用）——等价「IDB 写不可用、读正常」。 */
+  function failSessionWrites(): { restore: () => void } {
+    const realTransaction = IDBDatabase.prototype.transaction;
+    const spy = vi.spyOn(IDBDatabase.prototype, 'transaction').mockImplementation(function (
+      this: IDBDatabase, storeNames: string | string[], mode?: IDBTransactionMode,
+    ) {
+      if (String(storeNames) === 'session' && mode === 'readwrite') {
+        throw new Error('idb write unavailable');
+      }
+      return realTransaction.call(this, storeNames, mode);
+    } as typeof IDBDatabase.prototype.transaction);
+    return { restore: () => { spy.mockRestore(); } };
+  }
+
+  it('200+null + 删行失败 ⇒ 仍返回 null-user（不抛、不改判 transient）', async () => {
+    await putSessionRow(sessionRow('u-a', Date.now() + HOUR));
+    stubFetch(jsonResponse({ user: null }));
+
+    const injected = failSessionWrites();
+    try {
+      // 服务端显式否认是权威——本地清理写不进去不得把结果变成 transient（离线放行会复活用户）
+      expect(await fetchMeWithProof()).toEqual({ ok: false, reason: 'null-user' });
+    } finally {
+      injected.restore();
+    }
+    // 清理确实没成功（行仍在）——下次 /me 或登出路径重试
+    expect((await getSessionRows()).map((row) => row.uid)).toEqual(['u-a']);
+  });
+
+  it('401 + 删行失败 ⇒ 仍返回 http-401（不抛）', async () => {
+    await putSessionRow(sessionRow('u-a', Date.now() + HOUR));
+    stubFetch(jsonResponse({}, 401));
+
+    const injected = failSessionWrites();
+    try {
+      expect(await fetchMeWithProof()).toEqual({ ok: false, reason: 'http-401' });
+    } finally {
+      injected.restore();
+    }
+    expect((await getSessionRows()).map((row) => row.uid)).toEqual(['u-a']);
+  });
+
+  it('diff<=0（会话已死）+ 删行失败 ⇒ 仍返回 {ok:true,user}（不抛）', async () => {
+    await putSessionRow(sessionRow('u-a', Date.now() + HOUR));
+    const serverNow = Date.now();
+    stubFetch(jsonResponse({ user: USER_A, sessionExpiresAt: serverNow, serverNow }));
+
+    const injected = failSessionWrites();
+    try {
+      expect(await fetchMeWithProof()).toEqual({ ok: true, user: USER_A });
+    } finally {
+      injected.restore();
+    }
+    expect((await getSessionRows()).map((row) => row.uid)).toEqual(['u-a']);
+  });
+});
+
 describe('bindLogoutEpochTeardown：storage 事件（验收 27）', () => {
   it('key=flowweb:auth-epoch 触发回调；其他 key 忽略；解绑后不再回调', () => {
     const onChange = vi.fn();

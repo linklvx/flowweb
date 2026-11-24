@@ -46,6 +46,15 @@ export async function clearSessionRows(): Promise<void> {
   }
 }
 
+/** 否认路径的清理：**服务端响应是权威**——本地删行失败只是清理没做成（下次成功 /me 或
+ *  登出路径会重试），不得让调用方把「显式否认」改判成 transient（那会经离线放行走回放行，
+ *  复活已被服务端否决的会话）。 */
+async function tryClearSessionRows(): Promise<void> {
+  try {
+    await clearSessionRows();
+  } catch { /* 清理失败：不改判结果 */ }
+}
+
 /** 双时间戳硬性（§0.3.3）：两个都必须是有限毫秒数，缺任一本次不改证明。 */
 function isFiniteNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
@@ -78,7 +87,7 @@ export async function fetchMeWithProof(): Promise<
   if (response.status === 401) {
     // 删除动作前复验（spec §0.3.3「响应不符即丢」对 401 删除路径同样成立）
     if (!epochStillCurrent()) return { ok: false, reason: 'transient' };
-    await clearSessionRows();
+    await tryClearSessionRows();
     return { ok: false, reason: 'http-401' };
   }
   if (response.status !== 200) {
@@ -101,7 +110,7 @@ export async function fetchMeWithProof(): Promise<
   const user = data.user;
   if (user === null || user === undefined) {
     // 200+null = 无会话（auth.controller 的显式否认）→ 删行
-    await clearSessionRows();
+    await tryClearSessionRows();
     return { ok: false, reason: 'null-user' };
   }
 
@@ -119,7 +128,7 @@ export async function fetchMeWithProof(): Promise<
   const remainingMs = sessionExpiresAt - serverNow;
   if (remainingMs <= 0) {
     // 服务器侧会话已死——证明不成立，删全表行（他 uid 旧行同样不得存活，不写负寿命行）
-    await clearSessionRows();
+    await tryClearSessionRows();
     return { ok: true, user };
   }
   // T7 评审 I3a：本地写失败不得把服务器已确认的用户降级成「未登录」——证明写不进去只是
