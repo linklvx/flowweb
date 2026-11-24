@@ -1,4 +1,6 @@
-# Y5 y-indexeddb + local-first 离线水合 Implementation Plan（v2）
+# Y5 y-indexeddb + local-first 离线水合 Implementation Plan（v3）
+
+> v3 与 spec v8 对齐（2026-11-24）。压过 v2 里这几句：T2 第二腿不再断言「del 没被调用」；T4/T13 的空差分不是 0；T5 要改 `getSession` 的返回值；T6b 用长度前缀头；T7 不清「任意挂载的 200」；T9 不提交 rejected 桩；T12 不新增 sealed 字段；hold 横幅按 pid 读 names。下文任务以本版为准。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -10,7 +12,18 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-23-y5-local-first-design.md`（**v7**——唯一有效规则=正文 §0；本 plan 全部引用 §0 条号，实锚索引=spec §0.9；v7 增量=C1-C4 裁定行+plan 施工钉 P1-P6+验收 28-29）。
 
-**v2 变更面（第四轮评审收口）**：T2 补丁改同一同步回调连续双请求（原单点插桩漏 del——C4）+trim 测试增「destroy 落在 add/del 之间」第二腿；T3 增 tombstone 字段+session 单活行；T4 `writeCustom` 值域 `string|ArrayBuffer`+`computeDiffBytes` 原始 byteLength（P1）；T6 增 `flowweb:auth-suppressed` 键（C2）+单活行写点；T7 logout 次序增 suppressed 同步写+**AuthProvider 离线放行腿改写**（C1——原「catch 仍 setUser(null) 现行为锚」作废）+挂载清除点；T9 范围收窄为路由决定断言（P6——原「先红腿提交」作废）；T12 增镜像腿两处+close 定时器显式锚（C3）；T13 增墓碑重试+清扫并集回退（P2）+useWorkspaceData 第六清库点（P5）+getCollabTabId 搬家落 T13b（P3）；导入头承载新增 T6b 单步（P4）；验收 28-29 映射入 T6/T7。
+**v2 变更面（第四轮评审收口）**：T2 补丁改同一同步回调连续双请求（C4）；T3 增 tombstone 字段+session 单活行；T4 `writeCustom` 值域 `string|ArrayBuffer`+`computeDiffBytes` 原始 byteLength（P1）；T6 增 `flowweb:auth-suppressed` 键（C2）；T7 离线放行腿（C1）；T12 镜像腿+close 定时器（C3）；T13 墓碑重试+清扫并集+第六清库点；T6b 导入头；验收 28-29。
+
+**v3 勘正（与 spec v8 同一套，施工照此不照 v2 冲突句）**：
+- T2 第二腿：断言两次请求的 `transaction` 是同一个对象，并且在 `oncomplete` 前关闭连接后行还在。不要断言 `del` 未被调用。
+- T4 测试「空库」期望值是 `EMPTY_DOC_ENCODE_BYTES`，不是 0。T13 acked 用同一个相等判断。
+- T5：`auth.service.ts` 的 `getSession` 今日只返回 `{ user }`。把同一次 `touch()` 的 `expiresAt` 透传出去，控制器不另查库。
+- T6b：`FWYJS1\n` + uint32 大端长度 + UTF-8 JSON 头 + 原始 update。禁止定长 JSON。
+- T7：写 0 的点是登录表单、注册页 `location.href` 之前、微信重定向 `/canvas?auth=landed`。禁止在普通挂载的 200 上清键。`storage` 监听放在 AuthProvider，收到后 `setUser(null)` 并调用画布注册的拆会话回调。
+- T9：只提交纯函数 `decideOfflineRoute` 及其测试。页面不出现返回 rejected promise 的桩。
+- T12：拒帧写 `hold: true`，NameRow 不增加 sealed。
+- T12/T13：画布横幅和工作区项目行读取该 pid 的 `names.hold`，包括当前没打开的旧代库。
+- 清扫/删除闸用 `measureYjsDoc`，超时不写入 `openYjsDoc` 的本会话禁开集合。
 
 ## Global Constraints
 
@@ -19,7 +32,7 @@
 - **离线放行归 AuthProvider（§0.7 路由接线——v7 C1）**：`fetchMeWithProof` 返回 transient 且 session 行 localDeadline 未过期 → `setUser(userSnapshot)`、loading 结束；200+null/401/证明缺失或过期 → `setUser(null)`；RequireAuth 只看 user 不动；画布页只分型项目请求（T9）。
 - 水合次序=先装载后 createProvider（§0.2 步 5）；`whenSynced` 与 `_db` 10s 竞赛；超时 destroy+丢 Y.Doc+本会话禁再开同库名（§0.2 步 2）；10s 定时器只对 pending 生效、已 local 留 local（§0.2 步 2）。
 - canEdit 认 `ready∨local`；canExecute 只认 `ready∧connected∧!writeFrozen` 且**内联谓词不调用 canEdit()**（§0.3.1-2）；threadsStore 闸同认 canEdit（§0.3.7）。
-- 证明单源=session 行：`localDeadline = Date.now() + (sessionExpiresAt − serverNow)` 毫秒（§0.3.3）；双时间戳缺一不改证明、差值≤0 删行、禁 now+7d、禁第二套时钟；写点含 15min 探活（fire-and-forget 形态不变——plan 约束⑧）；登出代次=localStorage `flowweb:auth-epoch`（§0.3.3 R4）+**`flowweb:auth-suppressed` 键**（§0.3.3 v7 C2：登出任何 await 前同步写 1、putSessionRow 前复读、登录成功组件入口写 0、挂载清除点先清再写行）。
+- 证明单源=session 行：`localDeadline = Date.now() + (sessionExpiresAt − serverNow)` 毫秒（§0.3.3）；双时间戳缺一不改证明、差值≤0 删行、禁 now+7d、禁第二套时钟；写点含 15min 探活（fire-and-forget 形态不变——plan 约束⑧）；登出代次=localStorage `flowweb:auth-epoch`（§0.3.3 R4）+**`flowweb:auth-suppressed` 键**（§0.3.3：登出任何 await 前同步写 1、putSessionRow 前复读；写 0 只在登录表单、注册页跳转前、`?auth=landed`。禁止普通挂载清 0）。
 - 保存屏障只在 `hydration==='ready'` 发送（含 pagehide 腿）；armSession 进 ready 时 `lastLocalEditSeq>lastReceiptClientSeq` 补发一次（§0.3.9 R3）。
 - diverged 四桶（§0.4）；`SESSION_EXPIRED`+`COLLAB_VERSION_TERMINAL_REASONS` 三档移出 `NO_READ_ACCESS_PURGE_REASONS`（§0.4）；4406+generation-stale 上跳入版本换代桶；discardLocalCache 非删除许可；historyId 全局单键（§0.4）；**镜像腿只拆会话不删库、删除单源发起标签**（§0.4 镜像腿表——v7 C3）。
 - 删除三合法=acked（差分空∧无 diverged）/用户导出且文件已生成/用户点放弃（§0.6）；容量不足不自动删他库；禁应用层调 storeState（§0.5.2）；custom store 只走 get/set/del 禁二次 `indexedDB.open`（约束⑩）；**blocked 删除写墓碑、启动按墓碑直删不过闸**（§0.1.4/§0.6——v7 C4）。
@@ -48,7 +61,7 @@ apps/web/src/stores/canvasCollabRuntime.ts    ← T8/T10/T11/T12/T13 水合倒�
 apps/web/src/stores/syncStatus.ts             ← T8 canEdit/canExecute 谓词改写
 apps/web/src/stores/threadsStore.ts           ← T8 getSynced 判据改 canEdit
 apps/web/src/hooks/useSessionKeepalive.ts     ← T7 探活读 body（fire-and-forget 形态不变）
-apps/web/src/components/AuthProvider.tsx      ← T7 登出先 epoch+1+suppressed 同步段再清三表+文档库；离线放行腿（C1）+挂载清除点
+apps/web/src/components/AuthProvider.tsx      ← T7 登出先 epoch+1+suppressed 同步段再清三表+文档库；离线放行腿（C1）；storage 监听在此 setUser(null)
 apps/api/src/auth/auth.controller.ts          ← T5 /me 增 sessionExpiresAt/serverNow
 packages/shared/src/constants/session-ttl.ts  ← T5 SESSION_TTL_MS 三处同源
 apps/web/src/pages/canvas/page.tsx            ← T9 离线分型（401/5xx/无 projectId——只断言路由决定）
@@ -98,7 +111,7 @@ git commit -m "chore(y5): pin y-indexeddb 9.0.12"
 
 - [ ] **Step 1: 写失败测试（fakeIndexedDb 真事务——双腿）**
 
-测试形态：`createFakeIndexedDb()` 挂全局 `indexedDB`；两实例 A/B 开同库（B 补 501 条 update 制造 trim 资格）。**腿一（验收 24 主形态）**：A 的 destroy 落在 storeState 的 fetchUpdates resolve 之后、快照 add 之前（fake timers 精确推进）；断言：B 已落盘行仍在 updates store、新实例 C 开同库能回放全部内容。**腿二（v7 C4 缝）**：A 的 destroy 落在 add 与 del 之间（原版双 then 的间隙——补丁前可精确触发）；断言同腿一：del 不再发出、行还在、C 可回放。对照腿：未 destroy 的 storeState 照常写快照+删旧条（原行为不变——补丁只加守卫不改正常路径）。
+测试形态：`createFakeIndexedDb()` 挂全局 `indexedDB`；两实例 A/B 开同库（B 补 501 条 update 制造 trim 资格）。**腿一（验收 24 主形态）**：A 的 destroy 落在 storeState 的 fetchUpdates resolve 之后、快照 add 之前（fake timers 精确推进）；断言：B 已落盘行仍在 updates store、新实例 C 开同库能回放全部内容。**腿二（C4 缝，v3）**：补丁前，destroy 能插在 `addAutoKey().then(del)` 的间隙里，此时 del 单独提交、行被删。补丁后两次请求在返回前排进同一个 `IDBTransaction`。断言：`add` 与 `del` 的 `transaction` 是同一个对象；在该事务 `oncomplete` 之前关掉连接，行还在、C 能回放。不要断言 `del` 没被调用。对照腿：未 destroy 时照常写快照并删旧条。
 
 - [ ] **Step 2: 跑测试确认失败**
 
@@ -183,13 +196,13 @@ export const EMPTY_DOC_ENCODE_BYTES: number   // 空 Y.Doc 编码长度，模块
 
 - [ ] **Step 1: 写失败测试**
 
-测试组：①开库成功=库内 update 已 apply 进 doc+whenSynced resolve；②超时（fake timers 推 10s）→ok:false+`persistence` 已 destroy（`_destroyed`）+doc 被 `destroy()`+同库名第二次 `openYjsDoc` 直接 ok:false（验收 13/25 半边）；③迟到 apply 落在已废弃 doc 上不进新 doc（竞赛后 fakeIndexedDb 放行 pending open——断言返回的 doc 内容不含迟到行）；④readCustom/writeCustom 轮回；⑤computeDiffBytes：无 SV=全量、有 SV=差分、空库=0。
+测试组：①开库成功=库内 update 已 apply 进 doc+whenSynced resolve；②超时（fake timers 推 10s）→ok:false+`persistence` 已 destroy（`_destroyed`）+doc 被 `destroy()`+同库名第二次 `openYjsDoc` 直接 ok:false（验收 13/25 半边）；③迟到 apply 落在已废弃 doc 上不进新 doc（竞赛后 fakeIndexedDb 放行 pending open——断言返回的 doc 内容不含迟到行）；④readCustom/writeCustom 轮回（serverSV 用 ArrayBuffer，grant/diverged 用字符串）；⑤computeDiffBytes：无 SV=全量字节数、有 SV=差分字节数、已同步或空文档 **等于** `EMPTY_DOC_ENCODE_BYTES`（Yjs 空更新，不是 0）。
 
 - [ ] **Step 2: 跑测试确认失败** — Run: `pnpm --filter web test -- src/collab/local-yjs-store.doc.spec.ts`；Expected: FAIL。
 
 - [ ] **Step 3: 实现**
 
-`openYjsDoc`：new Y.Doc → new IndexeddbPersistence(dbName, doc) → `Promise.race([whenSynced, timeout(10s), _db.catch(reject)])`；超时/拒绝分支 `await persistence.destroy()`+`doc.destroy()`+bannedDbNames.add(dbName)；成功分支读 custom 三键回填 `{ serverSV, writeGrant, diverged }`（约束⑩——只用 persistence.get）。bannedDbNames=模块级 Set，仅会话内。
+`openYjsDoc`：new Y.Doc → new IndexeddbPersistence(dbName, doc) → `Promise.race([whenSynced, timeout(10s), _db.catch(reject)])`；超时/拒绝分支 `await persistence.destroy()`+`doc.destroy()`+bannedDbNames.add(dbName)。custom 三键由调用方用 `readCustom` 读，不塞进 `OpenDocResult`。另导出 `measureYjsDoc(dbName)`：同样装载并算出差分字节数后立刻 destroy；超时返回 hold 语义、**不**写入 bannedDbNames。bannedDbNames 只给水合路径用。
 
 - [ ] **Step 4: 跑测试确认通过** — Expected: PASS。
 
@@ -199,7 +212,7 @@ export const EMPTY_DOC_ENCODE_BYTES: number   // 空 Y.Doc 编码长度，模块
 
 **Files:**
 - Create: `packages/shared/src/constants/session-ttl.ts`
-- Modify: `apps/api/src/auth/auth.controller.ts`（getMe 响应增两字段）、`apps/api/src/auth/auth.ts:69/:123`、`apps/api/src/auth/session.service.ts:6`
+- Modify: `apps/api/src/auth/auth.service.ts`（`getSession` 把同一次 `touch()` 的 `expiresAt` 一并返回；今日 :49 只返回 `{ user }`）、`apps/api/src/auth/auth.controller.ts`（getMe 响应增两字段）、`apps/api/src/auth/auth.ts:69/:123`、`apps/api/src/auth/session.service.ts:6`
 - Test: `apps/api/src/auth/auth.controller.session-ttl.spec.ts`（新增，仿既有 controller spec 形态）
 
 **Interfaces:**
@@ -212,7 +225,7 @@ getMe 用例：有效 session → 响应含两字段且为毫秒整数、session
 
 - [ ] **Step 2: 确认失败** — Run: `pnpm --filter api test -- src/auth/auth.controller.session-ttl.spec.ts`；Expected: FAIL（字段缺失）。
 
-- [ ] **Step 3: 实现** — shared 常量入列+三处引用换源（getMe 在 `return res.json({ user: session.user })` 增两字段——`session.expiresAt` 现成，零新查询）。
+- [ ] **Step 3: 实现** — shared 常量入列+三处 TTL 引用换源。`getSession` 改为返回 `{ user, expiresAt }`（来自同一次 `touch()`，不新增查询）。getMe 在 user 非空时写 `sessionExpiresAt: expiresAt.getTime()` 与 `serverNow: Date.now()`。
 
 - [ ] **Step 4: 确认通过** — Expected: PASS；`pnpm --filter api test -- src/auth/session.service` 既有用例零回归。
 
@@ -233,7 +246,7 @@ getMe 用例：有效 session → 响应含两字段且为毫秒整数、session
 export function readAuthEpoch(): number                       // localStorage flowweb:auth-epoch，缺省 0
 export function bumpAuthEpoch(): number                       // 登出调用：+1 并写回（storage 事件由写动作触发）
 export function readAuthSuppressed(): boolean                // v7 C2：localStorage flowweb:auth-suppressed==='1'
-export function setAuthSuppressed(v: boolean): void          // v7 C2：登出同步段写 true；登录成功组件入口写 false；挂载清除点写 false
+export function setAuthSuppressed(v: boolean): void          // 登出同步段写 true；登录表单、注册页跳转前、?auth=landed 写 false。普通挂载不写 false
 export async function fetchMeWithProof(): Promise<{ ok: true; user: object } | { ok: false; reason: 'null-user' | 'http-401' | 'transient' }>
 // /me 单函数：发出记 readAuthEpoch()；响应时 epoch 不符丢弃不写 session；200+user → **先验 readAuthSuppressed()（C2——为 true 时不写行直接返回 ok）**，再 snapshotFromUser+localDeadline=Date.now()+(sessionExpiresAt−serverNow) putSessionRow；双时间戳缺任一→不写证明（§0.3.3 硬性）；差值≤0→deleteSessionRow；200+null→deleteSessionRow；HTTP 401→deleteSessionRow；无 status/408/429/5xx→不动（返回 transient——AuthProvider 放行判据用，C1）
 export function bindLogoutEpochTeardown(onEpochChange: () => void): () => void   // window 'storage' 事件监听（key=flowweb:auth-epoch）→拆协作会话不写 session；返回解绑
@@ -266,7 +279,7 @@ export function bindLogoutEpochTeardown(onEpochChange: () => void): () => void  
 
 - [ ] **Step 2: 确认失败** — Expected: FAIL（现导出无头）。
 
-- [ ] **Step 3: 实现** — 头部以定长 JSON 前缀+magic 校验；`importLocalBackup`（runtime :1197）调用点带上当前会话 expected。
+- [ ] **Step 3: 实现** — 帧 = ASCII `FWYJS1\n` + uint32 大端 JSON 字节长度 + UTF-8 `{ magic:'flowweb-yjs', schemaVersion, historyToken }` + 原始 update。`importLocalBackup`（runtime :1197）带上当前会话 expected。magic 或两字段不符则拒绝，不 `applyUpdate`。无头旧字节直接拒绝。
 
 - [ ] **Step 4: 确认通过** — Expected: PASS。
 
@@ -277,18 +290,20 @@ export function bindLogoutEpochTeardown(onEpochChange: () => void): () => void  
 **Files:**
 - Modify: `apps/web/src/components/AuthProvider.tsx:34-41`（refresh）、`:47-55`（logout）、`apps/web/src/hooks/useSessionKeepalive.ts`
 - Modify: `apps/web/src/components/auth/LoginModal.tsx`、`apps/web/src/components/AuthModal.tsx`、`apps/web/src/components/auth/PhoneLoginForm.tsx`（登录成功入口先 `setAuthSuppressed(false)` 再 refresh——C2）
-- Modify: `apps/web/src/pages/canvas/page.tsx`（挂 bindLogoutEpochTeardown 拆协作会话——随 T9 一并接线亦可）
+- Modify: `apps/api/src/auth/wechat/wechat.controller.ts`（成功重定向改为 `/canvas?auth=landed`）
+- Modify: `apps/web/src/pages/register/page.tsx`（`location.href` 之前 `setAuthSuppressed(false)`）
+- Modify: `apps/web/src/pages/canvas/page.tsx`（注册拆会话回调；不在此页独占 storage 监听）
 - Test: `apps/web/src/components/AuthProvider.y5.spec.tsx`
 
 **Interfaces:**
 - Consumes: Task 6 `fetchMeWithProof/bumpAuthEpoch/readAuthSuppressed/setAuthSuppressed/bindLogoutEpochTeardown`；Task 3 meta 行删除+`getSessionRows`。
 - Produces:
-  - **refresh 改写（C1 离线放行腿——取代「catch 仍 setUser(null) 现行为锚」的 v1 写法）**：`fetchMeWithProof()` 返回 `{ok:true,user}` → `setUser(user)`（在线半边）；返回 `transient` → **读 session 行：恰好一行且 localDeadline>now 且无多行歧义 → `setUser(userSnapshot)`+loading 结束（离线放行——spec §0.7 路由接线）**；session 行缺失/过期/多行歧义 → `setUser(null)`；返回 `null-user`/`http-401` → `setUser(null)`。`loading` 各分支都收口（禁悬挂）。**挂载清除点（C2）**：挂载首次 refresh 收 200+user 先 `setAuthSuppressed(false)` 再让 fetchMeWithProof 写行（覆盖 /register 直跳与微信回调两条重定向式登录——挂载是全新页面加载的首个 /me，suppressed=1 只可能来自登出残留）。
+  - **refresh 改写（C1）**：`fetchMeWithProof()` 返回 `{ok:true,user}` → `setUser(user)`；返回 `transient` → 恰好一行且 `localDeadline>now` → `setUser(userSnapshot)` 且 loading 结束；缺失、过期或多行 → `setUser(null)`；`null-user` / `http-401` → `setUser(null)`。loading 各分支都收口。**禁止**在普通挂载的 200 上 `setAuthSuppressed(false)`。仅当 URL 有 `auth=landed` 时，在调用 `fetchMeWithProof` **之前**写 0，并去掉该查询。AuthProvider 挂 `bindLogoutEpochTeardown`：他标签 epoch 变化 → `setUser(null)`，再调用画布注册的拆会话函数；不写 session，不再次 bump。
   - **logout 次序钉死（任何 await 之前完成前两步）**：①`bumpAuthEpoch()`+`setAuthSuppressed(true)`（同一同步段——C2）→ ②REST sign-out（await 窗）→ ③`setUser(null)` → ④清该 uid 文档库+names/session/bindings 三表（purgeUidCaches 语义迁至 local-yjs-store——spec §0.6 登出行）；**某库 deleteDatabase blocked → putNameRow(tombstone)（C4）**。keepalive 改调 fetchMeWithProof（fire-and-forget 形态不变——约束⑧：失败仍静默）。
 
 - [ ] **Step 1: 写失败测试**
 
-①logout 后 names/session/bindings 三表该 uid 行全空+文档库删除（fakeIndexedDb）；**blocked 库（另一连接持有）→ names 行 tombstone=true**（C4）；②探活调用 fetchMeWithProof（spy）且 promise 悬挂不炸（约束⑧）；③**离线放行（C1/验收 11 前半）：mock fetch 网络失败+session 行未过期+恰好一行 → user 非 null、loading false**；④200+null/401/证明过期/多行歧义 → setUser(null)（验收 29 歧义腿）；⑤**登出 await 窗内 keepalive 打出的 /me 收 200+user → session 行不在（验收 28——suppressed 键）**；⑥**登录成功入口（LoginModal/AuthModal/PhoneLoginForm spy）先 setAuthSuppressed(false) 再 refresh**；⑦挂载清除点：suppressed=1 残留+挂载 /me 200+user → suppressed=0 且行写入；⑧bindLogoutEpochTeardown 在 canvas 页挂载且 epoch 变化调 destroyCollab。
+①logout 后 names/session/bindings 三表该 uid 行全空+文档库删除（fakeIndexedDb）；**blocked 库（另一连接持有）→ names 行 tombstone=true**（C4）；②探活调用 fetchMeWithProof（spy）且 promise 悬挂不炸（约束⑧）；③**离线放行（C1/验收 11 前半）：mock fetch 网络失败+session 行未过期+恰好一行 → user 非 null、loading false**；④200+null/401/证明过期/多行歧义 → setUser(null)（验收 29 歧义腿）；⑤**登出 await 窗内 keepalive 打出的 /me 收 200+user → session 行不在（验收 28——suppressed 键）**；⑥登录表单、注册页（`location.href` 前）、`?auth=landed` 三处先写 0 再请求；⑦普通挂载在 suppressed=1 时收到 200+user：**不**写 0、**不**写 session 行；⑧他标签 storage 事件使 AuthProvider `setUser(null)` 并调用拆会话回调。另增一腿：登出等待期间另一个标签整页刷新，session 行仍不在。
 
 - [ ] **Step 2: 确认失败** — Expected: FAIL。
 
@@ -328,15 +343,15 @@ export function bindLogoutEpochTeardown(onEpochChange: () => void): () => void  
 **Interfaces:**
 - Consumes: Task 3 `getBindingRow`；Task 6 证明；Task 4 `openYjsDoc`。
 - Produces: fetchProjectMeta catch 新分型——status 401 走既有 httpExpired 不开库；403/404 走无读权保留；无 status/408/429/5xx → 离线三合取（session 行未过期+binding.uid=session.uid+localStorage historyId===binding.historyToken）→ 用 binding { uid, generation, schemaVersion, name, teamId } 调 openSession+setTeamId（验收 17：teamId/name 来自 binding）；三合取任一不成立 → 停「暂不可用」（验收 11：不跳登录不新建）；**无 projectId 离线停「暂不可用」禁 createUntitledProject**（§0.2 步 1）；成功路径 fetchProjectMeta 顺带 putBindingRow+putNameRow。
-- **P6 任务切分钉（v7）**：本任务**只断言路由决定**——分型档位、是否调用 `initCollabLocal`（spy 断言调用/不调用）、无 projectId 停「暂不可用」。**hydration='local' 的页面整链断言不放本任务**（整链在 Task 10 桩落地后由其联测腿承载、Task 15 端到端收口）；**中间不提交一套仍失败的测试**——本任务提交前全绿（`initCollabLocal` 在 Task 10 才产出，本任务先行落桩时测试断言只到「调用与否」不触其内部）。
+- **P6（v3）**：本任务只交付纯函数 `decideOfflineRoute` 和单测。页面不调用一个会 reject 的桩。`initCollabLocal` 与画布整链在 Task 10 出现。
 
 - [ ] **Step 1: 写失败测试（路由决定断言——验收 11/17/16 路由腿）**
 
-①5xx+证明未过期+binding uid 一致 → `initCollabLocal` 被调用、teamId/name 来自 binding、无 createCanvas 调用；②HTTP 401 → 不进 local（httpExpired）；③用户 B（session.uid≠binding.uid）→ 不开 A 的库（验收 16）；④200+null /me 前置 → 不进 local；⑤无 projectId 离线 → 「暂不可用」不建项目；⑥**媒体预签名失败回归（约束⑫）：离线 local 态 getMediaUrl 拒绝 → hydration 留 local、非媒体编辑仍可用（现码 CanvasView 忽略该次失败——仅加回归锚，不新建媒体链路）**。
+①5xx+证明未过期+binding uid 一致 → 决定为 `open-local`，附带的 teamId/name 来自 binding；②HTTP 401 → `http-expired`；③session.uid≠binding.uid → `unavailable`（验收 16）；④无证明或证明过期 → `unavailable`；⑤无 projectId → `unavailable`；⑥媒体预签名失败回归留在 Task 10 的页面腿（本任务还没有 hydration）。断言的是返回值，不是页面调用了 `initCollabLocal`。
 
 - [ ] **Step 2: 确认失败** — Expected: FAIL。
 
-- [ ] **Step 3: 实现** — 分型次序：先 status 三档（401/403/404）再瞬态档；三合取判据函数内联；离线 openSession 走 runtime 新入口 `initCollabLocal(meta)`（Task 10 产出——本任务先落桩：桩体仅记录调用并返回 rejected promise 的路由层 mock，测试断言不依赖其内部行为）。
+- [ ] **Step 3: 实现** — `decideOfflineRoute` 纯函数：先看 401 / 403 / 404，再看瞬态失败，再做三合取。无 projectId 的离线返回「暂不可用」。本任务不改画布页的开库调用。
 
 - [ ] **Step 4: 确认通过** — Run 同 Step 1；Expected: PASS（本任务提交时全绿——P6：不提交仍失败测试）。
 
@@ -349,7 +364,7 @@ export function bindLogoutEpochTeardown(onEpochChange: () => void): () => void  
 - Test: `apps/web/src/stores/canvasCollabRuntime.local.spec.ts`
 
 **Interfaces:**
-- Consumes: Task 3/4 全接口（含 v7 `getSessionRows` 单活行判行）；Task 8 谓词；Task 9 的 `initCollabLocal` 桩。
+- Consumes: Task 3/4 全接口（含 `getSessionRows` 单活行判行）；Task 8 谓词；Task 9 的 `decideOfflineRoute`。本任务才把画布页接到 `initCollabLocal`。
 - Produces: `export async function initCollabLocal(pid: string, meta: CollabSessionMeta & { name: string; teamId: string | null }): Promise<void>`——离线路径入口（Task 9 消费）；initCollab 在线主链改水合次序：①names 先写（putNameRow 失败→本会话不开库改纯服务端水合）→②openYjsDoc（10s 竞赛；超时改纯服务端水合新 doc）→③computeDiffBytes>空 doc 编码 → markDocUnsyncedDirty+Σpending 累计（§0.2 步 4）→④`writeGrant/diverged/serverSV` 装载复验（§0.3.5 双锚）→⑤五条 local 合取全过 → 投影+collabReadOnly=false+setHydration('local')+`navigator.storage.persist()`（约束⑪）→⑥createProvider+connectOnce（§0.2 步 5——provider 在装载后）；⑦`provider.isSynced && !hasUnsyncedChanges` → writeCustom('serverSV', 新 SV)+删 diverged+armSession ready。**10s 死线只对 pending 生效**（§0.2 步 2——已 local 留 local）。**update 监听过滤**：origin===provider 或 origin===persistence 直接返回（§0.2 步 6）。**local→ready 双端差分才跑 detectDraftMergeAnomalies**（§0.2 步 7——SS1 表明服务端有新更新∧本端差分非空）。
 
 - [ ] **Step 1: 写失败测试（fakeHocuspocusProvider+fakeIndexedDb 装置承 t8 形态）**
@@ -360,7 +375,7 @@ export function bindLogoutEpochTeardown(onEpochChange: () => void): () => void  
 
 - [ ] **Step 3: 实现** — initCollab 主链按 Interfaces 次序重排；armedEpoch latch 复用；origin 过滤扩 persistence 引用（mountUnsyncedDirtyTracker :493-508 判据面）。
 
-- [ ] **Step 4: 确认通过** — Run: `pnpm --filter web test -- src/stores/canvasCollabRuntime.local.spec.ts src/pages/canvas/page.offline.spec.tsx`；Expected: PASS（含 Task 9 桩转绿——`initCollabLocal` 真身落地，页面整链断言在本任务联测腿补全：hydration='local' 从页面路径成立）。
+- [ ] **Step 4: 确认通过** — Run: `pnpm --filter web test -- src/stores/canvasCollabRuntime.local.spec.ts src/pages/canvas/page.offline.spec.tsx`；Expected: PASS。本任务补上页面腿：`decideOfflineRoute` 为 `open-local` 时调用 `initCollabLocal`，整链 `hydration==='local'`。媒体预签名失败时 hydration 留在 local。
 
 - [ ] **Step 5: Commit** — `git commit -am "feat(y5): 水合倒转+local 进入+serverSV 写回（验收 1-5/8/13/19）"`
 
@@ -393,11 +408,11 @@ export function bindLogoutEpochTeardown(onEpochChange: () => void): () => void  
 - Test: `apps/web/src/stores/canvasCollabRuntime.buckets.spec.ts`
 
 **Interfaces:**
-- Produces: 四桶分派函数 `classifyTerminalToBucket(reason: string): 'auth' | 'version' | 'no-read' | 'content'`；版本桶动作=有差分/diverged → putNameRow(hold)+横幅、无差分 → 走删除闸；`discardLocalCache:true` 载荷忽略不进删除许可；4406 改：不清旧纪元库（hold）+清 historyId 维持+handleVersionTerminal 强刷维持；resyncFull sealed：被拒字节不挂回连接 doc、names 标 sealed（hold 同款出口——放弃/导出成功才删）；acceptServerRestoredRecovery：导出文件已生成才 purge（下载失败留库）；**镜像腿改道（C3——§0.4 镜像腿表）**：history-bump 镜像腿=清内存 historyId+localStorage+**拆会话不删库**（salvage download:false 腿维持）、recovery-accepted 镜像腿=**拆会话+刷新不删库**——两腿删除单源发起标签；**close 4410 定时器（:1806-1818）与 dispatchY1cClose 的 export-draft-then-clear 合成同一条删除闸路径**（hold 时库留下只亮横幅）；SyncBanner 新档 local-pending 插入位次=终态鉴权之下 diverged 之上（§0.3.8）。
+- Produces: 四桶分派函数 `classifyTerminalToBucket(reason: string): 'auth' | 'version' | 'no-read' | 'content'`；版本桶动作=有差分/diverged → putNameRow(hold)+横幅、无差分 → 走删除闸；`discardLocalCache:true` 载荷忽略不进删除许可；4406 改：不清旧纪元库（hold）+清 historyId 维持+handleVersionTerminal 强刷维持；resyncFull：被拒字节不挂回连接 doc，`putNameRow(hold: true)`（没有 sealed 字段；放弃或导出成功才删）；acceptServerRestoredRecovery：导出文件已生成才 purge（下载失败留库）；**镜像腿改道（C3——§0.4 镜像腿表）**：history-bump 镜像腿=清内存 historyId+localStorage+**拆会话不删库**（salvage download:false 腿维持）、recovery-accepted 镜像腿=**拆会话+刷新不删库**——两腿删除单源发起标签；**close 4410 定时器（:1806-1818）与 dispatchY1cClose 的 export-draft-then-clear 合成同一条删除闸路径**（hold 时库留下只亮横幅）；SyncBanner 新档 local-pending 插入位次=终态鉴权之下 diverged 之上（§0.3.8）。
 
 - [ ] **Step 1: 写失败测试**
 
-①session-expired → 收编辑权留库不置 diverged 不删库（验收 12 前半）；②版本三档任一+库有差分 → hold（库在+names.hold 真）不 purge（验收 21）；③4410 discardLocalCache:true+差分 → 库在；④4406 → 旧纪元库在（验收 25——新会话不开这只库腿由 openYjsDoc banned/historyId 门合证）；⑤acceptServerRestored 导出失败 → 库在；⑥resyncFull → sealed 记录在 names、连接 doc 无被拒字节；⑦forbidden → 有差分先导出后删（无读权桶不变锚）；⑧**history-bump 镜像腿（C3）：BroadcastChannel 收到 history-bump → 本 tab historyId 清+会话拆、purge 类函数零调用**；⑨**recovery-accepted 镜像腿（C3）：收到 recovery-accepted → 会话拆+刷新、purge 零调用**；⑩**close 4410 定时器（C3）：hold 时库留下、横幅亮、无 deleteDatabase 调用**。
+①session-expired → 收编辑权留库不置 diverged 不删库（验收 12 前半）；②版本三档任一+库有差分 → hold（库在+names.hold 真）不 purge（验收 21）；③4410 discardLocalCache:true+差分 → 库在；④4406 → 旧纪元库在（验收 25——新会话不开这只库腿由 openYjsDoc banned/historyId 门合证）；⑤acceptServerRestored 导出失败 → 库在；⑥resyncFull → 该库 `names.hold===true`、连接 doc 无被拒字节、NameRow 无 sealed 字段；⑦forbidden → 有差分先导出后删（无读权桶不变锚）；⑧**history-bump 镜像腿（C3）：BroadcastChannel 收到 history-bump → 本 tab historyId 清+会话拆、purge 类函数零调用**；⑨**recovery-accepted 镜像腿（C3）：收到 recovery-accepted → 会话拆+刷新、purge 零调用**；⑩**close 4410 定时器（C3）：hold 时库留下、横幅亮、无 deleteDatabase 调用**。
 
 - [ ] **Step 2: 确认失败** — Expected: FAIL。
 
@@ -416,7 +431,7 @@ export function bindLogoutEpochTeardown(onEpochChange: () => void): () => void  
 
 **Interfaces:**
 - Produces（全部落 local-yjs-store.ts——P6 策略纪律，runtime 只改调用点）:
-  - `async function applyDeleteGate(dbName: string, trigger: 'startup' | 'generation' | 'safeReload' | 'accept' | 'resync' | 'purge-family' | 'project-delete'): Promise<'deleted' | 'held' | 'acked'>`——三合法判据：①acked=openYjsDoc 装载后 computeDiffBytes(相对 serverSV)===0 ∧ 无 diverged → 删；②调用方已确认导出文件生成 → 删；③用户点放弃 → 删；否则 putNameRow(hold)+横幅不删。
+  - `async function applyDeleteGate(dbName: string, trigger: 'startup' | 'generation' | 'safeReload' | 'accept' | 'resync' | 'purge-family' | 'project-delete'): Promise<'deleted' | 'held' | 'acked'>`——三合法判据：①acked = `measureYjsDoc` 后 `computeDiffBytes === EMPTY_DOC_ENCODE_BYTES` 且无 diverged → 删；②调用方已确认导出文件生成 → 删；③用户点放弃 → 删；否则 `putNameRow(hold: true)` 且不删。测量超时 → `'held'`，不写入水合禁开集合。画布横幅与工作区项目行读取该 pid 的 hold 行（含当前未打开的旧代库）。
   - `async function purgeUidDbs(uid: string): Promise<void>`——登出清库（AuthProvider T7 消费）：逐库 deleteDatabaseQuietly，**blocked 库写墓碑 putNameRow(tombstone:true)（C4——§0.6 登出行）**，再清 names/session/bindings 三表该 uid 行（未 blocked 的 names 行随删随去、blocked 的留墓碑）。
   - `async function sweepStartup(): Promise<void>`——启动清扫：范围=**`indexedDB.databases()` 与 `listNameRows()` 的并集（P2——`databases()` 缺席仍走 names 全表、不得整段跳过）**；**墓碑库直删不过闸不读内容**（§0.1.4）、删成功再去 names 行；`flowweb:yjs:` 异代库逐一过闸（验收 14/25）；`flowweb:collab:` 前缀不读即删。
   - 容量「清理已同步的其他项目」按钮 → 逐候选库 openYjsDoc 验 acked 才删（§0.5.2 单出边）。
