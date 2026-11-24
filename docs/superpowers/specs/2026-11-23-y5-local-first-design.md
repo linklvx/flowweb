@@ -1,12 +1,14 @@
-# Y5 y-indexeddb + local-first 离线水合设计文档 v6
+# Y5 y-indexeddb + local-first 离线水合设计文档 v7
 
-<!-- doc-status: active | created: 2026-11-23 | v6（第三轮评审收口版，2026-11-24 落）——唯一有效规则=正文 §0（本头注非指令）；裁定全文=2026-11-23-y5-local-first-ruling.md（四纠错）+本文 §0.9（v3 B1-B6+v4 A1-A5+v5 A6-A8+换层撤回记档+v6 R1-R4+清库入口对照表，逐锚按现码核实坐实）；v1/v2 的裁决史仅存档不复述 -->
+<!-- doc-status: active | created: 2026-11-23 | v7（第四轮评审=plan 施工判定收口版，2026-11-24 落）——唯一有效规则=正文 §0（本头注非指令）；裁定全文=2026-11-23-y5-local-first-ruling.md（四纠错）+本文 §0.9（v3 B1-B6+v4 A1-A5+v5 A6-A8+换层撤回记档+v6 R1-R4+v7 C1-C4+清库入口对照表，逐锚按现码核实坐实）；v1/v2 的裁决史仅存档不复述 -->
 
-- **日期**：2026-11-23（v3-v6 于 2026-11-24 落笔）。**基线**：master `a9be3fc3`（spec v2+总目录 v13 已推、CI run 144 success）。
+- **日期**：2026-11-23（v3-v7 于 2026-11-24 落笔）。**基线**：master `a9be3fc3`（spec v2+总目录 v13 已推、CI run 144 success）。
+- **v7 性质**：第四轮外部评审（plan 施工判定）四断点逐锚核实**全部成立采纳**：**C1** 离线放行在 AuthProvider（RequireAuth 链三合取跑不到——plan 缺接线非 spec 缺口，spec §0.2 步 1 既有句补定稿）；**C2** 登出挡下一次 /me（epoch 只丢旧代次响应、防不住代次后新发请求——`flowweb:auth-suppressed=1` 同步写+putSessionRow 前复读+登录成功入口清 0+挂载清除点）；**C3** 镜像腿+close 定时器清库入口显式化（history-bump/recovery-accepted 两腿在 BroadcastChannel onmessage 段、v6 对照表未列；镜像标签与发起标签共指同一物理库——镜像只拆会话、删除单源发起标签）；**C4** blocked 删除墓碑+库补丁双 then 缝（9.0.12 实为 `addAutoKey().then(del)` 两只 then——`_destroyed` 插 add 前仍漏 del；同一同步回调连续双请求进同一事务）。两处评审事实勘误（useSubscription 打的是 /subscription/me 非 auth /me；登录入口漏 register 重定向与微信回调路径——挂载清除点统一收口）。评审维持项全数核实一致（五维库名/水合次序/local-ready 分权/删除三合法/双通道导入/媒体预签名）。plan 施工侧新钉五条（P1-P5：custom store 值域含 ArrayBuffer/单活行/getCollabTabId 搬家/导入头承载任务/useWorkspaceData 第六清库点）。验收补 28-29。
 - **v6 性质**：第三轮外部评审四根因逐锚核实**全部成立采纳**：**R1** 库名第五段 `:h<historyToken>`（4406 现码清 historyId 后导出失败仍 purge+四元库名旧纪元重放——v5 四桶漏收 4406 与 generation-stale 上跳支两入口；无 receipt 不开库、三合取、导入校验）；**R2** 库内 trim 补丁（destroy 落在途 trim 的 apply 前 del 照删他标签行；「等 trim 再 destroy」不可行——pnpm patchedDependencies 仓内首例）；**R3** 屏障只在 ready 发（现码 provider 存在即发+服务端首句捕获 appliedSeq=回执假真 Durable→执行打空服务端；ready 补发点新增）；**R4** 登出代次进 localStorage `flowweb:auth-epoch`（内存代次只挡本标签；storage 事件跨标签、不新开 BroadcastChannel）。plan 约束九条扩十二条（⑨改库补丁形态+⑩custom store 单通道+⑪persist()+⑫离线媒体不置 failed）。验收补 24-27。
 - **v5 性质**：第二轮外部评审四根因逐锚核实：**条 1（换持久层）证伪否决**——「库自带 trim 多标签丢尾」机理不成立（storeState 全链同用一只 readwrite store 句柄，他标签未读键恒在删除范围外；lib-review §2.3 不变量成立；自研「永不压缩」的日志无界增长会拖死 10s 冷装载——选型维持 y-indexeddb 9.0.12，撤回记档 §0.9）；**条 2/3/4 成立采纳**（A6 版本终态三档+4410 移出 purge 表走删除闸/A7 threadsStore 写闸改 canEdit/A8 /me 代次守卫+双时间戳硬性+userSnapshot 白名单+names 写序）。附真保险丝缺口（destroy 后在途 trim 仍 apply-then-del——v6 升格为库补丁 §0.5.4）。
 - **v4 性质**：外部评审五缺口（A1-A5）逐锚核实后收口。A1/A2/A4 是 v3 真实缺口（照 v3 写 plan 会在探活证明、换账号开库、自动下载删除上丢离线编辑），A5 触发收窄方向成立，A3 判定为施工钉（内容已在 v3 冻结内，归 plan 约束不进正文）。两处评审措辞勘正一并落入 §0.9。
 - **v6 变更面**：§0.1.3 库名五段+historyToken 字符集+无 receipt 不开库+三合取+导入校验、§0.1.4 names/bindings 值域增 historyToken、§0.4 版本换代桶扩 4406+generation-stale 上跳、§0.6 矩阵扩三行（版本终态扩成员/server-restored 维持行/acceptServerRestored 导出闸/4411 sealed）+删除闸入列、§0.3.9 屏障 ready 谓词+armSession 补发点、§0.3.3 localStorage epoch+storage 事件+证明时钟边界钉、§0.5.4 库内 trim 补丁（pnpm patchedDependencies 记档）、§0.9 补 R1-R4 裁定行+清库入口对照表、plan 约束九条改写扩十二条、§2 验收补四条（24-27）。
+- **v7 变更面**：§0.1.4 session 行增**单活行不变量**（写行同步删他 uid 行）+names 值域增 **tombstone**（墓碑库启动直删不过闸）+§0.1.5 custom 值域钉 `string|ArrayBuffer`（serverSV 精确切片 ArrayBuffer 直传）、§0.7 离线放行路由接线段（C1 定稿归 AuthProvider：transient∧证明未过期→setUser(userSnapshot)——§0.2 步 1 既有句的执行面）、§0.3.3 增 `flowweb:auth-suppressed` 键（登出同步写 1+putSessionRow 前复读+登录成功入口写 0+挂载清除点统一覆盖重定向式登录）、§0.5.4 库补丁改**同一同步回调连续双请求**（原单点插桩漏 del）、§0.6 镜像腿两行（history-bump/recovery-accepted 镜像只拆会话删除单源发起标签）+close 定时器显式行+useWorkspaceData 第六清库点+getCollabTabId 搬家、§0.9 补 C1-C4 裁定行+三处勘误记档+plan 施工钉 P1-P6、§2 验收补两条（28-29）。
 - **v4 变更面**：§0.1.4 auth 表删除（A1 证明单源=session 行 localDeadline）、§0.3.3 证明写点全列（A1 探活读 body+serverNow 时钟差）、§0.2 步 1 开库前置 uid 校验+binding 键值扩容（A2）、§0.2 步 2 超时禁重开同库名（A5）、§0.5.2 容量自动删改用户触发（A4）、§0.6 删除闸手势化+登出清表补全（A4/A2）、§0.2 步 7 触发收窄（A5）、§0.9 补五缺口裁定行、§2 验收补五条（15-19）。
 - **v5 变更面**：§0.2 步 2 超时禁重开理由回归 B4 本义（原截尾机理句作废）+10s 定时器不把已 local 打成 failed、§0.5.2 禁 storeState 理由重锚「调用时机不可控」、§0.4 版本换代桶新行（三档+4410）+purge 表收窄、§0.3.3 代次守卫+双时间戳硬性+差值≤0 删行、§0.3.7 第四处放行点（threadsStore 闸改 canEdit）、§0.1.4 userSnapshot 白名单+names 值域定形+写序 fail-closed、§0.6 版本终态行+删除闸入列、§0.9 补 A6-A8+换层撤回记档+plan 约束⑨、§2 验收补四条（20-23）。
 - **v3 性质**：六补丁评审（B1-B6）逐锚核实**全部成立**后收口。六条全是「v2 落地后离线编辑进不了库、重登后送不上去、或被启动清扫删掉」的页面级真实断点——**改完才能写 plan**（v6 即改完态；plan 另行启动，不在本版内）。
@@ -23,10 +25,10 @@
 2. 策略模块（新文件，命名归 plan）只做策略、不做第二份文档编码：持有 `IndexeddbPersistence` 实例，负责降级闩锁、授权证明、服务端状态向量、diverged 标志、字节闸、清库。零业务逻辑越权面与旧层同纪律。
 3. **本地库名**：`flowweb:yjs:<uid>:<pid>:g<generation>:s<schemaVersion>:h<historyToken>`（v6 五维——R1 增第五段）。**wire docName 维持 `collabDocNameOf`**（`project:<pid>#g<N>`），协作协议零改动。**个人项目与团队项目同一套 Yjs 文档、同一套库名、同一套权限**（本批不引入项目型分叉）。**historyToken（R1）**：全局 SystemHistory 那一个 id（现例 `h-2026-10-24-a` 形），**不按项目各存一份**；字符集只允许 `[A-Za-z0-9_-]`，不合则本会话不开库。**没有持久化 historyId 时本会话不打开文档库，只做服务端水合；auth-receipt 到达后再用新 token 开库**——此时内存 doc 已是服务端状态，打开的是空库，不是把旧日志灌进去（R1：现码 `handleClientOutdatedRecovery` :908-926 在 4406 清掉 `collab:history-id` 后**导出失败仍 purgePidCaches**——四元库名下旧纪元 update 会在新纪元重放〔注释自书「同代 PITR SS2 复活」〕；第五段让纪元变化=换库，旧库走 §0.6 hold 出口）。**离线开库三合取（R1）**：localStorage 里的 historyId 与 binding 相同、binding.uid 与 session 行相同、（§0.3.5 其余条件）。**导入校验（R1）**：导出文件带 schemaVersion 与 historyToken，不一致则拒绝导入——旧代字节不进新库。
 4. **元数据库** `flowweb:yjs-meta`（普通 IndexedDB 非 Y.Doc）**三张表**（v3 四表，v4 删 auth 表——证明单源化 A1）：
-   - `names`：库名登记——键=完整库名（含 `:h<token>` 第五段），值 `{ uid, pid, generation, schemaVersion, historyToken, hold }`（v6 值域增 historyToken）；供 `indexedDB.databases()` 不可用的浏览器清扫+hold 标记载体（§0.6）。**写序（v5）：names 先于文档库写入——names 写失败则本会话不开那只库**（无名库=清扫盲区+hold 无处登记，fail-closed）；
-   - `session`：**只在 /me 返回 200 且带 user 时写** `{ uid, localDeadline, userSnapshot }`——离线放行路由的凭证+7d 证明唯一载体（expiresAt 不另立 auth 表——v4 勘正：双表各存一份到期时间是冗余双源，单源=session 行；localDeadline 见 §0.3.3）；**userSnapshot 字段白名单（v5）：只存 id、name、email、image、emailVerified、role、phoneNumber、phoneNumberVerified、createdAt、updatedAt——不存 wechatOpenid/wechatUnionid（现码 /me 返回整行 Prisma User 含 openid/unionid，落盘须按白名单裁），不存任何 token**；
+   - `names`：库名登记——键=完整库名（含 `:h<token>` 第五段），值 `{ uid, pid, generation, schemaVersion, historyToken, hold, tombstone? }`（v6 值域增 historyToken；v7 增 tombstone）；供 `indexedDB.databases()` 不可用的浏览器清扫+hold 标记载体（§0.6）。**写序（v5）：names 先于文档库写入——names 写失败则本会话不开那只库**（无名库=清扫盲区+hold 无处登记，fail-closed）；**墓碑（v7 C4）：登出或已裁定删除但 `deleteDatabase` 因他标签持有连接 blocked 时，该库 names 行同步改写 tombstone=1**——启动清扫遇墓碑**不打开文档、不过 acked 闸、按库名直接删**（不读内容——已裁定删除的库无内容可保）；删成功再去 names 行，blocked 则墓碑留到下次启动。**hold 与 tombstone 互斥**（hold=未裁定保内容的库、tombstone=已裁定待删的库），一行不得同时携带。
+   - `session`：**只在 /me 返回 200 且带 user 时写** `{ uid, localDeadline, userSnapshot }`——离线放行路由的凭证+7d 证明唯一载体（expiresAt 不另立 auth 表——v4 勘正：双表各存一份到期时间是冗余双源，单源=session 行；localDeadline 见 §0.3.3）；**单活行不变量（v7）：写行时同步删除其他 uid 的 session 行**（cookie 换账号不登出直接登录另一账号时，旧 uid 行残留会让离线冷启动 setUser(旧 uid snapshot) 开旧 uid 的库=跨账号本地泄漏；每 15min 探活自然收敛到单行；离线冷启动读到多行歧义一律 fail-closed 不放行）。**userSnapshot 字段白名单（v5）：只存 id、name、email、image、emailVerified、role、phoneNumber、phoneNumberVerified、createdAt、updatedAt——不存 wechatOpenid/wechatUnionid（现码 /me 返回整行 Prisma User 含 openid/unionid，落盘须按白名单裁），不存任何 token**；
    - `bindings`：**只在 fetchProjectMeta 成功且返回 uid 与当前 session 行相同时写**，**键=uid+pid**（v4——v3 裸 pid 键会让换账号浏览器打开上一用户的库：离线路径在 §0.3.5 的 uid 一致性检查发生在开库**之后**，用户 B 会先装载用户 A 的画布再被打回 failed=内容泄漏）；值 `{ uid, generation, schemaVersion, historyToken, name, teamId }`（v4 增 name/teamId——离线壳子顶栏与素材上下文唯一来源；v6 增 historyToken——离线开库三合取之一）——B1 离线调用 initCollab 的元数据载体。
-5. 文档库 `custom` store 只放三件（值=ArrayBuffer/字符串）：`serverSV`、`writeGrant`（`'read-write'`|`'read'`）、`diverged`（`'1'` 或删除）。
+5. 文档库 `custom` store 只放三件：`serverSV`、`writeGrant`（`'read-write'`|`'read'`）、`diverged`（`'1'` 或删除）。**值域钉（v7 P1）：库 `set` 的类型只收 `String | number | ArrayBuffer | Date`——`serverSV` 以精确切片后的 `ArrayBuffer` 直传（零 Base64 字符串膨胀），`writeGrant`/`diverged` 用字符串**；`computeDiffBytes` 返回原始 byteLength、「有未上行」判据=差分字节数大于空 Y.Doc 编码长度（模块级常量，空更新长度非 0）。
 
 ### 0.2 水合次序（七步——v3 改两处）
 
@@ -44,7 +46,7 @@
 
 1. `canEdit = !terminal && !collabReadOnly && (hydration === 'ready' || hydration === 'local')`。
 2. **`canExecute` 只认 `hydration === 'ready'`**（B6 勘正论证：`recomputeConnStatus` :1219-1220 注释自认 `isAuthenticated/isSynced` 公开布尔在 4408 形态下陈旧——canExecute 挂可陈旧布尔推导链不如直挂状态门语义），再要求 `connected` 且未冻结。local 态**不可**发起执行（执行会打到还没有这批离线编辑的服务端）。`isActiveViewerSession` 仍只认 `ready`。
-3. **7d 证明的服务端时钟**（B3 勘正+v4 A1 补全+v5 代次守卫）：**证明到期时间只写 `/me` 返回的 `sessionExpiresAt`**——禁客户端 `now+7d` 臆造（`session.service.ts:40-48` renewIfDue `age≤1d` 不续期——首日客户端时钟会长于服务器真值；WS authenticated 会 touch DB 但**不重发 cookie**，故 WS 只更新 `writeGrant` 不延长证明）。**客户端存 `localDeadline = Date.now() + (sessionExpiresAt − serverNow)`**（v4 A1：`/me` 响应增 `serverNow`；**禁存服务器绝对时间**——客户端时钟快则证明提前失效、慢则证明长于服务器真值；时钟差换算把证明长度钉死为服务器剩余寿命，客户端时钟偏移零影响）。**响应字段硬性（v5）：user 非空时 `sessionExpiresAt` 与 `serverNow` 必须都在且是毫秒时间戳——缺任一本次不改证明，禁止用 now+7d 补；差值 `sessionExpiresAt − serverNow ≤ 0` 视为会话已死，删 session 行**。**写点=每一次 200 且带 user 的 /me，含 15 分钟探活**（v4 A1 勘误：v3 只说「/me 200 写」但**现码探活不读响应体**——`useSessionKeepalive.ts:12` `void fetch(...).catch(() => {})`，body 从不解析；而 /me 是唯一续期通道（WS 不重发 cookie），探活不读 body 则连开数天后断网刷新，库里证明仍是首开页面的旧到期时间——**进不了 local，B1 断点在 v3 形态下复活**；探活须改读 body 并写 session 行）。**/me 应用收成单函数+内存代次守卫（v5）**：每次请求携带内存代次；**登出先加代再清**（该 uid 文档库+names/session/bindings 三表）——否则登出后在途的探活 200 会把 session 行写回，离线路径把已登出用户重新放进画布（v4 新写点规则与现有 fire-and-forget 探活重叠出的竞态）；**代次不符的响应直接丢弃**。**内存代次只挡本标签（v6 R4 升级：localStorage 键 `flowweb:auth-epoch` 整数）**——标签 B 登出清库时，标签 A 的探活用自己的（未变）内存代次把 /me 200 写回 session 行，且 A 持有 IDB 连接时 B 的 deleteDatabase 被 blocked（lib-review §3.5 onblocked 无挂）；**修法**：登出先把 localStorage epoch 加一、再清该 uid 的文档库和 names/session/bindings；/me 单函数发出时记下 epoch、响应不符即丢不写 session；**其他标签听 storage 事件走同一条登出路径（拆掉协作会话、不写 session）**——storage 事件由登出写动作天然触发，**不新开 BroadcastChannel（这是登录代次不是文档同步通道，§0.7 不做维持）**。`/me` 的会话死亡信号=200 且 `user:null`（`auth.controller.ts` getMe——非 401）+HTTP 401 两档：**删 session 行（含 localDeadline）**。网络错误（无 status、408、429、5xx）不改证明。`SESSION_TTL_MS`（7 天，毫秒）入 `@flowweb/shared`：`auth.ts` maxAge（毫秒现况维持）、`session.expiresIn`（换算秒——`auth.ts:123` 现值）、`session.service.ts` TTL 三处同源引用；**`updateAge`（1d）保持独立常量不并入**。**证明时钟边界（v6 钉）：按正文公式写 localDeadline，页面重新加载后没有可持久的单调钟——禁第二套时钟；该绝对值只在写入那一刻消掉客户端/服务器偏差，之后用户改系统时间仍会提前或推后本地截止；真正的授权边界仍是服务端（过期或 401 走授权中断桶——留库、不置 diverged）**。
+3. **7d 证明的服务端时钟**（B3 勘正+v4 A1 补全+v5 代次守卫）：**证明到期时间只写 `/me` 返回的 `sessionExpiresAt`**——禁客户端 `now+7d` 臆造（`session.service.ts:40-48` renewIfDue `age≤1d` 不续期——首日客户端时钟会长于服务器真值；WS authenticated 会 touch DB 但**不重发 cookie**，故 WS 只更新 `writeGrant` 不延长证明）。**客户端存 `localDeadline = Date.now() + (sessionExpiresAt − serverNow)`**（v4 A1：`/me` 响应增 `serverNow`；**禁存服务器绝对时间**——客户端时钟快则证明提前失效、慢则证明长于服务器真值；时钟差换算把证明长度钉死为服务器剩余寿命，客户端时钟偏移零影响）。**响应字段硬性（v5）：user 非空时 `sessionExpiresAt` 与 `serverNow` 必须都在且是毫秒时间戳——缺任一本次不改证明，禁止用 now+7d 补；差值 `sessionExpiresAt − serverNow ≤ 0` 视为会话已死，删 session 行**。**写点=每一次 200 且带 user 的 /me，含 15 分钟探活**（v4 A1 勘误：v3 只说「/me 200 写」但**现码探活不读响应体**——`useSessionKeepalive.ts:12` `void fetch(...).catch(() => {})`，body 从不解析；而 /me 是唯一续期通道（WS 不重发 cookie），探活不读 body 则连开数天后断网刷新，库里证明仍是首开页面的旧到期时间——**进不了 local，B1 断点在 v3 形态下复活**；探活须改读 body 并写 session 行）。**/me 应用收成单函数+内存代次守卫（v5）**：每次请求携带内存代次；**登出先加代再清**（该 uid 文档库+names/session/bindings 三表）——否则登出后在途的探活 200 会把 session 行写回，离线路径把已登出用户重新放进画布（v4 新写点规则与现有 fire-and-forget 探活重叠出的竞态）；**代次不符的响应直接丢弃**。**内存代次只挡本标签（v6 R4 升级：localStorage 键 `flowweb:auth-epoch` 整数）**——标签 B 登出清库时，标签 A 的探活用自己的（未变）内存代次把 /me 200 写回 session 行，且 A 持有 IDB 连接时 B 的 deleteDatabase 被 blocked（lib-review §3.5 onblocked 无挂）；**修法**：登出先把 localStorage epoch 加一、再清该 uid 的文档库和 names/session/bindings；/me 单函数发出时记下 epoch、响应不符即丢不写 session；**其他标签听 storage 事件走同一条登出路径（拆掉协作会话、不写 session）**——storage 事件由登出写动作天然触发，**不新开 BroadcastChannel（这是登录代次不是文档同步通道，§0.7 不做维持）**。**epoch 防不住「代次之后新发的请求」（v7 C2）**：登出的 REST sign-out 是 await 窗，窗内画布仍挂载、keepalive tick 打出的 /me 记的是**新代次**、200+user 过代次检查照写 session 行=复活。**`flowweb:auth-suppressed` 键（v7 C2 定稿）**：登出在**任何 await 之前**同步写 `flowweb:auth-suppressed=1`（与 epoch+1 同一同步段）；**`putSessionRow` 前再读该键——值为 1 时 200 且带 user 不写行**（不删已有行、只挡写）；**登录成功入口先把该键写 0 再调 refresh**（组件入口：LoginModal/AuthModal/PhoneLoginForm——现码登录即 refresh）；**挂载清除点（v7 勘正②收口）**：AuthProvider 挂载的首次 `refresh()` 收到 200+user 时**先清 suppressed 再写行**——统一覆盖两条不经组件入口的重定向式登录（`/register` 页 sign-up 成功 `window.location.href` 直跳、微信扫码服务端回调整页跳转——评审入口清单漏列的路径）；**登录后整页刷新是常态路径**（resolvePostLoginTarget 形态），挂载清除点保证该常态路径下证明必然落盘。残余复活窗=「sign-out 成功但 Set-Cookie 响应丢失且用户在下一次 /me 前不再整页刷新」的病态组合，后果只是授权中断桶语义（收权留库），fail-closed 方向不变。`/me` 的会话死亡信号=200 且 `user:null`（`auth.controller.ts` getMe——非 401）+HTTP 401 两档：**删 session 行（含 localDeadline）**。网络错误（无 status、408、429、5xx）不改证明。`SESSION_TTL_MS`（7 天，毫秒）入 `@flowweb/shared`：`auth.ts` maxAge（毫秒现况维持）、`session.expiresIn`（换算秒——`auth.ts:123` 现值）、`session.service.ts` TTL 三处同源引用；**`updateAge`（1d）保持独立常量不并入**。**证明时钟边界（v6 钉）：按正文公式写 localDeadline，页面重新加载后没有可持久的单调钟——禁第二套时钟；该绝对值只在写入那一刻消掉客户端/服务器偏差，之后用户改系统时间仍会提前或推后本地截止；真正的授权边界仍是服务端（过期或 401 走授权中断桶——留库、不置 diverged）**。
 4. `writeGrant` 只在 `authenticated` scope 上更新（`scope==='read-write'` 写 `'read-write'` 否则 `'read'`——:1613/:1626 现链挂点）。从未认证成功的项目无 grant，离线不可编辑。
 5. `local` 进入条件全列：库已装载、证明未过期、**证明 uid 与库名 uid 相同（v4：开库前已在 §0.2 步 1 前置校验，此处复验——同判据双锚）**、`writeGrant==='read-write'`、无 `diverged`、无终态通知。满足→投影+`collabReadOnly=false`+`setHydration('local')`。**进不了 local 但库有内容**：投影+hydration 保持 `failed`、沿用只读副本横幅（无权/证明失效=可看不可编）。
 6. 服务端 `authenticated`/`conn-status`/`doc-status` 后仍按现有公式覆盖 `collabReadOnly`。**一旦 ready 断线不退回 local**；10s 到点已 local 留 local，仍 pending 才 failed；`completeHydration`/`armSession` 增 local→ready。
@@ -65,12 +67,24 @@
 
 **`SESSION_EXPIRED` 与 `COLLAB_VERSION_TERMINAL_REASONS` 三档继续从 `NO_READ_ACCESS_PURGE_REASONS`（:668-678）移除**（v5：前者授权中断桶、后者版本换代桶——purge 表只剩无读权真成员 forbidden/not-found/team-disbanded/project-erased）。「只读解除∧healthySync 清 diverged」只服务第四桶。**离线 local 态编辑不置 diverged**。三出边不变：导出/放弃（删本库重进）/本会话只读解除且 healthySync。
 
+**多标签镜像腿与 close 定时器（v7 C3——BroadcastChannel onmessage 段两腿+close 4410 定时器，v6 对照表未列全）**：
+
+| 入口 | 现码 | 改定后 |
+|---|---|---|
+| history-bump 镜像腿（:1928-1934） | 清 historyId+`void purgePidCaches` | **镜像标签只清内存 historyId+localStorage（storage 事件天然可见）+拆协作会话，不删库**；尽力导出 salvage 腿（download:false——内存副本不落盘）维持。删除只发生在发起标签、走删除闸 |
+| recovery-accepted 镜像腿（:1939-1947） | purge 后 safeReload | **镜像标签只拆会话并刷新，不删库**；删除只发生在发起标签（acceptServerRestoredRecovery 内）、且导出文件已生成之后 |
+| close 4410 定时器（:1806-1818） | dispatchY1cClose 之外另起 safeReload('generation') 定时器 | **该定时器与 dispatchY1cClose 的 export-draft-then-clear 合成同一条删除闸路径**（换代统一出口）；hold 时库留下、只亮横幅 |
+| 无读权终态两处（:1768/:1827） | 终态表命中即 purge、无导出 | SESSION_EXPIRED 与版本三档已移出表（§0.4）；forbidden/not-found/团队解散/项目擦除：有差分先导出、文件生成后再按 uid+pid 删；差分为空则删 |
+| useWorkspaceData 项目删除（:142） | 项目删除成功 `void purgePidCaches` | **第六清库点（v7 P5）**：改道删除闸——无读权桶同款「有差分先导出再删」 |
+
+**镜像腿只拆会话的机理**：镜像标签与发起标签共指同一物理库——镜像侧删库会被发起标签持有连接 blocked、或删掉发起标签尚未完成导出保全的差分；删除权单源发起标签（其持有 recovery 动作的用户手势与导出确认），镜像侧只保证本标签会话退出干净（拆 provider/doc、刷新后按 DB 真值重建）。
+
 ### 0.5 字节闸与容量——v3 改两处（B5）+v6 库内 trim 补丁（R2）
 
 1. 字节闸：5s tick 上 `encodeStateAsUpdate(doc).byteLength` 对比 `QUOTA_DEFAULTS.maxDocBytes`（8_388_608 单源）。**文档没有新 update 时不重复编码**（5s 是最小间隔非必跑）。超限→`localCacheReady=false`+横幅「内容尚未保存，请导出」。**禁**逐条 `update.byteLength` 累加当文档大小（trim 后重复计数）。
 2. `estimate()` 滞回维持 0.8 进/0.6 出。**本批禁应用层调用 `storeState`**（v5 理由重锚：B5 原句「本标签内存快照的删除范围会截掉另一标签已落盘的尾部」经裁定**证伪撤回**——storeState 的 fetchUpdates/getLastKey/add/del 同用一只 readwrite store 句柄，他标签未读到的键恒 ≥ _dbref 落在删除范围外、lib-review §2.3 内容不变量成立；**真实的禁令依据=调用时机不可控**——水合中途或装载未完成时应用不该主动压，且库自带 trim 有已核实的内容不变量兜底，回放成本钉在 ≈500 行+一条快照，应用层无增益）。**配额不足不自动删任何其他库**（v4 A4 勘正：v3「容量不够时只删 serverSV 能覆盖的其他库」——另一标签在 SV 记录之后、尚未同步的尾部 update 会随库被删——**该截尾风险成立但与库 trim 无关**，是应用侧删除范围算不出他库真差分的问题）→ 闩锁降级 + 未同步横幅写明「浏览器可能清掉本地库」（无可靠淘汰事件，不做假检测）。**只有用户点击「清理已同步的其他项目」时**才当场打开候选库、装载后确认相对 serverSV 差分为空且无 diverged（acked 三判据见 §0.6 删除闸）才删。`persist()` 失败或未授权同款横幅。
 3. 写失败降级（B4 补丁收窄）：**只认 `QuotaExceededError` 且本会话 persistence 已打开、正处于写入窗口**——闩锁一次 `onDegrade`。打开失败只处理 `_db` 的拒绝（不把全局监听当唯一信号）。**不靠压缩后的包名去匹配栈**。其它 rejection 原样抛出。
-4. **库内 trim 补丁（v6 R2——取代 v5 约束⑨的应用层观测形态）**：9.0.12 的 `_destroyed` 只包住 fetchUpdates 的 apply 段；`storeState` 返回的 promise **没有留在实例上、调用方等不到**（lib-review §1.2 全链无引用）。destroy() 落在 apply 之前时，随后的 `del(upperBound)` 仍会执行——删掉本事务已读到、本 doc 还没有 apply 的另一标签的行。**「等在途 trim 跑完再 destroy」不可行**（那次 encode 本身可能就是超时原因；等到 apply 被跳过后再删、丢的还是同一批行）。**钉死 9.0.12，补丁只做一件事：写快照与 del 跟 `_destroyed` 判断放进同一个同步回调，标志已置上就两条请求都不发**；实例随后丢弃，`_dbref` 写脏无碍——下次打开从 0 重读，行都还在。初次打开的 fetchUpdates 本来就不删行，10s 超时路径不依赖本补丁；**补丁防的是离开页面时撞上已开始的 500 条压缩**（验收 24 行为锚）。**补丁载体记档：pnpm `patchedDependencies`+`patches/` 目录（本仓首例——现 package.json 只有 overrides），补丁只动 `storeState` 单函数，锁文件随批提交**。应用层继续禁调 storeState（本节 2 维持）。
+4. **库内 trim 补丁（v6 R2——取代 v5 约束⑨的应用层观测形态）**：9.0.12 的 `_destroyed` 只包住 fetchUpdates 的 apply 段；`storeState` 返回的 promise **没有留在实例上、调用方等不到**（lib-review §1.2 全链无引用）。destroy() 落在 apply 之前时，随后的 `del(upperBound)` 仍会执行——删掉本事务已读到、本 doc 还没有 apply 的另一标签的行。**「等在途 trim 跑完再 destroy」不可行**（那次 encode 本身可能就是超时原因；等到 apply 被跳过后再删、丢的还是同一批行）。**钉死 9.0.12，补丁只做一件事：写快照与 del 跟 `_destroyed` 判断放进同一个同步回调，标志已置上就两条请求都不发**；实例随后丢弃，`_dbref` 写脏无碍——下次打开从 0 重读，行都还在。**v7 C4 缝收口：9.0.12 的 storeState 实为 `addAutoKey(...).then(() => idb.del(...))` 两只 then——只把 `_destroyed` 插在 add 之前的单点补丁，destroy 落在 add 与 del 之间时 del 照发**；**补丁把两条请求连续写在同一同步回调里、中间不插入 then**——两请求进入同一 IndexedDB 事务，事务随连接关闭回滚时快照与删除一起撤销、行还在；destroy 无 interleaving 点。初次打开的 fetchUpdates 本来就不删行，10s 超时路径不依赖本补丁；**补丁防的是离开页面时撞上已开始的 500 条压缩**（验收 24 行为锚）。**补丁载体记档：pnpm `patchedDependencies`+`patches/` 目录（本仓首例——现 package.json 只有 overrides），补丁只动 `storeState` 单函数，锁文件随批提交**。应用层继续禁调 storeState（本节 2 维持）。
 
 ### 0.6 清库矩阵——v3 改两处+v4 删除闸手势化（B5+A4 收口：统一删除规则）
 
@@ -82,9 +96,9 @@
 | **acceptServerRestoredRecovery（管理员接受，v6）** | 现码 :989-1003 接受后**无条件 purgePidCaches**——本批改：**导出文件已生成才删**（下载失败留库走 hold）；reload 后按 DB 真值 g 重建维持 |
 | **4411/4412 resyncFull（拒帧恢复，v6）** | 现码 :809-830 `deleteOwnRecord` 后用新 doc 打开同一缓存——本批改：**被拒字节标 sealed（names 记录）不挂回正在连接的 doc**；sealed 走本闸 hold 同款出口（导出/放弃二选一，用户可见横幅）。**导出文件带 schemaVersion 与 historyToken，对不上拒绝导入**（§0.1.3 导入校验——旧代字节不进新库） |
 | 项目删除、forbidden、not-found、团队解散、项目擦除 | 有差分先导出，导出成功再按 uid+pid 删 |
-| 登出 | 删该 uid 的 yjs 库+**names/session/bindings 三表该 uid 行**（v4 A2 勘正：v3 漏 session/bindings——残留 binding 指向已清掉的库，同名空库可被离线路径复活；`purgeUidCaches` 语义扩容） |
+| 登出 | 删该 uid 的 yjs 库+**names/session/bindings 三表该 uid 行**（v4 A2 勘正：v3 漏 session/bindings——残留 binding 指向已清掉的库，同名空库可被离线路径复活；`purgeUidCaches` 语义扩容）；**blocked 处置（v7 C4）：某库因他标签持有连接删不掉时，其 names 行同步改写 tombstone=1——下次启动按墓碑直删（§0.1.4）** |
 | session-expired/HTTP 401/unauthenticated/`/me` 200+null | **收编辑权留库**（授权中断桶——B2）；`/me` 200+null **只删 session 行、binding 保留**（同 uid 重登可对上——v4 A2 设计裁定） |
-| 启动 | **与换代同一条删除规则**（B5 核心勘正+v4 A4 手势化）：`flowweb:yjs:` 异代库有差分或 diverged → **hold 标记+横幅，不自动下载不自动删**（v2 原文「直接删异代库」作废——离线编辑正落在旧代库里）；`flowweb:collab:` 前缀仍**不读即删**（那是撤旧层） |
+| 启动 | **与换代同一条删除规则**（B5 核心勘正+v4 A4 手势化）：`flowweb:yjs:` 异代库有差分或 diverged → **hold 标记+横幅，不自动下载不自动删**（v2 原文「直接删异代库」作废——离线编辑正落在旧代库里）；`flowweb:collab:` 前缀仍**不读即删**（那是撤旧层）；**墓碑库直删不过闸（v7）**。**清扫范围=`indexedDB.databases()` 与 `listNameRows()` 的并集——`databases()` 不可用的浏览器仍走 names 全表**，不得整段跳过（v7 P2） |
 
 **删除何时合法**（v4 A4 统一删除闸——启动、换代、**版本终态四入口与 4410（v5 入列+v6 扩 4406/上跳支）**、safeReload、403、404、团队解散、项目擦除、**acceptServerRestored、4411 sealed（v6 入列）**全部走它）：**acked**（打开该库装载后相对 serverSV 的差分为空且无 diverged）可删；**用户点击导出且文件已生成**可删（下载失败不删）；**用户点击放弃**可删；其余一律不删（导出失败、收集失败、reload 之前、hold 上）。safeReload 在 hold 上只亮横幅不 purge。
 
@@ -95,6 +109,8 @@
 多标签零新增通道：在线靠 Hocuspocus 收敛；离线两标签各自追加同一库（内存互不可见），重连后服务端取并集；拖拽预览仍 awareness；撤销栈仍各标签 UndoManager。RPO=1 条未完成 IDB 事务（预算 1s）；降级路径从第一条写失败到用户导出无持久化承诺（横幅照此写）；打开窗口丢失为 0。
 
 **离线窗口的边界**（B1 补丁收口）：**本批不加 PWA 工人缓存**。能工作的离线=页面已打开后断网，或文档/脚本仍在 HTTP 缓存里时刷新。验收 1 必须从画布页走进 local 态，不能只调用带 meta 的 initCollab。
+
+**离线放行的路由接线（v7 C1——定稿归 AuthProvider，spec §0.2 步 1 既有句的执行面）**：RequireAuth 只看 user（`:11` Navigate 链维持不动）；**`/me` 网络失败（transient：无 status、408、429、5xx）且 session 行证明未过期 → AuthProvider `setUser(userSnapshot)`、loading 结束**——不置 null；`/me` 返回 200 且 `user:null`、HTTP 401、证明缺失或已过期 → `setUser(null)`（现有语义维持）。**画布页只分型项目请求**：401 走现有 httpExpired、403/404 不开库、transient 才做开库三合取。此处离线放行在**路由层**完成，画布页三合取在**会话层**复验——两层判据同源（session 行），`fetchMeWithProof` 单函数承载（§0.3.3）。**登出后放行语义**：`setUser(null)` 即收回路由权；被 epoch/suppressed 挡住的在途 200 不会写回 session 行（§0.3.3），session 行不在则 C1 放行判据自然失效——两键共同保证「登出后下一次 /me 不复活离线画布」。
 
 ### 0.8 本批不做——v3 一处勘正
 
@@ -140,11 +156,34 @@
 | acceptServerRestoredRecovery | 管理员接受后无条件 purgePidCaches（:989-1003） | 导出文件已生成才删；下载失败留库 |
 | 4411 resyncFull | deleteOwnRecord 后用新 doc 再打开同一缓存（:809-830） | 被拒日志标 sealed 不挂回连接中的 doc；放弃或导出成功才删（hold 同款出口） |
 
+**v7 镜像腿补列表（C3——v6 对照表漏列的 BroadcastChannel 段+close 定时器；完整改定见表 §0.4 镜像腿节）**：
+
+| 入口 | 现码 | 改定后 |
+|---|---|---|
+| history-bump 镜像腿 | 清 historyId+purgePidCaches（:1928-1934） | 镜像标签只拆会话不删库；删除单源发起标签 |
+| recovery-accepted 镜像腿 | purge 后 safeReload（:1939-1947） | 镜像标签只拆会话并刷新；删除单源发起标签、导出文件已生成之后 |
+| close 4410 定时器 | dispatchY1cClose 之外另起 safeReload 定时器（:1806-1818） | 与 export-draft-then-clear 合成同一条删除闸路径；hold 时库留下 |
+| 无读权终态两处（:1768/:1827） | 终态表命中即 purge 无导出 | 有差分先导出再删；差分为空则删 |
+| useWorkspaceData 项目删除 | 删除成功 void purgePidCaches（:142） | 第六清库点：改道删除闸、无读权桶同款 |
+
+**v7 C1-C4 裁定行（第四轮评审=plan 施工判定，逐锚核实坐实）**：
+
+| # | 断点 | 现码实锤锚 | 收口 |
+|---|---|---|---|
+| C1 | 离线进不了画布 | `router.tsx:64` canvas 在 `<RequireAuth />` 内、`RequireAuth.tsx:11` user 空即跳登录、`AuthProvider.tsx:39` catch→setUser(null)——plan v1 把离线放行推给画布页三合取，路由层先拦死 | 离线放行归 AuthProvider（§0.7 定稿）：transient∧session 行未过期→setUser(userSnapshot)；200+null/401/证明缺失过期→setUser(null)；RequireAuth 不动；画布页只分型项目请求 |
+| C2 | 登出挡不住下一次 /me | epoch 只丢「发出时代次已旧」的响应；REST sign-out 是 await 窗、窗内 keepalive tick 打出的 /me 记新代次、200+user 照过代次检查写行=复活 | `flowweb:auth-suppressed` 键（§0.3.3）：登出任何 await 前同步写 1+putSessionRow 前复读+登录成功入口写 0+挂载清除点覆盖重定向式登录 |
+| C3 | 镜像腿绕删除闸 | history-bump/recovery-accepted 两腿在 BroadcastChannel onmessage 段（:1928-1947）直接 purgePidCaches——v6 对照表未列；镜像与发起标签共指同一物理库 | 镜像只拆会话不删库（salvage 腿维持）；删除单源发起标签且过删除闸；close 定时器并入同闸（§0.4 镜像腿节） |
+| C4 | blocked 删除+补丁双 then 缝 | `local-cache-key.ts:50` onblocked 直接 resolve——登出清 names 后库成孤儿、启动清扫有差分就 hold=删不掉；9.0.12 storeState 实为 `addAutoKey().then(del)` 两只 then，单点插桩漏 del | names 行 tombstone 标记+启动直删不过闸（§0.1.4/§0.6）；补丁同一同步回调连续双请求进同一事务（§0.5.4） |
+
+**v7 评审事实勘误记档**（不改变采纳结论，定稿已按勘正后口径落正文）：①评审断言「useSubscription 挂载都会打 /me」不实——`subscriptionApi.getMe` 打的是 `/subscription/me`（subscriptionApi.ts:34）非 auth `/me`，不构成写点；「不清该键」一句无害但依据作废。②评审登录入口清单（LoginModal/AuthModal/PhoneLoginForm 三处写 0）漏列两条不经组件入口的重定向式登录——`/register` 页 sign-up 成功后 `window.location.href` 直跳（register/page.tsx:21）、微信扫码走服务端回调整页跳转（WeChatQRLogin 无组件级 refresh）——只认组件入口则该两类用户 suppressed 恒 1、离线证明永不落盘；**收口=AuthProvider 挂载清除点**（§0.3.3）：挂载首次 refresh 收 200+user 先清 suppressed 再写行，统一覆盖全部重定向式登录（登录后整页刷新本就是 resolvePostLoginTarget 常态路径）。③评审「draft-envelope.ts 已冻结跨纪元为 import-as-new」文件名不实——模块实名 `rejected-recovery.ts`（buildDraftEnvelope :137）；import-as-new 冻结锚实存（collab-recovery-import.int.spec.ts:178），**语义断言正确**：REST 通道不动准入、不灌旧 update 进新库。
+
 **v5 换层评审裁定记档（撤回+选型维持）**：第二轮评审指控「y-indexeddb 自带 storeState 压缩在多标签丢另一标签已落盘尾部」并主张换仓内自研持久层——**逐锚证伪撤回**：storeState 的 fetchUpdates/getLastKey/add/del 同用 fetchUpdates 开头那只 readwrite store 句柄（lib0 `addAutoKey/del` 不另开 transact）；他标签未读到的键恒 ≥ _dbref 落在 `createIDBKeyRangeUpperBound(_dbref, true)` 删除范围外；「删掉的行都已 apply 进本标签 doc 且 encode 进随后快照」内容不变量成立（lib-review §2.3——其 §2.2「add 与 del 各开事务」一句顺带勘误，不变量本身无误）。打开时 `beforeApplyUpdatesCallback` 写的那条快照在 Y5 流程里是空 doc 快照=噪声行非丢失路径。**换层否决**：自研「永不压缩」方案的日志无界增长会把冷装载拖过 10s 死线——恰好杀死离线进 local 的本批目标；y-indexeddb 9.0.12 选型维持。§0.5.2 禁应用层 storeState 的禁令保留但理由重锚为「调用时机不可控」（原截尾机理句作废）。**但评审附带翻出一个真保险丝缺口（plan 约束⑨）**：destroy 置 `_destroyed` 后，在途 storeState 链仍会 apply-then-del（该标志只包住 fetchUpdates 的 apply 段——getLastKey/add/del 全在守卫外）。
 
 **v4 两处评审措辞勘正**（不改变采纳结论）：①「auth 与 session 各写一份会漂」降为「冗余双源」（两表同源同写点不会自发漂，合并是简洁优先）；②「只有自己离线写过也标成冲突」过强（检测器只报真实结构异常，实际误伤面=旧异常归因错误），收窄仍采纳；③评审表格「local 态 provider 尚未创建」不准确——按 §0.2 步 5 provider 在装载后构造，离线 local 下 provider 是已创建未连上，本质判据=服务端未确认，canEdit/canExecute 列不受影响。
 
 **plan 约束十二条**（施工钉死）：①serverSV 在现有 3s healthySync 清 dirty 的同一同步段里编码（每次健康同步都重写非仅首次 armSession），异步写入；**编码抛错就把该文档标成 dirty，不把坏状态向量写进去**。②「有无未上行」=差分>空 doc 编码（同时记入 Σpending——§0.2 步 4）。③字节闸不重复编码（§0.5.1）。④降级只认 QuotaExceeded+写入窗口（§0.5.3）。⑤local→ready 双端有差分才跑草稿合并异常检测（§0.2 步 7）；换代导出直读 yjs 库差分、旧快照路径删（§0.6）。⑥**A3 施工钉**：断线后 hydration 保持 ready、collabReadOnly 粘滞不回收（authenticated 现码注释自认语义）；canEdit 真可 canExecute 假；**保存屏障按 §0.3.9 ready 谓词**（local/断线都不发；批注写走 §0.3.7 同闸）。⑦**A1 单位钉**：`SESSION_TTL_MS` 同源时 `auth.ts:69` maxAge 现值是毫秒、`auth.ts:123` expiresIn 现值是秒——常量取毫秒，expiresIn 处显式 `/1000` 换算。⑧**探活改读 body 不得改变 fire-and-forget 形态**（15min 静默失败仍不炸不提示——只加「200 且带 user 才写 session 行」半边）。⑨**destroy-trim 保险丝改库补丁形态（v6 R2 升级——v5 应用层观测形态作废）**：§0.5.4 库内补丁（快照写/del 与 `_destroyed` 同一同步回调）是唯一防线；**禁「等在途 trim 跑完再 destroy」**；补丁载体=pnpm patchedDependencies+patches/（仓内首例，锁文件随批提交）。⑩**custom store 单通道（v6）**：serverSV/writeGrant/diverged 只用 IndexeddbPersistence 的 get/set/del——**禁止对同一库名再 `indexedDB.open`**（与库自己的 schema 升级撞车）。⑪**首次进 local 后调 `navigator.storage.persist()`**；返回 false 沿用「浏览器可能清掉本地库」横幅。⑫**离线媒体预签名失败不得把 hydration 打成 failed、不得禁掉非媒体字段的编辑**（本批不加 PWA 维持）。
+
+**v7 plan 施工钉五条（P1-P5——plan v2 落实，正文对应节已引用）**：**P1 custom store 值域**：`writeCustom` 收 `string | ArrayBuffer`——serverSV 精确切片后的 ArrayBuffer 直传（库 `set` 类型只收 `String|number|ArrayBuffer|Date`——y-indexeddb.js:163 JSDoc 实锚）、writeGrant/diverged 用字符串；`computeDiffBytes` 返回原始 byteLength、空 doc 编码做模块级常量（§0.1.5）。**P2 启动清扫并集**：清扫范围=`indexedDB.databases()` 与 `listNameRows()` 并集，`databases()` 缺席仍走 names 全表、不得整段跳过（§0.6 启动行）。**P3 getCollabTabId 搬家**：随 local-collab-cache.ts 退役，函数体（sessionStorage+fallback memo 十几行）挪至 `rejected-recovery.ts`（信封导出旁）——runtime :22 import/:795 消费点改道，sessionStorage 形态不变（§0.6）。**P4 导入头承载**：导出文件加头部带 schemaVersion 与 historyToken（§0.1.3 导入校验——exportLocalBackup/exportRecoveryEnvelope 双导出面+applyLocalBackup 校验面）；不一致拒绝 applyUpdate、旧导出文件无头不兼容（无用户数据禁垫片）。**P5 第六清库点**：useWorkspaceData.ts:142 项目删除 purge 改道删除闸（无读权桶同款——有差分先导出再删，§0.4 镜像腿表末行）。**P6 任务切分钉**：Task 9 只断言路由决定（分型/是否调用 initCollabLocal/无 projectId 停「暂不可用」）——hydration='local' 的页面整链在 Task 10 桩落地之后、Task 15 收口，**中间不提交一套仍失败的测试**；决策函数（applyDeleteGate/墓碑重试/custom 读写）全落 local-yjs-store.ts，2500 行 runtime 只改调用点不长出新 purge 层（§0.1.2 策略纪律）。
 
 ---
 
@@ -205,6 +244,11 @@
 25. **4406 之后旧库还在，新会话不开这只库（新 receipt 到达前只做服务端水合）**（R1）。
 26. **provider 已构造但尚未 ready：屏障零发送；进入 ready 后补发一次且序号盖住 local 期间的编辑**（R3——§0.3.9 谓词）。
 27. **标签 B 登出与标签 A 的在途 /me 200 重叠：session 行不在（localStorage epoch 跨标签守卫）**（R4）。
+
+**第四轮评审验收补两条**（v7 增）：
+
+28. **登出 await 窗内 keepalive 打出的 /me（带新代次）收到 200+user：session 行不在（suppressed 键挡写）；登录成功后挂载清除点先清 suppressed 再写行（重定向式登录同覆盖）**（C2——复活窗回归锚）。
+29. **用户 A 不登出、cookie 直接换用户 B 登录：B 的 /me 200 写行时 A 的 session 行同步删除；离线冷启动读到多行歧义不放行跳登录（单活行不变量）**（v7 补强——跨账号本地泄漏回归锚）。
 
 **测试形态约束**：验收 1/11 必须从画布页组件路径走进 local（AuthProvider/RequireAuth/fetchProjectMeta 全链），**不得**只单测一个已带 meta 的 initCollab。
 
