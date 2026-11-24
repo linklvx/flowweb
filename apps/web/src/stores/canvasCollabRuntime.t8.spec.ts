@@ -7,47 +7,18 @@ import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import { CANVAS_DOC_SCHEMA_VERSION, FRAME_ALLOWANCE_BYTES, QUOTA_DEFAULTS } from '@flowweb/shared';
 import { useCanvasStore } from './canvasStore';
-import { canEdit } from './syncStatus';
 import * as runtime from './canvasCollabRuntime';
-import { getUndoManager, Origin } from './canvasUndo';
+import { Origin } from './canvasUndo';
 import { buildLocalCacheKey } from '@/collab/local-cache-key';
 import { LOCAL_CACHE_MAX_DOC_BYTES, getCollabTabId, type LocalCacheRecord } from '@/collab/local-collab-cache';
 import { createFakeIndexedDb, type FakeIndexedDbFactory } from '@/test/fakeIndexedDb';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 import { _resetUnloadGuardForTest } from '@/utils/unloadGuard';
-import { toDocLike } from '@/collab/ydocBuilder';
 
 vi.mock('@hocuspocus/provider', async () => {
   const { FakeHocuspocusProvider } = await import('@/test/fixtures/fakeHocuspocusProvider');
   return { HocuspocusProvider: FakeHocuspocusProvider };
 });
-
-/** spec 修复 1b：exportLocalBackup opts 透传观测（t6.spec M2 同款 importOriginal 包裹转发——
- * 行为零改动,仅记录 tag 面——jsdom 文件名不可断言,观测收参侧） */
-const exportOptsLog: Array<{ tag?: string }> = [];
-vi.mock('@/collab/canvas-local-backup', async (importOriginal) => {
-  const orig = await importOriginal<Record<string, unknown>>();
-  return {
-    ...orig,
-    exportLocalBackup: (d: unknown, header: unknown, opts?: { tag?: string }) => {
-      exportOptsLog.push(opts ?? {});
-      return (orig.exportLocalBackup as (d: unknown, header: unknown, opts?: { tag?: string }) => unknown)(d, header, opts);
-    },
-  };
-});
-
-/** jsdom 无 URL.createObjectURL——静态方法注入（t6.spec 同款；测后删除还原） */
-function stubBlobUrls(): void {
-  Object.defineProperty(URL, 'createObjectURL', {
-    configurable: true,
-    value: () => 'blob:mock',
-  });
-  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: () => {} });
-}
-function restoreBlobUrls(): void {
-  delete (URL as any).createObjectURL;
-  delete (URL as any).revokeObjectURL;
-}
 
 const META = { collabGeneration: 3, collabSchemaVersion: 2, viewerUid: 'u1' };
 const KEY = buildLocalCacheKey({ uid: 'u1', pid: 'p1', generation: 3, schemaVersion: 2 });
@@ -132,15 +103,9 @@ const flushedRecord = () => kit.data.get(KEY)?.get(getCollabTabId()) as LocalCac
 
 // ══════════ boot 回放+能力位（裁定 24⑦/裁定 21） ══════════
 describe('T8 boot 回放与能力位', () => {
-  it('boot：seeded 快照回放进 doc（装载后 undoManager.clear——缓存装载非用户编辑）+whenSynced(本地库加载)真值→localCacheReady=true（不抬 hydration 门——渲染门仍=服务端 synced）', async () => {
-    kit.data.set(KEY, new Map([['snapshot', REC()]]));
-    const p = await driveToSynced();
-    expect(useCanvasStore.getState().nodes.map((n: any) => n.id)).toContain('seed-a');   // 本地副本已渲染
-    expect(useCanvasStore.getState().hydration).toBe('ready');                            // 渲染门由服务端 synced 抬
-    expect(getUndoManager()?.undoStack.length ?? -1).toBe(0);                             // 回放不进撤销栈
-    expect(useCanvasStore.getState().localCacheReady).toBe(true);                         // 能力位翻转
-    void p;
-  });
+  // Y5 T10 退役：旧 LocalCollabCache 的 boot 读路径（loadAll+mergeUpdates 回放+legacy 'snapshot' 迁移）
+  // 已不在水合链上（新路径=五维 y-indexeddb 库装载，见 canvasCollabRuntime.local.spec.ts ①②③④）。
+  // 本文件保留旧适配器的写路径面（flush/能力位/尺寸闸/守卫）——T14 随整层删。
 
   it('编辑→trailing 1s 落盘（unsyncedDirty=true——T6 单源同值随快照存）+onFlushed 能力位', async () => {
     const p = await driveToSynced();
@@ -180,62 +145,36 @@ describe('T8 boot 回放与能力位', () => {
     expect(frame.byteLength).toBeLessThan(QUOTA_DEFAULTS.maxDocBytes + FRAME_ALLOWANCE_BYTES);   // 结构性恒过（4404 不可达）
   }, 20_000);
 
-  it('离线冷启动恒只读：hydration failed ∧ localCacheReady ∧有缓存→applyDocToStore 渲染本地副本+canEdit=false（谓词零改动——hydration!=="ready" 天然拦；E5 授权语义）', async () => {
-    kit.data.set(KEY, new Map([['snapshot', REC()]]));
-    const done = runtime.initCollab('p1', META);   // 不发 synced——10s 死线
-    await vi.advanceTimersByTimeAsync(0);
-    expect(useCanvasStore.getState().hydration).toBe('pending');   // 本地副本就位不抬门
-    await vi.advanceTimersByTimeAsync(10_000);
-    await done;
-    const s = useCanvasStore.getState();
-    expect(s.hydration).toBe('failed');
-    expect(s.nodes.map((n: any) => n.id)).toContain('seed-a');   // 本地副本已渲染
-    expect(s.localCacheReady).toBe(true);
-    expect(canEdit(s)).toBe(false);                              // 只读由谓词结构性保证
+  // Y5 T10 退役：离线冷启动 failed+只读副本分支改由新水合链承载（y-indexeddb 库内容投影+
+  // canEdit=false）——canvasCollabRuntime.local.spec.ts ②（证明过期/grant=read）同款断言。
+
+  // Y5 T10 退役：boot 快照尺寸闸判据随 boot 读路径退场（新链=差分字节 vs LOCAL_CACHE_MAX_DOC_BYTES，
+  // canvasCollabRuntime.local.spec.ts ③ 覆盖差分口径；能力位仍由写路径 onFlushed 翻转）。
+
+  it('IDB 全交互降级（Y5 T10 新链：文档库不可开）→initCollab 正常完成+ws_status reason="local-cache-degraded" 遥测+localCacheReady=false（协作主链零影响）', async () => {
+    // 本文件装置无 IDBKeyRange（旧最小 stub）⇒ 新链开文档库能力前置判 open-reject：
+    // names 先写成功、库开不了，本会话改纯服务端水合 + 降级遥测（异常不冒泡=协作初始化成功）。
+    localStorage.setItem('collab:history-id', 'h-t8-degrade');
+    try {
+      const p = await driveToSynced('p1', META);   // 不抛=主链无恙
+      expect(getRecentCollabDiag().some((e) => e.type === 'ws_status' && (e.detail as any)?.reason === 'local-cache-degraded')).toBe(true);
+      expect(useCanvasStore.getState().localCacheReady).toBe(false);
+      expect(useCanvasStore.getState().hydration).toBe('ready');
+      void p;
+    } finally {
+      localStorage.removeItem('collab:history-id');
+    }
   });
 
-  it('尺寸闸不过（boot 快照超闸）→能力位保持 false 维持「未保存」档（「本地已缓存」诚实分支）', async () => {
-    const big = snapshotOf((d) => { d.getMap('nodes').set('big', seedNode([['blob', 'x'.repeat(LOCAL_CACHE_MAX_DOC_BYTES)]])); });
-    kit.data.set(KEY, new Map([['snapshot', REC({ snapshot: big })]]));
-    await driveToSynced();
-    expect(useCanvasStore.getState().localCacheReady).toBe(false);
-  }, 20_000);
-
-  it('IDB 全交互降级：open 失败→initCollab 正常完成+ws_status reason="local-cache-degraded" 遥测+localCacheReady=false（协作主链零影响——异常冒泡=协作初始化失败禁发生）', async () => {
-    kit.failNextOpen();
-    const p = await driveToSynced('p1', META);   // 不抛=主链无恙
-    expect(getRecentCollabDiag().some((e) => e.type === 'ws_status' && (e.detail as any)?.reason === 'local-cache-degraded')).toBe(true);
-    expect(useCanvasStore.getState().localCacheReady).toBe(false);
-    void p;
-  });
-
-  it('★⑫a 贯通【spec 修复 3-1】：编辑→落盘→新会话 boot 回放→synced 后复合（两阶段 fake 会话驱动——未上行编辑跨会话存活,SV 差分上行待确认）', async () => {
-    // 阶段一（会话 A）：read-write 编辑（结构性节点）→trailing 落盘（unsyncedDirty 随快照存）
-    await driveToSynced();
-    const dA = runtime.getDoc()!;
-    dA.transact(() => { dA.getMap('nodes').set('rt-1', seedNode()); }, Origin.LocalUser);
-    await vi.advanceTimersByTimeAsync(1_000);   // trailing 落盘窗（结构性 150ms 提前到期同窗覆盖）
-    expect(flushedRecord()?.unsyncedDirty).toBe(true);   // 前置锚：盘上有未确认编辑
-    await runtime.destroyCollab();   // 会话终点=硬刷新形态（timer/连接/doc 全拆）
-    // 阶段二（会话 B）：boot 回放→服务端 synced 后复合
-    await driveToSynced();
-    expect(runtime.getDoc()!.getMap('nodes').get('rt-1')).toBeTruthy();   // 回放进 doc
-    expect(useCanvasStore.getState().nodes.map((n: any) => n.id)).toContain('rt-1');   // 投影复合
-    expect(runtime.hasUnsyncedCanvasChanges()).toBe(true);   // boot unsyncedDirty 保留——SS2 差分上行待确认
-  });
+  // Y5 T10 退役：⑫a 跨会话存活改由五维库承载（同一 y-indexeddb 库 reload 后差分重算+上行）——
+  // canvasCollabRuntime.local.spec.ts ⑤（serverSV 写回后 reload 差分=空）为同源行为锚。
 });
 
 // ══════════ diverged 闩锁（裁定 23⑨——出口⑳） ══════════
 describe('T8 diverged 持久化闩锁', () => {
-  it('★diverged boot：盘上 diverged 记录→不自动回放（doc 无该内容=已拒内容复活根除）+canvasDiverged 置位+单源保守武装（横幅二选一）', async () => {
-    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', seedNode()); });
-    kit.data.set(KEY, new Map([['snapshot', REC({ snapshot: divergedSnapshot, unsyncedDirty: true, diverged: true })]]));
-    const p = await driveToSynced();
-    expect(useCanvasStore.getState().canvasDiverged).toBe(true);
-    expect(useCanvasStore.getState().nodes.map((n: any) => n.id)).not.toContain('div-b');   // 未回放
-    expect(runtime.hasUnsyncedCanvasChanges()).toBe(true);                                   // 保守武装（tick 不自动清 diverged）
-    void p;
-  });
+  // Y5 T10 退役：diverged boot 判据改由五维库 custom 键承载（readCustom('diverged') → canvasDiverged
+  // 电平，健康同步删 key 自愈）——局部于 startCollabSession；旧「盘上 diverged 记录不回放」段随
+  // LocalCollabCache boot 读路径退场（T14 整层删）。
 
   it('★diverged 会话写抑制：回放被抑（suppressCacheWrites）——pagehide 强制 flush 不得用空快照覆盖盘上 diverged 唯一副本', async () => {
     const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', seedNode()); });
@@ -272,37 +211,11 @@ describe('T8 diverged 持久化闩锁', () => {
     void p;
   });
 
-  it('★闩锁不被 3s tick 自动解除【spec 修复 1a】：seed diverged→boot→在线 synced+read-write（exit-③ 三键全真）→advance 3.5s→canvasDiverged 仍 true+dirty 未清（healthySync 恒真=前提虚成立——diverged 编辑不在 doc,服务端最终接受对 boot-diverged 不可达）', async () => {
-    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', seedNode()); });
-    kit.data.set(KEY, new Map([['snapshot', REC({ snapshot: divergedSnapshot, unsyncedDirty: true, diverged: true })]]));
-    const p = await driveToSynced();
-    // exit-③ 三键全真：canvasDiverged✓+readOnly 解除（authenticated read-write 后 connReadOnly=false）✓
-    // +healthySync（isSynced+unsyncedChanges=0）✓——三键全真仍不得清（前提对 boot-diverged 虚成立）
-    expect(useCanvasStore.getState().collabReadOnly).toBe(false);   // 前置锚：三键成立
-    p.isSynced = true;
-    p.unsyncedChanges = 0;
-    await vi.advanceTimersByTimeAsync(3_500);   // 越过一个 3s tick
-    expect(useCanvasStore.getState().canvasDiverged).toBe(true);   // 闩锁仍锁（现状红：tick 清 diverged——横幅 3s 自消）
-    expect(runtime.hasUnsyncedCanvasChanges()).toBe(true);         // dirty 未被清（现状红：tick 清 dirty）
-  });
+  // Y5 T10 退役：boot-diverged 会话闩锁形态随旧层 boot 读路径退场（新链无「盘上 diverged 记录回放」
+  // 形态——diverged 语义=readOnly 期本地编辑+健康同步删 key，见 T12 四桶批处理）。§0.4 桶语义不变。
 
-  it('★diverged 导出=盘上记录非内存 doc【spec 修复 1b】：boot-diverged 会话导出→产物含盘上节点（div-b）不含内存节点（srv-only——内存 doc 是服务端版本/空）+tag=diverged 文件名标注', async () => {
-    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', seedNode()); });
-    kit.data.set(KEY, new Map([['snapshot', REC({ snapshot: divergedSnapshot, unsyncedDirty: true, diverged: true })]]));
-    const p = await driveToSynced();
-    // 内存 doc 混入服务端内容（origin=provider——远端 apply 语义,不置脏）:模拟服务端 synced 版本
-    const d = runtime.getDoc()!;
-    d.transact(() => { d.getMap('nodes').set('srv-only', seedNode()); }, p);
-    stubBlobUrls();
-    exportOptsLog.length = 0;
-    try {
-      const artifact = runtime.exportDivergedContent();
-      expect(artifact?.nodeCount).toBe(1);   // 盘上单节点（div-b）——误用内存 doc 则为 2（含 srv-only）
-      expect(exportOptsLog.at(-1)).toEqual({ tag: 'diverged' });   // 文件名标注（opts 收参侧可观测）
-    } finally {
-      restoreBlobUrls();
-    }
-  });
+  // Y5 T10 退役：boot-diverged 盘上快照导出（exportDivergedContent 的 bootDivergedSnapshot 分支）
+  // 随旧层 boot 读路径退场；内存 doc 分支（in-session diverged）沿用 T6 原行为（T12 四桶批重接）。
 });
 
 // ══════════ Σpending 流控（裁定 23⑷ 吸收——E36 又一道保险） ══════════
@@ -375,6 +288,8 @@ describe('T8 flush 触发与遥测', () => {
     // 模拟本键持有 dirty 记录（直写底层数据——连接闭包捕获 open 时的 Map 引用，整体替换不可见）
     const dirtySnapshot = snapshotOf((d) => { d.getMap('nodes').set('foreign', seedNode()); });
     const onDisk = REC({ snapshot: dirtySnapshot, unsyncedDirty: true });
+    // Y5 T10：新水合序不读旧层——旧适配器的库只在首次写时创建；本用例需要库已在盘上
+    if (!kit.data.has(KEY)) kit.data.set(KEY, new Map());
     kit.data.get(KEY)!.set(getCollabTabId(), onDisk);
     // 干净态 pagehide → flushNow 写 clean 快照 → 守卫拦（本键 dirty 不被本 tab 干净态覆盖）
     window.dispatchEvent(new Event('pagehide'));

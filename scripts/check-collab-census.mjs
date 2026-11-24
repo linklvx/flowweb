@@ -1568,7 +1568,7 @@ if (isMain()) {
     'apps/api/src/modules/collab/collab-persistence.service.ts': 1,     // withReplaySuppressed 重放抑制窗
     'apps/api/src/modules/execution/execution-request.service.ts': 2,   // Y1c T21：PG 前缀重建候选 doc（freeze 回退档——snapshot+updates 装载重放，load 档语义；G4 受理冻结读面）
     'apps/api/src/modules/collab/collab-maintenance.service.ts': 4,   // Y1c T27：EXPORTING/VERIFYING recordsOfHydration（快照+增量尾装载重放 ×2 处）+REBUILDING canonical 重建（load 档语义——§6.6 维护导出/复核/重建）
-    'apps/web/src/stores/canvasCollabRuntime.ts': 2,                    // boot 缓存回放:1770+tmp 导出:689（离线 tmp——load 档邻位）
+    'apps/web/src/stores/canvasCollabRuntime.ts': 1,                    // Y5 T10：boot 缓存回放点随水合倒转退役（旧 LocalCollabCache 读路径不再消费，T14 整层删）——余 tmp 导出:1222（离线 tmp——load 档邻位）
     // import 档（备份导入）
     'apps/web/src/collab/canvas-local-backup.ts': 1,                     // applyLocalBackup（origin=provider 抑制回发；:64 注释提及不计——census⑨ 同注）
     // 离线 scratch 档（非 inbound——compact/快照解码/shrink 预演校准/巡检）

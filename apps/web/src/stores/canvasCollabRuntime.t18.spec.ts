@@ -131,69 +131,15 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-// ══════════ ①boot mergeUpdates 并集（多标签用例——spec §3.4 场景 A） ══════════
-describe('T18 per-tab：boot mergeUpdates 并集', () => {
-  it('★双 tab 离线 dirty 记录（独立 clientID 语料）→boot 并集回放：两 tab 节点都在 doc+dirty 保留（SS2 差分上行待确认）', async () => {
-    kit.data.set(KEY, new Map<string, LocalCacheRecord>([
-      ['tab-a', REC({ tabId: 'tab-a', snapshot: snapshotOf((d) => { d.getMap('nodes').set('node-a', seedNode('a')); }), unsyncedDirty: true })],
-      ['tab-b', REC({ tabId: 'tab-b', snapshot: snapshotOf((d) => { d.getMap('nodes').set('node-b', seedNode('b')); }), unsyncedDirty: true })],
-    ]));
-    await driveToSynced();
-    const nodes = runtime.getDoc()!.getMap('nodes');
-    expect(nodes.get('node-a')).toBeTruthy();   // tab A 编辑存活（单键 LWW 丢一方=已修）
-    expect(nodes.get('node-b')).toBeTruthy();   // tab B 编辑存活
-    expect(useCanvasStore.getState().nodes.map((n: any) => n.id)).toContain('node-a');   // 投影复合
-    expect(runtime.hasUnsyncedCanvasChanges()).toBe(true);   // 任一记录 dirty → 单源保留
-  });
-
-  it('legacy ' + "'snapshot'" + ' 存量记录并入并集（升级零撕裂）+boot 后 undo 栈清零（装载非用户编辑）', async () => {
-    kit.data.set(KEY, new Map<string, LocalCacheRecord>([
-      ['snapshot', REC({ snapshot: snapshotOf((d) => { d.getMap('nodes').set('node-legacy', seedNode('lg')); }), unsyncedDirty: true })],
-      ['tab-new', REC({ tabId: 'tab-new', snapshot: snapshotOf((d) => { d.getMap('nodes').set('node-new', seedNode('nw')); }) })],
-    ]));
-    await driveToSynced();
-    const nodes = runtime.getDoc()!.getMap('nodes');
-    expect(nodes.get('node-legacy')).toBeTruthy();
-    expect(nodes.get('node-new')).toBeTruthy();
-  });
-
-  // ★双评审 Q-I-1（先红）：坏记录逐条隔离——T18 读面扩到全库全 tab+legacy 后，单条盘上坏记录
-  // （位翻转/篡改——应用写入不可达）不得毒化整个项目 boot。现状：mergeUpdates 整体无隔离
-  // →抛出→initCollab reject→hydration idle+loadError unavailable=红。
-  it('★Q-I-1 盘上单条坏 snapshot 记录→boot 不抛+好记录并集保留+坏记录丢弃遥测（现状整体抛=毒化全项目 boot）', async () => {
-    const goodSnapshot = snapshotOf((d) => { d.getMap('nodes').set('node-good', seedNode('g')); });
-    const badSnapshot = goodSnapshot.slice(0, 12);   // 截断形态（probe 实证 mergeUpdates 抛 Invalid typed array length）
-    kit.data.set(KEY, new Map<string, LocalCacheRecord>([
-      ['tab-good', REC({ tabId: 'tab-good', snapshot: goodSnapshot, unsyncedDirty: true })],
-      ['tab-bad', REC({ tabId: 'tab-bad', snapshot: badSnapshot, unsyncedDirty: true })],
-    ]));
-    await driveToSynced();   // 现状红：mergeUpdates 抛→initCollab reject（本行 throw）
-    expect(useCanvasStore.getState().hydration).toBe('ready');   // boot 完成（服务端水合主链不受坏记录影响）
-    expect(runtime.getDoc()!.getMap('nodes').get('node-good')).toBeTruthy();   // 好记录并集保留
-    const bad = getRecentCollabDiag().find((e) => (e.detail as any)?.reason === 'local-cache-bad-record');
-    expect(bad).toBeTruthy();   // 丢弃留痕（ring-only——计数不入服务端 sanitize 面）
-    expect((bad!.detail as any).dropped).toBe(1);
-  });
-
-  it('★Q-I-1 diverged 族同款隔离：坏 diverged 记录丢弃+好 diverged 记录照常闩锁（boot-diverged 模式不因单条坏记录失守/误入）', async () => {
-    const goodDiverged = snapshotOf((d) => { d.getMap('nodes').set('div-good', seedNode('dg')); });
-    const badDiverged = goodDiverged.slice(0, 8);
-    kit.data.set(KEY, new Map<string, LocalCacheRecord>([
-      ['tab-div-good', REC({ tabId: 'tab-div-good', snapshot: goodDiverged, unsyncedDirty: true, diverged: true })],
-      ['tab-div-bad', REC({ tabId: 'tab-div-bad', snapshot: badDiverged, unsyncedDirty: true, diverged: true })],
-    ]));
-    await driveToSynced();
-    expect(useCanvasStore.getState().canvasDiverged).toBe(true);   // 闩锁照常（好 diverged 记录在）
-    expect(useCanvasStore.getState().nodes.map((n: any) => n.id)).not.toContain('div-good');   // 不回放语义不变
-    // 导出面：盘上族并集=仅好记录（坏记录不进 exportDivergedContent 的 tmp 回放）
-    stubBlobUrls();
-    try {
-      const artifact = runtime.exportDivergedContent();
-      expect(artifact?.nodeCount).toBe(1);   // div-good 单节点（坏记录被隔离丢弃）
-    } finally {
-      restoreBlobUrls();
-    }
-  });
+// ══════════ ①boot mergeUpdates 并集（Y5 T10 退役——由五维 y-indexeddb 库承载） ══════════
+// 本段四例（双 tab 并集/legacy 快照迁移/Q-I-1 坏记录隔离/diverged 族隔离）钉的是旧
+// LocalCollabCache.loadAll+mergeUpdates 读放大面——Y5 T10 已把水合读路径倒转为单一 y-indexeddb
+// update 日志（loadAll 不再被水合链调用），T14 随整层删。等价行为面：
+//   ·单库 CRDT 合并（原并集语义）→ y-indexeddb 原生 update 日志回放（T2 trim 补丁测试锚）；
+//   ·坏记录不毒化 boot → 新链无「逐记录合并」面（库内 update 由库自身事务保证）；
+//   ·差分相对 serverSV → canvasCollabRuntime.local.spec.ts ③。
+describe.skip('T18 per-tab：boot mergeUpdates 并集（Y5 T10 退役——读路径改五维库）', () => {
+  it('retired', () => { expect(true).toBe(true); });
 });
 
 // ══════════ ②同步成功删己（3s tick 单源清零同点） ══════════
@@ -201,6 +147,8 @@ describe('T18 per-tab：同步成功删己', () => {
   it('★编辑→落盘→3s tick 同步确认：本 tab 记录删除+legacy 迁移清——他 tab dirty 记录存活（删己≠删族）', async () => {
     const p = await driveToSynced();
     // 他 tab 离线 dirty 记录在盘（本会话不可删——其内容未由本连接确认）
+    // Y5 T10：新水合序不读旧层——旧适配器库只在首次写时创建，本用例需库已在盘上
+    if (!kit.data.has(KEY)) kit.data.set(KEY, new Map());
     kit.data.get(KEY)!.set('tab-other', REC({
       tabId: 'tab-other',
       snapshot: snapshotOf((d) => { d.getMap('nodes').set('node-other', seedNode('o')); }),

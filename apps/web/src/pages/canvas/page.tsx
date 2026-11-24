@@ -1,4 +1,9 @@
-import { initCollab, destroyCollab, safeReload, type CollabSessionMeta } from '@/stores/canvasCollabRuntime';
+import { initCollab, initCollabLocal, destroyCollab, safeReload, type CollabSessionMeta } from '@/stores/canvasCollabRuntime';
+// Y5 T10：项目请求失败后的离线分型（T9 纯函数）+ meta 两表读（session 证明/binding 元数据）。
+import { decideOfflineRoute, type OfflineRouteInput } from './offline-route';
+import { getSessionRows, getBindingRow } from '@/collab/local-yjs-store';
+// Y5 T10：localStorage historyId 单键（与 runtime 水合链同源——rejected-recovery 的读写面）。
+import { loadPersistedHistoryId } from '@/collab/rejected-recovery';
 // Y5 T7：他标签登出拆会话回调注册（AuthProvider 的 storage 监听触发；本页不独占 storage 监听）
 import { registerCollabSessionTeardown } from '@/collab/auth-teardown-registry';
 import { attachSpecbPerfProbe } from '@/stores/specbPerfProbe';
@@ -69,9 +74,22 @@ async function createUntitledProject(): Promise<{ id: string; name: string; meta
 }
 
 // F14 三义分家：404（确定性不存在）/ 403（无权访问）/ 5xx·网络·json 异常（暂不可用，可重试）
-class ProjectNotFoundError extends Error {}
-class ProjectInaccessibleError extends Error {}
-class ProjectLoadError extends Error {}
+// Y5 T10（裁定 ①）：HTTP status 必须透传到离线分型——401（http-expired）与 5xx/网络（瞬态）同落
+// ProjectLoadError 会让 401+本地有效凭证误走 open-local（违反 §0.2 步 1）；禁把 undefined 当 401。
+class ProjectNotFoundError extends Error {
+  readonly status = 404;
+}
+class ProjectInaccessibleError extends Error {
+  readonly status = 403;
+}
+/** 其余失败（5xx/网络/json）：status 保留原值（undefined=无状态/网络错误——decideOfflineRoute 的瞬态输入）。 */
+class ProjectLoadError extends Error {
+  readonly status: number | undefined;
+  constructor(status?: number) {
+    super(`project load failed${status === undefined ? '' : ` (${status})`}`);
+    this.status = status;
+  }
+}
 
 /** 仅取项目元数据（名称/团队上下文/世代通道三元）；doc 会话统一由 openSession 建立（R5 单一漏斗）。
  *  批3-3：裸 fetch 收编 apiFetch（401 电平/契约统一）；F14 三义分家由抛错的 status 承载。
@@ -100,10 +118,12 @@ async function fetchProjectMeta(
     return { name, meta };
   } catch (e) {
     // R5：json 异常不再静默降级为"可编辑无 doc 会话"（原 return '未命名项目' 是刷新蒸发根源之一）
+    // Y5 T10（裁定 ①）：status 原值随错误透传（未归一为 undefined）——离线分型靠它区分
+    // 401（http-expired）/403/404（no-read-access）/5xx·无状态（瞬态三合取）。
     const status = (e as { status?: number }).status;
     if (status === 404) throw new ProjectNotFoundError();
     if (status === 403) throw new ProjectInaccessibleError();
-    throw new ProjectLoadError();   // 5xx/网络/json 异常兜底（apiFetch 401/5xx 经批3-3 透传 status——上方 404/403 分型依赖它）
+    throw new ProjectLoadError(status);   // 5xx/网络/json 异常兜底（status 保留：undefined=网络错误）
   }
 }
 
@@ -161,6 +181,63 @@ export function CanvasPage() {
       setProjectName(name);
     }
 
+    /** Y5 T10（§0.2 步 1 / 验收 17）：离线开库腿——binding 是唯一元数据源（name/teamId/三元），
+     *  runtime 走 initCollabLocal（本地库装载→五合取→local）。 */
+    async function openLocalSession(
+      id: string,
+      binding: Extract<OfflineRouteInput['binding'], object>,
+    ): Promise<void> {
+      if (cancelled) return;
+      sessionEpochRef.current++;
+      const epoch = sessionEpochRef.current;
+      useCanvasStore.getState().setHydration('pending');
+      useCanvasStore.getState().setTeamId(binding.teamId);
+      await initCollabLocal(id, {
+        viewerUid: binding.uid,
+        collabGeneration: binding.generation,
+        collabSchemaVersion: binding.schemaVersion,
+        name: binding.name,
+        teamId: binding.teamId,
+      });
+      if (cancelled || epoch !== sessionEpochRef.current) return;
+      useCanvasStore.setState({ projectId: id });
+      setProjectId(id);
+      setProjectName(binding.name);
+    }
+
+    /** Y5 T10（spec §0.2 步 1 决定表）：项目请求失败后的分型路由——401=既有 httpExpired（不开库）；
+     *  403/404=无读权；瞬态失败才读 meta 两表做三合取，全过=open-local（binding 顶 meta）。
+     *  无 projectId 恒 unavailable（禁 createUntitledProject——裁定 ②）。 */
+    async function routeOffline(id: string, status: number | undefined): Promise<void> {
+      // 服务端显式否认优先（§0.2 步 1）：401=http-expired、403/404=no-read-access——**meta 两表零读**
+      // （denial 路径连 session/binding 都不查，本地库更不会被打开）。
+      let sessionRows: Awaited<ReturnType<typeof getSessionRows>> = [];
+      let binding: Awaited<ReturnType<typeof getBindingRow>> = null;
+      if (status !== 401 && status !== 403 && status !== 404) {
+        try {
+          sessionRows = await getSessionRows();
+          // binding 键=uid+pid；uid 只能从 session 行取（单活行歧义/缺失时不查——分型函数同款 fail-closed）
+          binding = sessionRows.length === 1 ? await getBindingRow(sessionRows[0].uid, id) : null;
+        } catch { /* 两表不可读（IDB 受限）=凭证不可得——分型函数 unavailable */ }
+        if (cancelled) return;
+      }
+      const decision = decideOfflineRoute({
+        projectId: id,
+        status,
+        sessionRows,
+        binding,
+        historyId: loadPersistedHistoryId() ?? undefined,
+        now: Date.now(),
+      });
+      if (decision.kind === 'open-local') {
+        await openLocalSession(id, decision.binding);
+        return;
+      }
+      useCanvasStore.getState().setHydration('idle');
+      if (decision.kind === 'no-read-access') setLoadError('inaccessible');
+      else setLoadError('unavailable');   // http-expired：现状 httpExpired 电平已由 apiFetch 置位（横幅），页面同停「暂不可用」
+    }
+
     // 优先 query 参数（工作空间/模板导入），否则恢复最近项目
     if (storedId) {
       if (queryProjectId) localStorage.setItem(PROJECT_ID_KEY, queryProjectId);
@@ -168,6 +245,9 @@ export function CanvasPage() {
         .then(({ name, meta }) => openSession(storedId, name, meta))
         .catch((e: unknown) => {
           if (cancelled) return;
+          // 裁定 ②：无参 404 自动新建只认确定性 404（在线遗留分支）。离线/瞬态失败类型不同
+          //（ProjectLoadError）→ 永不可达本分支；decideOfflineRoute 的 no-read-access/unavailable
+          // 也不反推自动新建。
           if (e instanceof ProjectNotFoundError && !queryProjectId) {
             // 无参路径 404（确定性不存在）：清 key → fallback 新建（loading 不中断，避免闪烁）
             localStorage.removeItem(PROJECT_ID_KEY);
@@ -183,14 +263,18 @@ export function CanvasPage() {
               });
             return;
           }
-          // F14 三义分家：403/有参 404=inaccessible（不清 key 不自动新建）；5xx/网络/json 异常=unavailable
-          useCanvasStore.getState().setHydration('idle');
-          const isInaccessible =
-            e instanceof ProjectNotFoundError || e instanceof ProjectInaccessibleError;
-          setLoadError(isInaccessible ? 'inaccessible' : 'unavailable');
+          // Y5 T10：F14 三义分家的三档全部并入离线分型（status 已透传）——
+          // 403/404⇒inaccessible、401⇒http-expired 停「暂不可用」、瞬态三合取全过⇒open-local。
+          const status = e instanceof ProjectLoadError
+            ? e.status
+            : e instanceof ProjectNotFoundError
+              ? 404
+              : e instanceof ProjectInaccessibleError ? 403 : undefined;
+          void routeOffline(storedId, status);
         });
     } else {
       // Normal flow — create new project
+      // 裁定 ②：无 projectId 的失败一律停「暂不可用」（不自动新建——§0.2 步 1）
       createPromiseRef.current ??= createUntitledProject();
       createPromiseRef.current
         .then(({ id, name, meta }) => openSession(id, name, meta))

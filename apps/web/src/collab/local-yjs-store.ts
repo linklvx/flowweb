@@ -308,8 +308,12 @@ export function isDbNameBannedThisSession(dbName: string): boolean {
 
 /** 装载竞态内核：whenSynced / 10s 超时 / `_db` 拒绝三腿竞赛。
  *  超时或打开失败：persistence.destroy()+doc.destroy()（不删数据），返回失败原因；
- *  失败分支**不**写 bannedDbNames——是否禁开由调用方语义决定（水合禁开、测量不禁）。 */
+ *  失败分支**不**写 bannedDbNames——是否禁开由调用方语义决定（水合禁开、测量不禁）。
+ *  环境能力前置（Y5 T10）：y-indexeddb 内部用 IDBKeyRange/lib0 游标（getLastKey→openKeyCursor）；
+ *  IDBKeyRange 缺席的环境（jsdom/受限容器）会在装载链里同步抛进一个无人接的 promise——whenSynced
+ *  永悬。能力缺失直接判 open-reject（fail-fast，与「库不可用」同档：调用方走纯服务端水合）。 */
 async function attemptOpen(dbName: string): Promise<OpenDocResult> {
+  if (typeof IDBKeyRange === 'undefined') return { ok: false, reason: 'open-reject' };
   const doc = new Y.Doc();
   const persistence = new IndexeddbPersistence(dbName, doc);
   const outcome = await new Promise<'synced' | 'timeout' | 'open-reject'>((resolve) => {
@@ -363,6 +367,12 @@ export async function writeCustom(
   value: string | ArrayBuffer,
 ): Promise<void> {
   await persistence.set(key, value);
+}
+
+/** custom store 单通道删（显式状态键出边——healthy-sync 删 diverged）。与 get/set 同走
+ *  IndexeddbPersistence 实例（约束⑩：禁对同一库名再 indexedDB.open）。 */
+export async function deleteCustom(persistence: IndexeddbPersistence, key: string): Promise<void> {
+  await persistence.del(key);
 }
 
 /** 相对服务端状态向量的差分字节数（§0.2 步 4）：**原始 byteLength**，不做任何减法。
