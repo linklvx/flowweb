@@ -64,7 +64,7 @@ describe('WechatController', () => {
       expect(mockSvc.createSession).toHaveBeenCalledWith('uid1');
     });
 
-    it('成功 → Set-Cookie + 302 /canvas', async () => {
+    it('成功 → Set-Cookie + 302 /canvas?auth=landed（Y5 T7 登录落地标记）', async () => {
       mockSvc.getAccessToken.mockResolvedValue({ openid: 'o1', unionid: 'u1', accessToken: 'at' });
       mockSvc.getUserInfo.mockResolvedValue({ nickname: '微信用户', headimgurl: 'http://h' });
       mockSvc.findOrCreateUser.mockResolvedValue({ id: 'uid1' });
@@ -77,7 +77,7 @@ describe('WechatController', () => {
         'flowweb.session_token', 'tok_32chars',
         expect.objectContaining({ httpOnly: true, path: '/' }),
       );
-      expect(mockRes.redirect).toHaveBeenCalledWith('/canvas');
+      expect(mockRes.redirect).toHaveBeenCalledWith('/canvas?auth=landed');
     });
   });
 });

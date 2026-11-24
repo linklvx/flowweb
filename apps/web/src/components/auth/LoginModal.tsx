@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ConfigProvider, Modal, theme as antdTheme } from 'antd';
 import { PhoneLoginForm } from './PhoneLoginForm';
 import { useAuth } from '@/components/AuthProvider';
+import { setAuthSuppressed } from '@/collab/local-session-proof';
 import { WeChatQRLogin } from './WeChatQRLogin';
 import { AgreementFooter } from './AgreementFooter';
 /** @deprecated 旧邮箱登录，后续替换 */
@@ -68,6 +69,7 @@ export function LoginModal({
           <div className="flex gap-0 pl-10 h-[550px] rounded-t-[12px]">
             <PhoneLoginForm
               onLoginSuccess={() => {
+                setAuthSuppressed(false);   // Y5 T7（C2）：登录落地先清登出抑制键再 refresh
                 refresh();
                 onClose();
               }}

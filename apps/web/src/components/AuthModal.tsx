@@ -1,6 +1,7 @@
 /** @deprecated 请使用 @/components/auth/LoginModal 替换 */
 import { useState } from 'react';
 import { useAuth } from './AuthProvider';
+import { setAuthSuppressed } from '@/collab/local-session-proof';
 
 interface Props {
   onClose: () => void;
@@ -30,6 +31,7 @@ export function AuthModal({ onClose }: Props) {
         setError('邮箱或密码错误');
         return;
       }
+      setAuthSuppressed(false);   // Y5 T7（C2）：登录落地先清登出抑制键再 refresh（证明写行）
       await refresh();
       onClose();
     } catch {
@@ -58,6 +60,7 @@ export function AuthModal({ onClose }: Props) {
         setError('注册失败，邮箱可能已存在');
         return;
       }
+      setAuthSuppressed(false);   // Y5 T7（C2）：注册成功同属登录落地（先清键再 refresh）
       await refresh();
       onClose();
     } catch {

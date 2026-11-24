@@ -1,4 +1,6 @@
 import { initCollab, destroyCollab, safeReload, type CollabSessionMeta } from '@/stores/canvasCollabRuntime';
+// Y5 T7：他标签登出拆会话回调注册（AuthProvider 的 storage 监听触发；本页不独占 storage 监听）
+import { registerCollabSessionTeardown } from '@/collab/auth-teardown-registry';
 import { attachSpecbPerfProbe } from '@/stores/specbPerfProbe';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router';
@@ -301,6 +303,10 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
 
   // 批3-3 F8：15min 静默 me 探活——session 滑动续期（DB touch + cookie 重发）的唯一 HTTP 载体
   useSessionKeepalive();
+
+  // Y5 T7：把本页拆会话回调交给 AuthProvider（他标签登出 epoch 事件 → setUser(null)+本回调）。
+  // 回调内不写 session、不再次 bump（发起标签已写）；卸载解绑防陈旧页覆盖新页注册。
+  useEffect(() => registerCollabSessionTeardown(() => { void destroyCollab(); }), []);
 
   // AddNodeMenu state — shared by + button and right-click triggers
   const menuIsOpen = useMenuStore((s) => s.isOpen);

@@ -24,9 +24,10 @@ describe('Y0b-5 T5：登出 purge 挂点（AuthProvider.logout）', () => {
     vi.mocked(purgeUidCaches).mockResolvedValue(undefined);
     globalThis.fetch = vi.fn(async (url: any) => {
       if (String(url).includes('/api/auth/me')) {
-        return { ok: true, json: async () => ({ user: { id: 'u1', name: 'T', email: 't@t.com', emailVerified: true, createdAt: '', updatedAt: '' } }) } as any;
+        // Y5 T7：/me 改经证明模块（读 status）——夹具补 200（语义仍是原「200 带 user」）
+        return { ok: true, status: 200, json: async () => ({ user: { id: 'u1', name: 'T', email: 't@t.com', emailVerified: true, createdAt: '', updatedAt: '' } }) } as any;
       }
-      return { ok: true, json: async () => ({}) } as any;
+      return { ok: true, status: 200, json: async () => ({}) } as any;
     });
   });
 
@@ -46,7 +47,7 @@ describe('Y0b-5 T5：登出 purge 挂点（AuthProvider.logout）', () => {
   });
 
   it('未登录态 logout（user=null）⇒ 无 uid 可清零调用', async () => {
-    globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ user: null }) }) as any);
+    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ user: null }) }) as any);
     render(
       <AuthProvider>
         <LogoutProbe />

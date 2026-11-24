@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { resolvePostLoginTarget } from '@/utils/loginRedirect';
+import { setAuthSuppressed } from '@/collab/local-session-proof';
 
 export function RegisterPage() {
   const [email, setEmail] = useState('');
@@ -18,6 +19,7 @@ export function RegisterPage() {
         credentials: 'include',
       });
       if (!res.ok) { setError('注册失败，邮箱可能已存在'); return; }
+      setAuthSuppressed(false);   // Y5 T7（C2）：整页跳转落地前清登出抑制键（落地页证明写行）
       window.location.href = resolvePostLoginTarget(new URLSearchParams(window.location.search).get('next'));
     } catch { setError('网络错误，请重试'); }
   };

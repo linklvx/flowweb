@@ -21,7 +21,8 @@ export class WechatController {
       const user = await this.wechatService.findOrCreateUser({ openid, unionid, nickname, headimgurl });
       const { token } = await this.wechatService.createSession(user.id);
       res.cookie('flowweb.session_token', token, getSessionCookieOptions());
-      return res.redirect('/canvas');
+      // Y5 T7：登录落地标记——AuthProvider 见到 auth=landed 先清 suppressed 再取证明，并剥除该参数
+      return res.redirect('/canvas?auth=landed');
     } catch {
       return res.redirect('/login?error=wechat_failed');
     }

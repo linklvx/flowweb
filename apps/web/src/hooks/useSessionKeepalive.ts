@@ -1,4 +1,6 @@
 import { useEffect } from 'react';
+// Y5 T7：探活经证明单函数（同一调用形态；写 session 证明的写点之一）
+import { fetchMeWithProof } from '@/collab/local-session-proof';
 
 export const SESSION_KEEPALIVE_MS = 15 * 60 * 1000;
 
@@ -9,7 +11,7 @@ export function useSessionKeepalive() {
   useEffect(() => {
     const timer = setInterval(() => {
       if (document.hidden) return;
-      void fetch('/api/auth/me', { credentials: 'include' }).catch(() => {});   // 静默探活：失败不炸不提示
+      void fetchMeWithProof().catch(() => {});   // 静默探活：失败不炸不提示（fire-and-forget 形态不变）
     }, SESSION_KEEPALIVE_MS);
     return () => clearInterval(timer);
   }, []);

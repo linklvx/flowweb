@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Input, Button } from 'antd';
 import { useAuth } from '@/components/AuthProvider';
+import { setAuthSuppressed } from '@/collab/local-session-proof';
 
 export interface PhoneLoginFormProps {
   onLogin?: (phone: string, code: string) => void;
@@ -71,6 +72,7 @@ export function PhoneLoginForm({
       const data = await res.json();
 
       if (res.ok) {
+        setAuthSuppressed(false);   // Y5 T7（C2）：登录落地先清登出抑制键再 refresh（证明写行）
         await refresh();
         onLoginSuccess?.();
       } else {

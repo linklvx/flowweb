@@ -20,7 +20,7 @@ vi.mock('@/components/TeamSwitcher', () => ({
 }));
 
 const mockFetch = vi.spyOn(globalThis, 'fetch');
-const asResponse = (body: unknown) => ({ json: async () => body }) as Response;
+const asResponse = (body: unknown) => ({ status: 200, json: async () => body }) as Response;
 
 function renderBar() {
   return render(
