@@ -27,17 +27,17 @@ describe('ThreadComposer（Y4b T11 M-2 提交契约）', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('onSubmit 返回 false → 不调用 onClose（窗口仍在）+ 短提示（禁静默丢）', () => {
+  it('空 body 提交 → onSubmit 返回 false：不关窗 + 通用输入提示（非只读文案——评审 III 分档）', () => {
     const warnSpy = vi.spyOn(message, 'warning').mockImplementation(() => ({} as never));
     const onSubmit = vi.fn(() => false);
     const onClose = vi.fn();
     render(<ThreadComposer input={input} onSubmit={onSubmit} onClose={onClose} />);
-    fireEvent.change(screen.getByPlaceholderText('输入批注内容…'), { target: { value: 'hello' } });
     fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }));
-    expect(onSubmit).toHaveBeenCalledWith({ ...input, body: 'hello' });
+    expect(onSubmit).toHaveBeenCalledWith({ ...input, body: '' });
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByPlaceholderText('输入批注内容…')).toBeInTheDocument();
-    expect(warnSpy).toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith('批注内容不能为空');
+    expect(warnSpy).not.toHaveBeenCalledWith('批注未写入：当前为只读会话或同步未就绪');
   });
 
   it('Y5 T8：collabReadOnly=true ⇒ 提交按钮禁用、点击零写入（禁静默丢）', () => {

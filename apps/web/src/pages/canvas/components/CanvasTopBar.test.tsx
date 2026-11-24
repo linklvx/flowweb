@@ -218,4 +218,15 @@ describe('CanvasTopBar', () => {
     fireEvent.click(screen.getByRole('button', { name: '重做' }));
     expect(redoCanvas).toHaveBeenCalledTimes(1);
   });
+
+  it('评审 III：批注面板入口恒可用（纯读面板——只读会话仍须能读既有批注）+ 点击派发 threads:open', () => {
+    const onOpen = vi.fn();
+    window.addEventListener('threads:open', onOpen);
+    renderBar();
+    const trigger = screen.getByTestId('threads-trigger');
+    expect(trigger).toBeEnabled();   // 写动作闸在 ThreadsPanel/ThreadComposer 内——入口不挡读
+    fireEvent.click(trigger);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    window.removeEventListener('threads:open', onOpen);
+  });
 });

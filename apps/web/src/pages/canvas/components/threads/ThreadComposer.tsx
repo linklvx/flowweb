@@ -6,6 +6,8 @@
 // 写动作以 onSubmit 注入（threadsStore.createThread 接线单点在 page.tsx——写路径仍只在页面层：
 // 入口 A/B 分处 CanvasView/TextInputNode，只经 THREADS_COMPOSE_EVENT 请求开窗）。
 // Y5 T8 评审 I：提交面随 canEdit 闸（只读订阅——禁"UI 可点、store 静默拒"）；onSubmit 返 false 时短提示。
+// 评审 III：false 提示两分支——提交时 !canEdit=只读/未就绪文案，其余=通用输入错误文案
+//（createThread 也因空 body/锚缺失等用户可纠正输入返 false；不复制 store 内部原因分类）。
 import { useState } from 'react';
 import { Modal, Input, Button, message } from 'antd';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -48,8 +50,13 @@ export function ThreadComposer({ input, onSubmit, onClose }: Props) {
 
   const handleSubmit = () => {
     // 写入成功即关窗（Props.onSubmit 契约：true=已写入→关窗；false=保持开窗让用户修正）
-    if (onSubmit({ ...input, body })) onClose();
-    else message.warning('批注未写入：当前为只读会话或同步未就绪');
+    if (onSubmit({ ...input, body })) { onClose(); return; }
+    // 评审 III 两分支：提交时谓词仍拒=权限/同步面；否则=输入面（空 body/锚缺失等，非本组件分类）
+    message.warning(
+      canEdit(useCanvasStore.getState())
+        ? '批注内容不能为空'
+        : '批注未写入：当前为只读会话或同步未就绪',
+    );
   };
 
   return (
