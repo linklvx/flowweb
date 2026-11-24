@@ -291,7 +291,9 @@ export function threadsView$(): ThreadsViewData {
   };
 }
 
-/** 写闸：未 attach/getSynced()!==true/sessionUserId===null 全部先闸（零事务）。 */
+/** 写闸：未 attach/getSynced()!==true/sessionUserId===null 全部先闸（零事务）。
+ *  getSynced 为调用方注入的判据闭包——Y5 T8 起生产注入 canEdit（hydration ready∨local∧
+ *  !collabReadOnly∧非终态）：本地态可写批注，不再要求 provider.isSynced。 */
 function writable(): { a: Attachment; uid: string } | null {
   const uid = sessionUserId;
   const a = attachment;

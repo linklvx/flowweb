@@ -197,8 +197,9 @@ export interface CanvasState {
   /** 批2-1 hydration 四态（替代 isHydrating 布尔——R25 不留镜像第二真相源）：
    *  idle=无会话（默认/destroyCollab 复位）；pending=openSession/resetSession/initCollab 会话建立；
    *  ready=首同步完成（runtime synced 处理段唯一写点）；failed=10s 超时（修D——provider/doc 保留）。
-   *  不进 history/localStorage 快照 */
-  hydration: 'idle' | 'pending' | 'ready' | 'failed';
+   *  Y5 T8 第五态 local=本地 DB 已装载且可编辑，但 provider 尚未同步/无服务端确认
+   *  （canEdit 放行、canExecute 恒 false——执行权只在 ready）。不进 history/localStorage 快照 */
+  hydration: 'idle' | 'pending' | 'ready' | 'failed' | 'local';
   /** hydration 单写者 action（静态断言：生产源 setState 直写 hydration 零命中） */
   setHydration: (s: CanvasState['hydration']) => void;
   /** Y0b-5 T4：本地缓存可用（正交字段——hydration 第五态禁设）：failed 蒙层三分支之一

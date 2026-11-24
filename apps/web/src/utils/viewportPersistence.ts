@@ -12,7 +12,8 @@ export function bindViewportPersistence(projectId: string): () => void {
   const unsub = useCanvasStore.subscribe((state, prev) => {
     if (state.viewport === prev.viewport) return;
     // 批2-1：会话建立/水合窗口（hydration 非 ready）禁调度写——恢复不算编辑
-    if (state.hydration !== 'ready') return;
+    // Y5 T8：local（本地 DB 已装载可编辑）视同就绪——视口偏好照常持久化
+    if (state.hydration !== 'ready' && state.hydration !== 'local') return;
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;

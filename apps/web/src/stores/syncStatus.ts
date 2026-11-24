@@ -1,20 +1,24 @@
 // apps/web/src/stores/syncStatus.ts
 // 批2-1：canEdit 纯函数（spec 状态层/canEdit 门组）——VIEWER 双层（批2-2）与异步落地（批2-3）的判据基础。
-// 合取：hydration==='ready' && !collabReadOnly && wsAuthNotice 非 terminal。
+// 合取：(hydration==='ready' || hydration==='local') && !collabReadOnly && wsAuthNotice 非 terminal。
+// Y5 T8：local=本地 DB 已装载可编辑（无服务端确认）——编辑放行；执行权仍只在 ready（§0.3.2）。
 // sessionLost（时间面）与 httpExpired 不在列（反向断言锚：HTTP 过期面只驱动横幅，编辑权回收走 WS 终态）。
 // "ready 但无会话"结构上不存在（ready 唯一写点在 initCollab synced 段）——无需读 runtime 模块变量。
 import type { CanvasState } from './canvasStore';
 
 export const canEdit = (s: CanvasState): boolean =>
-  s.hydration === 'ready' && !s.collabReadOnly && s.wsAuthNotice?.terminal !== true;
+  (s.hydration === 'ready' || s.hydration === 'local') && !s.collabReadOnly && s.wsAuthNotice?.terminal !== true;
 
 /** Y0b-2 T7（裁定 2）：canExecute 一等谓词——只留硬态（自持未确认标记两方向都会漂，不立字段；
  *  钱的方向由服务端 SV 支配门权威兜底——SYNC_PENDING 409 反应式重发）。
- *  canEdit 基础 ∧ connStatus==='connected' ∧ !writeFrozen（冻结契约 12：writeFrozen⇒禁执行）。
+ *  Y5 T8（§0.3.2）：内联合取、函数体内不调用 canEdit——hydration==='ready' 严格门保证 local
+ *  永不执行（即使 connStatus 假想为 connected）；基项 ∧ connStatus==='connected' ∧ !writeFrozen
+ *  （冻结契约 12：writeFrozen⇒禁执行）。
  *  writeFrozen 置位点=Y0b-3 T9（P-S）：runtime onStateless 冻结通告置位/authenticated 清零
  *  （drain 解除自愈，复用 1012 既有链路；Y0b-4 T5 起通告载体=doc-status writeFrozen 维度）。 */
 export const canExecute = (s: CanvasState): boolean =>
-  canEdit(s) && s.connStatus === 'connected' && !s.writeFrozen;
+  s.hydration === 'ready' && !s.collabReadOnly && s.wsAuthNotice?.terminal !== true
+  && s.connStatus === 'connected' && !s.writeFrozen;
 
 // ══ T17（plan v11.2 S5 片·G34）：只读命令门单源——七命令 canEditCommand ══
 // 客户端写命令的只读裁决**单源**（viewer 角色拒写——spec §3.3「单源门+viewer 早退+七命令补门」）：

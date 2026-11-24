@@ -538,7 +538,9 @@ function CanvasKeyboardHandler() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // TD-4（批2-1 四态化）：会话未就绪（idle/pending/failed）忽略快捷键（蒙层封指针路径，这里封键盘路径）
-      if (useCanvasStore.getState().hydration !== 'ready') return;
+      // Y5 T8：local（本地 DB 已装载可编辑）同 ready 放行——仅 idle/pending/failed 拦截
+      const hydration = useCanvasStore.getState().hydration;
+      if (hydration !== 'ready' && hydration !== 'local') return;
       if (useVideoEditorStore.getState().open) return; // 视频编辑器打开期间画布快捷键全禁（spec 验收 27——Tab/Ctrl+0/Alt+Shift+F 不再开幽灵菜单/改视口）
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;

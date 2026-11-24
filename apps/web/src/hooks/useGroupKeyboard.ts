@@ -61,7 +61,8 @@ export function useGroupKeyboard() {
     const handler = (e: KeyboardEvent) => {
       const s = useCanvasStore.getState();
       // 批2-1 四态化：会话未就绪（idle/pending/failed）禁分组/撤销快捷键
-      if (s.hydration !== 'ready') return;
+      // Y5 T8：local（本地 DB 已装载可编辑）同 ready 放行
+      if (s.hydration !== 'ready' && s.hydration !== 'local') return;
       const action = resolveGroupShortcut(e);
       if (!action) return;
       // T18 薄 keymap：编辑器面 undo/redo 穿透 isGroupEditContext 早退（history:false——统一 manager
