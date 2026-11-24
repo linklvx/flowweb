@@ -10,7 +10,7 @@ import {
   type SessionRow, type UserSnapshot,
 } from './local-yjs-store';
 import {
-  bindLogoutEpochTeardown, bumpAuthEpoch, fetchMeWithProof,
+  bindLogoutEpochTeardown, bumpAuthEpoch, clearSessionRows, fetchMeWithProof,
   readAuthEpoch, readAuthSuppressed, setAuthSuppressed,
 } from './local-session-proof';
 
@@ -317,6 +317,42 @@ describe('fetchMeWithProof：suppressed 键挡写（验收 28）', () => {
     stubFetch(jsonResponse({ user: USER_B, sessionExpiresAt: serverNow + 7 * DAY, serverNow }));
     expect(await fetchMeWithProof()).toEqual({ ok: true, user: USER_B });
     expect(await getSessionRows()).toEqual([sessionRow('u-a')]);
+  });
+});
+
+describe('fetchMeWithProof：证明写失败不降级为登出（T7 评审 I3a）', () => {
+  it('putSessionRow reject ⇒ 返回 {ok:true,user} 不抛；不写行', async () => {
+    // 写失败形态：session 表对象 store 不存在 → runMetaTx 同步抛错（等价 quota/IDB 不可用）
+    const realTransaction = IDBDatabase.prototype.transaction;
+    const spy = vi.spyOn(IDBDatabase.prototype, 'transaction').mockImplementation(function (
+      this: IDBDatabase, storeNames: string | string[], mode?: IDBTransactionMode,
+    ) {
+      if (String(storeNames) === 'session') throw new Error('idb unavailable');
+      return realTransaction.call(this, storeNames, mode);
+    } as typeof IDBDatabase.prototype.transaction);
+
+    try {
+      const serverNow = Date.now();
+      stubFetch(jsonResponse({ user: USER_A, sessionExpiresAt: serverNow + 7 * DAY, serverNow }));
+      // 服务器已确认用户 ⇒ 本地写失败不得把用户判成未登录
+      expect(await fetchMeWithProof()).toEqual({ ok: true, user: USER_A });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await getSessionRows()).toEqual([]);
+  });
+});
+
+describe('clearSessionRows：登出清整张 session 表（T7 评审 I5）', () => {
+  it('两行（不同 uid）→ 全清；无行时幂等', async () => {
+    await seedSessionRowsRaw([sessionRow('u-a'), sessionRow('u-b')]);
+    expect((await getSessionRows()).length).toBe(2);
+
+    await clearSessionRows();
+    expect(await getSessionRows()).toEqual([]);
+
+    await clearSessionRows();
+    expect(await getSessionRows()).toEqual([]);
   });
 });
 

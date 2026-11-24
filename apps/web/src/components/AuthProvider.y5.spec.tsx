@@ -6,7 +6,7 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
-import React, { type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router';
 
 // 捕获真实实现：mockReset 后 beforeEach 重新挂回（避免 Once 队列/实现泄漏到后续用例）
@@ -28,7 +28,7 @@ vi.mock('@/collab/local-session-proof', async (importOriginal) => {
 
 import { AuthProvider, useAuth } from './AuthProvider';
 import {
-  bumpAuthEpoch, fetchMeWithProof, readAuthEpoch, readAuthSuppressed, setAuthSuppressed,
+  fetchMeWithProof, readAuthEpoch, readAuthSuppressed, setAuthSuppressed,
 } from '@/collab/local-session-proof';
 import {
   buildYjsDbName, getSessionRows, listNameRows, openMetaDb, putBindingRow, putNameRow,
@@ -38,7 +38,6 @@ import { registerCollabSessionTeardown } from '@/collab/auth-teardown-registry';
 import { SESSION_KEEPALIVE_MS, useSessionKeepalive } from '@/hooks/useSessionKeepalive';
 import { PhoneLoginForm } from './auth/PhoneLoginForm';
 import { AuthModal } from './AuthModal';
-import { LoginModal } from './auth/LoginModal';
 
 const EPOCH_KEY = 'flowweb:auth-epoch';
 const SUPPRESSED_KEY = 'flowweb:auth-suppressed';
@@ -143,21 +142,34 @@ async function rawBindingKeys(): Promise<IDBValidKey[]> {
   }
 }
 
-function AuthProbe() {
+function AuthProbe({ onLogoutSettled }: { onLogoutSettled?: (outcome: 'resolved' | 'rejected') => void } = {}) {
   const { user, loading, logout } = useAuth();
   return (
     <div>
       <span data-testid="uid">{user?.id ?? 'none'}</span>
       <span data-testid="loading">{loading ? '1' : '0'}</span>
-      <button type="button" onClick={() => void logout()}>logout</button>
+      <button
+        type="button"
+        onClick={() => {
+          const settled = logout();
+          if (onLogoutSettled) {
+            void settled.then(() => onLogoutSettled('resolved'), () => onLogoutSettled('rejected'));
+          }
+        }}
+      >
+        logout
+      </button>
     </div>
   );
 }
 
-function renderProvider(extra?: ReactNode) {
+function renderProvider(
+  extra?: ReactNode,
+  onLogoutSettled?: (outcome: 'resolved' | 'rejected') => void,
+) {
   return render(
     <AuthProvider>
-      <AuthProbe />
+      <AuthProbe onLogoutSettled={onLogoutSettled} />
       {extra}
     </AuthProvider>,
   );
@@ -242,10 +254,40 @@ describe('C1 离线放行腿（验收 11 前半）', () => {
     await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('0'));
     expect(screen.getByTestId('uid')).toHaveTextContent('none');
   });
+
+  it('I2：suppressed=1 + 恰好一行未过期 + transient ⇒ user=null（已观测登出的标签不得复活用户）', async () => {
+    await putSessionRow(sessionRow('u-a', Date.now() + HOUR));
+    localStorage.setItem(SUPPRESSED_KEY, '1');
+    installFetch(() => Promise.reject(new TypeError('Failed to fetch')));
+    renderProvider();
+
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('0'));
+    expect(screen.getByTestId('uid')).toHaveTextContent('none');
+  });
+
+  it('I3b：证明函数抛错 + 无行 ⇒ user=null、无未处理拒绝', async () => {
+    installFetch(() => meOk());   // 真实 fetch 不参与——证明函数被 mock 成抛错
+    vi.mocked(fetchMeWithProof).mockRejectedValue(new Error('meta write exploded'));
+    renderProvider();
+
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('0'));
+    expect(screen.getByTestId('uid')).toHaveTextContent('none');
+    // test-setup 的 unhandledRejection 守卫覆盖「无未处理拒绝」断言
+  });
+
+  it('I3b：证明函数抛错 + 恰好一行未过期 ⇒ 走离线放行腿（不当作 auth 否认）', async () => {
+    await putSessionRow(sessionRow('u-a', Date.now() + HOUR));
+    installFetch(() => meOk());
+    vi.mocked(fetchMeWithProof).mockRejectedValue(new Error('meta write exploded'));
+    renderProvider();
+
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('0'));
+    expect(screen.getByTestId('uid')).toHaveTextContent('u-a');
+  });
 });
 
 describe('C2 登出同步段（验收 28/29）', () => {
-  it('登出 await 窗内的 /me 200+user 不得写回 session 行；登出后行不存在', async () => {
+  it('登出 await 窗内的 /me 200+user 不得写回 session 行；登出后行不存在（I4：行内容逐字节不变）', async () => {
     const signOut = deferred<Response>();
     installFetch((url) => {
       if (url.includes('/api/auth/sign-out')) return signOut.promise;
@@ -254,7 +296,11 @@ describe('C2 登出同步段（验收 28/29）', () => {
 
     renderProvider();
     await expectUid('u-a');
-    expect((await getSessionRows()).map((row) => row.uid)).toEqual(['u-a']);
+    const rowsBefore = await getSessionRows();
+    expect(rowsBefore).toHaveLength(1);
+    // I4：证明行身份锚（deadline + 快照）——仅断 uid 无法区分「未被改写」与「被重写成新期」
+    const deadlineBefore = rowsBefore[0].localDeadline;
+    const snapshotBefore = JSON.stringify(rowsBefore[0].userSnapshot);
 
     act(() => { screen.getByText('logout').click(); });
     await waitFor(() => expect(readAuthSuppressed()).toBe(true));
@@ -262,11 +308,61 @@ describe('C2 登出同步段（验收 28/29）', () => {
     // 窗内新发出的 /me（探活形态）收 200+user：suppressed=1 → 只返回 ok，不写行
     const duringWindow = await fetchMeWithProof();
     expect(duringWindow).toEqual({ ok: true, user: USER_A });
-    expect((await getSessionRows()).map((row) => row.uid)).toEqual(['u-a']);
+    const rowsDuring = await getSessionRows();
+    expect(rowsDuring).toHaveLength(1);
+    expect(rowsDuring[0].uid).toBe('u-a');
+    expect(rowsDuring[0].localDeadline).toBe(deadlineBefore);
+    expect(JSON.stringify(rowsDuring[0].userSnapshot)).toBe(snapshotBefore);
 
     await act(async () => { signOut.resolve(jsonResponse({})); });
     await expectUid('none');
+    // ③ 只清用户态；④ 三表清理在其后再落——等表空（清表内部先读后删，多一拍）
+    await waitFor(async () => expect(await getSessionRows()).toEqual([]));
+  });
+
+  it('I1：sign-out fetch reject ⇒ logout resolve、user 清空、三表清空、suppressed 保持 1', async () => {
+    const outcomes: Array<'resolved' | 'rejected'> = [];
+    installFetch((url) => {
+      if (url.includes('/api/auth/sign-out')) return Promise.reject(new TypeError('Failed to fetch'));
+      return meOk();
+    });
+
+    renderProvider(undefined, (outcome) => outcomes.push(outcome));
+    await expectUid('u-a');
+
+    const dbNameA = buildYjsDbName('u-a', 'p-1', 2, 1, 'h-2026-10-24-a');
+    await putNameRow(dbNameA, {
+      uid: 'u-a', pid: 'p-1', generation: 2, schemaVersion: 1,
+      historyToken: 'h-2026-10-24-a', hold: true,
+    });
+    await putBindingRow('u-a', 'p-1', {
+      uid: 'u-a', generation: 1, schemaVersion: 1,
+      historyToken: 'h-2026-10-24-a', name: '项目-u-a', teamId: null,
+    });
+
+    await act(async () => { screen.getByText('logout').click(); });
+    await expectUid('none');
+    await waitFor(() => expect(outcomes).toEqual(['resolved']));
+
     expect(await getSessionRows()).toEqual([]);
+    expect(await listNameRows()).toEqual([]);
+    expect(await rawBindingKeys()).toEqual([]);
+    // suppressed 保持 1 是有意行为（清键只属三登录入口）
+    expect(localStorage.getItem(SUPPRESSED_KEY)).toBe('1');
+  });
+
+  it('I5：登出清空整张 session 表——他 uid 的旧行不得残留', async () => {
+    installFetch((url) => (url.includes('/api/auth/sign-out') ? jsonResponse({}) : meOk()));
+    renderProvider();
+    await expectUid('u-a');
+    // 直写两行绕过单活行不变量（模拟跨账号遗留：换号后前 uid 的旧行仍在）
+    await seedSessionRowsRaw([sessionRow('u-a'), sessionRow('u-b')]);
+    expect((await getSessionRows()).length).toBe(2);   // 前置：表内确有他 uid 行
+
+    await act(async () => { screen.getByText('logout').click(); });
+    await expectUid('none');
+
+    await waitFor(async () => expect(await getSessionRows()).toEqual([]));
   });
 
   it('①②之间零 await：sign-out 未 resolve 前 epoch 已 +1 且 suppressed=1', async () => {
@@ -292,7 +388,7 @@ describe('C2 登出同步段（验收 28/29）', () => {
 
     await act(async () => { signOut.resolve(jsonResponse({})); });
     await expectUid('none');
-    expect(await getSessionRows()).toEqual([]);
+    await waitFor(async () => expect(await getSessionRows()).toEqual([]));
   });
 
   it('登出清三表（§0.6）：session 行空 + 本 uid names/bindings 行全空、他 uid 行保留', async () => {
@@ -321,10 +417,12 @@ describe('C2 登出同步段（验收 28/29）', () => {
     await act(async () => { screen.getByText('logout').click(); });
     await expectUid('none');
 
-    // 三表：session 空；names/bindings 只剩他 uid 行
-    expect(await getSessionRows()).toEqual([]);
-    expect((await listNameRows()).map((row) => row.dbName)).toEqual([dbNameB]);
-    expect(await rawBindingKeys()).toEqual(['u-b\u0000p-1']);
+    // 三表：session 空；names/bindings 只剩他 uid 行（清表内部先读后删，等收敛）
+    await waitFor(async () => {
+      expect(await getSessionRows()).toEqual([]);
+      expect((await listNameRows()).map((row) => row.dbName)).toEqual([dbNameB]);
+      expect(await rawBindingKeys()).toEqual(['u-b\u0000p-1']);
+    });
   });
 
   it('他标签整页刷新在途时登出：迟到 200+user 不复活行（epoch 丢弃）', async () => {
@@ -474,25 +572,9 @@ describe('三登录入口先清 suppressed（C2 登录侧）', () => {
     expectClearBeforeRefresh();
   });
 
-  it('LoginModal 手机登录成功 → setAuthSuppressed(false) 先于 refresh', async () => {
-    installFetch((url) => {
-      if (url.includes('/api/auth/wechat/config')) return new Promise<Response>(() => {});
-      if (url.includes('/api/auth/phone-login')) return jsonResponse({ user: USER_A });
-      return meOk();
-    });
-    const onClose = vi.fn();
-    renderProvider(<LoginModal onClose={onClose} />);
-    await expectUid('u-a');
-
-    vi.mocked(setAuthSuppressed).mockClear();
-    vi.mocked(fetchMeWithProof).mockClear();
-    fireEvent.change(screen.getByLabelText('手机号'), { target: { value: '13800138000' } });
-    fireEvent.change(screen.getByLabelText('验证码'), { target: { value: '123456' } });
-    await act(async () => { screen.getByLabelText('登录/注册').click(); });
-
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
-    expect(suppressedCalls()).toContain(false);
-  });
+  // 注：LoginModal 的成功清键语句与 PhoneLoginForm 自身那行完全同路径（LoginModal 只把
+  // PhoneLoginForm 的 onLoginSuccess 再调一次），组件级断言无法区分二者——本轮按评审判定
+  // 删除该空断言腿（LoginModal 的独立验证需要 mock PhoneLoginForm，会污染本文件其余用例）。
 
   it('注册页：location.href 跳转前先清 suppressed', async () => {
     installFetch((url) => {

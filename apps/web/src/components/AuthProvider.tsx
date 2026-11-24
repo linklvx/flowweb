@@ -5,10 +5,11 @@ import { setMediaCacheUserId, clearMediaUrlCache } from '@/utils/mediaUrlCache';
 import { purgeUidCaches } from '@/collab/local-cache-key';
 // Y5 T7：本地优先证明接线（C1 离线放行/C2 登出同步段/跨标签 storage 监听）
 import {
-  bindLogoutEpochTeardown, bumpAuthEpoch, fetchMeWithProof, setAuthSuppressed,
+  bindLogoutEpochTeardown, bumpAuthEpoch, clearSessionRows, fetchMeWithProof,
+  readAuthSuppressed, setAuthSuppressed,
 } from '@/collab/local-session-proof';
 import {
-  deleteBindingRowsForUid, deleteNameRowsForUid, deleteSessionRow, getSessionRows,
+  deleteBindingRowsForUid, deleteNameRowsForUid, getSessionRows,
 } from '@/collab/local-yjs-store';
 import { invokeCollabSessionTeardown } from '@/collab/auth-teardown-registry';
 
@@ -54,20 +55,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  /** C1 离线放行腿（单点）：transient 或证明函数抛错时都走此判据。
+   *  T7 评审 I2：suppressed=1 表示本标签已观测到登出（他标签 epoch 事件已 setUser(null)），
+   *  此时即便证明行还在（发起标签的清表在 await 之后）也不得复活用户——fail-closed。 */
+  const applyOfflinePass = async (): Promise<void> => {
+    if (readAuthSuppressed()) { setUser(null); return; }
+    try {
+      const rows = await getSessionRows();
+      if (rows.length === 1 && rows[0].localDeadline > Date.now()) {
+        setUser(rows[0].userSnapshot as unknown as User);
+        return;
+      }
+    } catch { /* 读失败按无证明处理 */ }
+    setUser(null);
+  };
+
   const refresh = async () => {
     try {
       // Y5 T7（C2）：登录落地清除点——先写 0 再请求（普通挂载不写）
       if (consumeAuthLandedParam()) setAuthSuppressed(false);
-      const result = await fetchMeWithProof();
-      if (result.ok) { setUser(result.user as unknown as User); return; }
-      if (result.reason === 'transient') {
-        // C1 离线放行：恰好一行且未过期才放行；缺失/过期/多行歧义一律 fail-closed
-        const rows = await getSessionRows();
-        if (rows.length === 1 && rows[0].localDeadline > Date.now()) {
-          setUser(rows[0].userSnapshot as unknown as User);
-          return;
-        }
+      let result: Awaited<ReturnType<typeof fetchMeWithProof>>;
+      try {
+        result = await fetchMeWithProof();
+      } catch {
+        // T7 评审 I3b：证明函数抛错（本地写/读炸）只算 transient，不当作 auth 否认
+        await applyOfflinePass();
+        return;
       }
+      if (result.ok) { setUser(result.user as unknown as User); return; }
+      if (result.reason === 'transient') { await applyOfflinePass(); return; }
       setUser(null);
     } catch { setUser(null); }
     finally { setLoading(false); }
@@ -90,15 +106,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // /me 200 既过不了代次检查，也过不了写行前的 suppressed 复读（验收 28）
     bumpAuthEpoch();
     setAuthSuppressed(true);
-    await fetch('/api/auth/sign-out', { method: 'POST', credentials: 'include' });
+    // I1：sign-out 失败（离线登出是本地优先的主场景）不得中断本地登出——忽略错误继续 ③④⑤。
+    // 只有这一个 fetch 被包；bump/suppressed 仍在任何 await 之前。
+    try {
+      await fetch('/api/auth/sign-out', { method: 'POST', credentials: 'include' });
+    } catch { /* 服务端 sign-out 失败：本地状态照样清（cookie 可能仍在，下次 /me 决定） */ }
     setUser(null);
     // Y0b-5 T5：登出/切用户清本 uid 全部本地缓存库（G27「登出经页面卸载路径复位」的缓存侧在
     // 登出动作点落位——destroyCollab 无法区分登出/切项目，无差别 purge 会误删他标签在用库）
     if (uid) {
-      // ④ 三表清理（§0.6 登出行）：session 行 + 该 uid 的 names/bindings 行。残留 binding
-      //    指向已删库会让离线路径复活空库（v4 A2），故三删全发；单删失败不阻断其余与登出主链。
+      // ④ 三表清理（§0.6 登出行）：整张 session 表（I5：单活行只在写时收敛，他 uid 残留行
+      //    不得活过登出）+ 该 uid 的 names/bindings 行（残留 binding 指向已删库会让离线路径
+      //    复活空库——v4 A2）。单删失败不阻断其余与登出主链。
       await Promise.all([
-        deleteSessionRow(uid),
+        clearSessionRows(),
         deleteNameRowsForUid(uid),
         deleteBindingRowsForUid(uid),
       ]).catch(() => { /* fail-soft：本地清理失败不阻断登出 */ });

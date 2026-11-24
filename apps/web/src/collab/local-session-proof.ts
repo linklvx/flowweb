@@ -38,8 +38,9 @@ export function setAuthSuppressed(v: boolean): void {
   else localStorage.removeItem(AUTH_SUPPRESSED_KEY);
 }
 
-/** 删全表 session 行（200+null / 401 的显式否认路径——单活行下至多一行）。 */
-async function deleteAllSessionRows(): Promise<void> {
+/** 清整张 session 表（200+null / 401 的显式否认路径 + 差值≤0 + 登出整表清）。
+ *  T7 评审 I5：单活行只在写时收敛，跨账号遗留行须由登出整表清掉。 */
+export async function clearSessionRows(): Promise<void> {
   for (const row of await getSessionRows()) {
     await deleteSessionRow(row.uid);
   }
@@ -77,7 +78,7 @@ export async function fetchMeWithProof(): Promise<
   if (response.status === 401) {
     // 删除动作前复验（spec §0.3.3「响应不符即丢」对 401 删除路径同样成立）
     if (!epochStillCurrent()) return { ok: false, reason: 'transient' };
-    await deleteAllSessionRows();
+    await clearSessionRows();
     return { ok: false, reason: 'http-401' };
   }
   if (response.status !== 200) {
@@ -100,7 +101,7 @@ export async function fetchMeWithProof(): Promise<
   const user = data.user;
   if (user === null || user === undefined) {
     // 200+null = 无会话（auth.controller 的显式否认）→ 删行
-    await deleteAllSessionRows();
+    await clearSessionRows();
     return { ok: false, reason: 'null-user' };
   }
 
@@ -118,14 +119,19 @@ export async function fetchMeWithProof(): Promise<
   const remainingMs = sessionExpiresAt - serverNow;
   if (remainingMs <= 0) {
     // 服务器侧会话已死——证明不成立，删全表行（他 uid 旧行同样不得存活，不写负寿命行）
-    await deleteAllSessionRows();
+    await clearSessionRows();
     return { ok: true, user };
   }
-  await putSessionRow({
-    uid: userObj.id as string,
-    localDeadline: Date.now() + remainingMs,
-    userSnapshot: snapshotFromUser(userObj),
-  });
+  // T7 评审 I3a：本地写失败不得把服务器已确认的用户降级成「未登录」——证明写不进去只是
+  // 本次没落盘（离线冷启动会 fail-closed），认证决定仍以服务端 200 为准。只吞这一处写；
+  // 上方三处删行失败照旧上抛（删不掉的旧行是跨账号残留，不能静默）。
+  try {
+    await putSessionRow({
+      uid: userObj.id as string,
+      localDeadline: Date.now() + remainingMs,
+      userSnapshot: snapshotFromUser(userObj),
+    });
+  } catch { /* proof not persisted——本次不写行，认证结果不变 */ }
   return { ok: true, user };
 }
 
