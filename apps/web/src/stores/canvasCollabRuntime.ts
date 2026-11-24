@@ -2299,8 +2299,8 @@ export async function initCollab(projectId: string, meta?: CollabSessionMeta): P
     // hydration='failed' 驱动蒙层分型（重试连接/刷新/localCacheReady 本地副本分支）；
     // 迟到 synced 的水合自愈=completeHydration 单驱动（Y0b-5 T4——synced 监听挂点）
     // Y0b-5 T8：离线冷启动恒只读——本地副本已回放进 doc 时投影渲染（page.tsx T4 分支消费：
-    // failed∧localCacheReady∧有缓存内容→只读横幅+本地副本；canEdit 由 hydration!=='ready'
-    // 结构性 false——谓词零改动，E5 授权语义）。diverged 不渲染（未回放=suppressCacheWrites）。
+    // failed∧localCacheReady∧有缓存内容→只读横幅+本地副本；failed 态 canEdit false
+    //（hydration 非 ready/local），E5 授权语义）。diverged 不渲染（未回放=suppressCacheWrites）。
     if (localSnapshotApplied && doc) applyDocToStore(doc);
     useCanvasStore.getState().setHydration('failed');
     return;

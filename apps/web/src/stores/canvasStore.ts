@@ -203,8 +203,8 @@ export interface CanvasState {
   /** hydration 单写者 action（静态断言：生产源 setState 直写 hydration 零命中） */
   setHydration: (s: CanvasState['hydration']) => void;
   /** Y0b-5 T4：本地缓存可用（正交字段——hydration 第五态禁设）：failed 蒙层三分支之一
-   *  （true∧有缓存内容 → 渲染本地副本+只读横幅「本地副本(只读)· 正在重连」；canEdit 因
-   *  hydration!=='ready' 恒 false——谓词零改动）。T4 只落字段+分支预埋（初值 false 文案恒真），
+   *  （true∧有缓存内容 → 渲染本地副本+只读横幅「本地副本(只读)· 正在重连」；failed 态
+   *  canEdit false——hydration 非 ready/local）。T4 只落字段+分支预埋（初值 false 文案恒真），
    *  真实翻转归 T8（缓存装载链）。会话态——initCollab/destroyCollab 边界复位。不进快照 */
   localCacheReady: boolean;
   /** Y0b-5 T4：probeReadyReason 探测结果（/api/ready 的 reason——重连成功但状态异常时的横幅
@@ -214,7 +214,7 @@ export interface CanvasState {
   /** 会话级粘滞只读初值 true（v5.4）：HTTP project 响应无 role 字段（R30）——只读保守；
    *  authenticated 事件 scope 权威覆盖（runtime 唯一授权写点，read-write 解除/readonly 置回）；
    *  onClose 不清（fail-closed）；initCollab/destroyCollab 复位 true（G27：粘滞态不跨会话/跨用户）。
-   *  零 UX 代价：canEdit 还需 hydration==='ready'，届时 scope 必已到达。不进快照 */
+   *  零 UX 代价：canEdit 还需 hydration 为 ready/local（ready 档 scope 必已到达）。不进快照 */
   collabReadOnly: boolean;
   /** O0b-5 viewer 折叠本地 override（终裁 58⑥ 渲染层最小落地）：只读会话折叠/展开的本地视图态
    *  （id→有效折叠态；undefined=未 override 走 data.collapsed）。UI 瞬态——不进 doc/投影/history/

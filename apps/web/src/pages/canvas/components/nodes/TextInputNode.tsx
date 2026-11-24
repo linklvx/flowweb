@@ -5,6 +5,7 @@ import { NodeHandle } from './NodeHandle';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { useNodeStore, isTextNode } from '@/stores/nodeStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { canEdit } from '@/stores/syncStatus';
 import { resolveDoc } from '@/stores/canvasIntents';
 import { resolveNodeXmlFragment, ySyncHostExtension } from '@/collab/yXmlFragmentBinding';
 import { ySyncPluginKey, getRelativeSelection } from 'y-prosemirror';
@@ -81,6 +82,8 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
   // Y.encodeRelativePosition → encodeAnchorBase64（谓词模块的标准 base64）→ 请求页面级 composer。
   // 禁把评论写进 ySyncPluginKey 编辑事务（comments 独立 threads-user 事务，在 threadsStore 内）。
   const [hasSelection, setHasSelection] = useState(false);
+  // Y5 T8 评审 I：入口 B 只读闸（与 threadsStore 写闸同谓词——订阅式）
+  const editable = useCanvasStore(canEdit);
   useEffect(() => {
     if (!editor) return;
     // editor.state 在 useEditor 首帧/测试替身可能缺省——空选区语义由 false 兜底
@@ -253,8 +256,9 @@ function TextInputNodeComponent({ id, selected }: NodeProps) {
             border: selected ? '3px solid #9CA3AF' : '1px solid var(--fw-border)',
           }}
         />
-        {/* Y4b T11 入口 B：选区浮标「批注」（非空选区才出现；绑定额外挂 ySync 才可读相对位置） */}
-        {hasSelection && fragment && editor && (
+        {/* Y4b T11 入口 B：选区浮标「批注」（非空选区才出现；绑定额外挂 ySync 才可读相对位置）
+            Y5 T8 评审 I：canEdit 假（只读/未就绪）不出现——唯一动作=写，禁广告后静默丢 */}
+        {hasSelection && fragment && editor && editable && (
           <button
             type="button"
             data-testid="annotate-selection-trigger"

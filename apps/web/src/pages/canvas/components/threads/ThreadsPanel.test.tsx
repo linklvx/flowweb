@@ -1,6 +1,7 @@
 // ThreadsPanel.test.tsx（Y4b T11 侧滑面板三组+清理）
 // 施工单 Step 1：三组渲染（active 按 nodeId 分组+摘录、resolved 折叠+计数、orphan 徽标+
 // 「清理全部」→cleanupOrphans 调用）+ 空态档。
+// Y5 T8 评审 I：动作面随 canEdit 闸——只读态回复/解决/重开/清理禁用（禁静默丢）。
 // 面板=展示组件（视图+动作经 props 注入；store 接线单点在 page.tsx）——RED/GREEN 判据自持，
 // 不随 T10 threadsStore 落地时序漂移（接口对齐假设见 task-11-report.md 偏离登记）。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -11,6 +12,7 @@ import {
   type ThreadsViewData,
   type ThreadViewItem,
 } from './ThreadsPanel';
+import { useCanvasStore } from '@/stores/canvasStore';
 
 const thread = (over: Partial<ThreadViewItem> & Pick<ThreadViewItem, 'id' | 'nodeId'>): ThreadViewItem => ({
   kind: 'node',
@@ -31,6 +33,7 @@ describe('ThreadsPanel（Y4b T11 三组互斥+清理）', () => {
     onAddComment = vi.fn(() => true);
     onSetResolved = vi.fn(() => true);
     onClose = vi.fn();
+    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
   });
 
   const renderPanel = (view: ThreadsViewData) =>
@@ -115,5 +118,28 @@ describe('ThreadsPanel（Y4b T11 三组互斥+清理）', () => {
     expect(screen.queryByText('已解决 (0)')).toBeNull();
     expect(screen.queryByRole('button', { name: /清理全部/ })).toBeNull();
     expect(screen.queryByTestId('threads-group-active')).toBeNull();
+  });
+
+  it('Y5 T8：collabReadOnly=true ⇒ 回复/解决/清理全部禁用、点击零回调（禁静默丢）', () => {
+    useCanvasStore.setState({ collabReadOnly: true });
+    renderPanel({
+      active: [
+        { nodeId: 'n1', threads: [thread({ id: 't1', nodeId: 'n1' })] },
+      ],
+      resolved: [],
+      orphan: [thread({ id: 't4', nodeId: 'gone', createdAt: 4 })],
+    });
+
+    expect(screen.getByRole('button', { name: /清理全部/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /清理全部/ }));
+    expect(onCleanup).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('#t1'));
+    expect(screen.getByRole('button', { name: /回\s*复/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /解\s*决/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: /回\s*复/ }));
+    fireEvent.click(screen.getByRole('button', { name: /解\s*决/ }));
+    expect(onAddComment).not.toHaveBeenCalled();
+    expect(onSetResolved).not.toHaveBeenCalled();
   });
 });

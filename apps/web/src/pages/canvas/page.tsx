@@ -280,7 +280,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
   //  Y0b-5 T4 蒙层三分支：pending+瞬态 notice→「服务繁忙，正在自动重试…」（死线延长期间）；
   //  failed+terminal notice→阻断蒙层让位（终态 UX 即出口——SyncBanner 指引承载，z-50 蒙层不遮横幅）；
   //  failed+localCacheReady∧有缓存内容→只读横幅「本地副本(只读)· 正在重连」+导出（T8 联动预埋，
-  //  真实翻转归 T8；canEdit 因 hydration!=='ready' 恒 false——谓词零改动）。
+  //  真实翻转归 T8；failed 态 canEdit false——hydration 非 ready/local）。
   const hydration = useCanvasStore((s) => s.hydration);
   const wsAuthNotice = useCanvasStore((s) => s.wsAuthNotice);
   const localCacheReady = useCanvasStore((s) => s.localCacheReady);
@@ -489,7 +489,7 @@ function CanvasPageInner({ projectId, projectName, onNameChange }: { projectId: 
         )}
         {localCacheActive && (
           // Y0b-5 T4（T8 联动预埋）：本地副本只读横幅——非阻断（副本在下方画布渲染，底部条防与
-          // SyncBanner 顶部重叠）；canEdit 恒 false（hydration!=='ready'——只读由谓词结构性保证）
+          // SyncBanner 顶部重叠）；failed 态 canEdit false（hydration 非 ready/local）
           <div
             data-testid="local-cache-banner"
             role="alert"

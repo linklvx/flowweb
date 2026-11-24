@@ -3,10 +3,13 @@
 // → 预填锚点（base64 RelativePosition 两串）→ 提交。
 // 视觉=antd 既有组件族（spec §10 裁定 6：不另立视觉体系）——Modal+Input.TextArea 门户到 body，
 // 不受画布缩放影响。
-// 写动作以 onSubmit 注入（threadsStore.createThread 接线单点在 page.tsx——组件层零 store 依赖：
+// 写动作以 onSubmit 注入（threadsStore.createThread 接线单点在 page.tsx——写路径仍只在页面层：
 // 入口 A/B 分处 CanvasView/TextInputNode，只经 THREADS_COMPOSE_EVENT 请求开窗）。
+// Y5 T8 评审 I：提交面随 canEdit 闸（只读订阅——禁"UI 可点、store 静默拒"）；onSubmit 返 false 时短提示。
 import { useState } from 'react';
-import { Modal, Input, Button } from 'antd';
+import { Modal, Input, Button, message } from 'antd';
+import { useCanvasStore } from '@/stores/canvasStore';
+import { canEdit } from '@/stores/syncStatus';
 
 /** createThread 入参形状（T10 契约：kind='text' 时两锚必传） */
 export interface ThreadCreateInput {
@@ -40,10 +43,13 @@ interface Props {
 
 export function ThreadComposer({ input, onSubmit, onClose }: Props) {
   const [body, setBody] = useState('');
+  // Y5 T8 评审 I：与 threadsStore 写闸同谓词（canEdit）——只读/未就绪态禁用提交，禁静默丢
+  const editable = useCanvasStore(canEdit);
 
   const handleSubmit = () => {
     // 写入成功即关窗（Props.onSubmit 契约：true=已写入→关窗；false=保持开窗让用户修正）
     if (onSubmit({ ...input, body })) onClose();
+    else message.warning('批注未写入：当前为只读会话或同步未就绪');
   };
 
   return (
@@ -53,13 +59,14 @@ export function ThreadComposer({ input, onSubmit, onClose }: Props) {
       onCancel={onClose}
       footer={[
         <Button key="cancel" onClick={onClose}>取消</Button>,
-        <Button key="submit" type="primary" onClick={handleSubmit}>提交</Button>,
+        <Button key="submit" type="primary" disabled={!editable} onClick={handleSubmit}>提交</Button>,
       ]}
     >
       <Input.TextArea
         autoFocus
         rows={4}
         maxLength={2000}
+        disabled={!editable}
         value={body}
         onChange={(e) => setBody(e.target.value)}
         placeholder="输入批注内容…"

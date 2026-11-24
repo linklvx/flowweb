@@ -44,6 +44,17 @@ describe('Y5 T8：hydration=local 谓词（编辑放行/执行锁死）', () => 
     expect(canEdit(st({ hydration: 'local' }))).toBe(true);
   });
 
+  it('local ∧ collabReadOnly ⇒ canEdit false（负向腿）', () => {
+    expect(canEdit(st({ hydration: 'local', collabReadOnly: true }))).toBe(false);
+  });
+
+  it('local ∧ terminal ⇒ canEdit false（负向腿）', () => {
+    expect(canEdit(st({
+      hydration: 'local',
+      wsAuthNotice: { reason: 'session-expired', terminal: true },
+    }))).toBe(false);
+  });
+
   it('canExecute 在 local 恒假——connStatus=connected ∧ writeFrozen=false 亦假（§0.3.2 内联谓词）', () => {
     expect(canExecute(st({ hydration: 'local', connStatus: 'connected', writeFrozen: false }))).toBe(false);
   });

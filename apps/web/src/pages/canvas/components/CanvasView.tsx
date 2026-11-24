@@ -299,7 +299,9 @@ function CanvasViewComponent(_props: Props) {
       return;
     }
     // Y4b T11 入口 A（spec §3.2）：非组节点右键「批注」——菜单坐标=clientX/Y（GroupContextMenu 同款）
+    // Y5 T8 评审 I：canEdit 假（只读/未就绪）不打开菜单——唯一项=写动作，禁广告后静默丢
     event.preventDefault();
+    if (!canEdit(useCanvasStore.getState())) return;
     setNodeContextMenu({ nodeId: node.id, x: event.clientX, y: event.clientY });
   }, []);
 

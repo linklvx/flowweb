@@ -9,6 +9,7 @@ import type { MenuProps } from 'antd';
 import { UserOutlined, SettingOutlined, LogoutOutlined, TeamOutlined, UndoOutlined, RedoOutlined, CommentOutlined } from '@ant-design/icons';
 import { useCreditsStore } from '@/stores/creditsStore';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { canEdit } from '@/stores/syncStatus';
 // Y4a T11（spec §5/§9 锚 6）：画布撤销/重做按钮（undoCanvas/redoCanvas）——disabled=canvasUndo
 // 栈事件驱动布尔（undoUiStore selector 订阅；键盘 useGroupKeyboard Ctrl+Z/Y 路由不动）
 import { useUndoUiStore } from '@/stores/undoUiStore';
@@ -43,6 +44,8 @@ export function CanvasTopBar({ projectId }: Props) {
   }, [logout, navigate]);
 
   const teamId = useCanvasStore((s) => s.teamId);
+  // Y5 T8 评审 I：批注入口只读闸（与 threadsStore 写闸同谓词）
+  const editable = useCanvasStore(canEdit);
   // Y4a T11：两布尔=undoUiStore selector 订阅（事件驱动禁用态——栈事件唯一真源，零轮询）
   const canvasCanUndo = useUndoUiStore((s) => s.canvasCanUndo);
   const canvasCanRedo = useUndoUiStore((s) => s.canvasCanRedo);
@@ -157,13 +160,15 @@ export function CanvasTopBar({ projectId }: Props) {
           <RedoOutlined className="text-xs text-text" />
         </button>
         {/* Y4b T11（spec §3.2）：批注面板入口——既有 icon button 同款胶囊族（零新设计面）；
-            点击开侧滑面板（ThreadsPanel 挂载在 page.tsx，store 接线单点） */}
+            点击开侧滑面板（ThreadsPanel 挂载在 page.tsx，store 接线单点）。
+            Y5 T8 评审 I：入口随 canEdit 闸（只读态禁用——与 undo/redo 同 disabled 视觉族） */}
         <button
           type="button"
           data-testid="threads-trigger"
           aria-label="批注"
+          disabled={!editable}
           onClick={() => window.dispatchEvent(new CustomEvent('threads:open'))}
-          className="flex items-center bg-surface backdrop-blur px-2 py-1.5 rounded-full border border-overlay-2 shadow-lg cursor-pointer"
+          className="flex items-center bg-surface backdrop-blur px-2 py-1.5 rounded-full border border-overlay-2 shadow-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <CommentOutlined className="text-xs text-text" />
         </button>

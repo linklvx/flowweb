@@ -395,7 +395,7 @@ export function dispatchCanvasIntent(intent: CanvasIntent | CanvasIntent[], orig
   }
   if (!canEdit(gateState)) return [];
   const d = resolveDoc();
-  if (!d) return []; // canEdit 真 ⇒ runtime 会话在（hydration ready）⇒ doc 非空；null 为异常态零写
+  if (!d) return []; // canEdit 真 ⇒ runtime 会话在（hydration ready∨local）⇒ doc 非空；null 为异常态零写
   const seq = Array.isArray(intent) ? intent : [intent];
   // T10 兜底断言（Q-I v3 seam 前置配套）：写路径应经 runCommand precheck/粘贴逐块/redo precheck
   // 前置判定——dispatch 收到拒判 intent 序列=前置设计漏洞（非常规路径），diag 留痕+静默零写。

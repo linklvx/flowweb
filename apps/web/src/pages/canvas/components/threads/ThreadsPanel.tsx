@@ -3,8 +3,11 @@
 // nodeId 分组。分组/排序由 threadsStore.threadsView$ 在投影侧算好（T10），本组件只做展示与动作
 // 回调——store 接线单点在 page.tsx（T11 接缝，见 task-11-report.md 偏离登记）。
 // 视觉=antd 既有组件族（spec §10 裁定 6）：侧滑面板 Drawer + 既有主题 token，不另立视觉体系。
+// Y5 T8 评审 I：动作面随 canEdit 闸（只读态禁用回复/解决/重开/清理——禁"UI 可点、store 静默拒"）。
 import { useState } from 'react';
 import { Drawer, Button, Empty, Input } from 'antd';
+import { useCanvasStore } from '@/stores/canvasStore';
+import { canEdit } from '@/stores/syncStatus';
 
 export interface ThreadCommentView {
   id: string;
@@ -46,10 +49,12 @@ const groupTitle = 'text-sm font-medium text-text px-1 py-1';
 /** 单条线程：标题行可点开合；展开=评论列表+回复框+解决开关（spec §3.2 功能面） */
 function ThreadRow({
   thread,
+  editable,
   onAddComment,
   onSetResolved,
 }: {
   thread: ThreadViewItem;
+  editable: boolean;
   onAddComment: Props['onAddComment'];
   onSetResolved: Props['onSetResolved'];
 }) {
@@ -86,16 +91,17 @@ function ThreadRow({
           <Input.TextArea
             rows={2}
             maxLength={2000}
+            disabled={!editable}
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             placeholder="回复…"
           />
           <div className="flex gap-2 mt-2">
-            <Button size="small" type="primary" onClick={handleReply}>回复</Button>
+            <Button size="small" type="primary" disabled={!editable} onClick={handleReply}>回复</Button>
             {thread.resolved ? (
-              <Button size="small" onClick={() => onSetResolved(thread.id, false)}>重新打开</Button>
+              <Button size="small" disabled={!editable} onClick={() => onSetResolved(thread.id, false)}>重新打开</Button>
             ) : (
-              <Button size="small" onClick={() => onSetResolved(thread.id, true)}>解决</Button>
+              <Button size="small" disabled={!editable} onClick={() => onSetResolved(thread.id, true)}>解决</Button>
             )}
           </div>
         </div>
@@ -106,6 +112,8 @@ function ThreadRow({
 
 export function ThreadsPanel({ view, open = true, onCleanup, onAddComment, onSetResolved, onClose }: Props) {
   const [resolvedExpanded, setResolvedExpanded] = useState(false);
+  // Y5 T8 评审 I：动作面与 threadsStore 写闸同谓词
+  const editable = useCanvasStore(canEdit);
   const isEmpty = view.active.length === 0 && view.resolved.length === 0 && view.orphan.length === 0;
 
   return (
@@ -121,7 +129,7 @@ export function ThreadsPanel({ view, open = true, onCleanup, onAddComment, onSet
                 <div key={nodeId} className="mb-3">
                   <div className={groupTitle}>节点 {nodeId}</div>
                   {threads.map((t) => (
-                    <ThreadRow key={t.id} thread={t} onAddComment={onAddComment} onSetResolved={onSetResolved} />
+                    <ThreadRow key={t.id} thread={t} editable={editable} onAddComment={onAddComment} onSetResolved={onSetResolved} />
                   ))}
                 </div>
               ))}
@@ -140,7 +148,7 @@ export function ThreadsPanel({ view, open = true, onCleanup, onAddComment, onSet
               {resolvedExpanded && (
                 <div data-testid="threads-group-resolved">
                   {view.resolved.map((t) => (
-                    <ThreadRow key={t.id} thread={t} onAddComment={onAddComment} onSetResolved={onSetResolved} />
+                    <ThreadRow key={t.id} thread={t} editable={editable} onAddComment={onAddComment} onSetResolved={onSetResolved} />
                   ))}
                 </div>
               )}
@@ -159,10 +167,10 @@ export function ThreadsPanel({ view, open = true, onCleanup, onAddComment, onSet
                     {view.orphan.length}
                   </span>
                 </span>
-                <Button size="small" danger onClick={onCleanup}>清理全部</Button>
+                <Button size="small" danger disabled={!editable} onClick={onCleanup}>清理全部</Button>
               </div>
               {view.orphan.map((t) => (
-                <ThreadRow key={t.id} thread={t} onAddComment={onAddComment} onSetResolved={onSetResolved} />
+                <ThreadRow key={t.id} thread={t} editable={editable} onAddComment={onAddComment} onSetResolved={onSetResolved} />
               ))}
             </section>
           )}

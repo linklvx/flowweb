@@ -66,7 +66,7 @@ describe('hydration 四态初值（store 层）', () => {
   });
 });
 
-describe('canEdit 合取（ready && !collabReadOnly && !terminal）', () => {
+describe('canEdit 合取（(ready|local) && !collabReadOnly && !terminal）', () => {
   /** 真 store 态铺底 + 定向 patch（canEdit 只读三键——铺底避免整 state 手构） */
   const withPatch = (patch: Partial<CanvasState>): CanvasState =>
     ({ ...useCanvasStore.getState(), ...patch });
