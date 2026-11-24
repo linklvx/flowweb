@@ -2,11 +2,13 @@
 // Y5 T3：本地策略模块 meta 半边——flowweb:yjs-meta 三表（names/session/bindings）、
 // 五维文档库名、session 单活行、names 墓碑字段、userSnapshot 白名单（spec §0.1.4）。
 // 本文件只做本地存储策略，不做第二份文档编码；文档库半边（openYjsDoc/readCustom/
-// computeDiffBytes 等）归 T4 在同一文件续写。
+// computeDiffBytes/measureYjsDoc——T4）与 meta 半边同文件。
 // 失败面：全部 promise 化，任何写失败 reject——调用方 fail-closed（names 写失败则本会话
 // 不开那只文档库）。连接策略：每次调用独立 open、事务完成即 close——不缓存长持连接，
 // 不会阻塞后续 deleteDatabase（多标签清理路径）。
 import type { Role } from '@flowweb/shared';
+import * as Y from 'yjs';
+import { IndexeddbPersistence } from 'y-indexeddb';
 
 const META_DB_NAME = 'flowweb:yjs-meta';
 /** meta 库布局版本（三表结构变更才升；固定版本禁新旧混合布局） */
@@ -225,4 +227,124 @@ export function snapshotFromUser(user: Record<string, unknown>): UserSnapshot {
     createdAt: user.createdAt as string,
     updatedAt: user.updatedAt as string,
   };
+}
+
+// ───────────────────────────── 文档库半边（T4） ─────────────────────────────
+
+/** 开库竞赛死线（= runtime HYDRATION_DEADLINE_BASE_MS :591 同值；纯客户端量纲不进 shared）。 */
+export const HYDRATION_OPEN_TIMEOUT_MS = 10_000;
+
+/** 本会话「禁再开同库名」集合（§0.2 步 2）：只由水合路径 openYjsDoc 写入，measureYjsDoc 不写。
+ *  值保留首次失败原因——重开到同一库名时如实返回，不把 open-reject 谎报成 timeout。
+ *  模型例：一次超时后迟到 apply 只能留在已废弃 doc 上，重开同一库名会让新 doc 吃旧日志。 */
+const bannedDbNames = new Map<string, 'timeout' | 'open-reject'>();
+
+export type OpenDocResult =
+  | { ok: true; doc: Y.Doc; persistence: IndexeddbPersistence }
+  | { ok: false; reason: 'timeout' | 'open-reject' };
+
+export type MeasureYjsDocResult =
+  | { status: 'ok'; diffBytes: number }
+  | { status: 'timeout' }
+  | { status: 'open-reject' };
+
+/** 空 Y.Doc 的编码长度（模块加载时一次性测得）——Yjs 空更新**不是 0**（13.6.32 实测 2 字节）。
+ *  「有未上行内容」判据=差分字节数 > 本常量；删除闸 acked 判据=差分 == 本常量（禁 `=== 0`）。 */
+export const EMPTY_DOC_ENCODE_BYTES: number = (() => {
+  const doc = new Y.Doc();
+  try {
+    return Y.encodeStateAsUpdate(doc).byteLength;
+  } finally {
+    doc.destroy();
+  }
+})();
+
+/** 同库名本会话是否已被水合路径判死（§0.2 步 2——Task 10 的重开闸读点）。 */
+export function isDbNameBannedThisSession(dbName: string): boolean {
+  return bannedDbNames.has(dbName);
+}
+
+/** 装载竞态内核：whenSynced / 10s 超时 / `_db` 拒绝三腿竞赛。
+ *  超时或打开失败：persistence.destroy()+doc.destroy()（不删数据），返回失败原因；
+ *  失败分支**不**写 bannedDbNames——是否禁开由调用方语义决定（水合禁开、测量不禁）。 */
+async function attemptOpen(dbName: string): Promise<OpenDocResult> {
+  const doc = new Y.Doc();
+  const persistence = new IndexeddbPersistence(dbName, doc);
+  const outcome = await new Promise<'synced' | 'timeout' | 'open-reject'>((resolve) => {
+    const timer = setTimeout(() => { settle('timeout'); }, HYDRATION_OPEN_TIMEOUT_MS);
+    let settled = false;
+    function settle(value: 'synced' | 'timeout' | 'open-reject'): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    }
+    persistence.whenSynced.then(() => { settle('synced'); }, () => { settle('open-reject'); });
+    persistence._db.then(() => undefined, () => { settle('open-reject'); });
+  });
+  if (outcome === 'synced') return { ok: true, doc, persistence };
+  // destroy() 内部 await this._db：超时分支恰是 _db 未落地，await 会把 10s 竞赛变成无限等待。
+  // _destroyed 在调用瞬间同步置位（迟到 apply 被挡在门外），连接待 open 最终落地时由该链 close。
+  void persistence.destroy().catch(() => undefined);
+  doc.destroy();
+  return { ok: false, reason: outcome };
+}
+
+/** 水合开库（§0.2 步 2）：成功=库内 update 已 apply 进 doc 且 whenSynced 已 resolve。
+ *  超时/打开失败=废弃 doc+persistence，并把库名记入本会话禁开集合——迟到的 whenSynced
+ *  只能落在已废弃 doc 上，随后的服务端水合必须用新 doc（调用方）；同库名再调直接拒绝，
+ *  不再构造 IndexeddbPersistence。 */
+export async function openYjsDoc(dbName: string): Promise<OpenDocResult> {
+  const banned = bannedDbNames.get(dbName);
+  if (banned !== undefined) return { ok: false, reason: banned };
+  const outcome = await attemptOpen(dbName);
+  if (!outcome.ok) bannedDbNames.set(dbName, outcome.reason);
+  return outcome;
+}
+
+/** custom store 单通道读（约束⑩：只走 persistence.get，禁第二只 indexedDB.open）。
+ *  缺键→null；值域由唯一写者 writeCustom 钉死为 string | ArrayBuffer（§0.1.5 v7 P1）。 */
+export async function readCustom(
+  persistence: IndexeddbPersistence,
+  key: string,
+): Promise<string | ArrayBuffer | null> {
+  const value: unknown = await persistence.get(key);
+  if (value === undefined || value === null) return null;
+  return value as string | ArrayBuffer;
+}
+
+/** custom store 单通道写（§0.1.5 v7 P1）：serverSV=精确切片后的 ArrayBuffer 直传（零 Base64
+ *  膨胀）、writeGrant/diverged=字符串。写失败 reject——调用方 fail-closed。 */
+export async function writeCustom(
+  persistence: IndexeddbPersistence,
+  key: string,
+  value: string | ArrayBuffer,
+): Promise<void> {
+  await persistence.set(key, value);
+}
+
+/** 相对服务端状态向量的差分字节数（§0.2 步 4）：**原始 byteLength**，不做任何减法。
+ *  无 serverSV=全量编码。编码本身同步——保持 Promise 形态只为调用点统一 await。 */
+export function computeDiffBytes(doc: Y.Doc, serverSV: Uint8Array | null): Promise<number> {
+  return Promise.resolve(Y.encodeStateAsUpdate(doc, serverSV ?? undefined).byteLength);
+}
+
+/** 删除闸/清扫测量（§0.2 步 2 尾、§0.6）：装载→读库内 serverSV→算差分字节→立即销毁 doc 与
+ *  persistence。超时=hold 语义（调用方不删）且**不写 bannedDbNames**（一次清扫超时不得锁死
+ *  本会话开项目）。测完的 doc 只用于计算，绝不移交 provider（本函数不连任何连接）。 */
+export async function measureYjsDoc(dbName: string): Promise<MeasureYjsDocResult> {
+  const opened = await attemptOpen(dbName);
+  if (!opened.ok) {
+    return opened.reason === 'timeout' ? { status: 'timeout' } : { status: 'open-reject' };
+  }
+  const { doc, persistence } = opened;
+  try {
+    const serverSV = await readCustom(persistence, 'serverSV');
+    // 跨 realm 的 ArrayBuffer 仍可进 Uint8Array（判定用 typeof 而非 instanceof）。
+    const svBytes = serverSV === null || typeof serverSV === 'string' ? null : new Uint8Array(serverSV);
+    return { status: 'ok', diffBytes: await computeDiffBytes(doc, svBytes) };
+  } finally {
+    doc.destroy();
+    await persistence.destroy().catch(() => undefined);
+  }
 }

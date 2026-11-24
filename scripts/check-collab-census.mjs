@@ -589,7 +589,9 @@ export function reconcileWithDocRegistry(counts, registry) {
  *   project.service ×1 同族；编码点留 service 侧=建头 helper 收 Buffer 种子单参〔勘误方案 B·裁定 4〕）；
  *  web canvasCollabRuntime ×3=客户端漂移 idle 实测自校准/measureLocalDocNow 同步实测（判据④超大兜底）
  *   /buildCacheRecord 本地缓存快照编码（Y0b-5 T8——去抖/到期/隐藏强制三触发共用单点）；
- *  web canvas-local-backup ×1=本地备份双产物导出编码（Y0b-5 T6——.yjs 可回灌产物）。 */
+ *  web canvas-local-backup ×1=本地备份双产物导出编码（Y0b-5 T6——.yjs 可回灌产物）；
+ *  web local-yjs-store ×2=Y5 T4 策略模块文档库半边（EMPTY_DOC_ENCODE_BYTES 模块级一次测量/
+ *   computeDiffBytes 差分字节原始值——判据量法，非装载写回）。 */
 const ENCODE_WHITELIST = {
   'apps/api/src/gate-canvas-state.ts': 1,
   'apps/api/src/modules/collab/canvas-doc-update.repository.ts': 2,   // Y1c T11：compact 快照重编码+tombstone 余量测量（懒建档种子编码随 state 列退役删除——3→2）
@@ -604,6 +606,7 @@ const ENCODE_WHITELIST = {
   'apps/api/src/modules/collab/collab-project-actor.service.ts': 1,   // Y1c T27 收尾 M-b：replay derive 基线 clone 编码（memo 轮间复用——load 档）
   'apps/api/src/modules/collab/collab-replay-canary.service.ts': 1,   // C2-2a：canary 捕获 canonical hash 编码（冻结临界区活 doc encodeStateAsUpdate——compact stateHash 同口径，快照权威读非装载面）
   'apps/web/src/stores/timelineUndo.ts': 2,   // Y4a T4：撤销闸量法 temp doc 快照编码 ×2（measureChunkFrames+两帧量法/temp doc 两级自检——量法忠实性装置：applyUpdate 之后 temp.clientID=live.clientID；量完即弃非装载非写回）
+  'apps/web/src/collab/local-yjs-store.ts': 2,   // Y5 T4：EMPTY_DOC_ENCODE_BYTES 模块级一次常量+computeDiffBytes 差分原始 byteLength（判据量法，非装载/写回）
 };
 
 const results = [];
