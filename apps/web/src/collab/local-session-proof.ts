@@ -87,6 +87,12 @@ export async function fetchMeWithProof(): Promise<
   } catch {
     return { ok: false, reason: 'transient' };
   }
+
+  // body 跨越额外 await：200 路径的任何改行（删/写）前复验代次——头到之后他标签登出
+  // 并重新登录（suppressed 被清 0）时，旧 200 不得写上一 uid 的证明，也不得用旧 200+null
+  // 删掉新登录用户的行（A8 body 窗）。
+  if (readAuthEpoch() !== epochAtSend) return { ok: false, reason: 'transient' };
+
   const user = data.user;
   if (user === null || user === undefined) {
     // 200+null = 无会话（auth.controller 的显式否认）→ 删行
@@ -107,8 +113,8 @@ export async function fetchMeWithProof(): Promise<
   const userObj = user as Record<string, unknown>;
   const remainingMs = sessionExpiresAt - serverNow;
   if (remainingMs <= 0) {
-    // 服务器侧会话已死——证明不成立，删行（不写负寿命行）
-    await deleteSessionRow(userObj.id as string);
+    // 服务器侧会话已死——证明不成立，删全表行（他 uid 旧行同样不得存活，不写负寿命行）
+    await deleteAllSessionRows();
     return { ok: true, user };
   }
   await putSessionRow({

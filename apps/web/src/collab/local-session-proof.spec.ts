@@ -64,6 +64,20 @@ function stubFetch(...responses: Array<Response | Error>) {
   return fetchMock;
 }
 
+/** 头已到、body 迟到形态：called 在 json() 被调用（=头代次检查已过）后 resolve，
+ *  resolveBody 由用例控制 body 落地时机（A8 body 窗用例）。 */
+function deferredJsonResponse(status = 200) {
+  let resolveBody!: (body: unknown) => void;
+  let markCalled!: () => void;
+  const called = new Promise<void>((resolve) => { markCalled = resolve; });
+  const body = new Promise<unknown>((resolve) => { resolveBody = resolve; });
+  const response = {
+    status,
+    json: () => { markCalled(); return body; },
+  } as unknown as Response;
+  return { response, called, resolveBody };
+}
+
 async function clearSessionStore(): Promise<void> {
   const db = await openMetaDb();
   try {
@@ -178,8 +192,8 @@ describe('fetchMeWithProof：200 带 user 的证明写点', () => {
     expect(await getSessionRows()).toEqual([sessionRow('u-a')]);
   });
 
-  it('差值 ≤ 0 → 删该 uid 行，返回 ok', async () => {
-    await putSessionRow(sessionRow('u-a'));
+  it('差值 ≤ 0 → 删全表行（他 uid 旧行一并清），返回 ok', async () => {
+    await seedSessionRowsRaw([sessionRow('u-a'), sessionRow('u-b')]);
     const serverNow = Date.now();
     stubFetch(jsonResponse({ user: USER_A, sessionExpiresAt: serverNow, serverNow }));
     expect(await fetchMeWithProof()).toEqual({ ok: true, user: USER_A });
@@ -243,6 +257,36 @@ describe('fetchMeWithProof：在途代次竞态（验收 23 / A8）', () => {
     resolveFetch(jsonResponse({ user: USER_A, sessionExpiresAt: serverNow + 7 * DAY, serverNow }));
     expect(await pending).toEqual({ ok: false, reason: 'transient' });
     expect(await getSessionRows()).toEqual([]);
+  });
+
+  it('body 迟到窗：头到后 bump epoch、body 才落地 200+user → 不写行，返回 transient', async () => {
+    localStorage.setItem(EPOCH_KEY, '1');
+    const deferred = deferredJsonResponse();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(deferred.response));
+
+    const pending = fetchMeWithProof();
+    await deferred.called;                       // 头代次检查已过，json() 挂起
+    expect(bumpAuthEpoch()).toBe(2);
+
+    const serverNow = Date.now();
+    deferred.resolveBody({ user: USER_A, sessionExpiresAt: serverNow + 7 * DAY, serverNow });
+    expect(await pending).toEqual({ ok: false, reason: 'transient' });
+    expect(await getSessionRows()).toEqual([]);
+  });
+
+  it('body 迟到窗：头到后 bump epoch、body 才落地 200+null → 不删已有行，返回 transient', async () => {
+    localStorage.setItem(EPOCH_KEY, '1');
+    await putSessionRow(sessionRow('u-a'));
+    const deferred = deferredJsonResponse();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(deferred.response));
+
+    const pending = fetchMeWithProof();
+    await deferred.called;
+    expect(bumpAuthEpoch()).toBe(2);
+
+    deferred.resolveBody({ user: null });
+    expect(await pending).toEqual({ ok: false, reason: 'transient' });
+    expect(await getSessionRows()).toEqual([sessionRow('u-a')]);
   });
 });
 
