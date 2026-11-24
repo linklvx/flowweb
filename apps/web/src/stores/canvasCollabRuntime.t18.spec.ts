@@ -131,16 +131,13 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-// ══════════ ①boot mergeUpdates 并集（Y5 T10 退役——由五维 y-indexeddb 库承载） ══════════
-// 本段四例（双 tab 并集/legacy 快照迁移/Q-I-1 坏记录隔离/diverged 族隔离）钉的是旧
-// LocalCollabCache.loadAll+mergeUpdates 读放大面——Y5 T10 已把水合读路径倒转为单一 y-indexeddb
-// update 日志（loadAll 不再被水合链调用），T14 随整层删。等价行为面：
-//   ·单库 CRDT 合并（原并集语义）→ y-indexeddb 原生 update 日志回放（T2 trim 补丁测试锚）；
-//   ·坏记录不毒化 boot → 新链无「逐记录合并」面（库内 update 由库自身事务保证）；
-//   ·差分相对 serverSV → canvasCollabRuntime.local.spec.ts ③。
-describe.skip('T18 per-tab：boot mergeUpdates 并集（Y5 T10 退役——读路径改五维库）', () => {
-  it('retired', () => { expect(true).toBe(true); });
-});
+// ══════════ ①boot mergeUpdates 并集（已删除——Y5 T10 读路径改五维 y-indexeddb 库） ══════════
+// 删除理由（行为已不在本 build）：旧四例（双 tab 并集/legacy 'snapshot' 迁移/Q-I-1 坏记录隔离/
+// diverged 族隔离）钉的是 runtim 对 LocalCollabCache.loadAll() 返回的 per-tab 记录做
+// Y.mergeUpdates 并集再 Y.applyUpdate 的读放大面。Y5 T10 把水合次序倒转为「单一 y-indexeddb
+// update 日志直接装载进 doc」——`loadAll` 生产面零调用（grep 实证），该行为结构性不存在。
+// 等价需求面在新链：库内 CRDT 合并在库自身事务内完成（T2 trim 补丁测试锚）、差分口径=
+// canvasCollabRuntime.local.spec.ts ③、多标签跨会话存活=同库 update 日志回放。
 
 // ══════════ ②同步成功删己（3s tick 单源清零同点） ══════════
 describe('T18 per-tab：同步成功删己', () => {

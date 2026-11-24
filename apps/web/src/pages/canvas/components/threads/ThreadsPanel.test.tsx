@@ -12,7 +12,8 @@ import {
   type ThreadsViewData,
   type ThreadViewItem,
 } from './ThreadsPanel';
-import { useCanvasStore } from '@/stores/canvasStore';
+// C0-2 夹具入口（openRwWindow=可编辑会话窗口 / openRoWindow=只读窗口）——测试不直写 store 状态。
+import { openRwWindow, openRoWindow } from '@/test/fixtures/canvas';
 
 const thread = (over: Partial<ThreadViewItem> & Pick<ThreadViewItem, 'id' | 'nodeId'>): ThreadViewItem => ({
   kind: 'node',
@@ -33,7 +34,7 @@ describe('ThreadsPanel（Y4b T11 三组互斥+清理）', () => {
     onAddComment = vi.fn(() => true);
     onSetResolved = vi.fn(() => true);
     onClose = vi.fn();
-    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
+    openRwWindow();   // 可编辑会话窗口（hydration=ready ∧ !readOnly ∧ 非终态）
   });
 
   const renderPanel = (view: ThreadsViewData) =>
@@ -121,7 +122,7 @@ describe('ThreadsPanel（Y4b T11 三组互斥+清理）', () => {
   });
 
   it('Y5 T8：collabReadOnly=true ⇒ 回复/解决/清理全部禁用、点击零回调（禁静默丢）', () => {
-    useCanvasStore.setState({ collabReadOnly: true });
+    openRoWindow();   // 只读窗口（前置：可编辑 → 只读）
     renderPanel({
       active: [
         { nodeId: 'n1', threads: [thread({ id: 't1', nodeId: 'n1' })] },

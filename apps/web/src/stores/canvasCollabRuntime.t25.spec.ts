@@ -628,10 +628,8 @@ describe('T25b B1/B4：恢复裁定面数据源+出口', () => {
   }, 20_000);
 });
 
-// ══════════ T25b B2：boot 合并异常提示接线（Y5 T10 收窄触发门） ══════════
-// 原用例（双 tab 旧层记录 boot 并集→duplicate-order）随 LocalCollabCache boot 读路径退场（T10 倒转
-// 水合次序、T14 整层删）。新触发门=§0.2 步 7：local→ready ∧ 服务端有新更新（SS1）∧ 本端差分非空
-// ——覆盖在 canvasCollabRuntime.local.spec.ts ⑧（纯快进不跑/双端差分跑）。
-describe.skip('T25b B2：boot 合并后异常检测（Y5 T10 迁移至 local→ready 门）', () => {
-  it('retired', () => { expect(true).toBe(true); });
-});
+// ══════════ T25b B2：boot 合并异常提示（已删除——触发门迁至 local→ready 双端差分） ══════════
+// 删除理由（行为已不在本 build）：原 b2-1 钉「旧层双 tab boot 并集后跑 detectDraftMergeAnomalies」。
+// Y5 T10 后 boot 不再走 loadAll+mergeUpdates 并集（grep 实证零调用），该触发点不存在；新触发门=
+// spec §0.2 步 7「provider.isSynced ∧ SS1 表明服务端有新更新 ∧ 本端差分非空」，覆盖在
+// canvasCollabRuntime.local.spec.ts ⑧（纯快进不跑 / 双端差分跑且不阻断）。

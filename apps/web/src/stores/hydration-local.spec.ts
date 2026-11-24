@@ -28,6 +28,8 @@ vi.mock('./threadsStore', async (importOriginal) => {
 });
 
 import * as runtime from './canvasCollabRuntime';
+// C0-2 夹具入口（openRwWindow/openRoWindow/resetCanvasStores）——测试不直写 store 状态。
+import { openRwWindow, resetCanvasStores } from '@/test/fixtures/canvas';
 
 /** 铺底=local 可编辑态；用例只拨被测键（谓词只读少量字段，避免整 state 手构） */
 const st = (over: Partial<CanvasState>): CanvasState => ({
@@ -75,10 +77,7 @@ describe('Y5 T8：threads 写闸判据=canEdit（attachThreads 注入闭包调�
   beforeEach(() => {
     gate.predicates.length = 0;
     (HocuspocusProvider as any).instances.length = 0;
-    useCanvasStore.setState({
-      connStatus: 'connecting', nodes: [], edges: [],
-      hydration: 'idle', collabReadOnly: true, wsAuthNotice: null,
-    });
+    resetCanvasStores();   // 几何/会话复位单点（夹具入口）
   });
 
   afterEach(async () => {
@@ -92,10 +91,12 @@ describe('Y5 T8：threads 写闸判据=canEdit（attachThreads 注入闭包调�
     const getSynced = gate.predicates.at(-1)!;
     expect(lastProvider().isSynced).toBe(false);   // provider 未同步——旧判据 provider.isSynced===true 下必假
 
-    useCanvasStore.setState({ hydration: 'local', collabReadOnly: false, wsAuthNotice: null });
+    // 可编辑窗口 → local（hydration action 单写者；readOnly/notice 由夹具入口给）
+    openRwWindow();
+    useCanvasStore.getState().setHydration('local');
     expect(getSynced()).toBe(true);
 
-    useCanvasStore.setState({ hydration: 'pending' });   // 反向腿：非可编辑态仍拦
+    useCanvasStore.getState().setHydration('pending');   // 反向腿：非可编辑态仍拦
     expect(getSynced()).toBe(false);
   });
 });

@@ -5,13 +5,14 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { message } from 'antd';
 
 import { ThreadComposer, type ThreadCreateInput } from './ThreadComposer';
-import { useCanvasStore } from '@/stores/canvasStore';
+// C0-2 夹具入口（openRwWindow=可编辑会话窗口 / openRoWindow=只读窗口）——测试不直写 store 状态。
+import { openRwWindow, openRoWindow } from '@/test/fixtures/canvas';
 
 const input: ThreadCreateInput = { nodeId: 'n1', kind: 'node', body: '' };
 
 describe('ThreadComposer（Y4b T11 M-2 提交契约）', () => {
   beforeEach(() => {
-    useCanvasStore.setState({ hydration: 'ready', collabReadOnly: false, wsAuthNotice: null });
+    openRwWindow();   // 可编辑会话窗口（hydration=ready ∧ !readOnly ∧ 非终态）
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -41,7 +42,7 @@ describe('ThreadComposer（Y4b T11 M-2 提交契约）', () => {
   });
 
   it('Y5 T8：collabReadOnly=true ⇒ 提交按钮禁用、点击零写入（禁静默丢）', () => {
-    useCanvasStore.setState({ collabReadOnly: true });
+    openRoWindow();   // 只读窗口（前置：可编辑 → 只读）
     const onSubmit = vi.fn(() => true);
     const onClose = vi.fn();
     render(<ThreadComposer input={input} onSubmit={onSubmit} onClose={onClose} />);
