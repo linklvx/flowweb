@@ -24,6 +24,8 @@ export type { CollabTelemetryEventType, CollabTelemetryEvent, TelemetryDetailKey
 export { CLIENT_PROTOCOL_VERSION, negotiateClientVersion } from './constants/collab-protocol';
 // T17 质评 Minor#8：只读命令拒写节流窗单源（web 两消费面共用）
 export { EDIT_COMMAND_DENY_THROTTLE_MS } from './constants/edit-gate';
+// Y5 T5（plan 约束⑦）：会话 7d TTL 单源（毫秒）——api cookie maxAge/expiresIn(秒)/session.service 续期三处同源。
+export { SESSION_TTL_MS } from './constants/session-ttl';
 export type { ClientProtocolVersion, VersionVerdict } from './constants/collab-protocol';
 // Y0b-4 T1：画布配额常量+doc-status/conn-status 快照类型（T5 服务端产生/T10 客户端消费——键集逐字一致）
 // +utf8Bytes 单源（web/api 两端字节量纲一致）。

@@ -1,10 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import type { Session, User } from '@prisma/client';
+import { SESSION_TTL_MS } from '@flowweb/shared';   // Y5 T5：7d TTL 单源（与 auth.ts expiresIn/cookie maxAge 同源）
 import { PrismaService } from '../prisma/prisma.service';
 
-/** 与 auth.ts better-auth 配置逐字对齐（session.expiresIn/updateAge）——改那边必须同步这边 */
-const SESSION_TTL_MS = 7 * 24 * 3600 * 1000;   // expiresIn: 7d
-const SESSION_UPDATE_AGE_MS = 24 * 3600 * 1000;   // updateAge: 1d
+const SESSION_UPDATE_AGE_MS = 24 * 3600 * 1000;   // updateAge: 1d（独立于 TTL——不并入）
 
 export type SessionWithUser = Session & { user: User };
 

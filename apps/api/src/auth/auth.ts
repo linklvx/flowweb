@@ -8,6 +8,7 @@ import { bootstrapPersonalTeam } from '../modules/team/team.bootstrap';
 import { CreditLedgerService } from '../modules/team/credit-ledger.service';
 import { createManagedRedis, type ManagedRedis } from '../common/redis/managed-redis';
 import { resolveSecureTransport } from '../config/env';   // T35（Z13）：secure 判据单点——禁第二处判断
+import { SESSION_TTL_MS } from '@flowweb/shared';   // Y5 T5：7d TTL 单源（cookie maxAge/expiresIn 同源）
 
 /** Y0a-4/E46：模块级 PrismaClient 纳管（authRedis 同款受管形态）——AuthModule.onApplicationShutdown 断开 */
 export const authPrisma = new PrismaClient();
@@ -66,7 +67,7 @@ export function getSessionCookieOptions() {
     path: '/',
     sameSite: 'lax' as const,
     secure: resolveSecureTransport(),
-    maxAge: 7 * 24 * 60 * 60 * 1000, // = session.expiresIn (7 days), 必须同步修改
+    maxAge: SESSION_TTL_MS, // = session.expiresIn（同引共享常量，7d 毫秒）
   };
 }
 
@@ -120,8 +121,8 @@ function buildAuth() {
       .split(',')
       .map((s) => s.trim()),
     session: {
-      expiresIn: 60 * 60 * 24 * 7, // 7 days
-      updateAge: 60 * 60 * 24, // 1 day
+      expiresIn: SESSION_TTL_MS / 1000, // 7 days（better-auth 单位为秒——显式换算，plan 约束⑦）
+      updateAge: 60 * 60 * 24, // 1 day（独立保持）
     },
   });
 }

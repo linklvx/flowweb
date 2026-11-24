@@ -78,11 +78,12 @@ describe('AuthService', () => {
     expect(mockTouch).not.toHaveBeenCalled();
   });
 
-  it('批3-3：getSession 走注入 SessionService.touch（有效 session → { user }；顺手滑动续期）', async () => {
-    mockTouch.mockResolvedValue({ user: { id: 'u1' }, expiresAt: new Date() });
+  it('批3-3：getSession 走注入 SessionService.touch（有效 session → { user, expiresAt }；顺手滑动续期）', async () => {
+    const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000);
+    mockTouch.mockResolvedValue({ user: { id: 'u1' }, expiresAt });
     const result = await service.getSession({ cookie: 'flowweb.session_token=tok' });
     expect(mockTouch).toHaveBeenCalledWith('tok');
-    expect(result).toEqual({ user: { id: 'u1' } });
+    expect(result).toEqual({ user: { id: 'u1' }, expiresAt });   // Y5 T5：同一次 touch() 的 expiresAt 透传
   });
 
   it('批3-3：touch → null（无效/过期）→ getSession 返回 null（不再自带 findUnique）', async () => {

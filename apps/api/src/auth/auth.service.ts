@@ -46,6 +46,7 @@ export class AuthService {
     const token = parseSessionToken(headers.cookie);
     if (!token) return null;
     const session = await this.sessions.touch(token);   // 批3-3：touch（无效/过期→null，age>1d 顺带续期）
-    return session ? { user: session.user } : null;
+    // Y5 T5：同一次 touch() 的 expiresAt 透传（/me 报服务端截止时间——零新增查询）
+    return session ? { user: session.user, expiresAt: session.expiresAt } : null;
   }
 }

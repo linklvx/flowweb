@@ -81,7 +81,8 @@ export class AuthController {
       await bootstrapPersonalTeam(this.prisma, this.ledger, session.user.id, session.user.name);
     } catch { /* 非致命 */ }
 
-    return res.json({ user: session.user });
+    // Y5 T5：服务端时钟的会话截止时间+当前时间（毫秒）——客户端离线判据只信此对值
+    return res.json({ user: session.user, sessionExpiresAt: session.expiresAt.getTime(), serverNow: Date.now() });
   }
 
   @Post('send-sms-code')

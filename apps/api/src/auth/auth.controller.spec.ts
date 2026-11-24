@@ -156,11 +156,16 @@ describe('AuthController', () => {
     it('should return user from session', async () => {
       const req = { headers: { cookie: 'flowweb.session_token=valid' } };
       const mockRes = { cookie: vi.fn(), json: vi.fn() };   // 批3-3：/me 有效 session 重发 cookie
-      mockSvc.getSession.mockResolvedValue({ user: { id: 'u1', email: 'u1@test.com' } });
+      const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000);
+      mockSvc.getSession.mockResolvedValue({ user: { id: 'u1', email: 'u1@test.com' }, expiresAt });
 
       await controller.getMe(req as any, mockRes as any);
 
-      expect(mockRes.json).toHaveBeenCalledWith({ user: { id: 'u1', email: 'u1@test.com' } });
+      expect(mockRes.json).toHaveBeenCalledWith({
+        user: { id: 'u1', email: 'u1@test.com' },
+        sessionExpiresAt: expiresAt.getTime(),   // Y5 T5：服务端截止时间（ms）
+        serverNow: expect.any(Number),
+      });
     });
 
     it('should return null when no session', async () => {
@@ -176,7 +181,7 @@ describe('AuthController', () => {
     it('批3-3：session 有效 → 重发 cookie（SESSION_COOKIE_OPTIONS）——15min me 探活的滑动续期半边（F8）', async () => {
       const req = { headers: { cookie: 'flowweb.session_token=valid' } };
       const mockRes = { cookie: vi.fn(), json: vi.fn() };
-      mockSvc.getSession.mockResolvedValue({ user: { id: 'u1' } });
+      mockSvc.getSession.mockResolvedValue({ user: { id: 'u1' }, expiresAt: new Date() });   // Y5 T5：getSession 含 expiresAt
 
       await controller.getMe(req as any, mockRes as any);
 
@@ -196,7 +201,8 @@ describe('AuthController', () => {
     it('should bootstrap personal team when user has none (幂等补偿，含文件夹)', async () => {
       const req = { headers: { cookie: 'flowweb.session_token=valid' } };
       const mockRes = { cookie: vi.fn(), json: vi.fn() };
-      mockSvc.getSession.mockResolvedValue({ user: { id: 'u1', name: '张三', email: 'u1@test.com' } });
+      const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000);
+      mockSvc.getSession.mockResolvedValue({ user: { id: 'u1', name: '张三', email: 'u1@test.com' }, expiresAt });
 
       const mockPrismaForBootstrap = {
         team: {
@@ -216,7 +222,11 @@ describe('AuthController', () => {
 
       expect(mockPrismaForBootstrap.team.findFirst).toHaveBeenCalledWith({ where: { ownerId: 'u1', isDefault: true } });
       expect(mockPrismaForBootstrap.materialFolder.createMany).toHaveBeenCalled();
-      expect(mockRes.json).toHaveBeenCalledWith({ user: { id: 'u1', name: '张三', email: 'u1@test.com' } });
+      expect(mockRes.json).toHaveBeenCalledWith({
+        user: { id: 'u1', name: '张三', email: 'u1@test.com' },
+        sessionExpiresAt: expiresAt.getTime(),   // Y5 T5
+        serverNow: expect.any(Number),
+      });
     });
   });
 
