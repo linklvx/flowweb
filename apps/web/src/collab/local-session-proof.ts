@@ -61,6 +61,8 @@ export async function fetchMeWithProof(): Promise<
   { ok: true; user: object } | { ok: false; reason: 'null-user' | 'http-401' | 'transient' }
 > {
   const epochAtSend = readAuthEpoch();
+  // A8 统一判据：任何改行（删/写）动作前复验代次——响应整体丢弃，不写也不删 session 行
+  const epochStillCurrent = (): boolean => readAuthEpoch() === epochAtSend;
   let response: Response;
   try {
     // 与 AuthProvider/探活同款调用形态（不引入第二 HTTP 客户端）
@@ -69,10 +71,12 @@ export async function fetchMeWithProof(): Promise<
     return { ok: false, reason: 'transient' };
   }
 
-  // 发出后代次已变（他标签/本标签登出）→ 响应整体丢弃，不写也不删 session 行
-  if (readAuthEpoch() !== epochAtSend) return { ok: false, reason: 'transient' };
+  // 发出后代次已变（他标签/本标签登出）→ 响应整体丢弃
+  if (!epochStillCurrent()) return { ok: false, reason: 'transient' };
 
   if (response.status === 401) {
+    // 删除动作前复验（spec §0.3.3「响应不符即丢」对 401 删除路径同样成立）
+    if (!epochStillCurrent()) return { ok: false, reason: 'transient' };
     await deleteAllSessionRows();
     return { ok: false, reason: 'http-401' };
   }
@@ -91,7 +95,7 @@ export async function fetchMeWithProof(): Promise<
   // body 跨越额外 await：200 路径的任何改行（删/写）前复验代次——头到之后他标签登出
   // 并重新登录（suppressed 被清 0）时，旧 200 不得写上一 uid 的证明，也不得用旧 200+null
   // 删掉新登录用户的行（A8 body 窗）。
-  if (readAuthEpoch() !== epochAtSend) return { ok: false, reason: 'transient' };
+  if (!epochStillCurrent()) return { ok: false, reason: 'transient' };
 
   const user = data.user;
   if (user === null || user === undefined) {

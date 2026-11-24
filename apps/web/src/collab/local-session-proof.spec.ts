@@ -215,6 +215,25 @@ describe('fetchMeWithProof：会话死亡信号删行', () => {
     expect(await fetchMeWithProof()).toEqual({ ok: false, reason: 'http-401' });
     expect(await getSessionRows()).toEqual([]);
   });
+
+  it('401 头检查之后、删除之前 epoch 变化 → 不删行，返回 transient（A8 统一判据）', async () => {
+    await putSessionRow(sessionRow('u-a'));
+    // 驱动器：首次读 status（进入 401 分支判断）即 bump epoch——模拟他标签登出/登录落在
+    // 头检查与删除动作之间（删除前复验必须看见它）
+    let statusReads = 0;
+    const response = {
+      get status() {
+        statusReads += 1;
+        if (statusReads === 1) bumpAuthEpoch();
+        return 401;
+      },
+      json: () => Promise.resolve({}),
+    } as unknown as Response;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
+
+    expect(await fetchMeWithProof()).toEqual({ ok: false, reason: 'transient' });
+    expect(await getSessionRows()).toEqual([sessionRow('u-a')]);
+  });
 });
 
 describe('fetchMeWithProof：transient 不动行（Task 7 离线放行判据）', () => {
