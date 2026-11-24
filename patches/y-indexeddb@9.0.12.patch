@@ -1,0 +1,17 @@
+diff --git a/src/y-indexeddb.js b/src/y-indexeddb.js
+index 07f4fbb6da0b0b0621b5696370aabf230f7293a8..ca3c578a1f042f509133c6faeb326b956a6a0ba7 100644
+--- a/src/y-indexeddb.js
++++ b/src/y-indexeddb.js
+@@ -37,9 +37,10 @@ export const storeState = (idbPersistence, forceStore = true) =>
+   fetchUpdates(idbPersistence)
+     .then(updatesStore => {
+       if (forceStore || idbPersistence._dbsize >= PREFERRED_TRIM_SIZE) {
++        if (idbPersistence._destroyed) return
+         idb.addAutoKey(updatesStore, Y.encodeStateAsUpdate(idbPersistence.doc))
+-          .then(() => idb.del(updatesStore, idb.createIDBKeyRangeUpperBound(idbPersistence._dbref, true)))
+-          .then(() => idb.count(updatesStore).then(cnt => { idbPersistence._dbsize = cnt }))
++        idb.del(updatesStore, idb.createIDBKeyRangeUpperBound(idbPersistence._dbref, true))
++        idb.count(updatesStore).then(cnt => { idbPersistence._dbsize = cnt })
+       }
+     })
+ 
