@@ -329,7 +329,8 @@ describe('measureYjsDoc：删除闸测量（超时不写禁开集合）', () => 
     const capture = capturePersistence();
 
     const result = await measureYjsDoc(name);
-    expect(result).toEqual({ status: 'ok', diffBytes: EMPTY_DOC_ENCODE_BYTES });
+    // Y5 T13：measure 结果增 diverged 维度——acked 判据=「差分空 ∧ 无 diverged」，只读差分会误删
+    expect(result).toEqual({ status: 'ok', diffBytes: EMPTY_DOC_ENCODE_BYTES, diverged: false });
     expect(capture.persistence).toBeDefined();
     expect(capture.persistence?._destroyed).toBe(true);
     expect(capture.persistence?.doc.isDestroyed).toBe(true);

@@ -1,7 +1,7 @@
 import { initCollab, initCollabLocal, destroyCollab, safeReload, type CollabSessionMeta } from '@/stores/canvasCollabRuntime';
 // Y5 T10：项目请求失败后的离线分型（T9 纯函数）+ meta 两表读（session 证明/binding 元数据）。
 import { decideOfflineRoute, type OfflineRouteInput } from './offline-route';
-import { getSessionRows, getBindingRow, putBindingRow, putNameRow, buildYjsDbName, listNameRows } from '@/collab/local-yjs-store';
+import { getSessionRows, getBindingRow, putBindingRow, putNameRow, buildYjsDbName, listNameRows, sweepStartup } from '@/collab/local-yjs-store';
 // Y5 T10：localStorage historyId 单键（与 runtime 水合链同源——rejected-recovery 的读写面）。
 import { loadPersistedHistoryId } from '@/collab/rejected-recovery';
 // Y5 T10（C1）：binding/names 写失败 fail-soft 但可观测（local-cache-degraded 是既有受控 reason）。
@@ -308,6 +308,12 @@ export function CanvasPage() {
     // 优先 query 参数（工作空间/模板导入），否则恢复最近项目
     if (storedId) {
       if (queryProjectId) localStorage.setItem(PROJECT_ID_KEY, queryProjectId);
+      // Y5 T13（§0.6 启动清扫）：会话建立前扫一次本地库（墓碑直删/异代过删除闸/孤儿库并集）。
+      // fail-soft：清扫失败绝不阻断水合（清库是磁盘卫生层，水合正确性不依赖它）。
+      // uid 取本地证明（session 表单活行）——此 effect 早于 useAuth 声明，禁引用 user。
+      void getSessionRows()
+        .then((rows) => (rows.length === 1 ? sweepStartup(rows[0].uid) : null))
+        .catch(() => undefined);
       fetchProjectMeta(storedId, () => cancelled)
         .then(({ name, meta }) => openSession(storedId, name, meta))
         .catch((e: unknown) => {

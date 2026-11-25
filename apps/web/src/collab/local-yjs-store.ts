@@ -190,8 +190,13 @@ export async function getBindingRow(uid: string, pid: string): Promise<BindingRo
 }
 
 /** 写 names 行（键=完整库名，值逐字落盘）。开库前先写——写失败则调用方不开该库。
- *  墓碑改写=putNameRow(name, { ..., hold: false, tombstone: true })（hold/tombstone 互斥）。 */
+ *  墓碑改写=putNameRow(name, { ..., hold: false, tombstone: true })（hold/tombstone 互斥）。
+ *  Y5 T13（T3 parked Minor 收口）：互斥从注释升级为**运行时断言**——双真=调用点 bug，
+ *  抛错让它在测试/开发期立刻可见，禁静默落一个语义矛盾的行。 */
 export async function putNameRow(dbName: string, row: NameRow): Promise<void> {
+  if (row.hold && row.tombstone) {
+    throw new Error(`names 行 hold/tombstone 互斥：${dbName}（hold=未裁定保内容，tombstone=已裁定待删）`);
+  }
   await runMetaTx(STORE_NAMES, 'readwrite', (tx) => {
     tx.objectStore(STORE_NAMES).put(row, dbName);
     return () => undefined;
@@ -211,6 +216,15 @@ export async function listNameRows(): Promise<Array<NameRow & { dbName: string }
     valuesReq.onsuccess = () => { values = valuesReq.result as NameRow[]; };
     return () => keys.map((key, index) => ({ ...values[index], dbName: key }));
   });
+}
+
+/** Y5 T13（§0.6 v8 跨会话 hold 读点）：该 uid+pid 下**任一**库 hold===true 即返回该行——
+ *  含当前会话未打开的旧代库。spec 原文「横幅读 names.hold，不读『当前这一只库』」：旧代库被
+ *  hold 时当前会话即使开的是新库也要亮横幅，否则 hold 只是写进 IndexedDB 的旗、用户无出口。
+ *  无 hold 返回 null；读失败由调用方 fail-soft（不置横幅，不阻断水合）。 */
+export async function findHeldNameRow(uid: string, pid: string): Promise<(NameRow & { dbName: string }) | null> {
+  const rows = await listNameRows();
+  return rows.find((r) => r.uid === uid && r.pid === pid && r.hold === true) ?? null;
 }
 
 /** 删单个 names 行（键=完整库名）——登出三表清理（§0.6）与删除闸共用。 */
@@ -286,7 +300,7 @@ export type OpenDocResult =
   | { ok: false; reason: 'timeout' | 'open-reject' };
 
 export type MeasureYjsDocResult =
-  | { status: 'ok'; diffBytes: number }
+  | { status: 'ok'; diffBytes: number; diverged: boolean }
   | { status: 'timeout' }
   | { status: 'open-reject' };
 
@@ -376,9 +390,14 @@ export async function deleteCustom(persistence: IndexeddbPersistence, key: strin
 }
 
 /** 相对服务端状态向量的差分字节数（§0.2 步 4）：**原始 byteLength**，不做任何减法。
- *  无 serverSV=全量编码。编码本身同步——保持 Promise 形态只为调用点统一 await。 */
+ *  无 serverSV=全量编码。编码本身同步——保持 Promise 形态只为调用点统一 await。
+ *  Y5 T13：**零长度 SV 归一成「无 SV」**（`Y.encodeStateAsUpdate(doc, new Uint8Array(0))` 会抛
+ *  `Unexpected end of array`——空 ArrayBuffer 是坏记录/未写形态）。归一后按全量编码=非 acked=不删
+ *  （安全侧）。解码失败（真损坏）仍抛出，由调用方按 fail-soft 处理（本函数保持单点编码，
+ *  禁增第二调用点——census ④ 白名单计数）。 */
 export function computeDiffBytes(doc: Y.Doc, serverSV: Uint8Array | null): Promise<number> {
-  return Promise.resolve(Y.encodeStateAsUpdate(doc, serverSV ?? undefined).byteLength);
+  const usableSv = serverSV !== null && serverSV.byteLength > 0 ? serverSV : undefined;
+  return Promise.resolve(Y.encodeStateAsUpdate(doc, usableSv).byteLength);
 }
 
 /** serverSV 精确切片（§0.1.5）：encodeStateVector 返回视图，IDB 只收独立 ArrayBuffer。 */
@@ -387,9 +406,11 @@ export function encodeExactStateVector(d: Y.Doc): ArrayBuffer {
   return sv.buffer.slice(sv.byteOffset, sv.byteOffset + sv.byteLength);
 }
 
-/** 删除闸/清扫测量（§0.2 步 2 尾、§0.6）：装载→读库内 serverSV→算差分字节→立即销毁 doc 与
- *  persistence。超时=hold 语义（调用方不删）且**不写 bannedDbNames**（一次清扫超时不得锁死
- *  本会话开项目）。测完的 doc 只用于计算，绝不移交 provider（本函数不连任何连接）。 */
+/** 删除闸/清扫测量（§0.2 步 2 尾、§0.6）：装载→读库内 serverSV+diverged→算差分字节→立即销毁
+ *  doc 与 persistence。超时=hold 语义（调用方不删）且**不写 bannedDbNames**（一次清扫超时不得
+ *  锁死本会话开项目）。测完的 doc 只用于计算，绝不移交 provider（本函数不连任何连接）。
+ *  Y5 T13：**必须同时读 diverged**——acked 判据是「差分空 ∧ 无 diverged」，只读差分会把
+ *  「内容已上行但标记为未裁定」的库误判 acked 并删除=数据丢失。 */
 export async function measureYjsDoc(dbName: string): Promise<MeasureYjsDocResult> {
   const opened = await attemptOpen(dbName);
   if (!opened.ok) {
@@ -400,9 +421,274 @@ export async function measureYjsDoc(dbName: string): Promise<MeasureYjsDocResult
     const serverSV = await readCustom(persistence, 'serverSV');
     // 跨 realm 的 ArrayBuffer 仍可进 Uint8Array（判定用 typeof 而非 instanceof）。
     const svBytes = serverSV === null || typeof serverSV === 'string' ? null : new Uint8Array(serverSV);
-    return { status: 'ok', diffBytes: await computeDiffBytes(doc, svBytes) };
+    const divergedRaw = await readCustom(persistence, 'diverged');
+    return {
+      status: 'ok',
+      diffBytes: await computeDiffBytes(doc, svBytes),
+      diverged: divergedRaw === '1',
+    };
   } finally {
     doc.destroy();
     await persistence.destroy().catch(() => undefined);
   }
+}
+
+/** Y5 T13（§0.6 删除原语）：单库删除三态——`onblocked` 立即返回 'blocked'（他标签持连接），
+ *  调用方据此写 names 墓碑；成功/失败分别 'deleted'/'failed'。与旧层
+ *  `local-cache-key.deleteDatabaseQuietly`（onblocked 直接 resolve、分不出三态）分立：
+ *  旧那个服务 `flowweb:collab:` 旧层清理（T14 随层删），本原语服务新层删除闸。 */
+export function deleteDbWithOutcome(dbName: string): Promise<'deleted' | 'blocked' | 'failed'> {
+  return new Promise((resolve) => {
+    let req: IDBOpenDBRequest;
+    try {
+      req = indexedDB.deleteDatabase(dbName);
+    } catch {
+      resolve('failed');
+      return;
+    }
+    req.onsuccess = () => resolve('deleted');
+    req.onerror = () => resolve('failed');
+    req.onblocked = () => resolve('blocked');
+  });
+}
+
+/** Y5 T13（§0.6 横幅导出腿）：在指定库的活 doc 上执行回调后立即销毁（临时装载——零连接零
+ *  provider，绝不把 doc 交给 provider 或会话）。库不存在/开库失败=null（调用方 fail-soft）。
+ *  消费点：旧代 hold 库的「导出」动作——当前会话 doc 里没有那些内容，必须从盘上那只库取。
+ *  存在性前置：`IndexeddbPersistence` 构造会**创建**空库，直接开会给不存在的库留下空壳——
+ *  databases() 可用时先查；不可用（旧 Safari/Firefox）时按能力降级直接开（与 y-indexeddb 同款）。 */
+export async function withDbDoc<T>(dbName: string, fn: (doc: Y.Doc) => T): Promise<T | null> {
+  const idb: IDBFactory | undefined = typeof indexedDB !== 'undefined' ? indexedDB : undefined;
+  if (typeof idb?.databases === 'function') {
+    try {
+      const dbs = await idb.databases();
+      if (!dbs.some((d) => d.name === dbName)) return null;
+    } catch { /* 枚举失败=按能力降级继续（下面开库自会失败或成功） */ }
+  }
+  const opened = await attemptOpen(dbName);
+  if (!opened.ok) return null;
+  try {
+    return fn(opened.doc);
+  } finally {
+    opened.doc.destroy();
+    await opened.persistence.destroy().catch(() => undefined);
+  }
+}
+
+// ───────────────────────── 删除闸+清扫（Y5 T13） ─────────────────────────
+
+export type DeleteGateTrigger =
+  | 'startup' | 'generation' | 'safeReload' | 'accept' | 'resync' | 'purge-family' | 'project-delete';
+
+export type DeleteGateOutcome = 'deleted' | 'held' | 'acked' | 'blocked';
+
+export interface DeleteGateOptions {
+  /** 调用方已确认导出文件生成（保全义务履行完毕）——直删，不测量。 */
+  exportConfirmed?: boolean;
+  /** 用户显式点「放弃本地副本」——直删。 */
+  discardConfirmed?: boolean;
+  /** 存量 names 行（省一次读；缺省时按 dbName 查表）。 */
+  nameRow?: NameRow & { dbName: string };
+}
+
+/** 写 hold 标记（fail-soft：写失败返回 false，调用方按「不删」处理）。
+ *  墓碑行不写 hold（互斥——tombstone=已裁定待删，再置 hold 会被 putNameRow 断言拦下）。 */
+async function markHeld(dbName: string, row: (NameRow & { dbName: string }) | undefined): Promise<boolean> {
+  if (!row) return false;
+  if (row.tombstone === true) return false;
+  try {
+    await putNameRow(dbName, { ...row, hold: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 写墓碑标记（C4：删除被 blocked——裁定已完成、只是删不掉；下次启动直删不过闸不读内容）。 */
+async function markTombstone(dbName: string, row: (NameRow & { dbName: string }) | undefined): Promise<boolean> {
+  if (!row) return false;
+  try {
+    await putNameRow(dbName, { ...row, hold: false, tombstone: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Y5 T13（§0.6 统一删除闸）：三合法判据才删——①acked（差分==EMPTY_DOC_ENCODE_BYTES ∧ 无 diverged）
+ *  ②调用方已确认导出文件生成 ③用户点放弃。其余一律写 hold:true 且不删（宁留勿删：任何误删都是
+ *  用户数据永久丢失）。测量超时/开库失败 → 'held'（不删）且**不写 bannedDbNames**（一次清扫超时
+ *  不得锁死本会话开项目）。 */
+export async function applyDeleteGate(
+  dbName: string,
+  trigger: DeleteGateTrigger,
+  opts: DeleteGateOptions = {},
+): Promise<DeleteGateOutcome> {
+  void trigger;   // 归因标签：调用方上报 diag 时携带（本模块不引 collabDiagnostics——P6 纯策略面）
+  const row = opts.nameRow ?? (await listNameRows()).find((r) => r.dbName === dbName);
+  if (opts.exportConfirmed === true || opts.discardConfirmed === true) {
+    const outcome = await deleteDbWithOutcome(dbName);
+    if (outcome === 'deleted') {
+      await deleteNameRow(dbName).catch(() => undefined);
+      return 'deleted';
+    }
+    // 用户已裁定（导出成功/显式放弃）但删不掉（他标签持连接）=「已裁定待删」——写墓碑
+    // 让下次启动直删不过闸，禁再亮横幅逼用户重做同一个动作。
+    if (outcome === 'blocked') {
+      await markTombstone(dbName, row);
+      return 'blocked';
+    }
+    await markHeld(dbName, row);   // 删除失败（非 blocked）：留库+旗，下次重试
+    return 'held';
+  }
+  const measured = await measureYjsDoc(dbName);
+  if (measured.status !== 'ok') {
+    await markHeld(dbName, row);   // 超时/开库失败=不可判定 ⇒ 不删
+    return 'held';
+  }
+  if (measured.diffBytes === EMPTY_DOC_ENCODE_BYTES && !measured.diverged) {
+    const outcome = await deleteDbWithOutcome(dbName);
+    if (outcome === 'deleted') {
+      await deleteNameRow(dbName).catch(() => undefined);
+      return 'acked';
+    }
+    // acked=内容已在服务端，删不掉同样是「已裁定待删」——墓碑重试
+    if (outcome === 'blocked') {
+      await markTombstone(dbName, row);
+      return 'blocked';
+    }
+    await markHeld(dbName, row);
+    return 'held';
+  }
+  await markHeld(dbName, row);
+  return 'held';
+}
+
+export interface SweepResult {
+  deleted: number;
+  held: number;
+  blocked: number;
+  /** true=环境无 databases() 能力，只能按 names 表扫描（孤儿库扫不到——如实上报，禁静默）。 */
+  skippedNoDatabasesApi?: boolean;
+}
+
+/** 该 uid+pid 全部新层库过删除闸（项目删除/接受恢复等场景）。
+ *  `excludeDbName`=当前会话正持有连接的库——**必须排除**：删它必 blocked，而 blocked 会写墓碑，
+ *  下次启动就会把一只活库直删（数据丢失）。 */
+export async function purgePidDbFamily(
+  uid: string,
+  pid: string,
+  trigger: DeleteGateTrigger,
+  excludeDbName?: string,
+): Promise<SweepResult> {
+  const result: SweepResult = { deleted: 0, held: 0, blocked: 0 };
+  let rows: Array<NameRow & { dbName: string }>;
+  try {
+    rows = await listNameRows();
+  } catch {
+    return result;   // 读不到 names=不可判定，零动作（不删）
+  }
+  for (const row of rows) {
+    if (row.uid !== uid || row.pid !== pid) continue;
+    if (excludeDbName !== undefined && row.dbName === excludeDbName) continue;
+    const outcome = await applyDeleteGate(row.dbName, trigger, { nameRow: row });
+    if (outcome === 'deleted' || outcome === 'acked') result.deleted += 1;
+    else if (outcome === 'blocked') result.blocked += 1;
+    else result.held += 1;
+  }
+  return result;
+}
+
+/** Y5 T13（§0.6 登出行 + C4 墓碑）：清该 uid 全部新层文档库——逐个 deleteDatabase，
+ *  **blocked 的写 names 行 tombstone:true**（下次启动按墓碑直删不过闸）；未 blocked 的 names 行
+ *  随删随去。三表清理（session/names/bindings）归调用方（AuthProvider 既有 Promise.all）。 */
+export async function purgeUidDbs(uid: string): Promise<SweepResult> {
+  const result: SweepResult = { deleted: 0, held: 0, blocked: 0 };
+  let rows: Array<NameRow & { dbName: string }>;
+  try {
+    rows = (await listNameRows()).filter((r) => r.uid === uid);
+  } catch {
+    return result;
+  }
+  for (const row of rows) {
+    const outcome = await deleteDbWithOutcome(row.dbName);
+    if (outcome === 'deleted') {
+      await deleteNameRow(row.dbName).catch(() => undefined);
+      result.deleted += 1;
+    } else if (outcome === 'blocked') {
+      // 墓碑：hold 清零（已裁定待删）+ tombstone 置真——下次 sweepStartup 直删不读内容
+      try {
+        await putNameRow(row.dbName, { ...row, hold: false, tombstone: true });
+      } catch { /* 写失败=留原行（下次重试） */ }
+      result.blocked += 1;
+    } else {
+      result.held += 1;   // 删除失败（非 blocked）=留库，不清行
+    }
+  }
+  return result;
+}
+
+/** Y5 T13（§0.6 启动清扫）：范围=`indexedDB.databases()` ∪ names 表**并集**。
+ *  - `databases()` 可用：以它为主枚举源（含 names 表外的孤儿库），names 只提供 hold/tombstone 标记；
+ *  - `databases()` 缺席：只能走 names 表，如实置 `skippedNoDatabasesApi`（孤儿库扫不到）；
+ *  - 墓碑库（names.tombstone===true）**直删不过闸不读内容**（§0.1.4）；
+ *  - `flowweb:yjs:` 他人 uid 库**不碰**（登出 purgeUidDbs 的职责）；
+ *  - 旧层 `flowweb:collab:` 前缀**本任务不删**（T14 整层退役时随删——t18 等旧层用例仍依赖）。
+ *  零库=正常返回（首次启动不是错误）。 */
+export async function sweepStartup(uid: string): Promise<SweepResult> {
+  const result: SweepResult = { deleted: 0, held: 0, blocked: 0 };
+  let namesRows: Array<NameRow & { dbName: string }> = [];
+  try {
+    namesRows = await listNameRows();
+  } catch { /* names 不可读=下面按 databases() 尽力扫，标记归零 */ }
+  const byName = new Map(namesRows.map((r) => [r.dbName, r]));
+
+  let candidates: string[] = [];
+  const idb: IDBFactory | undefined = typeof indexedDB !== 'undefined' ? indexedDB : undefined;
+  if (typeof idb?.databases === 'function') {
+    try {
+      const dbs = await idb.databases();
+      candidates = dbs.map((d) => d.name).filter((n): n is string => typeof n === 'string');
+    } catch {
+      candidates = [];
+    }
+  } else {
+    result.skippedNoDatabasesApi = true;   // 如实上报：孤儿库扫不到
+    candidates = namesRows.map((r) => r.dbName);
+  }
+  // 并集：databases() 可用时也要并入 names 表里存在但 databases() 未返回的库（删除中的库等）
+  for (const row of namesRows) {
+    if (!candidates.includes(row.dbName)) candidates.push(row.dbName);
+  }
+
+  for (const dbName of candidates) {
+    if (!dbName.startsWith(DOC_DB_PREFIX)) continue;   // 旧层/其他前缀不在本任务范围
+    const row = byName.get(dbName);
+    // 墓碑库：直删不过闸不读内容（§0.1.4）
+    if (row?.tombstone === true) {
+      const outcome = await deleteDbWithOutcome(dbName);
+      if (outcome === 'deleted') { await deleteNameRow(dbName).catch(() => undefined); result.deleted += 1; }
+      else if (outcome === 'blocked') result.blocked += 1;
+      else result.held += 1;
+      continue;
+    }
+    // 他人 uid 库不碰（登出清理是 purgeUidDbs 的职责）
+    if (row !== undefined && row.uid !== uid) continue;
+    // 有 names 行的当前 uid 库 → 过闸
+    if (row !== undefined) {
+      const outcome = await applyDeleteGate(dbName, 'startup', { nameRow: row });
+      if (outcome === 'deleted' || outcome === 'acked') result.deleted += 1;
+      else if (outcome === 'blocked') result.blocked += 1;
+      else result.held += 1;
+      continue;
+    }
+    // 无 names 行的孤儿库：库名段含 uid——按段判归属
+    const parts = dbName.slice(DOC_DB_PREFIX.length).split(':');
+    if (parts[0] !== uid) continue;
+    const outcome = await applyDeleteGate(dbName, 'startup');
+    if (outcome === 'deleted' || outcome === 'acked') result.deleted += 1;
+    else if (outcome === 'blocked') result.blocked += 1;
+    else result.held += 1;
+  }
+  return result;
 }

@@ -7,14 +7,18 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { isTerminalReason, SS2_OVER_LIMIT_TERMINAL_REASON } from '@flowweb/shared';
 import { SyncBanner } from './SyncBanner';
 import { useCanvasStore } from '@/stores/canvasStore';
-import { escapeWithLocalExport, exportDivergedContent } from '@/stores/canvasCollabRuntime';
+import { escapeWithLocalExport, exportHeldLocalContent, discardHeldLocalContent } from '@/stores/canvasCollabRuntime';
 
 vi.mock('@/stores/canvasCollabRuntime', () => ({
   escapeWithLocalExport: vi.fn(),
   safeReload: vi.fn(),
   getDoc: vi.fn(() => null),
   discardLocalDiverged: vi.fn(),
-  exportDivergedContent: vi.fn(),
+  // Y5 T13（§0.6 v8）：diverged 档导出/放弃改走 hold 感知路径——内部先查 names.hold，旧代库
+  // 形态从盘上那只库导出（当前会话 doc 里没有那些内容）；无 hold 回落当前 doc 路径。
+  exportHeldLocalContent: vi.fn(async () => null),
+  discardHeldLocalContent: vi.fn(async () => undefined),
+  acceptServerRestoredRecovery: vi.fn(async () => true),
   getCurrentBackupHeader: vi.fn(() => ({ schemaVersion: 6, historyToken: '' })),
 }));
 
@@ -182,29 +186,29 @@ describe('Y0b-5 T6 单链仲裁：terminal 鉴权>配额终态>diverged>oversize
     expect(screen.queryByText(/瘦身/)).not.toBeInTheDocument();
   });
 
-  it('diverged 分支双动作：导出 .yjs（保全）+ 放弃本地副本（不可逆,二次确认通过才 discardLocalDiverged）', async () => {
-    const { discardLocalDiverged } = await import('@/stores/canvasCollabRuntime');
+  it('diverged 分支双动作：导出 .yjs（保全）+ 放弃本地副本（不可逆,二次确认通过才 discardHeldLocalContent）', async () => {
+    const { discardHeldLocalContent } = await import('@/stores/canvasCollabRuntime');
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     useCanvasStore.setState({ canvasDiverged: true });
     render(<SyncBanner />);
     fireEvent.click(screen.getByTestId('diverged-discard-btn'));
     expect(confirmSpy).toHaveBeenCalledTimes(1);
-    expect(discardLocalDiverged).not.toHaveBeenCalled();   // 未确认不放弃
+    expect(discardHeldLocalContent).not.toHaveBeenCalled();   // 未确认不放弃
     confirmSpy.mockReturnValue(true);
     fireEvent.click(screen.getByTestId('diverged-discard-btn'));
-    expect(discardLocalDiverged).toHaveBeenCalledTimes(1); // 确认后放弃
+    expect(discardHeldLocalContent).toHaveBeenCalledTimes(1); // 确认后放弃
   });
 
-  it('★diverged 档导出=exportDivergedContent【spec 修复 1b】：boot-diverged 会话内存 doc 是服务端版本/空——导出动作走 runtime 盘上记录出口（内存 getDoc() 导不出盘上唯一副本）；ss2-over-limit 档维持内存 doc 导出（非 diverged 语义）', () => {
+  it('★diverged 档导出=exportHeldLocalContent【Y5 T13 §0.6 v8】：hold 感知——旧代库被 hold 时从盘上那只库导（当前会话 doc 无那些内容）；ss2-over-limit 档维持内存 doc 导出（非 diverged 语义）', () => {
     useCanvasStore.setState({ canvasDiverged: true });
     render(<SyncBanner />);
     fireEvent.click(screen.getByTestId('diverged-export-btn'));
-    expect(exportDivergedContent).toHaveBeenCalledTimes(1);   // diverged 档→盘上记录出口
+    expect(exportHeldLocalContent).toHaveBeenCalledTimes(1);   // diverged 档→hold 感知出口
     cleanup();
     useCanvasStore.setState({ canvasDiverged: false, wsQuotaTerminal: { code: 4404, reason: SS2_OVER_LIMIT_TERMINAL_REASON } });
     render(<SyncBanner />);
     fireEvent.click(screen.getByTestId('diverged-export-btn'));
-    expect(exportDivergedContent).toHaveBeenCalledTimes(1);   // ss2 档不走盘上导出（内存 doc SS2 超限形态）
+    expect(exportHeldLocalContent).toHaveBeenCalledTimes(1);   // ss2 档不走盘上导出（内存 doc SS2 超限形态）
     expect(screen.getByText(/超出单文档上限/)).toBeInTheDocument();
   });
 

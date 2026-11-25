@@ -64,7 +64,9 @@ export const TELEMETRY_DETAIL_SCHEMA: Readonly<Record<CollabTelemetryEventType, 
     // recovery-resumed（B4 denyTracker.recoveryComplete+supervisor.resume 出口）/recovery-accepted
     //（B5 管理员接受）/boot-merge-anomaly（B2 boot 合并异常检测命中——kinds 键随行）
     // Y5 T12 追加 local-hold：版本换代桶「有差分/diverged→hold+横幅」落点遥测（runtime holdLocalDbIfDirty）。
-    reason: { sink: 'metric:collab_telemetry_ws_reason_total{reason}', values: ['unsynced-lag', 'local-cache-degraded', 'local-cache-preserved-foreign-dirty', 'recovery-resync', 'recovery-deny-escape', 'recovery-server-restored', 'recovery-retry-after', 'recovery-generation-stale', 'recovery-outdated-degraded', 'recovery-resumed', 'recovery-accepted', 'boot-merge-anomaly', 'local-hold'] },
+    // Y5 T13 追加两值：local-db-deleted（删除闸真删了库——聚合）/local-db-family-gated（整族过闸但有
+    // hold/blocked——未删的可见性）。
+    reason: { sink: 'metric:collab_telemetry_ws_reason_total{reason}', values: ['unsynced-lag', 'local-cache-degraded', 'local-cache-preserved-foreign-dirty', 'recovery-resync', 'recovery-deny-escape', 'recovery-server-restored', 'recovery-retry-after', 'recovery-generation-stale', 'recovery-outdated-degraded', 'recovery-resumed', 'recovery-accepted', 'boot-merge-anomaly', 'local-hold', 'local-db-deleted', 'local-db-family-gated'] },
     // T25b：M-R4 降级档 step（export/clear-h/purge/broadcast）/B2 异常 kind 清单——log-only 观测面
     step: { sink: 'log-only' },
     kinds: { sink: 'log-only' },

@@ -9,7 +9,7 @@ import {
   readAuthSuppressed, setAuthSuppressed,
 } from '@/collab/local-session-proof';
 import {
-  deleteBindingRowsForUid, deleteNameRowsForUid, getSessionRows,
+  deleteBindingRowsForUid, getSessionRows, purgeUidDbs,
 } from '@/collab/local-yjs-store';
 import { invokeCollabSessionTeardown } from '@/collab/auth-teardown-registry';
 
@@ -115,19 +115,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Y0b-5 T5：登出/切用户清本 uid 全部本地缓存库（G27「登出经页面卸载路径复位」的缓存侧在
     // 登出动作点落位——destroyCollab 无法区分登出/切项目，无差别 purge 会误删他标签在用库）
     if (uid) {
+      // Y5 T13（§0.6 登出行）：**先删文档库**（purgeUidDbs 需要 names 行做枚举源；删成功的行随删随去、
+      // 删 blocked 的行改写 tombstone:true 留待下次启动直删——C4）。顺序反了会把枚举源先清空=库成
+      // 孤儿，或把墓碑行一并删掉=blocked 重试机制失效。
+      try {
+        await purgeUidDbs(uid);
+      } catch { /* fail-soft：本地清理失败不阻断登出 */ }
       // ④ 三表清理（§0.6 登出行）：整张 session 表（I5：单活行只在写时收敛，他 uid 残留行
-      //    不得活过登出）+ 该 uid 的 names/bindings 行（残留 binding 指向已删库会让离线路径
-      //    复活空库——v4 A2）。单删失败不阻断其余与登出主链。
+      //    不得活过登出）+ 该 uid 的 bindings 行（残留 binding 指向已删库会让离线路径复活空库
+      //    ——v4 A2）。names 行已由 purgeUidDbs 处理（含 blocked 的墓碑），**此处不再全量删**
+      //    （deleteNameRowsForUid 会连墓碑一起清掉=C4 重试失效）。
       await Promise.all([
         clearSessionRows(),
-        deleteNameRowsForUid(uid),
         deleteBindingRowsForUid(uid),
       ]).catch(() => { /* fail-soft：本地清理失败不阻断登出 */ });
-      // Task 13 回填点：await purgeUidDbs(uid)（文档库删除+blocked→names 墓碑；实装见
-      // local-yjs-store 计划接口）
     }
     clearMediaUrlCache();                  // 登出显式清空（spec：清空双挂点之一；R2b 补 page.tsx 项目切换分支）
-    if (uid) void purgeUidCaches(uid);     // fail-soft（purge 不阻断登出主链）
+    if (uid) void purgeUidCaches(uid);     // 旧层 flowweb:collab: 库（T14 随层退役）
   };
 
   const updateUser = (user: User) => setUser(user);

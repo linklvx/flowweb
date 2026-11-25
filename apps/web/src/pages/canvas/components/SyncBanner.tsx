@@ -25,7 +25,7 @@ import {
   SS2_OVER_LIMIT_TERMINAL_REASON,
 } from '@flowweb/shared';
 import { useCanvasStore, type CanvasState } from '@/stores/canvasStore';
-import { escapeWithLocalExport, safeReload, getDoc, discardLocalDiverged, exportDivergedContent, acceptServerRestoredRecovery, getCurrentBackupHeader } from '@/stores/canvasCollabRuntime';
+import { escapeWithLocalExport, safeReload, getDoc, discardLocalDiverged, exportHeldLocalContent, discardHeldLocalContent, acceptServerRestoredRecovery, getCurrentBackupHeader } from '@/stores/canvasCollabRuntime';
 import { exportLocalBackup } from '@/collab/canvas-local-backup';
 import { loginUrl } from '@/utils/loginRedirect';
 
@@ -70,9 +70,11 @@ function DivergedActions({ exportFromDisk = false }: { exportFromDisk?: boolean 
         type="button"
         data-testid="diverged-export-btn"
         onClick={() => {
+          // Y5 T13（§0.6 v8）：导出源分派——旧代库被 hold 时当前会话 doc 里没有那些内容，
+          // 必须从盘上那只库导（exportHeldLocalContent 内部先查 names.hold，无 hold 回落当前 doc）。
+          if (exportFromDisk) { void exportHeldLocalContent().catch(() => undefined); return; }
           try {
-            if (exportFromDisk) exportDivergedContent();
-            else exportLocalBackup(getDoc(), getCurrentBackupHeader());
+            exportLocalBackup(getDoc(), getCurrentBackupHeader());
           } catch { /* 导出失败可重试 */ }
         }}
         className="shrink-0 px-3 h-7 rounded-lg bg-overlay-3 hover:bg-overlay-2 text-text text-xs border border-overlay-2"
@@ -84,7 +86,9 @@ function DivergedActions({ exportFromDisk = false }: { exportFromDisk?: boolean 
         data-testid="diverged-discard-btn"
         onClick={() => {
           if (window.confirm('确定放弃本地未上行副本？页面将刷新并恢复服务端版本，该操作不可恢复。')) {
-            discardLocalDiverged();
+            // Y5 T13：h old 库形态走 discardHeldLocalContent（删盘上那只库），否则维持原路径
+            if (exportFromDisk) void discardHeldLocalContent().catch(() => undefined);
+            else discardLocalDiverged();
           }
         }}
         className="shrink-0 px-3 h-7 rounded-lg bg-overlay-3 hover:bg-overlay-2 text-text text-xs border border-overlay-2"

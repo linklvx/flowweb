@@ -85,8 +85,10 @@ import { LocalCollabCache, LOCAL_CACHE_MAX_DOC_BYTES, collectFamilyDirtyRecords,
 // Y5 T10（spec §0.2）：y-indexeddb 本地文档库——五维库名+meta 三表+开库 10s 竞赛+custom 三键。
 // 水合次序倒转：先装载本地库再 createProvider（旧 LocalCollabCache boot 读路径不再消费——T14 整层删）。
 import {
-  buildYjsDbName, putNameRow, getSessionRows, openYjsDoc,
+  buildYjsDbName, putNameRow, getSessionRows, openYjsDoc, listNameRows,
   readCustom, writeCustom, deleteCustom, computeDiffBytes, EMPTY_DOC_ENCODE_BYTES, encodeExactStateVector,
+  // Y5 T13（§0.6）：删除闸+清扫+跨会话 hold 读点+旧代库临时装载（策略模块执行，runtime 只接线）
+  applyDeleteGate, purgePidDbFamily, findHeldNameRow, withDbDoc, type DeleteGateTrigger,
 } from '@/collab/local-yjs-store';
 import type { IndexeddbPersistence } from 'y-indexeddb';
 // Y0b-5 T6：导出双产物+导入核（纯模块——doc/provider 注入，无会话态依赖）；卸载警告 reason 集合
@@ -792,6 +794,18 @@ async function holdLocalDbIfDirty(reason: string): Promise<boolean> {
   }
 }
 
+/** Y5 T13（§0.6）：整族过删除闸——旧代库按 acked 判据清理，**当前会话自己的库排除**
+ *  （本会话正持有连接：删它必 blocked，而 blocked 会写墓碑 ⇒ 下次启动把活库直删=数据丢失）。
+ *  diag 只上报聚合（策略模块不引 collabDiagnostics——P6）。 */
+async function gateForeignDbFamily(trigger: DeleteGateTrigger): Promise<void> {
+  if (!session?.viewerUid) return;
+  const result = await purgePidDbFamily(session.viewerUid, session.pid, trigger, localDbName ?? undefined)
+    .catch(() => null);
+  if (result === null) return;
+  if (result.deleted > 0) recordCollabDiag('ws_status', { reason: 'local-db-deleted' });
+  if (result.held > 0 || result.blocked > 0) recordCollabDiag('ws_status', { reason: 'local-db-family-gated' });
+}
+
 // 批1-3：transport 薄层句柄已随 Y0b-5 T3b 退役（needKick 语义随归零模型废弃——socket 单实例
 // 注册表见 reconnectTransport.ts；瞬态恢复全归 supervisor.recoverNow）。
 // 批1-3 终态重建窗口标记 rebuildPending 已随 Y0b-5 T6 退役——并入 unsyncedDirtyDocs 单源置位
@@ -944,6 +958,9 @@ async function resyncFull(): Promise<void> {
     // Y5 T12（§0.4/§0.6 4411 行）：被拒字节留在原库——有差分/diverged ⇒ hold（库留、横幅亮），
     // 不做 initCollab 重建（被拒增量不挂回正在连接的 doc 归 T13/T14）。无差分=原路重建。
     if (await holdLocalDbIfDirty('resync')) return;   // finally 已置 resyncInFlight=false + endResync——禁重复调
+    // Y5 T13（§0.4 4411 行）：无差分（本会话库无未上行内容）≠ 旧代库也干净——旧代库过删除闸
+    //（acked 才删；有差分/diverged ⇒ hold+横幅）。排除本会话库（下面 initCollab 还要用它）。
+    await gateForeignDbFamily('resync');
     denyPreserveAcrossInit = true;   // resync 环内 deny 计数保序（见 initCollab 边界复位注）
     await initCollab(pid, meta);   // 内含 teardownSession（旧 provider/doc 拆除）
   } catch {
@@ -1128,6 +1145,9 @@ export async function acceptServerRestoredRecovery(projectId: string): Promise<b
   const uid = session?.viewerUid ?? '';
   if (exported > 0 && uid) {
     try { await purgePidCaches(uid, projectId); } catch { /* fail-soft——reload 后 boot 防御兜 */ }
+    // Y5 T13（§0.6 acceptServerRestored 行）：新层库同走删除闸——导出已生成（exported>0）即保全
+    // 义务已履行，`exportConfirmed:true` 直删；另一只库若是本会话正持有的那只则排除（见 primitive）。
+    await purgePidDbFamily(uid, projectId, 'accept');
   }
   broadcastRecoveryState({ type: 'collab-recovery', pid: projectId, kind: 'recovery-accepted' });
   safeReload('generation', { generationCacheKey: session?.cacheKey });   // reload 后 fetchProjectMeta 取 DB 真值 g 重建会话
@@ -1274,7 +1294,10 @@ export function safeReload(
           exportRawYjsBackup(familyMerged, getCurrentBackupHeader(), { tag: tag > 0 ? `oldgen${tag}-family` : 'oldgen-family' });
         }
       } catch { /* fail-soft——禁静默丢是尽力义务，非阻断闸 */ }
-      await purgeForeignCaches(key);
+      await purgeForeignCaches(key);          // 旧层 flowweb:collab: 异代库（T14 随层退役）
+      // Y5 T13（§0.6 换代行）：新层 flowweb:yjs: 旧代库同走删除闸——acked 才删，有差分/diverged
+      // ⇒ hold（库留、横幅亮、导出/放弃二选一）。排除本会话正持有的库（删它必 blocked=墓碑活库）。
+      await gateForeignDbFamily('safeReload');
     }
     // T8 beforeReload（discard 清持久 diverged 条目——顺序锚=purge 完成才 reload）；无钩子时
     // 保持原同步 reload 语义（不引入多余微任务间隙——t6 同步断言锚）。
@@ -1326,6 +1349,38 @@ export function exportDivergedContent(): LocalBackupArtifact | null {
   } finally {
     tmp.destroy();
   }
+}
+
+/** Y5 T13（§0.6 v8 横幅读点配套）：**从盘上 hold 库导出**——旧代库被 hold 时，当前会话 doc 里没有
+ *  那些内容（开的是新库），导出必须走盘上那只库。临时装载→导出双产物→销毁（零连接零 provider）。
+ *  无 hold 行=回落 `exportDivergedContent()`（当前 doc/内存快照路径）。返回 null=导出失败。 */
+export async function exportHeldLocalContent(): Promise<LocalBackupArtifact | null> {
+  const uid = session?.viewerUid;
+  const pid = session?.pid;
+  if (uid && pid) {
+    try {
+      const held = await findHeldNameRow(uid, pid);
+      if (held !== null) {
+        return await withDbDoc(held.dbName, (d) => exportLocalBackup(d, getCurrentBackupHeader(), { tag: 'held' }));
+      }
+    } catch { /* 读/装载失败=回落当前 doc 路径 */ }
+  }
+  return exportDivergedContent();
+}
+
+/** Y5 T13（§0.6 v8 横幅读点配套）：**放弃 hold 库**——用户显式放弃=删除三合法判据之③，
+ *  直删该库并清 names 行；随后 reload 恢复服务端版本（与 discardLocalDiverged 同语义）。 */
+export async function discardHeldLocalContent(): Promise<void> {
+  const uid = session?.viewerUid;
+  const pid = session?.pid;
+  if (uid && pid) {
+    try {
+      const held = await findHeldNameRow(uid, pid);
+      if (held !== null) await applyDeleteGate(held.dbName, 'purge-family', { discardConfirmed: true, nameRow: held });
+    } catch { /* fail-soft：删不掉=留库（下次清扫按 hold 重试） */ }
+  }
+  useCanvasStore.setState({ canvasDiverged: false });
+  safeReload('generic', { beforeReload: () => localCache?.deleteDivergedRecords() });
 }
 
 /** Y0b-5 T6：导入本地备份会话包装（裁定 25⑷）。applyUpdate 以 provider 为 origin（抑制 Update 帧
@@ -2279,10 +2334,20 @@ async function startCollabSession(
     }
     if (dbName !== null) {
       try {
+        // Y5 T13：**保留存量 hold/tombstone 标记**——此处无条件写 hold:false 会把 T12 落盘的
+        // hold 旗在重进项目时抹掉（那面旗正是横幅读点/删除闸的判据）。读失败=按新行写。
+        let priorHold = false;
+        let priorTombstone = false;
+        try {
+          const prior = (await listNameRows()).find((r) => r.dbName === dbName);
+          priorHold = prior?.hold === true;
+          priorTombstone = prior?.tombstone === true;
+        } catch { /* 读失败=按新行写（保守：不携带无法读到的裁定标记） */ }
+        if (session?.epoch !== epoch) return 0;
         await putNameRow(dbName, {
           uid: session.viewerUid, pid: projectId,
           generation: session.collabGeneration, schemaVersion: session.collabSchemaVersion,
-          historyToken, hold: false,
+          historyToken, hold: priorHold, ...(priorTombstone ? { tombstone: true } : {}),
         });
         if (session?.epoch !== epoch) return 0;   // 期间会话已拆/换代——零后续写
         const result = await openYjsDoc(dbName);
@@ -2439,6 +2504,20 @@ async function startCollabSession(
     // 在线路径 hydration 保持 pending 等服务端水合；离线入口由 initCollabLocal 立即落 failed。
     applyDocToStore(doc);
     useCanvasStore.setState({ collabReadOnly: true });
+  }
+
+  // Y5 T13（§0.6 v8 硬要求）：**横幅读 names.hold，不读「当前这一只库」**——同一 pid 的旧代库被
+  // hold 时，本会话即使开的是新库也要亮横幅，否则 hold 只是写进 IndexedDB 的旗、用户无出口。
+  // fail-soft：读失败不置位（不阻断水合）。
+  if (session?.viewerUid && !useCanvasStore.getState().canvasDiverged) {
+    try {
+      const held = await findHeldNameRow(session.viewerUid, projectId);
+      if (session?.epoch !== epoch) return abortStale();
+      if (held !== null) {
+        useCanvasStore.setState({ canvasDiverged: true });
+        recordCollabDiag('ws_status', { reason: 'local-hold' });
+      }
+    } catch { /* 读失败=不置横幅（不阻断水合） */ }
   }
 
   // I2：diverged 冷启动不建 provider（不 connect、不上行）——只留可导出/可放弃的只读会话。
