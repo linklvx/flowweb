@@ -24,7 +24,7 @@ import {
   CollabAuthReason, COLLAB_VERSION_TERMINAL_REASONS, MESSAGE_TOO_BIG_TERMINAL_REASON,
   SS2_OVER_LIMIT_TERMINAL_REASON,
 } from '@flowweb/shared';
-import { useCanvasStore } from '@/stores/canvasStore';
+import { useCanvasStore, type CanvasState } from '@/stores/canvasStore';
 import { escapeWithLocalExport, safeReload, getDoc, discardLocalDiverged, exportDivergedContent, acceptServerRestoredRecovery, getCurrentBackupHeader } from '@/stores/canvasCollabRuntime';
 import { exportLocalBackup } from '@/collab/canvas-local-backup';
 import { loginUrl } from '@/utils/loginRedirect';
@@ -114,10 +114,12 @@ export interface CanvasBannerInput {
   recoveryPending: { kind: 'deny-escape' | 'server-restored'; envelopeNodeCount: number } | null;
   /** T25b B2：boot 合并异常报告（非空=提示档——不阻断零动作承诺）。 */
   draftMergeAnomalies: Partial<Record<string, number>> | null;
+  /** Y5 T12（spec §0.3.8）：水合态——'local' 出 local-pending 档（离线编辑中，重连后由服务端确认）。 */
+  hydration: CanvasState['hydration'];
 }
 
 export type CanvasBannerBranch =
-  | ({ kind: 'terminal-auth' | 'escape-pending' | 'recovery-pending' | 'merge-anomaly' | 'ss2-over-limit' | 'diverged' | 'oversized' | 'degraded' | 'persist'
+  | ({ kind: 'terminal-auth' | 'escape-pending' | 'recovery-pending' | 'merge-anomaly' | 'ss2-over-limit' | 'diverged' | 'local-pending' | 'oversized' | 'degraded' | 'persist'
       | 'write-frozen' | 'pending-backlog' | 'sync-lag' | 'conn-ui' } & BannerContent)
   | { kind: 'quota-terminal' }   // 渲染权=QuotaBanner（单链仲裁位次仍生效——压 diverged 以下全档）
   | null;
@@ -213,6 +215,12 @@ export function resolveCanvasBanner(input: CanvasBannerInput): CanvasBannerBranc
   if (input.canvasDiverged) {
     return { kind: 'diverged', tone: 'warn', text: '有本地未上行副本（服务端暂停接收期间的编辑）', action: <DivergedActions exportFromDisk /> };
   }
+  // Y5 T12（spec §0.3.8）：local-pending 档——离线水合态（hydration='local'）的状态显示；
+  // 位次=diverged 之下、oversized 之上（spec 原文「优先级在终态鉴权与 diverged 之下、『连接已断开』之上」）。
+  // 无动作按钮、零刷新词（deny-List 面）：重连后由服务端确认是唯一承诺。
+  if (input.hydration === 'local') {
+    return { kind: 'local-pending', tone: 'info', text: '离线编辑中，重连后由服务端确认' };
+  }
   // T8 邻档：本批结构就位字段驱动（恒 false 文案不可达——真实翻转归 T8）
   if (input.canvasOversized) return { kind: 'oversized', tone: 'warn', text: '本地内容超出单文档上限，请导出后瘦身' };
   if (input.canvasDegraded) return { kind: 'degraded', tone: 'warn', text: '本地数据已降级，正在从服务端恢复' };
@@ -261,11 +269,12 @@ export function SyncBanner() {
   const localCacheReady = useCanvasStore((s) => s.localCacheReady);
   const recoveryPending = useCanvasStore((s) => s.recoveryPending);
   const draftMergeAnomalies = useCanvasStore((s) => s.draftMergeAnomalies);
+  const hydration = useCanvasStore((s) => s.hydration);
 
   const branch = resolveCanvasBanner({
     connUi, wsAuthNotice, wsQuotaTerminal, writeFrozen, collabEscapePending, readyProbeHint,
     canvasDiverged, canvasOversized, canvasDegraded, persistUnhealthy, syncLagOver60s, pendingBacklog, localCacheReady,
-    recoveryPending, draftMergeAnomalies,
+    recoveryPending, draftMergeAnomalies, hydration,
   });
   // quota-terminal 渲染权=QuotaBanner（独立组件同挂载点——单链仲裁位次仍压制本组件全档）
   if (!branch || branch.kind === 'quota-terminal') return null;

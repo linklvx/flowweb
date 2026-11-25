@@ -143,12 +143,18 @@ describe('Y0b-5 T5：世代可见通道+四维缓存键 purge 挂点', () => {
     expect(reloadSpy).not.toHaveBeenCalled();            // 无读权终态禁导出禁 reload 逃生
   });
 
-  it('authenticationFailed not-found/session-expired/版本族 ⇒ 同 purgePidCaches；unauthenticated ⇒ 不 purge（非权限撤销——重登即恢复）', async () => {
+  it('not-found ⇒ purge；session-expired/版本族 ⇒ 留库（Y5 T12 四桶收窄，spec §0.4 + :68）；unauthenticated ⇒ 不 purge', async () => {
     const p = await driveToSyncedFake('p1', META);
-    for (const reason of ['not-found', 'session-expired', 'schema-outdated', 'client-version-missing', 'client-version-invalid']) {
+    // spec §0.4/§0.6（:68）：SESSION_EXPIRED=授权中断桶、COLLAB_VERSION_TERMINAL_REASONS 三档=版本换代桶，
+    // 二者继续从 NO_READ_ACCESS_PURGE_REASONS 移除——留库不删（删除权归 §0.6 删除闸）；purge 表只剩
+    // 无读权真成员 forbidden/not-found/team-disbanded/project-erased。
+    vi.mocked(purgePidCaches).mockClear();
+    p.emit('authenticationFailed', { reason: 'not-found' });
+    expect(purgePidCaches, 'reason=not-found').toHaveBeenCalledWith('u1', 'p1');
+    for (const reason of ['session-expired', 'schema-outdated', 'client-version-missing', 'client-version-invalid']) {
       vi.mocked(purgePidCaches).mockClear();
       p.emit('authenticationFailed', { reason });
-      expect(purgePidCaches, `reason=${reason}`).toHaveBeenCalledWith('u1', 'p1');
+      expect(purgePidCaches, `reason=${reason}`).not.toHaveBeenCalled();
     }
     vi.mocked(purgePidCaches).mockClear();
     p.emit('authenticationFailed', { reason: 'unauthenticated' });

@@ -90,6 +90,8 @@ describe('detail schema 表（裁定 24⑹ 逐 type 表=键域唯一来源；裁
     // T8：dirty 守卫拦下 clean 覆盖（裁定 25⑹ 多标签防线）——受控值直达 label 禁折 other
     expect(sanitizeTelemetryDetail('ws_status', { reason: 'local-cache-preserved-foreign-dirty' }))
       .toEqual({ reason: 'local-cache-preserved-foreign-dirty' });
+    // Y5 T12（§0.4 版本换代桶）：hold 落点遥测——受控值直达 label 禁折 other
+    expect(sanitizeTelemetryDetail('ws_status', { reason: 'local-hold' })).toEqual({ reason: 'local-hold' });
     // T0 审查 I-1：from/to 同为 metric label——越界字符串禁穿 sanitize 直达 label（值域=runtime:134 库 status 机三值闭集）
     expect(sanitizeTelemetryDetail('ws_status', { from: 'evil-status', to: 'connected' }))
       .toEqual({ from: 'other', to: 'connected' });

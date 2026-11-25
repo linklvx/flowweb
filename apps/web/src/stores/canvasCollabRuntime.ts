@@ -381,8 +381,9 @@ let suppressCacheWrites = false;
  *  exit-③ 对本形态短路（diverged 编辑不在 doc,healthySync 恒真=「服务端最终接受」前提虚成立;
  *  唯一出边=横幅二选一：导出 exportDivergedContent/放弃 discardLocalDiverged→reload） */
 let bootDiverged = false;
-/** spec 修复 1b：boot 时盘上 diverged 快照留存（exportDivergedContent 同步消费——零 IO；
- *  内存 doc 是服务端版本/空,盘上记录的导出唯一源） */
+/** spec 修复 1b（Y5 T12 勘正注释）：diverged 快照槽——**当前无任何生产写点，恒 null**（T10 起
+ *  diverged 快照不再留存，exportDivergedContent 回落 `exportLocalBackup(doc, ...)` 分支）；
+ *  仅保留声明+会话复位点供将来接回，禁按「快照已留存」理解本变量。 */
 let bootDivergedSnapshot: Uint8Array | null = null;
 /** boot 快照已回放（离线冷启动 failed 分支渲染判据——会话态）
  *  Y5 T10：新水合路径的「本地库内容已装载」真值——local 态与 failed 只读副本分支消费
@@ -743,17 +744,53 @@ const VERSION_TERMINAL_REASONS: ReadonlySet<string> = new Set<string>(COLLAB_VER
 // 撤销——重登即恢复）；4404 quota/ss2-over-limit 终态仍有读权——保留缓存（T8 只读副本用）。
 // Y0b-5 T6 收敛：'team disbanded' 升 shared 常量 TEAM_DISBANDED_TERMINAL_REASON 且经
 // resolveCloseAction NORMAL 特例落 terminal——close 与 authFailed 两路由共用本表 purge 判据。
+// Y5 T12（§0.4 四桶收窄，spec:68）：只剩四个真无读权成员。两条移出者的去向——
+//   SESSION_EXPIRED → **授权中断桶**：清证明/收编辑权/**留库**（下次登录成功按 SyncStep2 上行）；
+//   ...COLLAB_VERSION_TERMINAL_REASONS 三档 → **版本换代桶**：有差分/diverged ⇒ hold+横幅
+//   （holdLocalDbIfDirty），无差分零动作（删除权归 §0.6 删除闸/T13）。
 const NO_READ_ACCESS_PURGE_REASONS: ReadonlySet<string> = new Set<string>([
   CollabAuthReason.FORBIDDEN,
   CollabAuthReason.NOT_FOUND,
-  CollabAuthReason.SESSION_EXPIRED,
-  ...COLLAB_VERSION_TERMINAL_REASONS,
   TEAM_DISBANDED_TERMINAL_REASON,
   // C4-c2 红⑰（project-erasure）：4414 项目擦除终态——项目内容已物理删除（DB 行/对象/Redis），
   // 本地 IDB 副本=已删内容残留（离线残留窗 runbook §13 披露：仅清至下次连接）；与 team disbanded
   // 同档（无读权终态——重连即对已隐藏项目无限 404，resolveCloseAction(4414)=terminal 不自动重连）。
   PROJECT_ERASED_TERMINAL_REASON,
 ]);
+
+/** Y5 T12（§0.4/§0.6）：版本换代桶的 hold 落点——「有差分或（盘上）diverged → hold+横幅」。
+ *  无差分=本任务零动作（删除权归 T13 删除闸——不在 T12 引入半张闸）。
+ *  先决：本会话真的开过文档库（localDbName 非空），且库有差分/diverged。
+ *  返回 true=已 hold（调用方禁 purge/禁 reload 前的清理）。
+ *  写失败=保守侧不删（无动作即不删）；`local-cache-degraded` 遥测留痕。
+ *  `reason` 是调用点标签（generation-stale/client-outdated/resync/close-4410）——仅用于可读性，
+ *  当前 diag 面统一 `local-hold`（值域登记在 shared collab-telemetry ws_status.reason）。 */
+async function holdLocalDbIfDirty(reason: string): Promise<boolean> {
+  void reason;   // 调用点标签（见上注）——diag 面统一 local-hold
+  if (!session || localDbName === null || !doc) return false;
+  // strict：session 上 generation/schemaVersion 可选——两者都有值才写得成 NameRow（禁 as number）
+  const generation = session.collabGeneration;
+  const schemaVersion = session.collabSchemaVersion;
+  if (generation === undefined || schemaVersion === undefined) return false;
+  const dirty = bootDiffNonEmpty || unsyncedDirtyDocs.has(doc) || useCanvasStore.getState().canvasDiverged;
+  if (!dirty) return false;
+  try {
+    await putNameRow(localDbName, {
+      uid: session.viewerUid ?? '',
+      pid: session.pid,
+      generation,
+      schemaVersion,
+      historyToken: knownHistoryId ?? '',
+      hold: true,   // 唯一写入形态——无 sealed 字段（local-yjs-store hold/tombstone 互斥）
+    });
+    recordCollabDiag('ws_status', { reason: 'local-hold' });
+    useCanvasStore.setState({ canvasDiverged: true });   // 复用既有逃生横幅二选一（导出/放弃）
+    return true;
+  } catch {
+    recordCollabDiag('ws_status', { reason: 'local-cache-degraded' });   // 写失败=保守侧：不删
+    return false;
+  }
+}
 
 // 批1-3：transport 薄层句柄已随 Y0b-5 T3b 退役（needKick 语义随归零模型废弃——socket 单实例
 // 注册表见 reconnectTransport.ts；瞬态恢复全归 supervisor.recoverNow）。
@@ -904,6 +941,9 @@ async function resyncFull(): Promise<void> {
     if (session !== startSession) return;   // 会话已拆/已换代——链终止（finally 归位相位与单飞位）
     try { await localCache?.deleteOwnRecord(); } catch { /* fail-soft——记录留存时 boot 并集再拒再 resync（有界循环） */ }
     if (session !== startSession) return;   // 同上：deleteOwnRecord await 间隙同守卫
+    // Y5 T12（§0.4/§0.6 4411 行）：被拒字节留在原库——有差分/diverged ⇒ hold（库留、横幅亮），
+    // 不做 initCollab 重建（被拒增量不挂回正在连接的 doc 归 T13/T14）。无差分=原路重建。
+    if (await holdLocalDbIfDirty('resync')) return;   // finally 已置 resyncInFlight=false + endResync——禁重复调
     denyPreserveAcrossInit = true;   // resync 环内 deny 计数保序（见 initCollab 边界复位注）
     await initCollab(pid, meta);   // 内含 teardownSession（旧 provider/doc 拆除）
   } catch {
@@ -969,6 +1009,9 @@ async function handleGenerationStale(): Promise<void> {
   if (dbGeneration !== null && dbGeneration !== session.collabGeneration) {
     useCanvasStore.setState({ pendingGenerationReload: dbGeneration });
   }
+  // Y5 T12（§0.4 版本换代桶）：有差分/diverged ⇒ hold+横幅即返——库留着、横幅亮、不 reload
+  // （reload 后本会话状态蒸发，横幅还在但用户动作面丢了导出源）。无差分零动作（删除权归 T13）。
+  if (await holdLocalDbIfDirty('generation-stale')) return;
   await exportRecoveryEnvelope();
   const generationCacheKey = session.cacheKey;
   const generationTag = useCanvasStore.getState().pendingGenerationReload;
@@ -994,7 +1037,11 @@ async function handleClientOutdatedRecovery(): Promise<void> {
   } catch { degrade('export'); }
   knownHistoryId = null;              // ②清内存态
   try { localStorage.removeItem('collab:history-id'); } catch { degrade('clear-h'); /* storage 不可达——reload 后首连放行档 */ }
-  try { await purgePidCaches(session.viewerUid ?? '', pid); } catch { degrade('purge'); /* boot 记录残留→再拒再清（有界） */ }
+  // Y5 T12（§0.4 版本换代桶）：有差分/diverged ⇒ hold（库留、横幅亮），跳过 purge；无差分=零动作。
+  // 清 h / broadcast / 强刷无论如何都做（否则全项目锁死根修复发）——hold 只替下删除动作。
+  if (!(await holdLocalDbIfDirty('client-outdated'))) {
+    try { await purgePidCaches(session.viewerUid ?? '', pid); } catch { degrade('purge'); /* boot 记录残留→再拒再清（有界） */ }
+  }
   try {
     broadcastRecoveryState({ type: 'collab-recovery', pid, kind: 'history-bump' });   // ④他 tab 自清
   } catch { degrade('broadcast'); }
@@ -1063,7 +1110,9 @@ export async function resumeFromRecovery(): Promise<void> {
 
 /** T25b B5（plan :338）：管理员（OWNER/平台 ADMIN）裁定接受 server-restored 只读恢复态——
  *  REST 门（服务端裁定+审计）→清持久化 h+本 uid:pid 缓存族+BroadcastChannel 通告他 tab 同步
- *  退出+reload 以 DB 真值 g 重建（acceptance 不改服务端代际；重连世代自然过门）。 */
+ *  退出+reload 以 DB 真值 g 重建（acceptance 不改服务端代际；重连世代自然过门）。
+ *  Y5 T12（§0.6 acceptServerRestored 行）：**导出文件已生成才删**（保全义务先于删除）——
+ *  `exportRecoveryEnvelope` 返回节点数（构包 null/下载失败=0）；exported>0 才 purge，否则留库。 */
 export async function acceptServerRestoredRecovery(projectId: string): Promise<boolean> {
   try {
     const r = await apiFetch<{ accepted: true; generation: number }>(`/collab/doc/${encodeURIComponent(projectId)}/recovery-accept`, { method: 'POST' });
@@ -1073,10 +1122,13 @@ export async function acceptServerRestoredRecovery(projectId: string): Promise<b
     return false;
   }
   recordCollabDiag('ws_status', { reason: 'recovery-accepted' });
+  const exported = await exportRecoveryEnvelope();   // ①保全义务先于删除（新增调用）
   knownHistoryId = null;
   try { localStorage.removeItem('collab:history-id'); } catch { /* 尽力 */ }
   const uid = session?.viewerUid ?? '';
-  try { if (uid) await purgePidCaches(uid, projectId); } catch { /* fail-soft——reload 后 boot 防御兜 */ }
+  if (exported > 0 && uid) {
+    try { await purgePidCaches(uid, projectId); } catch { /* fail-soft——reload 后 boot 防御兜 */ }
+  }
   broadcastRecoveryState({ type: 'collab-recovery', pid: projectId, kind: 'recovery-accepted' });
   safeReload('generation', { generationCacheKey: session?.cacheKey });   // reload 后 fetchProjectMeta 取 DB 真值 g 重建会话
   return true;
@@ -1876,7 +1928,13 @@ function bindProviderListeners(p: HocuspocusProvider): void {
         void purgePidCaches(session.viewerUid, session.pid);
       }
       // 版本族→reload 自愈（P-C，handleVersionTerminal）；其余终态→四档 UX 由 SyncBanner 渲染
-      if (VERSION_TERMINAL_REASONS.has(reason)) void handleVersionTerminal();
+      // Y5 T12（§0.4 版本换代桶 authFailed 面——矩阵第 2 例）：三档成员有差分/diverged ⇒ hold+横幅
+      // （库留、canvasDiverged 亮）；无差分零动作（删除权归 T13 删除闸）。purge 表已收窄——此面
+      // 不再删库（holdNameRow 与 purgePidCaches 互斥：前者命中即库留）。fire-and-forget 同 purge 纪律。
+      if (VERSION_TERMINAL_REASONS.has(reason)) {
+        void holdLocalDbIfDirty('auth-version-terminal');
+        void handleVersionTerminal();
+      }
     } else {
       // Y0b-5 T4：瞬态档死线联动（终态档不经此——终态 UX 即出口）——pending 期延长一次
       extendHydrationDeadlineForTransient();
@@ -1917,12 +1975,17 @@ function bindProviderListeners(p: HocuspocusProvider): void {
         // Y0b-5 T5/T6：与 consumeGenerationJump 同款顺序锚+调度时刻捕获 key/tag——safeReload('generation')
         // 固定次序=导出（标注旧代）→purge→reload；延时让用户看到提示再刷
         // T25 收口 M-2：单句柄（consumeGenerationJump 共用——server-restored 下跳清之）
+        // Y5 T12（§0.4 C3 close 定时器入闸）：hold 在**触发时刻**求值（延时窗内可能有新编辑）——
+        // hold 命中=库留、横幅亮、不 reload；key/tag 维持调度时刻捕获（T5 Minor① 语义不动）。
         const generationCacheKey = session?.cacheKey;
         const generationTag = useCanvasStore.getState().pendingGenerationReload;
         if (generationReloadTimer !== null) clearTimeout(generationReloadTimer);
         generationReloadTimer = setTimeout(() => {
           generationReloadTimer = null;
-          safeReload('generation', { generationCacheKey, generationTag });
+          void (async () => {
+            if (await holdLocalDbIfDirty('close-4410')) return;
+            safeReload('generation', { generationCacheKey, generationTag });
+          })();
         }, GENERATION_RELOAD_DELAY_MS);
       } else {
         useCanvasStore.setState({ wsAuthNotice: { reason, terminal: true } });
@@ -2030,29 +2093,28 @@ function bindReevaluateOnce(): void {
       ch.onmessage = (ev: MessageEvent) => {
         const m = ev.data as { type?: string; pid?: string; kind?: 'deny-escape' | 'server-restored' | 'history-bump' | 'recovery-accepted' };
         if (m?.type !== 'collab-recovery' || !session || m.pid !== session.pid) return;
-        // 收口 I-1+I-2：history-bump 通告=他 tab 自清（清本 tab 持久化 h+本 uid:pid IDB 族——bump 后
-        // 旧纪元记录禁随本 tab boot 回灌；不发恢复态——4406 强刷链由发起 tab 承载）
+        // 收口 I-1+I-2：history-bump 通告=他 tab 自清（清本 tab 持久化 h——bump 后旧纪元记录禁随
+        // 本 tab boot 回灌；不发恢复态——4406 强刷链由发起 tab 承载）
         // T25b M-R2 镜像腿：接收端也**尽力导出信封**（窄双故障窗 sibling 编辑 salvage——发起 tab 的
-        // 兜底导出只保全发起方 doc；本 tab 若有未上行内容，随 purge 一并消失⇒导出先于 purge 尽力保全。
-        // 尽力=失败不阻断自清主链〔purge 是 boot 防御正确性依赖，导出是保全 best-effort〕）。
+        // 兜底导出只保全发起方 doc；本 tab 若有未上行内容，导出先于删除尽力保全。尽力=失败不阻断）。
+        // Y5 T12（spec §0.4 镜像腿表 v7 C3）：**不删库**——镜像标签与发起标签共指同一物理库，
+        // 镜像侧删库会被发起标签连接 blocked、或删掉发起标签尚未导出保全的差分；删除权单源发起标签。
         if (m.kind === 'history-bump') {
           // 收口 M-3：镜像腿 no-download 变体（内存副本 salvage 禁落盘——N tab 通告≠N 文件）
           void exportRecoveryEnvelope({ download: false }).catch(() => { /* 尽力导出失败不阻断自清（信封可再建） */ });
           knownHistoryId = null;
           try { localStorage.removeItem('collab:history-id'); } catch { /* 尽力 */ }
-          const uid = session.viewerUid ?? '';
-          if (uid) void purgePidCaches(uid, session.pid);
           return;
         }
-        // T25b B5 镜像腿：管理员已接受 server-restored→本 tab 同步退出只读恢复（清 h+缓存族+reload
-        // 以 DB 真值 g 重建——与接受方 tab 同语义；接受方自身 reload 由 acceptServerRestoredRecovery 承载）
+        // T25b B5 镜像腿：管理员已接受 server-restored→本 tab 同步退出只读恢复（清 h+reload 以 DB
+        // 真值 g 重建——与接受方 tab 同语义；接受方自身 reload 由 acceptServerRestoredRecovery 承载）
+        // Y5 T12（spec §0.4 镜像腿表 v7 C3）：**不删库**（同款理由——删除单源发起标签，且其只在
+        // 导出文件已生成之后删）。
         if (m.kind === 'recovery-accepted') {
           knownHistoryId = null;
           try { localStorage.removeItem('collab:history-id'); } catch { /* 尽力 */ }
-          const uid = session.viewerUid ?? '';
           const cacheKey = session.cacheKey;
           void (async () => {
-            try { if (uid) await purgePidCaches(uid, session.pid); } catch { /* fail-soft */ }
             useCanvasStore.setState({ recoveryPending: null });
             safeReload('generation', { generationCacheKey: cacheKey });
           })();
@@ -2303,6 +2365,11 @@ async function startCollabSession(
       const serverSv = serverSvRaw !== null && typeof serverSvRaw !== 'string' ? new Uint8Array(serverSvRaw) : null;
       const diffBytes = await computeDiffBytes(doc, serverSv);
       if (session?.epoch !== epoch) return abortStale();
+      // Y5 T12（T10 遗留 M1）：投影可用性在 serverSV 读成功+差分算成功时就已成立——此处立即置
+      // localSnapshotApplied（修前放在整块 try 尾，后续 writeGrant/diverged 任一读失败都会连带
+      // 跳过投影=库有内容却渲染空）。grant/diverged 读失败只影响「能否进 local」，不影响投影。
+      getUndoManager()?.clear();   // 装载非用户编辑（撤销栈不含库内回放）
+      localSnapshotApplied = true;
       // Y5 T10（I3）：字节闸语义=「这份 doc 到底能不能整份装进单文档闸」——按**文档本身编码**
       // 判（不是差分）；差分口径只管「有没有未上行内容」的 dirty/Σpending。超闸⇒能力位 false
       // （「太大没缓存」诚实分支，与旧快照闸同义），不谎报「本地已缓存」。
@@ -2323,8 +2390,6 @@ async function startCollabSession(
       const diverged = await readCustom(localPersistence, 'diverged');
       if (session?.epoch !== epoch) return abortStale();
       storedDiverged = typeof diverged === 'string' ? diverged : null;
-      getUndoManager()?.clear();   // 装载非用户编辑（撤销栈不含库内回放）
-      localSnapshotApplied = true;
     } catch {
       recordCollabDiag('ws_status', { reason: 'local-cache-degraded' });   // custom 读失败=只读副本不可保障
     }
@@ -2341,6 +2406,10 @@ async function startCollabSession(
     suppressCacheWrites = true;   // 盘上 diverged 是唯一副本——本会话任何缓存写都会覆盖它=数据丢失
     useCanvasStore.setState({ canvasDiverged: true });
   }
+
+  // Y5 T12（§五 M2 注释钉）：bootDiverged/canvasDiverged 在本会话内 **latches**（只在 startCollabSession
+  // 起点复位）——冷启动进入后无自动出口；唯一出边=横幅二选一（导出 exportDivergedContent / 放弃
+  // discardLocalDiverged→reload）。3s tick 的 dirty 清除与 diverged 出边③对本形态短路（见 tick 注释）。
 
   // ── Y5 T10（§0.3.5）：五条 local 合取 ──
   // ①库已装载 ②证明未过期且证明 uid 与库名 uid 相同（session 行单活行）③writeGrant==='read-write'

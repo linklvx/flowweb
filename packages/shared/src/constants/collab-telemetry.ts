@@ -63,7 +63,8 @@ export const TELEMETRY_DETAIL_SCHEMA: Readonly<Record<CollabTelemetryEventType, 
     // T25b 面 B/C 追加四值：recovery-outdated-degraded（M-R4 4406 逐档降级——step 键随行）/
     // recovery-resumed（B4 denyTracker.recoveryComplete+supervisor.resume 出口）/recovery-accepted
     //（B5 管理员接受）/boot-merge-anomaly（B2 boot 合并异常检测命中——kinds 键随行）
-    reason: { sink: 'metric:collab_telemetry_ws_reason_total{reason}', values: ['unsynced-lag', 'local-cache-degraded', 'local-cache-preserved-foreign-dirty', 'recovery-resync', 'recovery-deny-escape', 'recovery-server-restored', 'recovery-retry-after', 'recovery-generation-stale', 'recovery-outdated-degraded', 'recovery-resumed', 'recovery-accepted', 'boot-merge-anomaly'] },
+    // Y5 T12 追加 local-hold：版本换代桶「有差分/diverged→hold+横幅」落点遥测（runtime holdLocalDbIfDirty）。
+    reason: { sink: 'metric:collab_telemetry_ws_reason_total{reason}', values: ['unsynced-lag', 'local-cache-degraded', 'local-cache-preserved-foreign-dirty', 'recovery-resync', 'recovery-deny-escape', 'recovery-server-restored', 'recovery-retry-after', 'recovery-generation-stale', 'recovery-outdated-degraded', 'recovery-resumed', 'recovery-accepted', 'boot-merge-anomaly', 'local-hold'] },
     // T25b：M-R4 降级档 step（export/clear-h/purge/broadcast）/B2 异常 kind 清单——log-only 观测面
     step: { sink: 'log-only' },
     kinds: { sink: 'log-only' },

@@ -510,7 +510,7 @@ describe('T25b M-R4：handleClientOutdatedRecovery 逐档降级', () => {
 
 // ══════════ T25b M-R2：history-bump 镜像腿（接收端 sibling 尽力导出）——修前零测试 ══════════
 describe('T25b M-R2：history-bump 接收端（镜像腿）', () => {
-  it('★mr2-1 他 tab history-bump 通告→本 tab 清 h+purge+尽力导出信封（窄双故障窗 sibling 编辑 salvage）——修前接收端零导出（红）', async () => {
+  it('★mr2-1 他 tab history-bump 通告→本 tab 清 h+尽力导出信封+不删库（Y5 T12 镜像腿只拆会话；窄双故障窗 sibling 编辑 salvage）——修前接收端零导出（红）', async () => {
     const callsBefore = exportGate.calls.length;
     const p = await driveToSynced();
     const recv = bcHarness.instances[0];   // bindReevaluateOnce 首挂接收实例（模块级一次）
@@ -522,7 +522,7 @@ describe('T25b M-R2：history-bump 接收端（镜像腿）', () => {
     (recv.onmessage as (ev: { data: unknown }) => void)({ data: { type: 'collab-recovery', pid: 'p1', kind: 'history-bump' } });
     await pumpUntil(() => exportGate.calls.length > callsBefore, 'salvage 导出未达（镜像腿异步链）');
     expect(loadPersistedHistoryId()).toBeNull();                                        // 自清 h（I-1+I-2 既有）
-    expect(vi.mocked(purgePidCaches)).toHaveBeenCalledWith('u1', 'p1');                  // IDB 族自清（既有）
+    expect(vi.mocked(purgePidCaches)).not.toHaveBeenCalled();   // Y5 T12 改道（spec §0.4 镜像腿表 v7 C3——删除权单源发起标签）
     expect(exportGate.calls.length).toBeGreaterThan(callsBefore);   // ★修前：接收端零导出（红）——M-R2 sibling salvage
     expect(exportGate.downloads.length).toBe(0);   // ★收口 M-3：镜像腿 no-download（内存副本 salvage 禁落盘——修前 downloadDraftEnvelope 随导出走）
   });
@@ -557,7 +557,7 @@ describe('T25 收口批 M-2：恢复三入口互斥（reload timer 清+initColla
 
 // ══════════ T25b 收口 M-4：recovery-accepted 镜像腿（管理员接受→他 tab 同步退出只读恢复）══════════
 describe('T25b 收口 M-4：recovery-accepted 镜像腿', () => {
-  it('★m4-1 他 tab recovery-accepted 通告→本 tab 清 h+purge+recoveryPending 清零（reload/escape 分归 safeReload 判定）——修前零覆盖', async () => {
+  it('★m4-1 他 tab recovery-accepted 通告→本 tab 清 h+recoveryPending 清零+不删库（Y5 T12 镜像腿只拆会话；reload/escape 分归 safeReload 判定）——修前零覆盖', async () => {
     const p = await driveToSynced();
     const recv = bcHarness.instances[0];
     expect(recv?.onmessage).toEqual(expect.any(Function));
@@ -567,7 +567,7 @@ describe('T25b 收口 M-4：recovery-accepted 镜像腿', () => {
     (recv.onmessage as (ev: { data: unknown }) => void)({ data: { type: 'collab-recovery', pid: 'p1', kind: 'recovery-accepted' } });
     await vi.advanceTimersByTimeAsync(100);
     expect(loadPersistedHistoryId()).toBeNull();                                    // 清持久化 h
-    expect(vi.mocked(purgePidCaches)).toHaveBeenCalledWith('u1', 'p1');             // 缓存族自清（reload 以 DB g 重建）
+    expect(vi.mocked(purgePidCaches)).not.toHaveBeenCalled();                        // Y5 T12 改道（spec §0.4 镜像腿表 v7 C3——删除权单源发起标签）
     const st = useCanvasStore.getState();
     expect(st.recoveryPending).toBeNull();                                          // 只读恢复态同步退出
     const exited = st.collabEscapePending === true || reloadSpy.mock.calls.length > 0;   // safeReload 双出口（dirty 分叉→escape；净态→reload）
