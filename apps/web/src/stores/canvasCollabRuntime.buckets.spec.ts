@@ -545,8 +545,11 @@ describe('T14 无读权终态四成员：purgePidDbFamily 调用（trigger=purge
     await enterLocal(ids, { withDiff: false });   // 差分空 ⇒ hold 不命中 ⇒ 走删除动作
     expect(runtime.hasUnsyncedCanvasChanges()).toBe(false);
     vi.stubGlobal('fetch', vi.fn(async () => ({ json: async () => ({ collabProtocolVersion: `b14-${Math.random()}`, reason: '' }) })));
+    customHarness.purgeCalls.length = 0;   // 清启动清扫残留——只断言 4406 handler 自身调用
     lastInstance().emit('close', { event: { code: 4406, reason: CLIENT_OUTDATED_REASON } });
-    await pumpImmediate(12);
+    // 谓词泵（禁固定轮数）：purge 在 exportRecoveryEnvelope 的 sha256(crypto.subtle) 之后——
+    // CI 慢机 digest 可慢于任何固定 immediate 轮数窗（attempt3 实证：固定 12 轮=零调用假红）。
+    await pumpUntilTrue(async () => customHarness.purgeCalls.some(([u, p]) => u === ids.uid && p === ids.pid), '4406 purge 未达');
     expectPurge(ids.uid, ids.pid);
   });
 });
