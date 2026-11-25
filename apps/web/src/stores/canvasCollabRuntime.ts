@@ -481,23 +481,24 @@ function runLocalCacheTick(d: Y.Doc): void {
 let docUpdatedSinceMeasure = false;
 /** 新层测量是权威 latch（超闸边沿只报一次；回落才消）——旧块恢复分支的抑制源 */
 let measuredDocOversized = false;
-/** 最近一次新层实测字节（诊断去重与回落判据） */
-let lastMeasuredDocBytes = 0;
 
 /** Y5 T11（§0.5.1）：新层字节闸——仅在有新 update 时编码（5s 是最小间隔非必跑）。
- *  复用 measureLocalDocNow 唯一实测口（禁新增 encodeStateAsUpdate 调用点——census ④ 计数=3）。 */
+ *  复用 measureLocalDocNow 唯一实测口（禁新增 encodeStateAsUpdate 调用点——census ④ 计数=3）。
+ *  无本地文档库的会话（cacheDisabled/开库失败）不进闸：本闸语义=「这份 doc 能否整份装进本地
+ *  单文档库」，无库可装时编码与横幅都无意义（旧层 runLocalCacheTick 同款 cache 空早退）。
+ *  docBytes 诊断遥测仍归旧层 ③ 单写点（两处同写 lastReportedDocBytes 会每 tick 交替发两个值
+ *  =gauge 抖动）；T14 删旧层时须把 `recordCollabDiag('ws_status', { docBytes })` 迁入本函数。 */
 function runDocSizeGate(): void {
   if (!docUpdatedSinceMeasure) return;
   docUpdatedSinceMeasure = false;
+  if (!localPersistence) return;
   const bytes = measureLocalDocNow();
-  lastMeasuredDocBytes = bytes;
   if (bytes > LOCAL_CACHE_MAX_DOC_BYTES) {
     if (!measuredDocOversized) { measuredDocOversized = true; localCacheHooks.onDegrade('over-size'); }
   } else if (measuredDocOversized) {
     measuredDocOversized = false;
-    useCanvasStore.setState({ canvasOversized: false });
+    useCanvasStore.setState({ canvasOversized: false });   // 回落恢复（瘦身/vacuum 路径——与旧块同义）
   }
-  if (bytes !== lastReportedDocBytes) { lastReportedDocBytes = bytes; recordCollabDiag('ws_status', { docBytes: bytes }); }
 }
 
 // ── Y5 T11（§0.5.3 验收 9）：QuotaExceeded 写窗降级闩锁 ──
@@ -2183,7 +2184,6 @@ async function startCollabSession(
   lastReportedDocBytes = 0;
   docUpdatedSinceMeasure = false;   // Y5 T11：新层字节闸会话起点复位
   measuredDocOversized = false;
-  lastMeasuredDocBytes = 0;
   localWriteDegraded = false;       // Y5 T11：配额降级闩锁会话起点复位
   savedSeq = 0;   // Y1c T18：持久化水位随会话复位（新代 doc 水位语义独立——旧代 pgSeq 不携带）
   // 批1-1 watchdog 会话变量复位（模块级共享——见声明处注释）：每会话自然复位，旧会话计时/退避不携带

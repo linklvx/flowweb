@@ -228,6 +228,7 @@ beforeEach(() => {
   harness.openResolvedAtProviderCreate.length = 0;
   harness.failNames = false;
   harness.failServerSvEncode = false;
+  harness.persistence = null;
   harness.sessionDeferred = null;
   _resetCollabDiagForTest();
   _resetUnloadGuardForTest();
@@ -1017,5 +1018,28 @@ describe('T11 ⑥新层字节闸', () => {
     d.transact(() => { d.getMap('m').delete('t11-big'); }, harness.persistence);
     await vi.advanceTimersByTimeAsync(5_100);
     expect(useCanvasStore.getState().canvasOversized).toBe(false);   // 回落恢复
+  }, 60_000);
+
+  it('无本地文档库的会话（cacheDisabled）不进闸：大 doc 不置 oversized、不发降级遥测', async () => {
+    const ids = caseIds('u-t11-nodb', 'p-t11-nodb', 'h-t11-nodb');
+    const done = runtime.initCollab(ids.pid, {} as runtime.CollabSessionMeta);   // 三元缺失=cacheDisabled
+    await until(() => lastInstance() !== undefined, 'provider 未创建');
+    const p = lastInstance();
+    p.isSynced = true;
+    p.unsyncedChanges = 0;
+    p.emit('synced', {});
+    await done;
+    expect(useCanvasStore.getState().hydration).toBe('ready');
+    expect(harness.persistence).toBeNull();   // 前置锚：本会话无文档库
+
+    const before = getRecentCollabDiag().filter((e) => e.type === 'ws_status' && (e.detail as any)?.reason === 'local-cache-degraded').length;
+    const d = runtime.getDoc()!;
+    d.transact(() => { d.getMap('m').set('t11-nodb-big', 'x'.repeat(9 * 1024 * 1024)); }, Origin.LocalUser);
+    await vi.advanceTimersByTimeAsync(5_100);
+    // 闸语义=「能否整份装进本地单文档库」——无库可装时横幅无意义（修前：置 oversized 红）
+    expect(useCanvasStore.getState().canvasOversized).toBe(false);
+    expect(useCanvasStore.getState().localCacheReady).toBe(false);
+    const after = getRecentCollabDiag().filter((e) => e.type === 'ws_status' && (e.detail as any)?.reason === 'local-cache-degraded').length;
+    expect(after).toBe(before);   // 零新增降级遥测
   }, 60_000);
 });
