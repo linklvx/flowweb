@@ -23,7 +23,8 @@ import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
 import { useCanvasStore, clearLocalPreviewAll } from './canvasStore';
 import { canEdit, canExecute } from './syncStatus';
 import * as runtime from './canvasCollabRuntime';
-import { Origin } from './canvasUndo';
+import { Origin, getUndoManager } from './canvasUndo';
+import { LOCAL_CACHE_MAX_DOC_BYTES } from '@/collab/local-collab-cache';
 import { buildYjsDbName, isDbNameBannedThisSession, putSessionRow, type SessionRow } from '@/collab/local-yjs-store';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 import { _resetUnloadGuardForTest } from '@/utils/unloadGuard';
@@ -35,6 +36,7 @@ const harness = vi.hoisted(() => ({
   openResolvedAtProviderCreate: [] as boolean[],
   failNames: false,
   persistence: null as unknown,
+  sessionDeferred: null as null | { promise: Promise<void>; release: () => void },
 }));
 
 vi.mock('@/collab/local-yjs-store', async (importOriginal) => {
@@ -50,6 +52,11 @@ vi.mock('@/collab/local-yjs-store', async (importOriginal) => {
       harness.openResolved = true;
       if (result.ok) harness.persistence = result.persistence;
       return result;
+    },
+    // I4 中点复验直测：可挂起 session 行读（发生在本续体已持有 opened persistence 之后）
+    getSessionRows: async () => {
+      if (harness.sessionDeferred) await harness.sessionDeferred.promise;
+      return orig.getSessionRows();
     },
   };
 });
@@ -75,16 +82,18 @@ const persistSpy = vi.fn(async () => true);
 const realImmediate: (cb: () => void) => unknown = (globalThis as any).setImmediate;
 const nextImmediate = () => new Promise<void>((resolve) => { realImmediate(() => resolve()); });
 /** 泵至谓词成立（真实时间预算——假定时器不影响 now）。 */
+/** 真 immediate 泵 N 轮（I4：需要真实 macro task 推进 fake-indexeddb 链）。 */
+async function pumpImmediate(turns = 1): Promise<void> {
+  for (let i = 0; i < turns; i += 1) await nextImmediate();
+}
+/** 单文档闸（= QUOTA_DEFAULTS.maxDocBytes；local spec 内做超闸语料用，从策略模块同源引）。 */
+const LOCAL_CACHE_MAX_BYTES_FOR_TEST = LOCAL_CACHE_MAX_DOC_BYTES;
 async function until(pred: () => boolean, label: string): Promise<void> {
   const deadline = Date.now() + 4_000;
   while (!pred()) {
     if (Date.now() > deadline) throw new Error(`等待超时：${label}`);
     await nextImmediate();
   }
-}
-/** 泵若干轮（`await` 一条需要真实 macro task 的 promise 前用）。 */
-async function pump(turns = 24): Promise<void> {
-  for (let i = 0; i < turns; i += 1) await nextImmediate();
 }
 
 // 会话态复位归 runtime 自身：startCollabSession 会话起点整组复位 + afterEach destroyCollab
@@ -212,6 +221,7 @@ beforeEach(() => {
   harness.openResolved = false;
   harness.openResolvedAtProviderCreate.length = 0;
   harness.failNames = false;
+  harness.sessionDeferred = null;
   _resetCollabDiagForTest();
   _resetUnloadGuardForTest();
   clearLocalPreviewAll();
@@ -253,6 +263,8 @@ describe('T10 ①冷启动进入 local', () => {
     expect(s.teamId).toBe('team-cold');                      // binding teamId 播种（验收 17）
     expect(persistSpy).toHaveBeenCalledTimes(1);             // 约束⑪：首次进 local 申请持久化
     expect(lastInstance()).toBeTruthy();                     // provider 已在装载后创建（步 5）
+    // M7（§0.2 步 5）：30s 周期 forceSync——provider 构造参数真传到库
+    expect(lastInstance().cfg.forceSyncInterval).toBe(30_000);
   });
 });
 
@@ -564,5 +576,249 @@ describe('T10 ⑨names 写失败 fail-closed', () => {
     expect(docOpenNames).toEqual([]);   // 不开库（写失败 fail-closed）
     expect(getRecentCollabDiag().some((e) => e.type === 'ws_status' && (e.detail as any)?.reason === 'local-cache-degraded')).toBe(true);
     expect(useCanvasStore.getState().hydration).toBe('ready');
+  });
+});
+
+// ══════════ I3：boot 后撤销栈为空 + 能力位（旧 t8 覆盖的两条活行为） ══════════
+describe('T10 I3：boot 后撤销栈与能力位', () => {
+  it('装载非用户编辑 ⇒ undoStack 长度 0；内容 ≤ 单文档闸 ⇒ localCacheReady=true', async () => {
+    const ids = caseIds('u-i3', 'p-i3', 'h-i3');
+    localStorage.setItem('collab:history-id', ids.token);
+    await seedSession(ids.uid);
+    const update = snapshotOf((d) => { d.getMap('nodes').set('n-i3', seedNode('i3')); });
+    await seedUpdates(ids.dbName, [update]);
+    await seedCustom(ids.dbName, { writeGrant: 'read-write', serverSV: svBufferOf(update) });
+
+    await runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+    expect(useCanvasStore.getState().hydration).toBe('local');
+    // 真 manager / 真 store 断言（不是 mock 面）
+    const undoManager = getUndoManager();
+    expect(undoManager).toBeTruthy();
+    expect(undoManager!.undoStack.length).toBe(0);         // 装载不进撤销栈
+    expect(useCanvasStore.getState().localCacheReady).toBe(true);
+  });
+
+  it('I3 尺寸闸：doc 编码 > LOCAL_CACHE_MAX_DOC_BYTES ⇒ localCacheReady=false（超闸=「太大没缓存」，与 diff 无关）', async () => {
+    const ids = caseIds('u-i3-big', 'p-i3-big', 'h-i3-big');
+    localStorage.setItem('collab:history-id', ids.token);
+    await seedSession(ids.uid);
+    // 超闸内容：单节点大 blob（> QUOTA_DEFAULTS.maxDocBytes）
+    const big = snapshotOf((d) => {
+      d.getMap('nodes').set('big', seedNode('big', [['blob', 'x'.repeat(LOCAL_CACHE_MAX_BYTES_FOR_TEST)]]));
+    });
+    await seedUpdates(ids.dbName, [big]);
+    await seedCustom(ids.dbName, { writeGrant: 'read-write', serverSV: svBufferOf(big) });   // 差分=空，仅尺寸超闸
+
+    await runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+    expect(useCanvasStore.getState().localCacheReady).toBe(false);   // 修前（diff 判据）会误报 true
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(false);          // 差分确实为空——差异只来自尺寸
+  }, 30_000);
+});
+
+// ══════════ I2：diverged 冷启动守卫（不 connect、锁 latch、只投影） ══════════
+describe('T10 I2：diverged 冷启动', () => {
+  it('盘上 diverged=1 ⇒ 零 provider 创建、canvasDiverged 锁、doc 已投影；健康同步不跑（无 provider）', async () => {
+    const ids = caseIds('u-div-start', 'p-div-start', 'h-div-start');
+    localStorage.setItem('collab:history-id', ids.token);
+    await seedSession(ids.uid);
+    const update = snapshotOf((d) => { d.getMap('nodes').set('n-div-start', seedNode('dv')); });
+    await seedUpdates(ids.dbName, [update]);
+    await seedCustom(ids.dbName, { writeGrant: 'read-write', diverged: '1' });
+
+    await runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+
+    expect((HocuspocusProvider as any).instances.length).toBe(0);   // 不建 provider=不 connect
+    expect(useCanvasStore.getState().canvasDiverged).toBe(true);    // 闩锁
+    expect(useCanvasStore.getState().hydration).toBe('failed');     // 可看不可编（离线入口落 failed）
+    expect(useCanvasStore.getState().nodes.map((n: any) => n.id)).toContain('n-div-start');   // 仅投影
+    // 盘上 diverged 键仍在（无健康同步可触发删除；持久层句柄已随 destroy 关闭）
+    expect(await readRawCustom(ids.dbName, 'diverged')).toBe('1');
+  });
+
+  it('I2b：越过 10s 死线+多个 3s/5s tick 周期后，diverged 键仍在、serverSV 仍未写（禁健康同步误删）', async () => {
+    const ids = caseIds('u-div-gate', 'p-div-gate', 'h-div-gate');
+    localStorage.setItem('collab:history-id', ids.token);
+    await seedSession(ids.uid);
+    const update = snapshotOf((d) => { d.getMap('nodes').set('n-div-gate', seedNode('dg')); });
+    await seedUpdates(ids.dbName, [update]);
+    await seedCustom(ids.dbName, { writeGrant: 'read-write', diverged: '1' });
+
+    await runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+    // 本会话无 provider（不 connect）⇒ 无健康同步电平、无 tick 装配——即便把时间推过
+    // 死线与若干个 3s/5s 节律，盘上 diverged 唯一副本也必须原样存活（误删=未裁定内容丢失）。
+    await vi.advanceTimersByTimeAsync(15_500);
+    expect(await readRawCustom(ids.dbName, 'diverged')).toBe('1');
+    expect(await readRawCustom(ids.dbName, 'serverSV')).toBeUndefined();   // 原始 IDB 缺键=undefined
+    expect(useCanvasStore.getState().canvasDiverged).toBe(true);            // 闩锁未随 tick 自解
+  });
+});
+
+// ══════════ I4：水合窗内会话被拆/换代 ⇒ 旧续体零点复活 ══════════
+describe('T10 I4：开库窗内会话被拆/换代', () => {
+  it('旧会话 open 挂起期间启动新会话 ⇒ 旧续体到达后不建 provider、不覆盖新会话、旧 persistence 已毁、零 unhandled', async () => {
+    const a = caseIds('u-i4a', 'p-i4a', 'h-i4a');
+    const b = caseIds('u-i4b', 'p-i4b', 'h-i4b');
+    localStorage.setItem('collab:history-id', a.token);
+    await seedSession(a.uid);
+    await seedUpdates(a.dbName, [snapshotOf((d) => { d.getMap('nodes').set('n-i4a', seedNode('i4a')); })]);
+    await seedCustom(a.dbName, { writeGrant: 'read-write' });
+
+    // 只挂起 A 的 document 库 open（B 的库照常开）
+    const realOpen = indexedDB.open.bind(indexedDB);
+    const deferred = {
+      result: null, error: null, onupgradeneeded: null, onsuccess: null, onerror: null, onblocked: null,
+    } as any;
+    let deferredName: string | null = null;
+    vi.spyOn(indexedDB, 'open').mockImplementation(((name: string, version?: number) => {
+      if (deferredName === null && name === a.dbName) {
+        deferredName = name;
+        return deferred;
+      }
+      return realOpen(name, version);
+    }) as any);
+
+    const pendingA = runtime.initCollabLocal(a.pid, { ...a.meta, name: 'A', teamId: null });
+    await until(() => deferredName === a.dbName, 'A 的 document 库 open 未发起');
+
+    // 新会话 B 启动（切项目/StrictMode 双挂载形态）：teardown A 的会话 + 建新 session/provider
+    localStorage.setItem('collab:history-id', b.token);
+    await seedSession(b.uid);
+    const pendingB = runtime.initCollabLocal(b.pid, { ...b.meta, name: 'B', teamId: null });
+    await until(() => lastInstance() !== undefined, 'B 的 provider 未创建');
+    const providerBCount = (HocuspocusProvider as any).instances.length;
+    expect(providerBCount).toBe(1);
+
+    // 放行 A 的迟到 open —— 旧续体必须静默退出（epoch 不符），销毁自己的 persistence/doc
+    const realReq = realOpen(a.dbName);
+    realReq.onupgradeneeded = (ev) => { deferred.onupgradeneeded?.(ev); };
+    realReq.onsuccess = (ev) => { deferred.result = realReq.result; deferred.onsuccess?.(ev); };
+    realReq.onerror = (ev) => { deferred.onerror?.(ev); };
+    const openDeadline = Date.now() + 4_000;
+    while (deferred.result === null && Date.now() < openDeadline) await pumpImmediate(2);
+    await pendingA;   // 旧调用落定——**不 reject**（epoch 判活静默 return）
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect((HocuspocusProvider as any).instances.length).toBe(providerBCount);   // 零点复活
+    expect(runtime.getDoc()).toBe(lastInstance().cfg.document);                  // 模块 doc 仍是 B 的
+    expect(runtime.getDoc()!.getMap('nodes').get('n-i4a')).toBeUndefined();      // A 的内容没灌进 B
+    void pendingB;
+  });
+
+  it('单会话在 open 窗内 destroyCollab ⇒ 旧续体 resolve（不 reject），零 provider，hydration 落 idle', async () => {
+    const ids = caseIds('u-i4c', 'p-i4c', 'h-i4c');
+    localStorage.setItem('collab:history-id', ids.token);
+    await seedSession(ids.uid);
+    await seedUpdates(ids.dbName, [snapshotOf((d) => { d.getMap('nodes').set('n-i4c', seedNode('i4c')); })]);
+    await seedCustom(ids.dbName, { writeGrant: 'read-write' });
+
+    const realOpen = indexedDB.open.bind(indexedDB);
+    const deferred = {
+      result: null, error: null, onupgradeneeded: null, onsuccess: null, onerror: null, onblocked: null,
+    } as any;
+    let deferredName: string | null = null;
+    vi.spyOn(indexedDB, 'open').mockImplementation(((name: string, version?: number) => {
+      if (deferredName === null && name === ids.dbName) {
+        deferredName = name;
+        return deferred;
+      }
+      return realOpen(name, version);
+    }) as any);
+
+    const pending = runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+    await until(() => deferredName === ids.dbName, 'document 库 open 未发起');
+    await runtime.destroyCollab();   // 此时无 provider（open 未回）——teardown 同步段即完成
+    expect(useCanvasStore.getState().hydration).toBe('idle');
+
+    // 放行迟到 open
+    const realReq = realOpen(ids.dbName);
+    realReq.onupgradeneeded = (ev) => { deferred.onupgradeneeded?.(ev); };
+    realReq.onsuccess = (ev) => { deferred.result = realReq.result; deferred.onsuccess?.(ev); };
+    realReq.onerror = (ev) => { deferred.onerror?.(ev); };
+    const openDeadline = Date.now() + 4_000;
+    while (deferred.result === null && Date.now() < openDeadline) await pumpImmediate(2);
+
+    await pending;   // 必须**干净 resolve**（禁 reject——否则页面 catch 会二次误判为瞬态失败）
+    expect((HocuspocusProvider as any).instances.length).toBe(0);
+    expect(useCanvasStore.getState().hydration).toBe('idle');   // 未被旧续体重置
+    // I4 中点复验：迟到续体不得写任何会话态（能力位是 `local-cache-degraded` 之外的可见泄漏面——
+    // 旧续体若继续读 custom 就会把 localCacheReady 打真，而会话早已拆除）
+    expect(useCanvasStore.getState().localCacheReady).toBe(false);
+    expect(useCanvasStore.getState().canvasDiverged).toBe(false);
+  });
+});
+
+// ══════════ I4 中点复验：opened 已到手、session 行读挂起时被拆 ══════════
+describe('T10 I4：opened 之后的中途判活', () => {
+  it('持有 opened persistence 后 destroyCollab：迟到续体不写 store、持久层已销毁、不建 provider', async () => {
+    const ids = caseIds('u-i4-mid', 'p-i4-mid', 'h-i4-mid');
+    localStorage.setItem('collab:history-id', ids.token);
+    await seedSession(ids.uid);
+    await seedUpdates(ids.dbName, [snapshotOf((d) => { d.getMap('nodes').set('n-i4-mid', seedNode('mid')); })]);
+    await seedCustom(ids.dbName, { writeGrant: 'read-write' });   // 差分空 ⇒ 若续体继续会置 localCacheReady
+
+    // 挂起 session 行读（此时 opened/localPersistence 已赋值）
+    let release!: () => void;
+    harness.sessionDeferred = { promise: new Promise<void>((r) => { release = r; }), release: () => release() };
+
+    const pending = runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+    await until(() => harness.persistence !== null, 'opened persistence 未就位');
+    await runtime.destroyCollab();   // 会话拆除（无 provider——open 已完成但 provider 未建）
+    expect(useCanvasStore.getState().hydration).toBe('idle');
+
+    harness.sessionDeferred.release();
+    harness.sessionDeferred = null;
+    await pending;   // 干净返回
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect((HocuspocusProvider as any).instances.length).toBe(0);   // 不同 provider
+    expect(useCanvasStore.getState().hydration).toBe('idle');       // 不覆盖 teardown 的 idle
+    expect(useCanvasStore.getState().localCacheReady).toBe(false);  // 中点复验拦住 store 写
+  });
+});
+
+// ══════════ I1：buildYjsDbName 抛错不逸出（非法 historyToken） ══════════
+describe('T10 I1：非法 historyToken', () => {
+  it('非法 token（含 /）⇒ 不抛、不开文档库、降级遥测、服务端水合正常到 ready', async () => {
+    // 不用 caseIds（它会调 buildYjsDbName 先行抛错）——本用例的 token 就是非法语料
+    const uid = 'u-i1'; const pid = 'p-i1';
+    const meta = { viewerUid: uid, collabGeneration: 3, collabSchemaVersion: 2 };
+    localStorage.setItem('collab:history-id', 'bad/token');   // '/' 不在 [A-Za-z0-9_-]
+    await seedSession(uid);
+
+    const realOpen = indexedDB.open.bind(indexedDB);
+    const docOpenNames: string[] = [];
+    vi.spyOn(indexedDB, 'open').mockImplementation(((name: string, version?: number) => {
+      if (name.startsWith('flowweb:yjs:')) docOpenNames.push(name);
+      return realOpen(name, version);
+    }) as any);
+
+    // 修前：buildYjsDbName 在 try 外抛 ⇒ startCollabSession reject（本 await 直接抛）
+    const done = runtime.initCollabLocal(pid, { ...meta, name: 'X', teamId: null });
+    await until(() => lastInstance() !== undefined, '服务端水合 provider 未创建');
+    const p = lastInstance();
+    p.isSynced = true;
+    p.unsyncedChanges = 0;
+    p.emit('synced', {});
+    await done;   // 必须 resolve（不 reject）
+
+    expect(docOpenNames).toEqual([]);   // 非法 token=不开库
+    expect(getRecentCollabDiag().some((e) => e.type === 'ws_status' && (e.detail as any)?.reason === 'local-cache-degraded')).toBe(true);
+    expect(useCanvasStore.getState().hydration).toBe('ready');
+  });
+});
+
+// ══════════ M3：cacheDisabled 会话只发一条 local-cache-degraded ══════════
+describe('T10 M3：降级遥测只发一次', () => {
+  it('meta 缺项（cacheDisabled）⇒ ws_status reason=local-cache-degraded 恰一条', async () => {
+    const ids = caseIds('u-m3', 'p-m3', 'h-m3');
+    const done = runtime.initCollab(ids.pid, {} as runtime.CollabSessionMeta);   // 三元缺失
+    await until(() => lastInstance() !== undefined, 'provider 未创建');
+    const p = lastInstance();
+    p.isSynced = true;
+    p.unsyncedChanges = 0;
+    p.emit('synced', {});
+    await done;
+    const hits = getRecentCollabDiag().filter((e) => e.type === 'ws_status' && (e.detail as any)?.reason === 'local-cache-degraded');
+    expect(hits.length).toBe(1);   // 修前=2（两处同文案各发一次）
   });
 });

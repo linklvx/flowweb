@@ -77,16 +77,6 @@ const REC = (over: Partial<LocalCacheRecord> = {}): LocalCacheRecord => ({
   unsyncedDirty: false, diverged: false, at: 1_000, ...over,
 });
 
-/** jsdom 无 URL.createObjectURL——静态方法注入（t8.spec 同款；测后删除还原） */
-function stubBlobUrls(): void {
-  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: () => 'blob:mock' });
-  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: () => {} });
-}
-function restoreBlobUrls(): void {
-  delete (URL as any).createObjectURL;
-  delete (URL as any).revokeObjectURL;
-}
-
 async function driveToSynced(pid = 'p1', meta: runtime.CollabSessionMeta = META) {
   const done = runtime.initCollab(pid, meta);
   await vi.advanceTimersByTimeAsync(0);

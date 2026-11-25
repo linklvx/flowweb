@@ -1,9 +1,11 @@
 import { initCollab, initCollabLocal, destroyCollab, safeReload, type CollabSessionMeta } from '@/stores/canvasCollabRuntime';
 // Y5 T10：项目请求失败后的离线分型（T9 纯函数）+ meta 两表读（session 证明/binding 元数据）。
 import { decideOfflineRoute, type OfflineRouteInput } from './offline-route';
-import { getSessionRows, getBindingRow } from '@/collab/local-yjs-store';
+import { getSessionRows, getBindingRow, putBindingRow, putNameRow, buildYjsDbName, listNameRows } from '@/collab/local-yjs-store';
 // Y5 T10：localStorage historyId 单键（与 runtime 水合链同源——rejected-recovery 的读写面）。
 import { loadPersistedHistoryId } from '@/collab/rejected-recovery';
+// Y5 T10（C1）：binding/names 写失败 fail-soft 但可观测（local-cache-degraded 是既有受控 reason）。
+import { recordCollabDiag } from '@/utils/collabDiagnostics';
 // Y5 T7：他标签登出拆会话回调注册（AuthProvider 的 storage 监听触发；本页不独占 storage 监听）
 import { registerCollabSessionTeardown } from '@/collab/auth-teardown-registry';
 import { attachSpecbPerfProbe } from '@/stores/specbPerfProbe';
@@ -91,6 +93,52 @@ class ProjectLoadError extends Error {
   }
 }
 
+/**
+ * Y5 T10（C1 / spec §0.1.4）：离线路径的 meta 写点——`putBindingRow` 全仓唯一生产调用者。
+ * 只在 fetchProjectMeta 成功且「响应 uid = 当前 session 行 uid」时写（跨账号本地泄漏防线：
+ * 裸 pid 键会让 B 打开 A 的库）。historyToken 必填（缺 token 时离线三合取结构性失败）。
+ * names 行同点登记（库名全集来源=清扫/删除闸），但 **不覆盖既有 hold/tombstone**：
+ * 先读同名行，存量行若已 hold 或 tombstone 则原样保留（hold/tombstone 互斥，二者都是
+ * 「未裁定/已裁定待删」的裁定结果，普通成功路径无权翻案——I4/M4）。
+ * 全程 fail-soft（在线主链不可被本地存储故障打断），失败留 `local-cache-degraded` 遥测。
+ */
+async function persistOfflineMeta(
+  projectId: string,
+  responseUid: string | null | undefined,
+  meta: CollabSessionMeta,
+  name: string,
+  teamId: string | null,
+): Promise<void> {
+  try {
+    const uid = typeof responseUid === 'string' && responseUid.length > 0 ? responseUid : null;
+    const generation = meta.collabGeneration;
+    const schemaVersion = meta.collabSchemaVersion;
+    const historyToken = loadPersistedHistoryId();
+    if (uid === null || typeof generation !== 'number' || typeof schemaVersion !== 'number' || historyToken === null) return;
+    // ② 证明 uid 同源：session 表恰一行且 uid 相等（0/多行=歧义，fail-closed 不写）
+    const sessionRows = await getSessionRows();
+    if (sessionRows.length !== 1 || sessionRows[0].uid !== uid) return;
+
+    await putBindingRow(uid, projectId, { uid, generation, schemaVersion, historyToken, name, teamId });
+    // names 登记（库名全集）——存量 hold/tombstone 原样保留（M4：不盲写 hold:false）
+    const dbName = buildYjsDbName(uid, projectId, generation, schemaVersion, historyToken);
+    let existingHold = false;
+    let existingTombstone = false;
+    try {
+      const existing = (await listNameRows()).find((row) => row.dbName === dbName);
+      existingHold = existing?.hold === true;
+      existingTombstone = existing?.tombstone === true;
+    } catch { /* 读失败=按新行写（保守：不携带无法读到的裁定标记） */ }
+    await putNameRow(dbName, {
+      uid, pid: projectId, generation, schemaVersion, historyToken,
+      hold: existingHold, ...(existingTombstone ? { tombstone: true } : {}),
+    });
+  } catch {
+    // fail-soft：在线路径不因本地 meta 写失败中断（离线路径届时 fail-closed 到 unavailable）
+    recordCollabDiag('ws_status', { reason: 'local-cache-degraded' });
+  }
+}
+
 /** 仅取项目元数据（名称/团队上下文/世代通道三元）；doc 会话统一由 openSession 建立（R5 单一漏斗）。
  *  批3-3：裸 fetch 收编 apiFetch（401 电平/契约统一）；F14 三义分家由抛错的 status 承载。
  *  Y0b-5 T5：世代可见通道透传（E3「鉴权握手返回」——先于 initCollab，零新往返零新端点）；
@@ -115,6 +163,12 @@ async function fetchProjectMeta(
 
     // 画布团队上下文（顶栏积分/上传/素材库消费）
     useCanvasStore.getState().setTeamId(project.teamId ?? null);
+    // Y5 T10（C1）：离线路径的元数据载体写点——`putBindingRow` 全仓唯一生产调用。
+    // 三合取 fail-closed（spec §0.1.4）：①响应 collabViewerUid 非空串；②它等于当前 session 行
+    // 的 uid（session 表恰一行）；③localStorage 有 historyToken（无 token 时离线三合取必失败，
+    // 写行无意义）。任一不成立⇒不写（不是错误——在线路径照常）。fail-soft：写失败只留遥测
+    // （helper 内部全 try/catch 永不 reject——await 只为顺序确定，不改变在线主链 fail-soft 契约）。
+    await persistOfflineMeta(projectId, project.collabViewerUid, meta, name, project.teamId ?? null);
     return { name, meta };
   } catch (e) {
     // R5：json 异常不再静默降级为"可编辑无 doc 会话"（原 return '未命名项目' 是刷新蒸发根源之一）
@@ -182,7 +236,9 @@ export function CanvasPage() {
     }
 
     /** Y5 T10（§0.2 步 1 / 验收 17）：离线开库腿——binding 是唯一元数据源（name/teamId/三元），
-     *  runtime 走 initCollabLocal（本地库装载→五合取→local）。 */
+     *  runtime 走 initCollabLocal（本地库装载→五合取→local）。
+     *  I1b：initCollabLocal 抛错（IDB 全不可用等）必须有明确终态——fail-closed 到
+     *  `failed`（只读/暂不可用 UI），绝不把 rejection 逸出 effect 变 unhandled。 */
     async function openLocalSession(
       id: string,
       binding: Extract<OfflineRouteInput['binding'], object>,
@@ -191,15 +247,26 @@ export function CanvasPage() {
       sessionEpochRef.current++;
       const epoch = sessionEpochRef.current;
       useCanvasStore.getState().setHydration('pending');
-      useCanvasStore.getState().setTeamId(binding.teamId);
-      await initCollabLocal(id, {
-        viewerUid: binding.uid,
-        collabGeneration: binding.generation,
-        collabSchemaVersion: binding.schemaVersion,
-        name: binding.name,
-        teamId: binding.teamId,
-      });
+      let ok = true;
+      try {
+        useCanvasStore.getState().setTeamId(binding.teamId);
+        await initCollabLocal(id, {
+          viewerUid: binding.uid,
+          collabGeneration: binding.generation,
+          collabSchemaVersion: binding.schemaVersion,
+          name: binding.name,
+          teamId: binding.teamId,
+        });
+      } catch {
+        ok = false;
+      }
       if (cancelled || epoch !== sessionEpochRef.current) return;
+      if (!ok) {
+        // 明确终态：会话未建立 → failed（只读副本/重试 UI 由既有 failed 分支承载）
+        useCanvasStore.getState().setHydration('failed');
+        setLoadError('unavailable');
+        return;
+      }
       useCanvasStore.setState({ projectId: id });
       setProjectId(id);
       setProjectName(binding.name);
@@ -270,7 +337,13 @@ export function CanvasPage() {
             : e instanceof ProjectNotFoundError
               ? 404
               : e instanceof ProjectInaccessibleError ? 403 : undefined;
-          void routeOffline(storedId, status);
+          // I1c：不 void 一个可能 reject 的异步链——内部已各自收敛（openLocalSession 兜住
+          // initCollabLocal），这里再兜一层：意外抛错也落明确 UI 态，绝不 unhandled。
+          routeOffline(storedId, status).catch(() => {
+            if (cancelled) return;
+            useCanvasStore.getState().setHydration('failed');
+            setLoadError('unavailable');
+          });
         });
     } else {
       // Normal flow — create new project

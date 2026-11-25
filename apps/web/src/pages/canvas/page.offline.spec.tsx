@@ -3,7 +3,9 @@
 //   ①5xx + 有效证明 + binding/historyId 一致 ⇒ initCollabLocal（binding 顶 meta）+整链 hydration=local；
 //   ②HTTP 401 ⇒ http-expired：不调 initCollab/initCollabLocal、零本地库 open、停「暂不可用」；
 //   ③无参 404 自动新建只认确定性 404（裁定 ②）——离线/瞬态失败不新建；
-//   ④媒体预签名失败不得把 hydration 打成 failed、不阻非媒体编辑（local 保留）。
+//   ④（M5 已删）原「媒体预签名失败」腿是同义反复（只断言被 mock 的 setHydration 未被调用）——
+//      真实保护面在 runtime（`setHydration('failed')` 全仓唯一写点=死线分支，媒体链路零写点）；
+//      媒体 URL 解析本身是纯本地推导（`getMediaUrl` 零网络），无失败路径可测。
 // 装置承 page.test.tsx（MemoryRouter+fetch mock+antd）；runtime/离线存储面全 mock（页面只做分型接线）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -202,7 +204,9 @@ describe('Y5 T10 页面离线分型接线', () => {
     await waitFor(() => expect(screen.getByText('画布加载失败，请检查网络后重试')).toBeInTheDocument());
     expect(harness.initCollab).not.toHaveBeenCalled();
     expect(harness.initCollabLocal).not.toHaveBeenCalled();
-    expect(harness.getBindingRow).not.toHaveBeenCalled();          // 不开库=不查 binding（denial 短路）
+    // M5：denial 短路=**两张 meta 表都零读**（不是只断言 binding）
+    expect(harness.getSessionRows).not.toHaveBeenCalled();
+    expect(harness.getBindingRow).not.toHaveBeenCalled();
   });
 
   it('5xx 但 historyId 不匹配 ⇒ 不开库（不新建、停「暂不可用」）', async () => {
@@ -237,26 +241,5 @@ describe('Y5 T10 页面离线分型接线', () => {
     await waitFor(() => expect(harness.initCollab).toHaveBeenCalledTimes(1));
     expect(harness.initCollab).toHaveBeenCalledWith('p-new', expect.anything());
     expect(harness.initCollabLocal).not.toHaveBeenCalled();
-  });
-
-  it('媒体预签名失败不把 hydration 打成 failed、不阻非媒体编辑（local 保留）', async () => {
-    // 媒体 URL 解析本地推导（零网络）：失败面=生成器/配置坏——此处直接以 api 抛错模拟。
-    localStorage.setItem('flowweb_projectId', 'p-media');
-    localStorage.setItem('collab:history-id', 'h-offline');
-    harness.getSessionRows.mockResolvedValue([VALID_ROW('u1', Date.now() + 3_600_000)]);
-    harness.getBindingRow.mockResolvedValue(BINDING);
-    mockFetch.mockResolvedValue({ ok: false, status: 502, json: async () => ({ code: -1 }) });
-    // initCollabLocal 落地后会话在 local；媒体预签名失败=另一个 fetch 分支（页面联网 URL 取图）
-    harness.initCollabLocal.mockImplementation(async () => {
-      mockHydration = 'local';
-    });
-
-    renderPage();
-    await waitFor(() => expect(harness.initCollabLocal).toHaveBeenCalled());
-
-    // 页面渲染后访问一次「保存」URL 取图失败——不得改 hydration（页面无 setHydration('failed') 调用）
-    mockFetch.mockRejectedValue(new Error('presign failed'));
-    expect(useCanvasStore.getState().hydration).toBe('local');
-    expect(harness.setHydration).not.toHaveBeenCalledWith('failed');
   });
 });

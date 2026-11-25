@@ -1933,6 +1933,9 @@ function createProvider(d: Y.Doc): HocuspocusProvider {
     delay: 1_000,
     maxDelay: 30_000,
     messageReconnectTimeout: 30_000,
+    // Y5 T10（M7 / spec §0.2 步 5）：30s 周期 forceSync——离线攒下的差分只在 SS2 差分上行链
+    // 收敛；周期 forceSync 是「断连期编辑→重连后没有新本地 update 触发发送」的兜底节拍。
+    forceSyncInterval: 30_000,
     autoConnect: false,
   } as any);
   bindProviderListeners(provider);
@@ -2075,9 +2078,7 @@ async function startCollabSession(
       : undefined,
     cacheDisabled: !metaComplete,
   };
-  if (session.cacheDisabled) {
-    recordCollabDiag('ws_status', { reason: 'local-cache-degraded' });
-  }
+  // M3：cacheDisabled 的降级遥测只在下方水合段发一次（此处不再重复——同会话两条同文案=噪音）
   // 批2-1 会话起点：hydration=pending（openSession 已先置——此处覆盖入口清理期）+
   // collabReadOnly 复位 true（v5.4 openSession 清→初值 true——上一会话授权不跨会话）；
   // localCollapsed（viewer 折叠 UI 瞬态）同点复位——上一会话视图态不跨会话/跨用户；
@@ -2143,30 +2144,71 @@ async function startCollabSession(
   // ── Y5 T10（§0.2 步 1-2）：meta 三表 names 先写 → 开五维文档库 ──
   // names 写失败/开库失败 ⇒ 本会话不开库改纯服务端水合（fail-closed——无名库=清扫盲区）。
   // 无持久化 historyId 时本会话不开文档库只做服务端水合（§0.1.3 R1——空 token 不许拼库名）。
+  // ⚠ 本段的每个 await 之后都复验 epoch（I4）：期间 destroyCollab/切项目/StrictMode 卸载会让
+  // 续体在会话已拆后继续写模块态与建 provider（泄漏 localPersistence 连接=阻塞 T13 deleteDatabase）。
   const historyToken = knownHistoryId;
   let opened: { doc: Y.Doc; persistence: IndexeddbPersistence } | null = null;
-  if (!session.cacheDisabled && historyToken !== null && session.viewerUid && session.collabGeneration !== undefined && session.collabSchemaVersion !== undefined) {
-    const dbName = buildYjsDbName(session.viewerUid, projectId, session.collabGeneration, session.collabSchemaVersion, historyToken);
+  if (session.cacheDisabled) {
+    recordCollabDiag('ws_status', { reason: 'local-cache-degraded' });   // M3：本分支唯一一次（旧代码下方同文案重复）
+  } else if (historyToken !== null && session.viewerUid && session.collabGeneration !== undefined && session.collabSchemaVersion !== undefined) {
+    // I1：buildYjsDbName 会因非法 historyToken 抛——必须在守卫内（否则 rejection 逸出
+    // startCollabSession，被页面的项目失败 catch 误判为瞬态并重入 routeOffline，留下 pending
+    // hydration + unhandled rejection）。抛错=本会话本地库不可用，走纯服务端水合。
+    let dbName: string | null = null;
     try {
-      await putNameRow(dbName, {
-        uid: session.viewerUid, pid: projectId,
-        generation: session.collabGeneration, schemaVersion: session.collabSchemaVersion,
-        historyToken, hold: false,
-      });
-      const result = await openYjsDoc(dbName);
-      if (result.ok) {
-        opened = result;
-        localPersistence = result.persistence;
-        localDbName = dbName;
-      } else {
-        recordCollabDiag('ws_status', { reason: 'local-cache-degraded' });   // 超时/打开失败=纯服务端水合会话
-      }
+      dbName = buildYjsDbName(session.viewerUid, projectId, session.collabGeneration, session.collabSchemaVersion, historyToken);
     } catch {
-      recordCollabDiag('ws_status', { reason: 'local-cache-degraded' });     // names 写失败=不开库
+      recordCollabDiag('ws_status', { reason: 'local-cache-degraded' });
     }
-  } else if (session.cacheDisabled) {
-    recordCollabDiag('ws_status', { reason: 'local-cache-degraded' });
+    if (dbName !== null) {
+      try {
+        await putNameRow(dbName, {
+          uid: session.viewerUid, pid: projectId,
+          generation: session.collabGeneration, schemaVersion: session.collabSchemaVersion,
+          historyToken, hold: false,
+        });
+        if (session?.epoch !== epoch) return 0;   // 期间会话已拆/换代——零后续写
+        const result = await openYjsDoc(dbName);
+        if (session?.epoch !== epoch) {
+          // 晚到的开库结果（I4）：把刚拿到的持久层与 doc 原地销毁，静默退出（禁建 provider）。
+          // 此刻 opened 尚未赋值——直接销毁 result 本体（abortStale 覆盖不到）。
+          if (result.ok) {
+            try { await result.persistence.destroy(); } catch { /* 已销毁 */ }
+            result.doc.destroy();
+          }
+          return 0;
+        }
+        if (result.ok) {
+          opened = result;
+          localPersistence = result.persistence;
+          localDbName = dbName;
+        } else {
+          recordCollabDiag('ws_status', { reason: 'local-cache-degraded' });   // 超时/打开失败=纯服务端水合会话
+        }
+      } catch {
+        recordCollabDiag('ws_status', { reason: 'local-cache-degraded' });     // names 写失败=不开库
+      }
+    }
   }
+
+  /**
+   * I4：水合窗内会话被判死（epoch 不符）时的唯一清理出口——销毁本续体持有的持久层与 doc，
+   * 清模块态（仅当仍指向本续体的实例，R23 identity 纪律），返回 0 表示「陈旧续体，静默退出」。
+   * 禁裸 `return 0`：那会把已打开的 IndexeddbPersistence 连接漏在模块里（T13 deleteDatabase 阻塞源）。
+   */
+  const abortStale = async (): Promise<0> => {
+    if (opened) {
+      try { await opened.persistence.destroy(); } catch { /* 已销毁 */ }
+      opened.doc.destroy();
+      if (localPersistence === opened.persistence) {
+        localPersistence = null;
+        localDbName = null;
+      }
+      if (doc === opened.doc) doc = null;
+      opened = null;
+    }
+    return 0;
+  };
 
   // 装载成功=库内全部 update 已在 opened.doc（whenSynced 已 resolve——openYjsDoc 契约）；
   // 失败分支返回的是废弃 doc——服务端水合另起新 doc（B4：迟到 apply 无家可归）。
@@ -2202,25 +2244,47 @@ async function startCollabSession(
   if (opened && localPersistence) {
     try {
       const serverSvRaw = await readCustom(localPersistence, 'serverSV');
+      if (session?.epoch !== epoch) return abortStale();
       const serverSv = serverSvRaw !== null && typeof serverSvRaw !== 'string' ? new Uint8Array(serverSvRaw) : null;
       const diffBytes = await computeDiffBytes(doc, serverSv);
+      if (session?.epoch !== epoch) return abortStale();
+      // Y5 T10（I3）：字节闸语义=「这份 doc 到底能不能整份装进单文档闸」——按**文档本身编码**
+      // 判（不是差分）；差分口径只管「有没有未上行内容」的 dirty/Σpending。超闸⇒能力位 false
+      // （「太大没缓存」诚实分支，与旧快照闸同义），不谎报「本地已缓存」。
+      // 复用既有同步实测（`measureLocalDocNow` 即 doc 全量编码字节真值，模块 doc 已在本步赋值）
+      // ——避免新增 encodeStateAsUpdate 生产调用点（census ④ 计数白名单 / 约束③ 不重复编码）。
+      const docBytes = measureLocalDocNow();
       if (diffBytes > EMPTY_DOC_ENCODE_BYTES) {
         bootDiffNonEmpty = true;
         markDocUnsyncedDirty(doc, { skipCacheFlush: true });          // §0.2 步 4：相对 serverSV 的差分才置 dirty
         unsyncedPendingBytes.set(doc, (unsyncedPendingBytes.get(doc) ?? 0) + diffBytes);   // Σpending 累计（1MB forceSync 门槛）
-        if (diffBytes <= LOCAL_CACHE_MAX_DOC_BYTES) useCanvasStore.setState({ localCacheReady: true });
-      } else {
-        useCanvasStore.setState({ localCacheReady: true });           // 已同步内容=「本地已缓存」真值
+      }
+      if (docBytes <= LOCAL_CACHE_MAX_DOC_BYTES) {
+        useCanvasStore.setState({ localCacheReady: true });           // 能力位=尺寸闸通过（与 diff 无关）
       }
       const grant = await readCustom(localPersistence, 'writeGrant');
+      if (session?.epoch !== epoch) return abortStale();
       storedGrant = typeof grant === 'string' ? grant : null;
       const diverged = await readCustom(localPersistence, 'diverged');
+      if (session?.epoch !== epoch) return abortStale();
       storedDiverged = typeof diverged === 'string' ? diverged : null;
       getUndoManager()?.clear();   // 装载非用户编辑（撤销栈不含库内回放）
       localSnapshotApplied = true;
     } catch {
       recordCollabDiag('ws_status', { reason: 'local-cache-degraded' });   // custom 读失败=只读副本不可保障
     }
+  }
+
+  // ── Y5 T10（§0.4 冷启动 diverged 守卫——I2）：盘上 diverged 标记='1' ⇒ 只装载供导出，**不 connect**。
+  // 回放+上行会把已拒内容复活（§0.4「冷启动遇到 diverged：只装载供导出、不 connect」）；healthYsync
+  // 删 key 也绝不能被这条路径触发。出口显式（本会话仅两途，T12 建四桶完整策略）：
+  //   ①导出（exportDivergedContent）/ ②放弃（discardLocalDiverged → reload 后库已清）。
+  // 本会话 latches：bootDiverged=true（3s tick 闩锁短路）+ canvasDiverged=true（横幅）。
+  const divergedColdStart = storedDiverged === '1' && opened !== null;
+  if (divergedColdStart) {
+    bootDiverged = true;
+    suppressCacheWrites = true;   // 盘上 diverged 是唯一副本——本会话任何缓存写都会覆盖它=数据丢失
+    useCanvasStore.setState({ canvasDiverged: true });
   }
 
   // ── Y5 T10（§0.3.5）：五条 local 合取 ──
@@ -2231,13 +2295,14 @@ async function startCollabSession(
     && storedDiverged === null && useCanvasStore.getState().wsAuthNotice?.terminal !== true) {
     try {
       const sessionRows = await getSessionRows();
+      if (session?.epoch !== epoch) return abortStale();
       const proofOk = sessionRows.length === 1
         && sessionRows[0].uid === session.viewerUid
         && sessionRows[0].localDeadline > Date.now();
       enterLocal = proofOk;   // 证明不成立=stay true（会话起点 collabReadOnly=true 已是 fail-closed 初值）
     } catch { enterLocal = false; }   // session 表读失败=证明不可得（fail-closed）
   }
-  if (storedDiverged !== null) useCanvasStore.setState({ canvasDiverged: true });   // 横幅（健康同步删 key 后自愈）
+  if (session?.epoch !== epoch) return abortStale();   // 投影/provider 前最后一道判活（含持久层清理）
   if (enterLocal && doc) {
     applyDocToStore(doc);
     useCanvasStore.setState({ collabReadOnly: false });
@@ -2250,6 +2315,13 @@ async function startCollabSession(
     // 在线路径 hydration 保持 pending 等服务端水合；离线入口由 initCollabLocal 立即落 failed。
     applyDocToStore(doc);
     useCanvasStore.setState({ collabReadOnly: true });
+  }
+
+  // I2：diverged 冷启动不建 provider（不 connect、不上行）——只留可导出/可放弃的只读会话。
+  // 页面侧 failed 态 + 既有 diverged 横幅二选一（exportDivergedContent / discardLocalDiverged）。
+  if (divergedColdStart) {
+    bindReevaluateOnce();   // 回前台/上线复评仍需要（本会话无 provider，恢复面自然空转）
+    return epoch;           // provider 保持 null：tick/synced 等待拿到的是「无 provider」安全态
   }
 
   createProvider(doc);
@@ -2388,6 +2460,10 @@ async function startCollabSession(
 async function persistServerState(d: Y.Doc): Promise<void> {
   const persistence = localPersistence;
   if (!persistence) return;
+  // Y5 T10（I2b）：diverged 冷启动会话禁删 diverged 键——盘上标记是「未裁定内容」的唯一存活
+  // 证据，只有本会话经合法出口（导出/放弃，T12 四桶）清了闩锁才允许写回。闩锁仍在=整段跳过
+  // （serverSV 也不写：本会话根本没连，写了反而谎报已确认水位）。
+  if (bootDiverged) return;
   let exactSv: ArrayBuffer;
   try {
     const sv = Y.encodeStateVector(d);
@@ -2412,6 +2488,13 @@ async function persistServerState(d: Y.Doc): Promise<void> {
 async function waitForSyncedReady(epoch: number): Promise<void> {
   let synced = false;
   let deadline: HydrationDeadline | null = null;
+  // Y5 T10（I2）：diverged 冷启动会话没有 provider（不 connect）——无同步可等，直接走死线段。
+  // 此时 hydration 已被离线入口落为 failed（可看不可编），死线只会把它保持在 failed。
+  if (provider === null) {
+    if (session?.epoch !== epoch) return;
+    if (useCanvasStore.getState().hydration === 'pending') useCanvasStore.getState().setHydration('failed');
+    return;
+  }
   await new Promise<void>((resolve) => {
     provider!.on('synced', () => { synced = true; resolve(); });
     deadline = armHydrationDeadline(resolve);
