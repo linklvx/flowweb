@@ -232,3 +232,10 @@
   即绿；同族再红先单跑归因、连续三红升级调查；禁调判据。
 
 - 2026-11-23（Y5 基线门 v12 回填批——**超时预算根修非 flake，登记史留档**）：api managed-redis.spec「authPrisma 纳管——AuthModule.onApplicationShutdown 断开」满载池轮连续四轮 15s 超时红（verify full run2/3/4+单池探针轮；隔离复跑 4.5s 绿）。升级调查（连续三红触发）：本例**非间歇环境 flake**——`auth.ts` 动态 import 链冷启探针实测 8.1s（`@sentry/nestjs` 2.2s + better-auth 1.5s + Prisma/team bootstrap 链），15s 窗为 2026-10-13 `4fc1d8b9` 按 305 文件池定档；Y4a/Y4b 后池 305→318 文件，满载争抢下确定性超窗。**处置=预算上抬 15s→30s**（`4fc1d8b9` 同款先例：断言语义零变化；本条首登的「隔离重跑绿即过」临时定性作废）。教训：负载族处置「重跑即绿即过」在**连续同例红**面前须按台账纪律升级调查——本例若按首登口径第三轮就收场，会把确定性预算红误留为长期假 flake。
+
+- 2026-11-26（Y5 三钉收尾批 push CI——bench-load-smoke 同族第三击）：verify 链 [22/36]
+  bench-load-smoke 硬门 1 项红（WAL fsync p95=100ms>20ms+p99 250ms 软带劣化——GitHub 免费档
+  4C runner 磁盘争抢形态）。族先例=2026-11-19 Y2 批首例（p95=50ms+慢项目隔离同红）与
+  collab.gateway.spec 同日登记——本击零代码交叠（收尾批仅 web 侧 runtime/spec/census 三钉，
+  api 面零触碰；全测试批次先于 bench 全绿：web 402 文件+api 319 文件+heavy 12 例）。
+  处置=CI 侧 rerun-failed-jobs（同族先例 rerun 即绿）；连续三红升级调查；禁调硬门阈值。
