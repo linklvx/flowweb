@@ -366,10 +366,9 @@ function onPageHideSendBarrier(): void {
  *  Y5 T14：旧层写抑制标记 suppressCacheWrites 随旧层退役删除——新层同语义守门=bootDiverged
  *  对 persistServerState 的短路（不写 serverSV 不删 diverged 键）。 */
 let bootDiverged = false;
-/** spec 修复 1b（Y5 T12 勘正注释）：diverged 快照槽——**当前无任何生产写点，恒 null**（T10 起
- *  diverged 快照不再留存，exportDivergedContent 回落 `exportLocalBackup(doc, ...)` 分支）；
- *  仅保留声明+会话复位点供将来接回，禁按「快照已留存」理解本变量。 */
-let bootDivergedSnapshot: Uint8Array | null = null;
+/** Y5 收尾（终审钉 1）：T10 起冷启动 diverged 会把本地库装进当前 doc，横幅导出单源=
+ *  exportHeldLocalContent（有 hold 行读盘上那只库，无 hold 行回落当前 doc）——
+ *  「boot 留存盘上快照」的旧出口已撤（bootDivergedSnapshot 死槽随终审删除）。 */
 /** boot 快照已回放（离线冷启动 failed 分支渲染判据——会话态）
  *  Y5 T10：新水合路径的「本地库内容已装载」真值——local 态与 failed 只读副本分支消费。 */
 let localSnapshotApplied = false;
@@ -385,6 +384,10 @@ let bootDiffNonEmpty = false;
 /** Y5 T10（§0.2 步 7 / SS1 信号）：provider 是否在 ready 前送来过服务端新更新（origin=provider
  *  的真实 apply）。纯快进（服务端无新内容）恒 false——检测归因只认双端差分。 */
 let sawRemoteUpdateSinceBoot = false;
+/** Y5 收尾（终审钉 3）：水合窗读到的盘上 diverged 标记（true==='1'）——hold 判据三信号之一
+ *  （此刻仍脏第三腿：本会话从未连接、无 dirty/横幅，但库内是未裁定内容——与删除闸
+ *  measureYjsDoc 的 diverged 判据同源）。读失败按无标记（fail-soft，不谎报脏）。 */
+let storedDivergedAtHold = false;
 /** docBytes 遥测去重（字节面变化才发——5s 节律零重复） */
 let lastReportedDocBytes = 0;
 
@@ -696,7 +699,11 @@ const NO_READ_ACCESS_PURGE_REASONS: ReadonlySet<string> = new Set<string>([
  *  返回 true=已 hold（调用方禁 purge/禁 reload 前的清理）。
  *  写失败=保守侧不删（无动作即不删）；`local-cache-degraded` 遥测留痕。
  *  `reason` 是调用点标签（generation-stale/client-outdated/resync/close-4410）——仅用于可读性，
- *  当前 diag 面统一 `local-hold`（值域登记在 shared collab-telemetry ws_status.reason）。 */
+ *  当前 diag 面统一 `local-hold`（值域登记在 shared collab-telemetry ws_status.reason）。
+ *  Y5 收尾（终审钉 3）：判据收成「此刻仍脏」三信号——unsyncedDirtyDocs、canvasDiverged、
+ *  盘上 diverged 键。bootDiffNonEmpty 退出判据（健康同步清 dirty 后该旗仍保持到会话拆掉——
+ *  版本终态若按它钉 hold，会把已同步干净的库跨刷新钉住：刷新后清扫见 hold===true 跳过复测
+ *  =干净库被永久扣住）；它继续只服务 local→ready 的合并异常检测（§0.2 步 7）。 */
 async function holdLocalDbIfDirty(reason: string): Promise<boolean> {
   void reason;   // 调用点标签（见上注）——diag 面统一 local-hold
   if (!session || localDbName === null || !doc) return false;
@@ -704,7 +711,9 @@ async function holdLocalDbIfDirty(reason: string): Promise<boolean> {
   const generation = session.collabGeneration;
   const schemaVersion = session.collabSchemaVersion;
   if (generation === undefined || schemaVersion === undefined) return false;
-  const dirty = bootDiffNonEmpty || unsyncedDirtyDocs.has(doc) || useCanvasStore.getState().canvasDiverged;
+  // 「此刻仍脏」三信号：未确认编辑、第四桶横幅、盘上 diverged 标记。
+  const st = useCanvasStore.getState();
+  const dirty = unsyncedDirtyDocs.has(doc) || st.canvasDiverged || storedDivergedAtHold === true;
   if (!dirty) return false;
   try {
     await putNameRow(localDbName, {
@@ -1235,23 +1244,14 @@ export function discardLocalDiverged(): void {
   });
 }
 
-/** Y0b-5 T8 spec 修复 1b：diverged 档导出（diverged 内容唯一保全出口）。两形态单源分派：
- *  - boot-diverged（盘上 diverged 记录）：内存 doc 是服务端版本/空——exportLocalBackup(getDoc())
- *    导不出盘上唯一副本（僵尸记录）。改从 boot 留存的盘上快照建临时 Y.Doc 导出双产物
- *    （.yjs 可回灌+.json 反投影）+文件名标注 diverged。
- *  - in-session diverged（readOnly 期本地编辑）：diverged 内容就在内存 doc——直接导出（同标注）。
- *  临时 doc 导出后即弃（Y.Doc 实例零滞留）。失败（jsdom 无 createObjectURL 等）抛给调用方
+/** Y0b-5 T8 spec 修复 1b：diverged 档导出（diverged 内容唯一保全出口）。Y5 收尾（终审钉 1）：
+ *  boot-diverged（盘上 diverged 记录）冷启动会把本地库装进当前 doc——diverged 内容就在内存 doc
+ *  里；in-session diverged（readOnly 期本地编辑）同理。两形态单源=直接导出当前 doc（标注 diverged）。
+ *  旧代 hold 库（当前会话开的是新库、doc 里没有那些内容）不走本函数——横幅导出走
+ *  exportHeldLocalContent（盘上那只库）。失败（jsdom 无 createObjectURL 等）抛给调用方
  *  捕获——用户可重试点击（SyncBanner 动作面 try/catch 同 escapeWithLocalExport 形态）。 */
 export function exportDivergedContent(): LocalBackupArtifact | null {
-  const snap = bootDivergedSnapshot;
-  if (!snap) return exportLocalBackup(doc, getCurrentBackupHeader(), { tag: 'diverged' });
-  const tmp = new Y.Doc();
-  try {
-    Y.applyUpdate(tmp, snap);
-    return exportLocalBackup(tmp, getCurrentBackupHeader(), { tag: 'diverged' });
-  } finally {
-    tmp.destroy();
-  }
+  return exportLocalBackup(doc, getCurrentBackupHeader(), { tag: 'diverged' });
 }
 
 /** Y5 T13（§0.6 v8 横幅读点配套）：**从盘上 hold 库导出**——旧代库被 hold 时，当前会话 doc 里没有
@@ -1890,9 +1890,15 @@ function bindProviderListeners(p: HocuspocusProvider): void {
       // 版本族→reload 自愈（P-C，handleVersionTerminal）；其余终态→四档 UX 由 SyncBanner 渲染
       // Y5 T12（§0.4 版本换代桶 authFailed 面——矩阵第 2 例）：三档成员有差分/diverged ⇒ hold+横幅
       // （库留、canvasDiverged 亮）；无差分零动作（删除权归 T13 删除闸）。
+      // Y5 收尾（终审钉 3）：hold 前置 await——先把 hold 行落盘，再让 handleVersionTerminal 探测
+      // （其 safeReload('version') 的 dirty 分叉只看 unsyncedDirtyDocs，不受 hold 置位的
+      // canvasDiverged 影响——「版本自愈刷新」不被挡掉）。修前 void 并发的窄窗里 reload 可早于
+      // hold 落盘，刷新后 names 无 hold 行=未裁定信号丢失。write 失败 fail-soft 照常探测。
       if (VERSION_TERMINAL_REASONS.has(reason)) {
-        void holdLocalDbIfDirty('auth-version-terminal');
-        void handleVersionTerminal();
+        void (async () => {
+          try { await holdLocalDbIfDirty('auth-version-terminal'); } catch { /* fail-soft：探测照走 */ }
+          void handleVersionTerminal();
+        })();
       }
     } else {
       // Y0b-5 T4：瞬态档死线联动（终态档不经此——终态 UX 即出口）——pending 期延长一次
@@ -2192,9 +2198,9 @@ async function startCollabSession(
   // Y1b T16：媒体事实会话起点清空（mediaFacts+pendingFacts+lazy 队列——旧项目事实不跨会话）
   resetMediaFacts();
   // Y0b-5 T8：本地缓存编排态会话起点复位（回放判据/docBytes 去重——不跨会话携带）
-  // spec 修复 1a/1b：boot-diverged 会话标记/盘上快照留存同点复位（上一会话 diverged 不跨会话携带）
+  // spec 修复 1a：boot-diverged 会话标记同点复位（上一会话 diverged 不跨会话携带）；
+  // 盘上快照槽已随 Y5 收尾终审钉 1 删除（恒 null 死槽——导出单源=当前 doc/hold 库）。
   bootDiverged = false;
-  bootDivergedSnapshot = null;
   localSnapshotApplied = false;
   lastReportedDocBytes = 0;
   docUpdatedSinceMeasure = false;   // Y5 T11：新层字节闸会话起点复位
@@ -2210,6 +2216,7 @@ async function startCollabSession(
   localDbName = null;
   bootDiffNonEmpty = false;
   sawRemoteUpdateSinceBoot = false;
+  storedDivergedAtHold = false;   // Y5 收尾（终审钉 3）：盘上 diverged 信号随会话复位（新会话水合窗重读）
 
   // ── Y5 T10（§0.2 步 1-2）：meta 三表 names 先写 → 开五维文档库 ──
   // names 写失败/开库失败 ⇒ 本会话不开库改纯服务端水合（fail-closed——无名库=清扫盲区）。
@@ -2372,10 +2379,29 @@ async function startCollabSession(
   // 删 key 也绝不能被这条路径触发。出口显式（本会话仅两途，T12 建四桶完整策略）：
   //   ①导出（exportDivergedContent）/ ②放弃（discardLocalDiverged → reload 后库已清）。
   // 本会话 latches：bootDiverged=true（3s tick 闩锁短路）+ canvasDiverged=true（横幅）。
+  // Y5 收尾（终审钉 3）：盘上 diverged 同时喂 hold 判据三信号（本会话若中途遇版本终态，
+  // 未裁定内容钉 hold；注意置位须在五合取/divergedColdStart 判定**之前**——它不改变冷启动
+  // 行为，只给 holdLocalDbIfDirty 供信号）。
   const divergedColdStart = storedDiverged === '1' && opened !== null;
+  storedDivergedAtHold = storedDiverged === '1';
   if (divergedColdStart) {
     bootDiverged = true;
     useCanvasStore.setState({ canvasDiverged: true });
+  }
+
+  // Y5 收尾（终审钉 2）：**本会话 own 库的 names 行已 hold=true ⇒ 与 diverged 冷启动同模式**
+  // ——只装载、只读、不 connect。跨刷新回来时这只库里是版本终态钉住的未裁定字节：connect 后
+  // SyncStep2 会把被拒更新放进正在连接的 doc 重新上行（spec §0.6 v8「4411 不换 generation/
+  // historyToken，当场 initCollab 会打开同一只库」的对称面）。他代库 hold 不在此列（本会话
+  // 开的是新库——照 connect，横幅仍亮）；own 行的 hold 旗随会话起点「保留存量标记」原样存活，
+  // 此处只读不写。names 读失败 fail-soft：按不 hold 走（connect——删除闸/横幅读点各自兜底）。
+  let ownDbHeld = false;
+  if (localDbName !== null && session?.viewerUid) {
+    try {
+      const ownRow = (await listNameRows()).find((r) => r.dbName === localDbName);
+      if (session?.epoch !== epoch) return abortStale();
+      ownDbHeld = ownRow?.hold === true;
+    } catch { ownDbHeld = false; }
   }
 
   // Y5 T12（§五 M2 注释钉）：bootDiverged/canvasDiverged 在本会话内 **latches**（只在 startCollabSession
@@ -2398,7 +2424,10 @@ async function startCollabSession(
     } catch { enterLocal = false; }   // session 表读失败=证明不可得（fail-closed）
   }
   if (session?.epoch !== epoch) return abortStale();   // 投影/provider 前最后一道判活（含持久层清理）
-  if (enterLocal && doc) {
+  // Y5 收尾（终审钉 2）：own 库 hold=true ⇒ 进 local 的「无裁定位」档不成立——只装载只读
+  //（与 diverged 冷启动同模式：可看不可编；五合取的 ④ 无 diverged 钉的是第四桶标记，
+  // hold 旗是版本换代桶钉住的裁定位，同为「未裁定内容在库里」，对称收口）。
+  if (enterLocal && doc && !ownDbHeld) {
     applyDocToStore(doc);
     useCanvasStore.setState({ collabReadOnly: false });
     useCanvasStore.getState().setHydration('local');
@@ -2428,7 +2457,9 @@ async function startCollabSession(
 
   // I2：diverged 冷启动不建 provider（不 connect、不上行）——只留可导出/可放弃的只读会话。
   // 页面侧 failed 态 + 既有 diverged 横幅二选一（exportDivergedContent / discardLocalDiverged）。
-  if (divergedColdStart) {
+  // Y5 收尾（终审钉 2）：own 库 hold=true 同模式不 connect（横幅动作面=盘上那只库——
+  // exportHeldLocalContent/discardHeldLocalContent 按 names 行分派）。
+  if (divergedColdStart || ownDbHeld) {
     bindReevaluateOnce();   // 回前台/上线复评仍需要（本会话无 provider，恢复面自然空转）
     return epoch;           // provider 保持 null：tick/synced 等待拿到的是「无 provider」安全态
   }
@@ -2473,12 +2504,12 @@ async function startCollabSession(
     // 5s interval 分立，合并会破坏 T7 判据）判 provider 双条件合取（合取 isSynced 理由见
     // unsyncedDirtyDocs 声明处——确认帧断连期永不到达+startSync 曾置 1，单条件会提前清零）。
     // 实例绑定：只清当前会话 doc（终态重建竞态窗口旧 doc 不受影响）。
-    // spec 修复 1a：boot-diverged 会话整体短路——diverged 编辑不在 doc（boot 未回放），
-    // healthySync 恒真=「服务端最终接受」前提虚成立；清 diverged/dirty 会解除闩锁（横幅 3s
-    // 自消+盘上 diverged 记录永存→每次 boot 重发散——v2.2 病态换形）。boot-diverged 的唯一
-    // 出边=横幅二选一：导出（exportDivergedContent——盘上快照）/放弃（discardLocalDiverged→
-    // reload）；「服务端最终接受」（出边③）对本形态结构性不可达：diverged 内容不在 doc，
-    // 确认帧与之无关。
+    // spec 修复 1a：boot-diverged 会话整体短路——本会话不 connect、diverged 键是「未裁定内容」
+    // 唯一存活证据，healthySync 恒真=「服务端最终接受」前提虚成立；清 diverged/dirty 会解除闩锁
+    // （横幅 3s 自消+盘上 diverged 记录永存→每次 boot 重发散——v2.2 病态换形）。boot-diverged 的
+    // 唯一出边=横幅二选一：导出（exportDivergedContent——当前 doc，库已装载）/放弃
+    // （discardLocalDiverged→reload）；「服务端最终接受」（出边③）对本形态结构性不可达：
+    // 本会话无 provider，确认帧与之无关。
     const dNow = doc;
     const healthySync = provider?.isSynced === true && provider.hasUnsyncedChanges === false;
     // Y5 T10（§0.2 步 6-7 / 裁定 ④⑦）：local→ready 唯一出口=健康同步电平（isSynced∧无未确认上行）。
@@ -2661,6 +2692,8 @@ export async function initCollabLocal(
   if (epoch <= 0) return;
   // 离线入口没有服务端水合可等：进不了 local（证明失效/无 grant/未开库）⇒ 立刻落 failed
   //（spec §0.3.5 后半：内容可见、只读副本横幅、库还在——不谎报 pending 让页面死等）。
+  // Y5 收尾（终审钉 2）：own 库 hold=true 的只装载会话同落 failed（与 diverged 冷启动同模式
+  // ——五合取本就过不了「无 diverged/hold 裁定位」档，这里是显式兜底：可看不可编，不谎报 local）。
   if (useCanvasStore.getState().hydration === 'pending') {
     useCanvasStore.getState().setHydration('failed');
   }
@@ -2849,6 +2882,7 @@ async function teardownSession(): Promise<void> {
   localDbName = null;
   bootDiffNonEmpty = false;
   sawRemoteUpdateSinceBoot = false;
+  storedDivergedAtHold = false;   // Y5 收尾（终审钉 3）：盘上 diverged 信号随会话拆清（新会话水合窗重读）
   if (persistence) {
     try { await persistence.destroy(); } catch { /* 已销毁/库连接已关 */ }
   }

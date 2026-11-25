@@ -1563,12 +1563,14 @@ if (isMain()) {
   //  productionCallPoints 14 逐文件对齐：inbound 4+离线 scratch 10；raw 计 15 含 local-backup:64
   //  注释提及——stripped 面不计，census⑨ 同注）。
   const APPLY_UPDATE_WHITELIST = {
-    // load 档（装载/boot 回放）
+    // load 档（装载/boot 回放）——apps/web/src/stores/canvasCollabRuntime.ts 条目已随
+    // Y5 收尾终审钉 1 退役（exportDivergedContent 快照分支删除=bootDivergedSnapshot 死槽，
+    // 唯一 tmp applyUpdate 随之消失——该文件 applyUpdate 白名单点归零）。
     'apps/api/src/modules/collab/collab-doc-registry.service.ts': 1,     // loadDocument spool 帧重放
     'apps/api/src/modules/collab/collab-persistence.service.ts': 1,     // withReplaySuppressed 重放抑制窗
     'apps/api/src/modules/execution/execution-request.service.ts': 2,   // Y1c T21：PG 前缀重建候选 doc（freeze 回退档——snapshot+updates 装载重放，load 档语义；G4 受理冻结读面）
     'apps/api/src/modules/collab/collab-maintenance.service.ts': 4,   // Y1c T27：EXPORTING/VERIFYING recordsOfHydration（快照+增量尾装载重放 ×2 处）+REBUILDING canonical 重建（load 档语义——§6.6 维护导出/复核/重建）
-    'apps/web/src/stores/canvasCollabRuntime.ts': 1,                    // Y5 T10：boot 缓存回放点随水合倒转退役（旧 LocalCollabCache 读路径不再消费，T14 整层删）——余 tmp 导出:1222（离线 tmp——load 档邻位）
+    // （apps/web/src/stores/canvasCollabRuntime.ts: 1 已删——Y5 收尾终审钉 1）
     // import 档（备份导入）
     'apps/web/src/collab/canvas-local-backup.ts': 1,                     // applyLocalBackup（origin=provider 抑制回发；:64 注释提及不计——census⑨ 同注）
     // 离线 scratch 档（非 inbound——compact/快照解码/shrink 预演校准/巡检）
