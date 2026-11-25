@@ -19,7 +19,8 @@ import {
   broadcastRecoveryState, type Y1cClosePayload,
 } from '@/collab/rejected-recovery';
 // T25：per-tab 记录属主 id（信封 tabId 维）+REST 项目 meta 取 g（generation-stale 客户端链）。
-import { getCollabTabId } from '@/collab/local-collab-cache';
+// Y5 T13b：来源改 rejected-recovery（旧层 local-collab-cache 随 T14 退役；函数体逐字搬家零行为变更）。
+import { getCollabTabId } from '@/collab/rejected-recovery';
 import { apiFetch } from '@/api/client';
 import isEqual from 'fast-deep-equal';
 import { message } from 'antd';

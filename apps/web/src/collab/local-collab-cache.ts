@@ -20,6 +20,10 @@
 // 跨 tab 键结构性隔离——T18 双 tab 并存正是本守卫的前置）。
 import { QUOTA_DEFAULTS } from '@flowweb/shared';
 import { parseLocalCacheKey } from './local-cache-key';
+// Y5 T13b：getCollabTabId 已搬家到 rejected-recovery（旧层 T14 退役后全仓唯一来源）——
+// 本文件暂随旧层保留 re-export（T14 整层删时一并消失）；同时 import 供本模块默认参数消费。
+import { getCollabTabId } from './rejected-recovery';
+export { getCollabTabId } from './rejected-recovery';
 
 /** 单 doc 尺寸闸=maxDocBytes 同源无第二系数（裁定 24⑧：编码 ≤ 闸 ⇒ 回放帧=编码+包装 ≤ 闸+ALLOWANCE
  *  恒过=E36 结构性保证；「本地已缓存」是能力承诺，超闸=「太大没缓存」诚实分支）。 */
@@ -40,44 +44,6 @@ const TOTAL_BUDGET_ENTER = 0.8;
 const TOTAL_BUDGET_EXIT = 0.6;
 const TOTAL_BUDGET_CHECK_MIN_MS = 60_000;
 
-/** per-tab 身份（spec §3.4：每标签独立记录）：sessionStorage 作用域=tab 级（跨 reload 稳定、
- *  天然隔 tab）——同 tab 重进覆盖/删除自己的旧记录，异 tab 键结构性隔离。
- *  crypto.randomUUID 缺失环境回落 Math.random+时间戳（身份只需唯一性非不可预测性）。
- *  Q-M-3：不可持久化路径模块级 memo——sessionStorage 抛出/缺席环境（隐私模式/配额禁写/SSR）
- *  下不记忆则每次调用新随机键=孤儿记录累积；内存 memo 保同一 fallback id 会话内稳定。
- *  Q-M-4 登记形态：duplicate-tab（浏览器「复制标签页」）拷贝 sessionStorage→两活体同键 LWW
- *  ——与裁定 25⑹ 两 dirty LWW 同级可接受（两侧皆收敛中 CRDT 态，boot 并集内无损；非复制
- *  形态键隔离结构性成立）。 */
-const TAB_ID_STORAGE_KEY = 'flowweb:collab-tab-id';
-/** Q-M-3：不可持久化路径（sessionStorage 缺席/访问抛出）的模块级 memo——无 memo 则每次调用
- *  新随机键（适配器每构造取默认 tabId=会话内多孤儿键累积；reload 间无任何持久面本就换代）。 */
-let fallbackTabIdMemo: string | null = null;
-function fallbackTabId(): string {
-  if (fallbackTabIdMemo === null) {
-    fallbackTabIdMemo = `tab-fallback-${Math.random().toString(36).slice(2, 12)}`;
-  }
-  return fallbackTabIdMemo;
-}
-export function getCollabTabId(): string {
-  let ss: Storage | undefined;
-  try {
-    ss = typeof sessionStorage !== 'undefined' ? sessionStorage : undefined;
-  } catch {
-    return fallbackTabId();   // 取值即抛（极端环境）——禁抛（缓存禁阻断协作）
-  }
-  if (ss == null) return fallbackTabId();   // storage 缺席（SSR/测试桩）——同 memo（会话内稳定）
-  try {
-    const existing = ss.getItem(TAB_ID_STORAGE_KEY);
-    if (existing) return existing;
-    const id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-    ss.setItem(TAB_ID_STORAGE_KEY, id);
-    return id;
-  } catch {
-    return fallbackTabId();   // 读/写抛出（隐私模式配额禁写）——memo 保会话内同一 id
-  }
-}
 
 export interface LocalCacheRecord {
   /** 记录属主 tab（Y1c T18——store 键=tabId 同值；boot 并集后按此归因） */
