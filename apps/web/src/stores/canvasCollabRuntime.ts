@@ -86,7 +86,7 @@ import { LocalCollabCache, LOCAL_CACHE_MAX_DOC_BYTES, collectFamilyDirtyRecords,
 // 水合次序倒转：先装载本地库再 createProvider（旧 LocalCollabCache boot 读路径不再消费——T14 整层删）。
 import {
   buildYjsDbName, putNameRow, getSessionRows, openYjsDoc,
-  readCustom, writeCustom, deleteCustom, computeDiffBytes, EMPTY_DOC_ENCODE_BYTES,
+  readCustom, writeCustom, deleteCustom, computeDiffBytes, EMPTY_DOC_ENCODE_BYTES, encodeExactStateVector,
 } from '@/collab/local-yjs-store';
 import type { IndexeddbPersistence } from 'y-indexeddb';
 // Y0b-5 T6：导出双产物+导入核（纯模块——doc/provider 注入，无会话态依赖）；卸载警告 reason 集合
@@ -229,8 +229,12 @@ function sendBarrierPayload(payload: string): void {
 }
 
 /** 发送 barrier（T5a 冻结 wire 形态 {nonce,clientSeq,sessionEpoch}——服务端 handler 首语句同步
- *  捕获 target=appliedSeq；回执 {nonce,clientSeq,committedSeq} 双入口同汇 advanceSavedSeq）。 */
+ *  捕获 target=appliedSeq；回执 {nonce,clientSeq,committedSeq} 双入口同汇 advanceSavedSeq）。
+ *  Y5 T11（§0.3.9 验收 22/26）：ready 谓词——local/pending 期 provider 已构造但 SS2 差分未落，
+ *  此刻发 barrier 会让服务端首语句捕获不含这批编辑的 appliedSeq→回执假真 Durable⇒执行打空。
+ *  pagehide 腿同谓词（经本函数）。 */
 function sendSaveBarrier(): void {
+  if (useCanvasStore.getState().hydration !== 'ready') return;
   const p = provider;
   if (!p && !barrierSendChannel) return;
   const nonce = `bar-${++barrierNonceSeq}-${Date.now()}`;
@@ -347,7 +351,8 @@ function consumeBarrierReceipt(msg: Record<string, unknown>): boolean {
   return true;
 }
 
-/** pagehide 触发（spec §4.2——关页前尽力一发；fire-and-forget 不阻导航）。 */
+/** pagehide 触发（spec §4.2——关页前尽力一发；fire-and-forget 不阻导航）。
+ *  Y5 T11：pagehide 腿同谓词（经 sendSaveBarrier 的 hydration==='ready' 首行判定）。 */
 function onPageHideSendBarrier(): void {
   if (lastLocalEditSeq > lastReceiptClientSeq) sendSaveBarrier();
 }
@@ -447,7 +452,9 @@ function runLocalCacheTick(d: Y.Doc): void {
   const sizeEstimate = Math.max(cache.lastSnapshotBytes, useCanvasStore.getState().localDocBytes);
   const gate = cache.checkSizeGate(sizeEstimate);
   const s0 = useCanvasStore.getState();
-  if (gate === 'ok' && s0.canvasOversized && sizeEstimate <= LOCAL_CACHE_MAX_DOC_BYTES) {
+  // Y5 T11：旧块恢复分支加 && !measuredDocOversized——新层测量是权威 latch，旧块只用
+  // localDocBytes 估值，会每 5s 把横幅闪关；T14 旧层退役时本合取随删。
+  if (gate === 'ok' && s0.canvasOversized && sizeEstimate <= LOCAL_CACHE_MAX_DOC_BYTES && !measuredDocOversized) {
     useCanvasStore.setState({ canvasOversized: false });
   }
   // ② Σpending 流控：未上行增量>1MB→forceSync+「同步积压」档（状态显示零动作承诺——永不阻塞
@@ -467,6 +474,45 @@ function runLocalCacheTick(d: Y.Doc): void {
   }
   // ④ 总量闸（内部节流 60s——estimate 占比删最旧 clean 库，fail-soft）
   void cache.evictForTotalQuota();
+}
+
+// ── Y5 T11（§0.5.1）：新层字节闸（T14 删旧层后「内容过大请导出」横幅的面）──
+/** 自上次测量以来有新 update（任意 origin——远端 update 也会撑大文档） */
+let docUpdatedSinceMeasure = false;
+/** 新层测量是权威 latch（超闸边沿只报一次；回落才消）——旧块恢复分支的抑制源 */
+let measuredDocOversized = false;
+/** 最近一次新层实测字节（诊断去重与回落判据） */
+let lastMeasuredDocBytes = 0;
+
+/** Y5 T11（§0.5.1）：新层字节闸——仅在有新 update 时编码（5s 是最小间隔非必跑）。
+ *  复用 measureLocalDocNow 唯一实测口（禁新增 encodeStateAsUpdate 调用点——census ④ 计数=3）。 */
+function runDocSizeGate(): void {
+  if (!docUpdatedSinceMeasure) return;
+  docUpdatedSinceMeasure = false;
+  const bytes = measureLocalDocNow();
+  lastMeasuredDocBytes = bytes;
+  if (bytes > LOCAL_CACHE_MAX_DOC_BYTES) {
+    if (!measuredDocOversized) { measuredDocOversized = true; localCacheHooks.onDegrade('over-size'); }
+  } else if (measuredDocOversized) {
+    measuredDocOversized = false;
+    useCanvasStore.setState({ canvasOversized: false });
+  }
+  if (bytes !== lastReportedDocBytes) { lastReportedDocBytes = bytes; recordCollabDiag('ws_status', { docBytes: bytes }); }
+}
+
+// ── Y5 T11（§0.5.3 验收 9）：QuotaExceeded 写窗降级闩锁 ──
+/** 本会话 IDB 写窗配额降级（单次闩锁——与 localCacheHooks.onDegrade 的既有单次语义同族） */
+let localWriteDegraded = false;
+/** lib0 `rtop` 把请求错误包成 `new Error(event.target.error)`——`err.name` 恒 'Error'，
+ *  只有 message 保留 QuotaExceededError 文案；故判据=双字段。非配额错误原样忽略（非本闩锁面）。 */
+function classifyLocalWriteFailure(err: unknown): void {
+  if (localWriteDegraded) return;
+  const name = (err as { name?: unknown } | null)?.name;
+  const msg = err instanceof Error ? err.message : String(err);
+  if (name === 'QuotaExceededError' || msg.includes('QuotaExceededError')) {
+    localWriteDegraded = true;
+    localCacheHooks.onDegrade('idb-error');    // 既有单次闩锁语义（localCacheReady=false + diag）
+  }
 }
 
 // ── Y0b-5 T7（E40 分叉自检）：60s 同步延迟窗（消费上单源——dirty 判读禁第二判据）──
@@ -520,6 +566,9 @@ export function hasUnsyncedCanvasChanges(): boolean {
 function mountUnsyncedDirtyTracker(d: Y.Doc): void {
   d.on('update', (u: Uint8Array, origin: unknown) => {
     if (doc !== d) return;               // 陈旧会话回调零写
+    // Y5 T11（§0.5.1）：新层字节闸的「有新 update」标记——判活之后、origin 过滤之前
+    // （口径=任意 origin：远端 update 也会撑大文档）。
+    docUpdatedSinceMeasure = true;
     if (origin === provider) return;     // 远端 apply/导入（suppress-origin）——非本地编辑
     if (origin === localPersistence) return;   // Y5 T10：indexeddb 装载/回放——非本地编辑（§0.2 步 6）
     unsyncedPendingBytes.set(d, (unsyncedPendingBytes.get(d) ?? 0) + u.byteLength);   // T8 Σpending（先于置位早退——逐 update 累计）
@@ -1677,7 +1726,9 @@ function bindProviderListeners(p: HocuspocusProvider): void {
     // 离线不可编辑（fail-closed）。写失败静默：下次认证重试（grant 缺失=进不了 local，不误放行）。
     if (localPersistence) {
       const grant = scope === 'read-write' ? 'read-write' : 'read';
-      void writeCustom(localPersistence, 'writeGrant', grant).catch(() => undefined);
+      // Y5 T11（§0.5.3 验收 9）：本端自有 promise 的写窗——QuotaExceeded 闩锁降级；
+      // 其余 rejection 静默（下次认证重试，grant 缺失=进不了 local 不误放行）。
+      void writeCustom(localPersistence, 'writeGrant', grant).catch((e: unknown) => { classifyLocalWriteFailure(e); });
     }
     useCanvasStore.setState((s) => ({
       connReadOnly,
@@ -2130,6 +2181,10 @@ async function startCollabSession(
   bootDivergedSnapshot = null;
   localSnapshotApplied = false;
   lastReportedDocBytes = 0;
+  docUpdatedSinceMeasure = false;   // Y5 T11：新层字节闸会话起点复位
+  measuredDocOversized = false;
+  lastMeasuredDocBytes = 0;
+  localWriteDegraded = false;       // Y5 T11：配额降级闩锁会话起点复位
   savedSeq = 0;   // Y1c T18：持久化水位随会话复位（新代 doc 水位语义独立——旧代 pgSeq 不携带）
   // 批1-1 watchdog 会话变量复位（模块级共享——见声明处注释）：每会话自然复位，旧会话计时/退避不携带
   lastInboundAt = Date.now();
@@ -2426,6 +2481,7 @@ async function startCollabSession(
   syncLagTimer = setInterval(() => {
     const d = doc;
     if (!d) return;
+    runDocSizeGate();       // Y5 T11（§0.5.1）：新层字节闸（有 update 才编码）
     runLocalCacheTick(d);   // Y0b-5 T8：尺寸闸复检+Σpending 流控+docBytes 遥测+总量闸（零新定时器——先于 syncLag 早退）
     const st = useCanvasStore.getState();
     const healthy = st.connStatus === 'connected' && !st.writeFrozen && !st.quotaOver && !st.collabReadOnly;
@@ -2466,8 +2522,7 @@ async function persistServerState(d: Y.Doc): Promise<void> {
   if (bootDiverged) return;
   let exactSv: ArrayBuffer;
   try {
-    const sv = Y.encodeStateVector(d);
-    exactSv = sv.buffer.slice(sv.byteOffset, sv.byteOffset + sv.byteLength);
+    exactSv = encodeExactStateVector(d);
   } catch {
     markDocUnsyncedDirty(d, { skipCacheFlush: true });
     return;
@@ -2475,8 +2530,9 @@ async function persistServerState(d: Y.Doc): Promise<void> {
   try {
     await writeCustom(persistence, 'serverSV', exactSv);
     await deleteCustom(persistence, 'diverged');
-  } catch {
+  } catch (err) {
     markDocUnsyncedDirty(d, { skipCacheFlush: true });
+    classifyLocalWriteFailure(err);   // Y5 T11（§0.5.3 验收 9）：写窗 QuotaExceeded 闩锁降级
   }
 }
 
@@ -2710,6 +2766,9 @@ function armSession(epoch: number): void {
   // → handleFeedHint 拉取追平（心跳同形载荷同路——两通道都只触发 HTTP 游标拉取）。
 
   awarenessBridge = new AwarenessBridge(provider!); // 非空：水合成功/自愈路径 provider 均为本会话活实例
+  // Y5 T11（§0.3.9 验收 26）：ready 补发——local/pending 期 clientSeq 照常自增但屏障被谓词拦住，
+  // 进 ready 时若存在未覆盖编辑补发一次（armedEpoch latch 保证只补发一次）。
+  if (lastLocalEditSeq > lastReceiptClientSeq) sendSaveBarrier();
 }
 
 /** Y0b-5 T4：failed→ready 自愈（offline.test:78-90 预留接口本批落位）——迟到 synced 单驱动

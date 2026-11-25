@@ -4,8 +4,14 @@
 // 成功档 {clientSeq,committedSeq}；错误档（BARRIER_FAILED/maintenance）不产生 Durable 不推进。
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { getSavedSeq, ensureDurableBeforeExecution, __t21BarrierTestSeam } from './canvasCollabRuntime';
+import { useCanvasStore } from './canvasStore';
 
 const seam = __t21BarrierTestSeam();
+
+// Y5 T11（§0.3.9）：sendSaveBarrier 首行谓词 hydration==='ready'——四触发面单测须置 ready 前提，
+// 结束后复原 idle（不把状态泄漏给其它文件/用例）。
+beforeEach(() => { useCanvasStore.getState().setHydration('ready'); });
+afterEach(() => { useCanvasStore.getState().setHydration('idle'); });
 
 describe('Y1c T21：save barrier 客户端（回执双入口同汇 advanceSavedSeq）', () => {
   beforeEach(() => { seam.reset(); });

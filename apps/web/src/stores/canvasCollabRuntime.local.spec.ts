@@ -35,6 +35,7 @@ const harness = vi.hoisted(() => ({
   openResolved: false,
   openResolvedAtProviderCreate: [] as boolean[],
   failNames: false,
+  failServerSvEncode: false,   // Y5 T11：serverSV 编码抛错注入（⑤）
   persistence: null as unknown,
   sessionDeferred: null as null | { promise: Promise<void>; release: () => void },
 }));
@@ -57,6 +58,11 @@ vi.mock('@/collab/local-yjs-store', async (importOriginal) => {
     getSessionRows: async () => {
       if (harness.sessionDeferred) await harness.sessionDeferred.promise;
       return orig.getSessionRows();
+    },
+    // Y5 T11 E：serverSV 编码抛错注入（persistServerState try 块唯一抽取点）
+    encodeExactStateVector: (d: import('yjs').Doc) => {
+      if (harness.failServerSvEncode) throw new Error('serverSV encode failed (injected)');
+      return orig.encodeExactStateVector(d);
     },
   };
 });
@@ -221,6 +227,7 @@ beforeEach(() => {
   harness.openResolved = false;
   harness.openResolvedAtProviderCreate.length = 0;
   harness.failNames = false;
+  harness.failServerSvEncode = false;
   harness.sessionDeferred = null;
   _resetCollabDiagForTest();
   _resetUnloadGuardForTest();
@@ -821,4 +828,194 @@ describe('T10 M3：降级遥测只发一次', () => {
     const hits = getRecentCollabDiag().filter((e) => e.type === 'ws_status' && (e.detail as any)?.reason === 'local-cache-degraded');
     expect(hits.length).toBe(1);   // 修前=2（两处同文案各发一次）
   });
+});
+
+// ══════════ T11 ①local 态零发送 + pagehide 零发送（验收 22，§0.3.9） ══════════
+describe('T11 ①local 态屏障零发送', () => {
+  it('local 期本地编辑→800ms 屏障零发送；pagehide 腿同谓词仍零发送', async () => {
+    const ids = caseIds('u-t11-local', 'p-t11-local', 'h-t11-local');
+    localStorage.setItem('collab:history-id', ids.token);
+    await seedSession(ids.uid);
+    await seedUpdates(ids.dbName, [snapshotOf((d) => { d.getMap('nodes').set('n-t11l', seedNode('l')); })]);
+    await seedCustom(ids.dbName, { writeGrant: 'read-write', serverSV: emptySvBuffer() });
+
+    const seam = runtime.__t21BarrierTestSeam();
+    const sent: Array<Record<string, unknown>> = [];
+    seam.setSendChannel((payload) => { sent.push(JSON.parse(payload)); });
+
+    await runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+    expect(useCanvasStore.getState().hydration).toBe('local');   // 前置锚：谓词只放行 ready
+    const d = runtime.getDoc()!;
+    d.transact(() => { d.getMap('m').set('t11-local', 1); }, Origin.LocalUser);
+    expect(seam.localEdits()).toBeGreaterThan(0);                 // clientSeq 在 local 照常增加
+
+    await vi.advanceTimersByTimeAsync(801);   // 800ms idle 触发点
+    expect(sent.length).toBe(0);              // 修前：provider 存在即发（红）
+    seam.firePageHide();
+    expect(sent.length).toBe(0);              // pagehide 腿同谓词
+    seam.setSendChannel(null);
+  });
+});
+
+// ══════════ T11 ②pending 零发送 + 进 ready 恰补发一次（验收 26，§0.3.9） ══════════
+describe('T11 ②pending 零发送 + ready 补发', () => {
+  it('pending 期编辑→屏障零发送；synced 抬 ready 恰补发一次且序号盖住 local 期编辑', async () => {
+    const ids = caseIds('u-t11-pending', 'p-t11-pending', 'h-t11-pending');
+    const seam = runtime.__t21BarrierTestSeam();
+    const sent: Array<Record<string, unknown>> = [];
+    seam.setSendChannel((payload) => { sent.push(JSON.parse(payload)); });
+
+    const done = runtime.initCollab(ids.pid, ids.meta);   // 在线路径（无 historyToken=纯服务端水合）
+    await until(() => lastInstance() !== undefined, 'provider 未创建');
+    expect(useCanvasStore.getState().hydration).toBe('pending');
+    const d = runtime.getDoc()!;
+    d.transact(() => { d.getMap('m').set('t11-p-a', 1); }, Origin.LocalUser);
+    d.transact(() => { d.getMap('m').set('t11-p-b', 2); }, Origin.LocalUser);
+
+    await vi.advanceTimersByTimeAsync(801);
+    expect(sent.length).toBe(0);                              // 修前：pending 即发（红）
+    expect(useCanvasStore.getState().hydration).toBe('pending');
+
+    const p = lastInstance();
+    p.isSynced = true;
+    p.unsyncedChanges = 0;
+    p.emit('synced', {});
+    await done;
+
+    expect(useCanvasStore.getState().hydration).toBe('ready');
+    expect(sent.length).toBe(1);                              // armSession 补发恰一次
+    expect(sent[0]!.clientSeq).toBe(seam.localEdits());        // 序号盖住 local 期编辑
+    expect(seam.localEdits()).toBe(2);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(sent.length).toBe(1);                              // 无新编辑不重发
+    seam.setSendChannel(null);
+  });
+});
+
+// ══════════ T11 ③local 期编辑 → 健康 tick 进 ready 补发（验收 26 local 形态） ══════════
+describe('T11 ③local→ready 补发', () => {
+  it('local 期编辑零发送；3s 健康同步进 ready 后补发一次（clientSeq=local 末值）', async () => {
+    const ids = caseIds('u-t11-l2r', 'p-t11-l2r', 'h-t11-l2r');
+    localStorage.setItem('collab:history-id', ids.token);
+    await seedSession(ids.uid);
+    await seedUpdates(ids.dbName, [snapshotOf((d) => { d.getMap('nodes').set('n-t11-l2r', seedNode('lr')); })]);
+    await seedCustom(ids.dbName, { writeGrant: 'read-write' });   // 无 serverSV → 本端差分（纯快进不跑检测）
+
+    const seam = runtime.__t21BarrierTestSeam();
+    const sent: Array<Record<string, unknown>> = [];
+    seam.setSendChannel((payload) => { sent.push(JSON.parse(payload)); });
+
+    await runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+    expect(useCanvasStore.getState().hydration).toBe('local');
+    const d = runtime.getDoc()!;
+    d.transact(() => { d.getMap('m').set('t11-l2r', 1); }, Origin.LocalUser);
+    await vi.advanceTimersByTimeAsync(900);
+    expect(sent.length).toBe(0);                              // 修前：800ms idle 即发（红）
+
+    const p = lastInstance();
+    p.isSynced = true;
+    p.unsyncedChanges = 0;
+    await vi.advanceTimersByTimeAsync(3_100);   // 3s 健康同步 tick=local→ready 唯一出口
+
+    expect(useCanvasStore.getState().hydration).toBe('ready');
+    expect(sent.length).toBe(1);
+    expect(sent[0]!.clientSeq).toBe(seam.localEdits());
+    expect(seam.localEdits()).toBe(1);
+    seam.setSendChannel(null);
+  });
+});
+
+// ══════════ T11 ④QuotaExceeded 写窗 → 降级闩锁（验收 9，§0.5.3） ══════════
+describe('T11 ④QuotaExceeded 写窗降级', () => {
+  it('set 拒绝 QuotaExceededError → localCacheReady=false 且降级遥测恰一次（重 tick 不重发）', async () => {
+    const ids = caseIds('u-t11-quota', 'p-t11-quota', 'h-t11-quota');
+    localStorage.setItem('collab:history-id', ids.token);
+    await seedSession(ids.uid);
+    const update = snapshotOf((d) => { d.getMap('nodes').set('n-t11q', seedNode('q')); });
+    await seedUpdates(ids.dbName, [update]);
+    await seedCustom(ids.dbName, { writeGrant: 'read-write', serverSV: svBufferOf(update) });
+
+    await runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+    expect(useCanvasStore.getState().hydration).toBe('local');
+    expect(useCanvasStore.getState().localCacheReady).toBe(true);   // 前置锚：小 doc 能力位已真
+
+    // lib0 rtop 形态：请求错误包成 new Error(event.target.error)——name 恒 'Error'，message 保留文案
+    const rejectQuota = (() => Promise.reject(
+      new Error(String(new DOMException('The quota has been exceeded.', 'QuotaExceededError'))),
+    )) as unknown as typeof IndexeddbPersistence.prototype.set;
+    vi.spyOn(IndexeddbPersistence.prototype, 'set').mockImplementation(rejectQuota);
+
+    const p = lastInstance();
+    p.isSynced = true;
+    p.unsyncedChanges = 0;
+    await vi.advanceTimersByTimeAsync(3_100);   // 3s 健康 tick → persistServerState 写窗
+    await pumpImmediate(8);
+
+    expect(useCanvasStore.getState().localCacheReady).toBe(false);   // 修前：write 失败只标 dirty（红）
+    const hits = () => getRecentCollabDiag().filter((e) => e.type === 'ws_status' && (e.detail as any)?.reason === 'local-cache-degraded');
+    expect(hits().length).toBe(1);   // 既有单次闩锁语义
+
+    await vi.advanceTimersByTimeAsync(3_100);   // 再一 tick（写窗重试）→ 闩锁不再发
+    await pumpImmediate(8);
+    expect(hits().length).toBe(1);
+  });
+});
+
+// ══════════ T11 ⑤serverSV 编码抛错腿（⑤ 可测化前提） ══════════
+describe('T11 ⑤serverSV 编码抛错', () => {
+  it('编码抛错 → 标 dirty 且盘上 serverSV 不被改写；恢复后健康 tick 清 dirty', async () => {
+    const ids = caseIds('u-t11-sv', 'p-t11-sv', 'h-t11-sv');
+    localStorage.setItem('collab:history-id', ids.token);
+    await seedSession(ids.uid);
+    const update = snapshotOf((d) => { d.getMap('nodes').set('n-t11sv', seedNode('sv')); });
+    await seedUpdates(ids.dbName, [update]);
+    const seedSv = svBufferOf(update);
+    await seedCustom(ids.dbName, { writeGrant: 'read-write', serverSV: seedSv });
+
+    await runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(false);   // 前置锚：serverSV 覆盖 = 不 dirty
+
+    const p = lastInstance();
+    p.isSynced = true;
+    p.unsyncedChanges = 0;
+    harness.failServerSvEncode = true;
+    await vi.advanceTimersByTimeAsync(3_100);
+    await pumpImmediate(8);
+
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(true);    // 修前：无注入点，编码成功（红）
+    const stored = await readRawCustom(ids.dbName, 'serverSV');
+    expect(Array.from(new Uint8Array(stored as ArrayBuffer))).toEqual(Array.from(new Uint8Array(seedSv)));   // 坏/未写都不许落盘
+
+    harness.failServerSvEncode = false;
+    await vi.advanceTimersByTimeAsync(3_100);   // 健康 tick：清 dirty 段
+    await pumpImmediate(8);
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(false);
+  });
+});
+
+// ══════════ T11 ⑥新层字节闸（§0.5.1——T14 删旧层后横幅不得静默失效） ══════════
+describe('T11 ⑥新层字节闸', () => {
+  it('doc 编码超闸 → canvasOversized+localCacheReady=false；删除回落 → canvasOversized=false', async () => {
+    const ids = caseIds('u-t11-gate', 'p-t11-gate', 'h-t11-gate');
+    localStorage.setItem('collab:history-id', ids.token);
+    await seedSession(ids.uid);
+    const update = snapshotOf((d) => { d.getMap('nodes').set('n-t11g', seedNode('g')); });
+    await seedUpdates(ids.dbName, [update]);
+    await seedCustom(ids.dbName, { writeGrant: 'read-write', serverSV: svBufferOf(update) });
+
+    await runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+    expect(useCanvasStore.getState().hydration).toBe('local');
+    expect(useCanvasStore.getState().localCacheReady).toBe(true);
+
+    // origin=persistence（装载回放族）：不进 dirty/flush 链——单测新层闸本身（口径=任意 origin）
+    const d = runtime.getDoc()!;
+    d.transact(() => { d.getMap('m').set('t11-big', 'x'.repeat(9 * 1024 * 1024)); }, harness.persistence);
+    await vi.advanceTimersByTimeAsync(5_100);   // 5s syncLagTimer=测量节律（零新定时器）
+    expect(useCanvasStore.getState().canvasOversized).toBe(true);    // 修前：旧块用 localDocBytes=0 估值把横幅闪关（红）
+    expect(useCanvasStore.getState().localCacheReady).toBe(false);
+
+    d.transact(() => { d.getMap('m').delete('t11-big'); }, harness.persistence);
+    await vi.advanceTimersByTimeAsync(5_100);
+    expect(useCanvasStore.getState().canvasOversized).toBe(false);   // 回落恢复
+  }, 60_000);
 });

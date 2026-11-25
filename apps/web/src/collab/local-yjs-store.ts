@@ -381,6 +381,12 @@ export function computeDiffBytes(doc: Y.Doc, serverSV: Uint8Array | null): Promi
   return Promise.resolve(Y.encodeStateAsUpdate(doc, serverSV ?? undefined).byteLength);
 }
 
+/** serverSV 精确切片（§0.1.5）：encodeStateVector 返回视图，IDB 只收独立 ArrayBuffer。 */
+export function encodeExactStateVector(d: Y.Doc): ArrayBuffer {
+  const sv = Y.encodeStateVector(d);
+  return sv.buffer.slice(sv.byteOffset, sv.byteOffset + sv.byteLength);
+}
+
 /** 删除闸/清扫测量（§0.2 步 2 尾、§0.6）：装载→读库内 serverSV→算差分字节→立即销毁 doc 与
  *  persistence。超时=hold 语义（调用方不删）且**不写 bannedDbNames**（一次清扫超时不得锁死
  *  本会话开项目）。测完的 doc 只用于计算，绝不移交 provider（本函数不连任何连接）。 */
