@@ -14,6 +14,7 @@ import {
   DOC_VACUUMING_TERMINAL_REASON, CLIENT_OUTDATED_REASON,
 } from '@flowweb/shared';
 import { useCanvasStore, clearLocalPreviewAll } from './canvasStore';
+import { TICK_MS } from './connectionMachine';
 import * as runtime from './canvasCollabRuntime';
 import { buildYjsDbName, listNameRows, putSessionRow, type SessionRow } from '@/collab/local-yjs-store';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
@@ -363,8 +364,73 @@ describe('T12 四桶：无差分零动作', () => {
     lastInstance().emit('authenticationFailed', { reason: CollabAuthReason.SCHEMA_OUTDATED });
     await pumpImmediate(10);
 
-    expect((await readNameRow(ids.dbName))?.hold).toBe(false);   // T12 无差分零动作
+    expect((await readNameRow(ids.dbName))?.hold).toBe(false);   // 此刻不脏（已同步干净）⇒ 不钉 hold
     expect(customHarness.purgeCalls).toHaveLength(0);
+  });
+});
+
+// ══════════ Y5 收尾 F3：hold 判据收紧 + 版本终态先落 hold 再刷新（终审钉 3）══════════
+describe('Y5 收尾 F3：hold 判据=此刻仍脏', () => {
+  it('差分空但 bootDiffNonEmpty（boot 曾有差分、健康同步已清 dirty）⇒ 版本终态不写 hold——已同步干净的库不跨刷新钉住', async () => {
+    const ids = caseIds('u-f3a', 'p-f3a', 'h-f3a');
+    await enterLocal(ids);   // 库有内容、无 serverSV ⇒ boot 差分非空
+    expect(useCanvasStore.getState().canvasDiverged).toBe(false);
+    // 健康同步：provider synced+零未确认上行 ⇒ 3s tick 清 dirty（此时 bootDiffNonEmpty 仍 true）
+    const p = lastInstance();
+    p.isSynced = true;
+    p.unsyncedChanges = 0;
+    p.emit('synced', {});
+    await vi.advanceTimersByTimeAsync(TICK_MS + 100);
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(false);   // 前置锚：健康同步后 dirty 已清
+
+    p.emit('authenticationFailed', { reason: CollabAuthReason.SCHEMA_OUTDATED });
+    await pumpUntilTrue(async () => reloadSpy.mock.calls.length > 0 || (await readNameRow(ids.dbName))?.hold === true, '版本终态未落任何动作');
+
+    expect((await readNameRow(ids.dbName))?.hold).toBe(false);   // 修前：bootDiffNonEmpty 旧判据会钉 hold（红）
+    expect(useCanvasStore.getState().canvasDiverged).toBe(false);
+  });
+
+  it('此刻仍脏（unsyncedDirty 未清）⇒ authFailed 版本族 hold 行先于「reload/escape 落位」落盘——顺序锚', async () => {
+    const ids = caseIds('u-f3b', 'p-f3b', 'h-f3b');
+    // 差分非空（无 serverSV）——writeGrant 靠 authenticated 事件真实写（buckets harness 不直写）。
+    localStorage.setItem('collab:history-id', ids.token);
+    await seedSession(ids.uid);
+    const update = snapshotOf((d) => { d.getMap('nodes').set(`n-${ids.token}`, seedNode(ids.token)); });
+    await seedUpdates(ids.dbName, [update]);
+    await seedCustom(ids.dbName, { writeGrant: 'read-write', serverSV: svBufferOf(update) });   // 差分空
+    await runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+    expect(useCanvasStore.getState().hydration).toBe('local');
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(false);   // 前置锚：差分空
+    // authenticated 真实写 grant（bindProviderListeners——:1744 writeCustom）⇒ 手动本地编辑造「此刻仍脏」
+    lastInstance().emit('authenticated', { token: null, scope: 'read-write' });
+    // 顺序锚（真分辨腿）：清 dirty 后立刻制造未确认本地编辑（provider 不回 synced/确认帧——
+    // unsyncedDirty 保持），版本终态须在「escape/reload 落位」之前把 hold 写盘。
+    const d = runtime.getDoc()!;
+    d.getMap('nodes').set(`n-live-${ids.token}`, seedNode(`live-${ids.token}`));   // 本地 origin 编辑
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(true);   // 前置锚：此刻仍脏
+    sessionStorage.clear();   // handleVersionTerminal 的 csv 防重键清零（每例 fetch 已唯一 csv）
+    reloadSpy.mockClear();
+
+    lastInstance().emit('authenticationFailed', { reason: CollabAuthReason.SCHEMA_OUTDATED });
+    // dirty 会话下 handleVersionTerminal 走 escape 落位（safeReload dirty 分叉——不动）；
+    // 本腿只钉顺序：hold 行先于「reload/escape 任一落位」在盘上。
+    await pumpUntilTrue(async () => reloadSpy.mock.calls.length > 0 || useCanvasStore.getState().collabEscapePending === true, '版本终态未落 reload/escape');
+
+    expect(await readNameRow(ids.dbName)).toBeTruthy();
+    expect((await readNameRow(ids.dbName))?.hold).toBe(true);   // 修前：void 并发窄窗可先落 escape 再落 hold（红）
+    expect(useCanvasStore.getState().canvasDiverged).toBe(true);
+  });
+
+  it('canvasDiverged 亮（in-session 第四桶）⇒ 版本终态同写 hold——三信号谓词第二腿', async () => {
+    const ids = caseIds('u-f3c', 'p-f3c', 'h-f3c');
+    await enterLocal(ids, { withDiff: false });   // 差分空（排除第一腿干扰）
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(false);
+    useCanvasStore.setState({ canvasDiverged: true });   // 第四桶已置横幅（readOnly 期本地编辑形态）
+
+    lastInstance().emit('authenticationFailed', { reason: CollabAuthReason.SCHEMA_OUTDATED });
+    await pumpUntilTrue(async () => (await readNameRow(ids.dbName))?.hold === true, 'canvasDiverged 腿未写 hold');
+
+    expect(useCanvasStore.getState().canvasDiverged).toBe(true);
   });
 });
 

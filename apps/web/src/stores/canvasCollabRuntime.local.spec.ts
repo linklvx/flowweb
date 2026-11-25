@@ -24,7 +24,7 @@ import { useCanvasStore, clearLocalPreviewAll } from './canvasStore';
 import { canEdit, canExecute } from './syncStatus';
 import * as runtime from './canvasCollabRuntime';
 import { Origin, getUndoManager } from './canvasUndo';
-import { buildYjsDbName, isDbNameBannedThisSession, putSessionRow, type SessionRow } from '@/collab/local-yjs-store';
+import { buildYjsDbName, isDbNameBannedThisSession, putNameRow, putSessionRow, type SessionRow } from '@/collab/local-yjs-store';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 import { _resetUnloadGuardForTest } from '@/utils/unloadGuard';
 
@@ -195,6 +195,18 @@ async function readRawCustom(name: string, key: string): Promise<unknown> {
 async function dbExists(name: string): Promise<boolean> {
   const dbs = await indexedDB.databases();
   return dbs.some((d) => d.name === name);
+}
+
+/** 直写 names 行（F2 装置：模拟跨刷新后盘上 hold 标记——绕过会话起点重写）。 */
+async function seedNameRowHold(
+  dbName: string,
+  ids: ReturnType<typeof caseIds>,
+  hold: boolean,
+): Promise<void> {
+  await putNameRow(dbName, {
+    uid: ids.uid, pid: ids.pid, generation: ids.generation, schemaVersion: ids.schemaVersion,
+    historyToken: ids.token, hold,
+  });
 }
 
 /** session 证明行（userSnapshot 白名单十字段——值域形状由 T3 钉死）。 */
@@ -657,6 +669,75 @@ describe('T10 I2：diverged 冷启动', () => {
     expect(await readRawCustom(ids.dbName, 'diverged')).toBe('1');
     expect(await readRawCustom(ids.dbName, 'serverSV')).toBeUndefined();   // 原始 IDB 缺键=undefined
     expect(useCanvasStore.getState().canvasDiverged).toBe(true);            // 闩锁未随 tick 自解
+  });
+});
+
+// ══════════ Y5 收尾 F1：bootDivergedSnapshot 死槽退役（终审钉 1）══════════
+describe('Y5 收尾 F1：diverged 导出恒走当前 doc', () => {
+  it('in-session diverged 会话 exportDivergedContent 直接导出内存 doc——快照槽删除后行为不变（恒 null 死槽）', async () => {
+    const ids = caseIds('u-f1', 'p-f1', 'h-f1');
+    localStorage.setItem('collab:history-id', ids.token);
+    await seedSession(ids.uid);
+    const update = snapshotOf((d) => { d.getMap('nodes').set('n-f1', seedNode('f1')); });
+    await seedUpdates(ids.dbName, [update]);
+    await seedCustom(ids.dbName, { writeGrant: 'read-write' });
+
+    await runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+    expect(useCanvasStore.getState().hydration).toBe('local');
+    useCanvasStore.setState({ canvasDiverged: true });   // 横幅态（in-session diverged 形态）
+
+    // jsdom 无 createObjectURL（导出下载面不可达）——修前快照槽恒 null ⇒ 必走当前 doc 分支，
+    // 故「走当前 doc」的观测锚=TypeError 的 doc 源非空（getDoc() 非空才会走到 downloadBlob）。
+    expect(runtime.getDoc()).not.toBeNull();
+    expect(() => runtime.exportDivergedContent()).toThrow(TypeError);
+    // 行为不变性锚（修前同红/同绿——恒 null 死槽删除后导出去向不变）
+  });
+});
+
+// ══════════ Y5 收尾 F2：own 库 hold=true 冷启动不 connect（终审钉 2）══════════
+describe('Y5 收尾 F2：本会话 own 库 hold 行', () => {
+  it('own 库 names 行 hold=true ⇒ 不建 provider（不 connect）、canvasDiverged 亮、内容仅投影；盘上 diverged 键非第四桶形态', async () => {
+    const ids = caseIds('u-f2a', 'p-f2a', 'h-f2a');
+    localStorage.setItem('collab:history-id', ids.token);
+    await seedSession(ids.uid);
+    const update = snapshotOf((d) => { d.getMap('nodes').set('n-f2a', seedNode('f2a')); });
+    await seedUpdates(ids.dbName, [update]);
+    await seedCustom(ids.dbName, { writeGrant: 'read-write' });
+    // names 行必须由 startCollabSession 自己写（buildYjsDbName→putNameRow 链）——盘上预写会被
+    // 会话起点重写。种子改走「先正常进 local 一次」把行写盘，再作废 names 行 hold 标记模拟跨刷新。
+    await runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+    expect(useCanvasStore.getState().hydration).toBe('local');   // 前置锚：第一次会话正常进 local
+    await runtime.destroyCollab();
+    await seedNameRowHold(ids.dbName, ids, true);
+
+    (HocuspocusProvider as any).instances.length = 0;   // 跨刷新=新页面生命周期（计数只看第二次会话）
+    await runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });   // 冷启动（跨刷新形态）
+
+    expect((HocuspocusProvider as any).instances.length).toBe(0);   // 修前：own hold 冷启动照 connect（红）
+    expect(useCanvasStore.getState().canvasDiverged).toBe(true);
+    expect(useCanvasStore.getState().hydration).toBe('failed');
+    expect(useCanvasStore.getState().nodes.map((n: any) => n.id)).toContain('n-f2a');   // 只装载只读
+    expect(await readRawCustom(ids.dbName, 'diverged')).toBeUndefined();   // 不伪造第四桶标记
+  });
+
+  it('他代 hold（own 行 hold=false）⇒ 照常建 provider——横幅亮但库照 connect（新库不因他代拒帧被扣）', async () => {
+    const ids = caseIds('u-f2b', 'p-f2b', 'h-f2b');
+    const other = caseIds('u-f2b', 'p-f2b', 'h-f2b-old', 2, 2);   // 同 uid:pid 旧代
+    localStorage.setItem('collab:history-id', ids.token);
+    await seedSession(ids.uid);
+    const update = snapshotOf((d) => { d.getMap('nodes').set('n-f2b', seedNode('f2b')); });
+    await seedUpdates(ids.dbName, [update]);
+    await seedCustom(ids.dbName, { writeGrant: 'read-write' });
+    await runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+    expect(useCanvasStore.getState().hydration).toBe('local');   // 前置锚
+    await runtime.destroyCollab();
+    await seedNameRowHold(other.dbName, other, true);   // 旧代库 hold=true（names 行直写——不走会话）
+
+    (HocuspocusProvider as any).instances.length = 0;   // 跨刷新=新页面生命周期（计数只看第二次会话）
+    await runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+
+    expect((HocuspocusProvider as any).instances.length).toBe(1);   // own 行干净 ⇒ 照 connect（行为不变性锚）
+    expect(useCanvasStore.getState().canvasDiverged).toBe(true);    // T13 findHeldNameRow 读点亮横幅
   });
 });
 
