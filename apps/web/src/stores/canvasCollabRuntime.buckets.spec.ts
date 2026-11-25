@@ -352,10 +352,13 @@ describe('T12 acceptServerRestoredRecovery 导出闸', () => {
 
 // ══════════ ⑧无差分零动作（T12 不写 hold；删除权归 T13 删除闸）══════════
 describe('T12 四桶：无差分零动作', () => {
-  it('差分空 + schema-outdated → hold 仍 false + purgePidDbFamily 零调用', async () => {
+  it('差分空 + schema-outdated → hold 仍 false；终态 handler 自身不触发 purge-family', async () => {
     const ids = caseIds('u-b8', 'p-b8', 'h-b8');
     await enterLocal(ids, { withDiff: false });
     expect(runtime.hasUnsyncedCanvasChanges()).toBe(false);   // 前置锚：差分空
+    // Y5 T13：会话起点有一次启动清扫（sweepStartup 排除本会话库，不产生 purge-family）。
+    // 断言口径=「终态 handler 自身不调 purge-family」——先清空计数再触发。
+    customHarness.purgeCalls.length = 0;
 
     lastInstance().emit('authenticationFailed', { reason: CollabAuthReason.SCHEMA_OUTDATED });
     await pumpImmediate(10);

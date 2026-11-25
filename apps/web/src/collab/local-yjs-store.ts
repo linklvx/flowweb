@@ -634,8 +634,10 @@ export async function purgeUidDbs(uid: string): Promise<SweepResult> {
  *  - 墓碑库（names.tombstone===true）**直删不过闸不读内容**（§0.1.4）；
  *  - `flowweb:yjs:` 他人 uid 库**不碰**（登出 purgeUidDbs 的职责）；
  *  - 旧层 `flowweb:collab:` 前缀**本任务不删**（T14 整层退役时随删——t18 等旧层用例仍依赖）。
- *  零库=正常返回（首次启动不是错误）。 */
-export async function sweepStartup(uid: string): Promise<SweepResult> {
+ *  零库=正常返回（首次启动不是错误）。
+ *  `excludeDbName`=本会话即将打开/正持有的库——**必须排除**：它在本会话里还要被水合读取，
+ *  提前过闸要么 acked 删库（内容丢失）、要么写 hold（裁定位污染）。 */
+export async function sweepStartup(uid: string, excludeDbName?: string): Promise<SweepResult> {
   const result: SweepResult = { deleted: 0, held: 0, blocked: 0 };
   let namesRows: Array<NameRow & { dbName: string }> = [];
   try {
@@ -663,6 +665,7 @@ export async function sweepStartup(uid: string): Promise<SweepResult> {
 
   for (const dbName of candidates) {
     if (!dbName.startsWith(DOC_DB_PREFIX)) continue;   // 旧层/其他前缀不在本任务范围
+    if (excludeDbName !== undefined && dbName === excludeDbName) continue;   // 本会话要用——不碰
     const row = byName.get(dbName);
     // 墓碑库：直删不过闸不读内容（§0.1.4）
     if (row?.tombstone === true) {
@@ -674,6 +677,10 @@ export async function sweepStartup(uid: string): Promise<SweepResult> {
     }
     // 他人 uid 库不碰（登出清理是 purgeUidDbs 的职责）
     if (row !== undefined && row.uid !== uid) continue;
+    // hold 库：**用户尚未裁定**（横幅待导出/放弃）——启动清扫不得越过它重新评估（那会把
+    // hold 旗抹成 acked 删库，或把 hold:true 重写成同名新行=裁定位消失）。§0.6 三合法判据
+    // 之外的唯一出路是用户在横幅上做动作；清扫只负责 tombstone（已裁定待删）。
+    if (row?.hold === true) { result.held += 1; continue; }
     // 有 names 行的当前 uid 库 → 过闸
     if (row !== undefined) {
       const outcome = await applyDeleteGate(dbName, 'startup', { nameRow: row });

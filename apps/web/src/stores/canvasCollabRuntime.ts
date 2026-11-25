@@ -87,7 +87,7 @@ import {
   buildYjsDbName, putNameRow, getSessionRows, openYjsDoc, listNameRows,
   readCustom, writeCustom, deleteCustom, computeDiffBytes, EMPTY_DOC_ENCODE_BYTES, encodeExactStateVector,
   // Y5 T13（§0.6）：删除闸+清扫+跨会话 hold 读点+旧代库临时装载（策略模块执行，runtime 只接线）
-  applyDeleteGate, purgePidDbFamily, findHeldNameRow, withDbDoc, type DeleteGateTrigger,
+  applyDeleteGate, purgePidDbFamily, findHeldNameRow, withDbDoc, sweepStartup, type DeleteGateTrigger,
 } from '@/collab/local-yjs-store';
 import type { IndexeddbPersistence } from 'y-indexeddb';
 // Y0b-5 T6：导出双产物+导入核（纯模块——doc/provider 注入，无会话态依赖）；卸载警告 reason 集合
@@ -2218,6 +2218,22 @@ async function startCollabSession(
   // 续体在会话已拆后继续写模块态与建 provider（泄漏 localPersistence 连接=阻塞 T13 deleteDatabase）。
   const historyToken = knownHistoryId;
   let opened: { doc: Y.Doc; persistence: IndexeddbPersistence } | null = null;
+  // Y5 T13（§0.6 启动清扫）：会话起点扫一次本地库（墓碑直删/异代过删除闸/孤儿库并集）。
+  // 位置钉在这里而不是页面：页面入口在 401/403/404 denial 短路前不得读 meta 两表（§0.2 步 1），
+  // 而本函数只在路由分型**之后**才被调用（open-local/open-session 两腿）。
+  // **必须排除本会话即将打开的那只库**（先算出 dbName 再扫）——否则清扫会把活库当旧代库
+  // 评估：acked 删库=本会话内容丢失，或写 hold=裁定位污染。
+  // fail-soft + fire-and-forget：清扫失败绝不阻断水合（清库是磁盘卫生层）。
+  let sessionDbName: string | null = null;
+  if (!session.cacheDisabled && historyToken !== null && session.viewerUid
+    && session.collabGeneration !== undefined && session.collabSchemaVersion !== undefined) {
+    try {
+      sessionDbName = buildYjsDbName(session.viewerUid, projectId, session.collabGeneration, session.collabSchemaVersion, historyToken);
+    } catch { /* 非法 token=本会话不开库（下方同判）——清扫按不排除走 */ }
+  }
+  if (session.viewerUid) {
+    void sweepStartup(session.viewerUid, sessionDbName ?? undefined).catch(() => undefined);
+  }
   if (session.cacheDisabled) {
     recordCollabDiag('ws_status', { reason: 'local-cache-degraded' });   // M3：本分支唯一一次（旧代码下方同文案重复）
   } else if (historyToken !== null && session.viewerUid && session.collabGeneration !== undefined && session.collabSchemaVersion !== undefined) {
