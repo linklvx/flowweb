@@ -17,7 +17,6 @@ import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import { useCanvasStore } from './canvasStore';
 import * as runtime from './canvasCollabRuntime';
-import { buildLocalCacheKey } from '@/collab/local-cache-key';
 import { createFakeIndexedDb, type FakeIndexedDbFactory } from '@/test/fakeIndexedDb';
 import { _resetUnloadGuardForTest } from '@/utils/unloadGuard';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
@@ -30,13 +29,18 @@ vi.mock('@hocuspocus/provider', async () => {
   return { HocuspocusProvider: FakeHocuspocusProvider };
 });
 
-vi.mock('@/collab/local-cache-key', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/collab/local-cache-key')>()),
-  purgeForeignCaches: vi.fn().mockResolvedValue(undefined),
-  // closeout I-1+I-2：purge-on-bump 消费面（真实删除行为归 local-cache-key.test 既有覆盖——此处断言调用面）
-  purgePidCaches: vi.fn().mockResolvedValue(undefined),
-}));
-import { purgeForeignCaches, purgePidCaches } from '@/collab/local-cache-key';
+// Y5 T14：旧层 purge 面退役——purgePidDbFamily 挂调用断言（真实删除行为归 local-yjs-store.deletegate.spec）
+const purgeHarness = vi.hoisted(() => ({ calls: [] as Array<[string, string, string]> }));
+vi.mock('@/collab/local-yjs-store', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('@/collab/local-yjs-store')>();
+  return {
+    ...orig,
+    purgePidDbFamily: async (uid: string, pid: string, trigger: string) => {
+      purgeHarness.calls.push([uid, pid, trigger]);
+      return { deleted: 0, held: 0, blocked: 0 };
+    },
+  };
+});
 
 /** closeout C-1：信封导出窗测试闸（挂起 buildDraftEnvelope——模拟导出/IDB 删的异步窗；
  *  默认不挂=直通〔其余用例零扰动〕）。T25b 扩展：calls=M-R2 镜像腿导出观测；failWith=
@@ -138,6 +142,12 @@ const diagReasons = () => getRecentCollabDiag()
   .filter((e: any) => e.type === 'ws_status')
   .map((e: any) => e.detail?.reason);
 
+/** Y5 T14：旧层两个 purge 面的现役等价断言口——
+ *  旧层全族 purge（uid:pid）⇔ purgePidDbFamily(trigger='purge-family')；
+ *  旧层异代 purge（同 uid:pid）⇔ purgePidDbFamily(其它 trigger，如 'safeReload'）。 */
+const purgeFamilyCalls = () => purgeHarness.calls.filter((c) => c[2] === 'purge-family');
+const purgeGateCalls = () => purgeHarness.calls.filter((c) => c[2] !== 'purge-family');
+
 beforeEach(() => {
   vi.useFakeTimers();
   (HocuspocusProvider as any).instances.length = 0;
@@ -145,8 +155,7 @@ beforeEach(() => {
   _resetCollabDiagForTest();
   resetStore();
   reloadSpy.mockClear();
-  vi.mocked(purgeForeignCaches).mockClear();
-  vi.mocked(purgePidCaches).mockClear();
+  purgeHarness.calls.length = 0;
   exportGate.gate = null;
   exportGate.failWith = null;
   exportGate.calls.length = 0;
@@ -240,7 +249,7 @@ describe('T25 4410 三分：server-restored 只读 recovery（禁导出→reload
 
     // 绿形断言：不自动 reload、不清缓存（server-restored=不清缓存——§8.1/裁定 v5-14）
     expect(reloadSpy).not.toHaveBeenCalled();
-    expect(vi.mocked(purgeForeignCaches)).not.toHaveBeenCalled();
+    expect(purgeHarness.calls).toHaveLength(0);
     const st = useCanvasStore.getState();
     expect(st.recoveryPending).toMatchObject({ kind: 'server-restored' });
     expect(diagReasons()).toContain('recovery-server-restored');
@@ -252,7 +261,7 @@ describe('T25 4410 三分：server-restored 只读 recovery（禁导出→reload
     p.emit('close', { event: { code: 4410, reason: 'server-restored' } });
     await vi.advanceTimersByTimeAsync(2_500);
     expect(reloadSpy).not.toHaveBeenCalled();
-    expect(vi.mocked(purgeForeignCaches)).not.toHaveBeenCalled();
+    expect(purgeHarness.calls).toHaveLength(0);
     expect(useCanvasStore.getState().recoveryPending).toMatchObject({ kind: 'server-restored' });
   });
 
@@ -365,7 +374,7 @@ describe('T25 收口批 C-1(spec)：generation-stale 方向分档（PITR 主路�
     p.emit('authenticationFailed', { reason: 'generation-stale' });
     await vi.advanceTimersByTimeAsync(3_000);
     expect(reloadSpy).not.toHaveBeenCalled();                                  // 修前：无条件 safeReload（红）
-    expect(vi.mocked(purgeForeignCaches)).not.toHaveBeenCalled();
+    expect(purgeHarness.calls).toHaveLength(0);
     expect(useCanvasStore.getState().recoveryPending).toMatchObject({ kind: 'server-restored' });
     expect(diagReasons()).toContain('recovery-server-restored');
   });
@@ -396,7 +405,7 @@ describe('T25 收口批 I-1+I-2：4406 面 purge-on-bump（h 失效路径+boot �
     p.emit('close', { event: { code: 4406, reason: 'client-outdated' } });   // historyId bump 后旧 h 撞门
     await vi.advanceTimersByTimeAsync(6_500);   // handleVersionTerminal 探测 5s 超时窗+处理
     expect(loadPersistedHistoryId()).toBeNull();                                        // 修前：h 残留=全项目锁死（红）
-    expect(vi.mocked(purgePidCaches)).toHaveBeenCalledWith('u1', 'p1');                 // 修前：零调用（红）
+    expect(purgeHarness.calls).toContainEqual(['u1', 'p1', 'purge-family']);   // 修前：零调用（红）
     expect(posted.some((m) => m?.type === 'collab-recovery' && m?.kind === 'history-bump')).toBe(true);   // 修前：无通告（红）
   });
 });
@@ -502,7 +511,7 @@ describe('T25b M-R4：handleClientOutdatedRecovery 逐档降级', () => {
     await vi.advanceTimersByTimeAsync(6_500);
     // 修前：exportRecoveryEnvelope throw →knownHistoryId/localStorage/purge/broadcast 全部短路（红）
     expect(loadPersistedHistoryId()).toBeNull();
-    expect(vi.mocked(purgePidCaches)).toHaveBeenCalledWith('u1', 'p1');
+    expect(purgeHarness.calls).toContainEqual(['u1', 'p1', 'purge-family']);
     expect(posted.some((m) => m?.type === 'collab-recovery' && m?.kind === 'history-bump')).toBe(true);
     expect(reloadSpy).toHaveBeenCalledTimes(1);   // handleVersionTerminal 强刷照常达
   }, 60_000);   // AbortSignal.timeout 真实钟+满池并行载——5s 默认池载超限；本机高载态 20s 仍间歇超（registered-flakes 负载敏感族），60s 真实钟上界自愈带宽
@@ -522,7 +531,7 @@ describe('T25b M-R2：history-bump 接收端（镜像腿）', () => {
     (recv.onmessage as (ev: { data: unknown }) => void)({ data: { type: 'collab-recovery', pid: 'p1', kind: 'history-bump' } });
     await pumpUntil(() => exportGate.calls.length > callsBefore, 'salvage 导出未达（镜像腿异步链）');
     expect(loadPersistedHistoryId()).toBeNull();                                        // 自清 h（I-1+I-2 既有）
-    expect(vi.mocked(purgePidCaches)).not.toHaveBeenCalled();   // Y5 T12 改道（spec §0.4 镜像腿表 v7 C3——删除权单源发起标签）
+    expect(purgeHarness.calls).toHaveLength(0);   // Y5 T12 改道（spec §0.4 镜像腿表 v7 C3——删除权单源发起标签）
     expect(exportGate.calls.length).toBeGreaterThan(callsBefore);   // ★修前：接收端零导出（红）——M-R2 sibling salvage
     expect(exportGate.downloads.length).toBe(0);   // ★收口 M-3：镜像腿 no-download（内存副本 salvage 禁落盘——修前 downloadDraftEnvelope 随导出走）
   });
@@ -567,7 +576,7 @@ describe('T25b 收口 M-4：recovery-accepted 镜像腿', () => {
     (recv.onmessage as (ev: { data: unknown }) => void)({ data: { type: 'collab-recovery', pid: 'p1', kind: 'recovery-accepted' } });
     await vi.advanceTimersByTimeAsync(100);
     expect(loadPersistedHistoryId()).toBeNull();                                    // 清持久化 h
-    expect(vi.mocked(purgePidCaches)).not.toHaveBeenCalled();                        // Y5 T12 改道（spec §0.4 镜像腿表 v7 C3——删除权单源发起标签）
+    expect(purgeFamilyCalls()).toHaveLength(0);                        // Y5 T12 改道（spec §0.4 镜像腿表 v7 C3——删除权单源发起标签）
     const st = useCanvasStore.getState();
     expect(st.recoveryPending).toBeNull();                                          // 只读恢复态同步退出
     const exited = st.collabEscapePending === true || reloadSpy.mock.calls.length > 0;   // safeReload 双出口（dirty 分叉→escape；净态→reload）

@@ -3,9 +3,7 @@ import { message } from 'antd';
 import { getTemplates, updateTemplate, deleteTemplate } from '@/api/templateApi';
 import { getFolders, createFolder as apiCreateFolder, renameFolder as apiRenameFolder, deleteFolder as apiDeleteFolder } from '@/api/folderApi';
 import { createCanvas as apiCreateCanvas } from '@/api/canvasApi';
-// Y0b-5 T5：项目删除 purge 本地缓存库（纯函数 fail-soft 模块）
-import { purgePidCaches } from '@/collab/local-cache-key';
-// Y5 T13（§0.6 第六清库点 P5）：新层 flowweb:yjs: 库走删除闸——有差分先 hold 不删
+// Y5 T13（§0.6 第六清库点 P5）：项目删除→本地库走删除闸——有差分先 hold 不删
 import { purgePidDbFamily } from '@/collab/local-yjs-store';
 import { useAuth } from '@/components/AuthProvider';
 import type { Canvas, FolderViewModel } from '../types';
@@ -137,14 +135,12 @@ export function useWorkspaceData(teamId?: string, initialFolderId?: string | nul
     setCanvases((cs) => cs.filter((c) => c.id !== id));
     try {
       await deleteTemplate(id);
-      // Y0b-5 T5：项目删除成功→purge 该 uid:pid 全部代本地缓存库（template.delete 级联
-      // canvasProject/CanvasDoc——本地库同清；fail-soft 不阻断删除流程）
+      // Y0b-5 T5/Y5 T13（§0.6 第六清库点 P5）：项目删除成功→本地库过删除闸——acked 才删；
+      // 有差分/diverged ⇒ hold（库留+横幅，用户导出/放弃后才删）。项目已删=无读权，与 forbidden
+      // 同桶。fail-soft 不阻断删除流程。
       const pid = prev.find((c) => c.id === id)?.projectId;
       const uid = user?.id;
       if (pid && uid) {
-        void purgePidCaches(uid, pid);   // 旧层 flowweb:collab:（T14 随层退役）
-        // Y5 T13（§0.6 第六清库点 P5）：新层库过删除闸——acked 才删；有差分/diverged ⇒ hold
-        // （库留+横幅，用户导出/放弃后才删）。项目已删=无读权，与 forbidden 同桶。
         void purgePidDbFamily(uid, pid, 'project-delete');
       }
     } catch {

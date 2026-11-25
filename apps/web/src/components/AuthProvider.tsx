@@ -1,8 +1,6 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import type { Role } from '@flowweb/shared';
 import { setMediaCacheUserId, clearMediaUrlCache } from '@/utils/mediaUrlCache';  // v4：分层——认证组件不 import 媒体 hook
-// Y0b-5 T5：登出 purge 本地缓存库（纯函数 fail-soft 模块——零 collab provider 依赖，分层同上）
-import { purgeUidCaches } from '@/collab/local-cache-key';
 // Y5 T7：本地优先证明接线（C1 离线放行/C2 登出同步段/跨标签 storage 监听）
 import {
   bindLogoutEpochTeardown, bumpAuthEpoch, clearSessionRows, fetchMeWithProof,
@@ -131,7 +129,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ]).catch(() => { /* fail-soft：本地清理失败不阻断登出 */ });
     }
     clearMediaUrlCache();                  // 登出显式清空（spec：清空双挂点之一；R2b 补 page.tsx 项目切换分支）
-    if (uid) void purgeUidCaches(uid);     // 旧层 flowweb:collab: 库（T14 随层退役）
   };
 
   const updateUser = (user: User) => setUser(user);

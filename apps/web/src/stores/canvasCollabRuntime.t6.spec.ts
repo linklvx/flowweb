@@ -235,13 +235,13 @@ describe('Y0b-5 T6：safeReload', () => {
     expect(reloadSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('generation 固定次序（裁定 20）=导出（标注旧代）→purge→reload；调度时刻闭包捕获 key+tag（T5 Minor①/T6 M2——执行时不读现刻 session/store）', async () => {
+  it('generation 固定次序（裁定 20）=导出（标注旧代）→删除闸→reload；调度时刻闭包捕获 tag（T6 M2——执行时不读现刻 session/store）', async () => {
     const blobs: Blob[] = [];
     stubBlobUrls(blobs);
     try {
       await driveToSynced('p-t6-gen', { collabGeneration: 3, collabSchemaVersion: 2, viewerUid: 'u1' });
-      // 调度时刻捕获 key+tag（consumeGenerationJump 形态——执行窗口内 session/store 变化不影响）
-      setTimeout(() => runtime.safeReload('generation', { generationCacheKey: 'k-gen-3', generationTag: 3 }), 1_500);
+      // 调度时刻捕获 tag（consumeGenerationJump 形态——执行窗口内 store 变化不影响）
+      setTimeout(() => runtime.safeReload('generation', { generationTag: 3 }), 1_500);
       await vi.advanceTimersByTimeAsync(1_500);
       await vi.advanceTimersByTimeAsync(0);
       expect(blobs).toHaveLength(2);                                           // 双产物先于 reload
@@ -255,7 +255,7 @@ describe('Y0b-5 T6：safeReload', () => {
   it('generation 且 unsyncedDirty 真→escape+return（purge 与 reload 都不发生——未同步编辑禁被 purge/reload 吞）', async () => {
     await driveToSynced('p-t6-gen2', { collabGeneration: 3, collabSchemaVersion: 2, viewerUid: 'u1' });
     localEdit(runtime.getDoc()!);
-    runtime.safeReload('generation', { generationCacheKey: 'k' });
+    runtime.safeReload('generation');
     expect(reloadSpy).not.toHaveBeenCalled();
     expect(useCanvasStore.getState().collabEscapePending).toBe(true);
   });

@@ -9,9 +9,8 @@ import {
   collabDocNameOf, parseY1cClosePayload, parseAuthReceipt,
   loadPersistedHistoryId, persistHistoryId, appendHistoryParam,
   buildDraftEnvelope, sha256Hex, RecoveryDenyTracker, DENY_ESCAPE_THRESHOLD,
-  broadcastRecoveryState, GENERIC_RECONNECT_BACKOFF_CODES,
+  broadcastRecoveryState, GENERIC_RECONNECT_BACKOFF_CODES, getCollabTabId,
 } from './rejected-recovery';
-import { getCollabTabId } from './local-collab-cache';
 
 function stubBlobUrls(): void {
   Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: () => 'blob:mock' });

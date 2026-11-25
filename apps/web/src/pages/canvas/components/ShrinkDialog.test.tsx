@@ -17,12 +17,11 @@ vi.mock('@/stores/canvasUndo', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   getUndoManager: () => ({ clear: umClear }),
 }));
-// T6 质量修复 M1：safeReload 收敛单出口换桩（vacuum 善后调用参量可断言——key/tag 调度时刻快照）
-// +getActiveCacheKey 固定键（组件不持 session 引用——runtime 访问器形态）
+// T6 质量修复 M2：safeReload 收敛单出口换桩（vacuum 善后调用参量可断言——tag 调度时刻快照）。
+// Y5 T14：getActiveCacheKey 随旧层退役删除（safeReload opts 不再有 generationCacheKey）。
 const safeReloadMock = vi.hoisted(() => vi.fn());
 vi.mock('@/stores/canvasCollabRuntime', () => ({
   safeReload: safeReloadMock,
-  getActiveCacheKey: () => 'ck-u1-p1',
 }));
 // location.reload jsdom [Unforgeable] 不可 spy——stubGlobal 整体替换（t9.spec 先例）
 const reloadSpy = vi.fn();
@@ -115,7 +114,7 @@ describe('ShrinkDialog（T11）', () => {
     expect(umClear).not.toHaveBeenCalled();
   });
 
-  it('vacuum 入口显隐：residue≤50%×limit 不亮出；>50% 亮出+二次确认文案→确认→vacuum+safeReload（M1：cacheKey 调度时刻传入——purge 不再跳过）', async () => {
+  it('vacuum 入口显隐：residue≤50%×limit 不亮出；>50% 亮出+二次确认文案→确认→vacuum+safeReload（M2：tag 调度时刻传入）', async () => {
     seedTwoNodes();
     // ≤50%：4MB ≤ 4194304——不亮出
     useCanvasStore.setState({ quotaResidueBytes: 4_000_000, quotaLimitBytes: 8_388_608 });
@@ -132,7 +131,7 @@ describe('ShrinkDialog（T11）', () => {
     await act(async () => { fireEvent.click(screen.getByText('OK')); });
     expect(vacuumMock).toHaveBeenCalledWith('p1');
     act(() => { vi.advanceTimersByTime(1_000); });
-    expect(safeReloadMock).toHaveBeenCalledWith('generation', { generationCacheKey: 'ck-u1-p1', generationTag: 0 });
+    expect(safeReloadMock).toHaveBeenCalledWith('generation', { generationTag: 0 });
   });
 
   it('T6 质量修复 M1/M2：vacuum ok→safeReload 元数据调度时刻快照——执行窗（1s 延时）内 store 代际跳变不渗入', async () => {
@@ -146,7 +145,7 @@ describe('ShrinkDialog（T11）', () => {
     // 执行窗内新代 doc-status 到达——调度时刻已快照 tag=0（调度时不读执行时刻 store）
     act(() => { useCanvasStore.setState({ pendingGenerationReload: 99 }); });
     act(() => { vi.advanceTimersByTime(1_000); });
-    expect(safeReloadMock).toHaveBeenCalledWith('generation', { generationCacheKey: 'ck-u1-p1', generationTag: 0 });
+    expect(safeReloadMock).toHaveBeenCalledWith('generation', { generationTag: 0 });
   });
 
   it('vacuum 非 ok 档（skip-low-residue）：提示不刷新', async () => {

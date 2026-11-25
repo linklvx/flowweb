@@ -238,7 +238,7 @@ export class RecoveryDenyTracker {
   }
 }
 
-// ═══ per-tab 身份（Y5 T13b：自 local-collab-cache 搬家——旧层 T14 退役后全仓唯一来源）═══════
+// ═══ per-tab 身份（Y5 T13b：自旧层搬家——T14 旧层退役后全仓唯一来源）═══════
 
 /** per-tab 身份（spec §3.4：每标签独立记录）：sessionStorage 作用域=tab 级（跨 reload 稳定、
  *  天然隔 tab）——同 tab 重进覆盖/删除自己的旧记录，异 tab 键结构性隔离。

@@ -229,7 +229,7 @@ describe('Y1c T22 G5：IDB 投影持久化（{projectId,generation,feedSeq,pgSeq
   let kit: FakeIndexedDbFactory;
   beforeEach(async () => {
     kit = createFakeIndexedDb();
-    vi.stubGlobal('indexedDB', kit.fake);   // jsdom 无内建 IDB——local-collab-cache.test 同款 stub
+    vi.stubGlobal('indexedDB', kit.fake);   // jsdom 无内建 IDB——旧层适配器测试同款 stub（该测试已随 T14 退役）
     await clearProjectionInIdb('p-idb');
   });
   afterEach(() => { vi.unstubAllGlobals(); });

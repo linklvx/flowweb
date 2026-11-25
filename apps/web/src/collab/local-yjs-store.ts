@@ -435,8 +435,8 @@ export async function measureYjsDoc(dbName: string): Promise<MeasureYjsDocResult
 
 /** Y5 T13（§0.6 删除原语）：单库删除三态——`onblocked` 立即返回 'blocked'（他标签持连接），
  *  调用方据此写 names 墓碑；成功/失败分别 'deleted'/'failed'。与旧层
- *  `local-cache-key.deleteDatabaseQuietly`（onblocked 直接 resolve、分不出三态）分立：
- *  旧那个服务 `flowweb:collab:` 旧层清理（T14 随层删），本原语服务新层删除闸。 */
+ *  旧层 makeQuiet 删除原语（onblocked 直接 resolve、分不出三态）分立——旧层已随 Y5 T14
+ *  整层退役删除，本原语服务新层删除闸（三态可区分是墓碑重试判据）。 */
 export function deleteDbWithOutcome(dbName: string): Promise<'deleted' | 'blocked' | 'failed'> {
   return new Promise((resolve) => {
     let req: IDBOpenDBRequest;

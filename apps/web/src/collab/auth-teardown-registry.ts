@@ -1,7 +1,7 @@
 // apps/web/src/collab/auth-teardown-registry.ts
 // Y5 T7：他标签登出拆会话回调注册表——AuthProvider 的 storage 监听（bindLogoutEpochTeardown）
 // 触发时先 setUser(null)，再调用画布注册的拆会话函数。本模块只为避免 AuthProvider import
-// canvasCollabRuntime（认证组件不依赖协作运行时——分层同 mediaUrlCache/local-cache-key）。
+// canvasCollabRuntime（认证组件不依赖协作运行时——分层同 mediaUrlCache/local-session-proof）。
 // 单槽：画布页挂载注册、卸载解绑；回调内不写 session、不再次 bump epoch（职责在 AuthProvider）。
 let teardown: (() => void) | null = null;
 

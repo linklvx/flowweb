@@ -1,16 +1,17 @@
 // apps/web/src/stores/canvasCollabRuntime.t8.spec.ts
-// Y0b-5 T8：本地持久化最小内核 runtime 绑定——boot 回放/能力位/离线冷启动只读/diverged 闩锁/
-// Σpending 流控/尺寸闸复检/pagehide flush/docBytes 遥测。
-// 装置承 t6/cache.spec（fakeHocuspocusProvider+真 Y.Doc+fake timers）+fakeIndexedDb（内存 IDB stub）。
+// Y0b-5 T8 历史面（Y5 T14 手术后台账）：
+//   保留＝Σpending 流控（runPendingBacklogTick）、IDB 全交互降级 → local-cache-degraded、cacheDisabled fail-closed；
+//   删除＝旧 per-tab 快照适配器的写路径面（trailing 落盘/结构性提前到期/E36 回放帧、diverged 记录闩锁
+//   三例、尺寸闸周期复检（local.spec T11 ⑥ 同形态覆盖）、pagehide/visibilitychange flush、dirty 守卫遥测、
+//   容量 ring）——旧 per-tab 快照适配器已随 T14 整层退役；docBytes 遥测口径迁入 runDocSizeGate
+//   （覆盖在 canvasCollabRuntime.local.spec.ts T11 ⑥ 同 tick 断言）。
+// 装置：fakeHocuspocusProvider+真 Y.Doc+fake timers+最小 IDB stub（仅降级路径需要：无 IDBKeyRange）。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
-import { CANVAS_DOC_SCHEMA_VERSION, FRAME_ALLOWANCE_BYTES, QUOTA_DEFAULTS } from '@flowweb/shared';
 import { useCanvasStore } from './canvasStore';
 import * as runtime from './canvasCollabRuntime';
 import { Origin } from './canvasUndo';
-import { buildLocalCacheKey } from '@/collab/local-cache-key';
-import { LOCAL_CACHE_MAX_DOC_BYTES, getCollabTabId, type LocalCacheRecord } from '@/collab/local-collab-cache';
 import { createFakeIndexedDb, type FakeIndexedDbFactory } from '@/test/fakeIndexedDb';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 import { _resetUnloadGuardForTest } from '@/utils/unloadGuard';
@@ -21,9 +22,7 @@ vi.mock('@hocuspocus/provider', async () => {
 });
 
 const META = { collabGeneration: 3, collabSchemaVersion: 2, viewerUid: 'u1' };
-const KEY = buildLocalCacheKey({ uid: 'u1', pid: 'p1', generation: 3, schemaVersion: 2 });
 const lastInstance = () => (HocuspocusProvider as any).instances.at(-1) as any;
-const reloadSpy = vi.fn();
 
 let kit: FakeIndexedDbFactory;
 
@@ -37,26 +36,6 @@ const resetStore = () => useCanvasStore.setState({
   persistUnhealthy: false, syncLagOver60s: false, pendingBacklog: false,
 });
 
-/** 快照构造：单节点+schemaVersion 盖戳（真快照源自服务端盖戳 doc——DEV 版本门拒无戳） */
-function snapshotOf(build: (d: Y.Doc) => void): Uint8Array {
-  const d = new Y.Doc();
-  d.getMap('meta').set('schemaVersion', CANVAS_DOC_SCHEMA_VERSION);
-  build(d);
-  return Y.encodeStateAsUpdate(d);
-}
-/** 播种节点构造（docShape 合形——type+position+最小 data；quota.spec remoteUpdate 同款+position）：
- *  裸 id 节点 doc 侧无 type/position 而 hydrate 侧恒补（cs position 必填+type 回落 videoGen）——
- *  checkProjectionInvariant 两侧失配=invariant_violation stderr 噪音（计数被污染）。 */
-const seedNode = (dataEntries: Array<[string, unknown]> = []): Y.Map<any> => new Y.Map<any>([
-  ['type', 'textInput'],
-  ['position', new Y.Map([['x', 0], ['y', 0]])],
-  ['data', new Y.Map(dataEntries)],
-]);
-const REC = (over: Partial<LocalCacheRecord> = {}): LocalCacheRecord => ({
-  tabId: 'seed', snapshot: snapshotOf((d) => { d.getMap('nodes').set('seed-a', seedNode()); }),
-  stateVector: new Uint8Array([1]), savedSeq: 0,
-  unsyncedDirty: false, diverged: false, at: 1_000, ...over,
-});
 const localEdit = (d: Y.Doc, key = 'n-t8', payload: unknown = 1): void => {
   d.transact(() => { d.getMap('m').set(key, payload); }, Origin.LocalUser);
 };
@@ -80,7 +59,6 @@ beforeEach(() => {
   _resetCollabDiagForTest();
   _resetUnloadGuardForTest();
   resetStore();
-  reloadSpy.mockClear();
   kit = createFakeIndexedDb();
   vi.stubGlobal('indexedDB', kit.fake);
   vi.stubGlobal('navigator', {
@@ -88,7 +66,7 @@ beforeEach(() => {
     onLine: true,
     storage: { persist: vi.fn(async () => true), estimate: vi.fn(async () => ({ usage: 1, quota: 1_000_000 })) },
   });
-  vi.stubGlobal('location', { reload: reloadSpy });
+  vi.stubGlobal('location', { reload: vi.fn() });
 });
 
 afterEach(async () => {
@@ -96,126 +74,6 @@ afterEach(async () => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-});
-
-/** T18 per-tab：runtime 写本 tab 键（tabId=getCollabTabId——sessionStorage 稳定）；legacy 'snapshot' 键=播种专用 */
-const flushedRecord = () => kit.data.get(KEY)?.get(getCollabTabId()) as LocalCacheRecord | undefined;
-
-// ══════════ boot 回放+能力位（裁定 24⑦/裁定 21） ══════════
-describe('T8 boot 回放与能力位', () => {
-  // Y5 T10 退役：旧 LocalCollabCache 的 boot 读路径（loadAll+mergeUpdates 回放+legacy 'snapshot' 迁移）
-  // 已不在水合链上（新路径=五维 y-indexeddb 库装载，见 canvasCollabRuntime.local.spec.ts ①②③④）。
-  // 本文件保留旧适配器的写路径面（flush/能力位/尺寸闸/守卫）——T14 随整层删。
-
-  it('编辑→trailing 1s 落盘（unsyncedDirty=true——T6 单源同值随快照存）+onFlushed 能力位', async () => {
-    const p = await driveToSynced();
-    const d = runtime.getDoc()!;
-    localEdit(d);
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(flushedRecord()?.unsyncedDirty).toBe(true);
-    expect(useCanvasStore.getState().localCacheReady).toBe(true);
-    void p;
-  });
-
-  it('结构性变更（增删节点）提前到期：无前序编辑（无 pending timer）→总窗 <1s 已落盘+盘上快照含新节点（孤立结构性事务 observe 先于 update 到达——兜底排 150ms）', async () => {
-    await driveToSynced();
-    const d = runtime.getDoc()!;
-    expect(flushedRecord()).toBeUndefined();   // 前置锚：无前缀落盘（真实判据——旧断言 JSON.stringify(0)="0" 恒真=伪覆盖）
-    d.transact(() => { d.getMap('nodes').set('n-struct', seedNode()); }, Origin.LocalUser);
-    await vi.advanceTimersByTimeAsync(150);   // 总窗 <1s（trailing 1s 窗内）——红：observe 先到无 pending timer→no-op→等满 1s
-    const rec = flushedRecord();
-    expect(rec).toBeTruthy();   // 150ms 内已写
-    const decoded = new Y.Doc();
-    Y.applyUpdate(decoded, rec!.snapshot);
-    expect([...decoded.getMap('nodes').keys()]).toContain('n-struct');   // 盘上快照含新节点（非旧记录残留）
-    expect(rec!.unsyncedDirty).toBe(true);
-  });
-
-  it('★E36 不可达性断言【出口⑫b】：快照编码≤闸 ⇒ 回放后整量 SS2 帧真实 byteLength<服务端闸（maxDocBytes+ALLOWANCE——4404 结构性恒过的同源闸）', async () => {
-    // 贴闸快照（编码≤LOCAL_CACHE_MAX_DOC_BYTES 的最坏合法形态）
-    const blob = 'x'.repeat(LOCAL_CACHE_MAX_DOC_BYTES - 100_000);
-    kit.data.set(KEY, new Map([['snapshot', REC({ snapshot: snapshotOf((d) => { d.getMap('nodes').set('big', seedNode([['blob', blob]])); }) })]]));
-    await driveToSynced();
-    const encoded = Y.encodeStateAsUpdate(runtime.getDoc()!);
-    expect(encoded.byteLength).toBeLessThanOrEqual(LOCAL_CACHE_MAX_DOC_BYTES);   // 同源闸：快照编码≤闸
-    // SS2 帧线形（y-protocols sync 协议）：[0][varString docName][1][varUint len][update]
-    const varint = (n: number) => { const out: number[] = []; do { let b = n & 0x7f; n >>>= 7; if (n > 0) b |= 0x80; out.push(b); } while (n > 0); return out; };
-    const name = [...'project:p1'].map((c) => c.charCodeAt(0));
-    const frame = new Uint8Array([0, ...varint(name.length), ...name, 1, ...varint(encoded.byteLength), ...encoded]);
-    expect(frame.byteLength).toBeLessThan(QUOTA_DEFAULTS.maxDocBytes + FRAME_ALLOWANCE_BYTES);   // 结构性恒过（4404 不可达）
-  }, 20_000);
-
-  // Y5 T10 退役：离线冷启动 failed+只读副本分支改由新水合链承载（y-indexeddb 库内容投影+
-  // canEdit=false）——canvasCollabRuntime.local.spec.ts ②（证明过期/grant=read）同款断言。
-
-  // Y5 T10 退役：boot 快照尺寸闸判据随 boot 读路径退场（新链=差分字节 vs LOCAL_CACHE_MAX_DOC_BYTES，
-  // canvasCollabRuntime.local.spec.ts ③ 覆盖差分口径；能力位仍由写路径 onFlushed 翻转）。
-
-  it('IDB 全交互降级（Y5 T10 新链：文档库不可开）→initCollab 正常完成+ws_status reason="local-cache-degraded" 遥测+localCacheReady=false（协作主链零影响）', async () => {
-    // 本文件装置无 IDBKeyRange（旧最小 stub）⇒ 新链开文档库能力前置判 open-reject：
-    // names 先写成功、库开不了，本会话改纯服务端水合 + 降级遥测（异常不冒泡=协作初始化成功）。
-    localStorage.setItem('collab:history-id', 'h-t8-degrade');
-    try {
-      const p = await driveToSynced('p1', META);   // 不抛=主链无恙
-      expect(getRecentCollabDiag().some((e) => e.type === 'ws_status' && (e.detail as any)?.reason === 'local-cache-degraded')).toBe(true);
-      expect(useCanvasStore.getState().localCacheReady).toBe(false);
-      expect(useCanvasStore.getState().hydration).toBe('ready');
-      void p;
-    } finally {
-      localStorage.removeItem('collab:history-id');
-    }
-  });
-
-  // Y5 T10 退役：⑫a 跨会话存活改由五维库承载（同一 y-indexeddb 库 reload 后差分重算+上行）——
-  // canvasCollabRuntime.local.spec.ts ⑤（serverSV 写回后 reload 差分=空）为同源行为锚。
-});
-
-// ══════════ diverged 闩锁（裁定 23⑨——出口⑳） ══════════
-describe('T8 diverged 持久化闩锁', () => {
-  // Y5 T10 退役：diverged boot 判据改由五维库 custom 键承载（readCustom('diverged') → canvasDiverged
-  // 电平，健康同步删 key 自愈）——局部于 startCollabSession；旧「盘上 diverged 记录不回放」段随
-  // LocalCollabCache boot 读路径退场（T14 整层删）。
-
-  it('★diverged 会话写抑制：回放被抑（suppressCacheWrites）——pagehide 强制 flush 不得用空快照覆盖盘上 diverged 唯一副本', async () => {
-    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', seedNode()); });
-    const onDisk = REC({ snapshot: divergedSnapshot, unsyncedDirty: true, diverged: true });
-    kit.data.set(KEY, new Map([['snapshot', onDisk]]));
-    await driveToSynced();
-    window.dispatchEvent(new Event('pagehide'));
-    await vi.advanceTimersByTimeAsync(2_000);
-    expect(kit.data.get(KEY)!.get('snapshot')).toEqual(onDisk);   // 原样保留（非空快照覆盖）
-  });
-
-  it('★发散闩锁回归【出口⑳+T18 收窄】：放弃→清 diverged 记录（per-tab 形态：diverged 记录删除、库与非 diverged 记录保留）+reload（恢复自动缓存；顺序锚=discard 完成才 reload）', async () => {
-    const divergedSnapshot = snapshotOf((d) => { d.getMap('nodes').set('div-b', seedNode()); });
-    kit.data.set(KEY, new Map([
-      ['snapshot', REC({ snapshot: divergedSnapshot, unsyncedDirty: true, diverged: true })],
-      ['tab-other', REC({ tabId: 'tab-other', unsyncedDirty: true })],   // 他 tab 非 diverged 离线记录
-    ]));
-    await driveToSynced();
-    runtime.discardLocalDiverged();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(kit.data.get(KEY)!.has('snapshot')).toBe(false);   // diverged 记录清——刷新后不再 diverged
-    expect(kit.data.get(KEY)!.has('tab-other')).toBe(true);   // 他 tab 离线记录存活（整库删=静默丢防线）
-    expect(reloadSpy).toHaveBeenCalledTimes(1);                // 清理完成→reload（闩锁可退出）
-  });
-
-  it('readOnly 期本地编辑→落盘标注 diverged（T6 判据同源——canvasDiverged 电平随快照存）', async () => {
-    const p = await driveToSynced();
-    useCanvasStore.setState({ collabReadOnly: true });
-    localEdit(runtime.getDoc()!);
-    expect(useCanvasStore.getState().canvasDiverged).toBe(true);   // T6 单源置位
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(flushedRecord()?.diverged).toBe(true);
-    expect(flushedRecord()?.unsyncedDirty).toBe(true);
-    void p;
-  });
-
-  // Y5 T10 退役：boot-diverged 会话闩锁形态随旧层 boot 读路径退场（新链无「盘上 diverged 记录回放」
-  // 形态——diverged 语义=readOnly 期本地编辑+健康同步删 key，见 T12 四桶批处理）。§0.4 桶语义不变。
-
-  // Y5 T10 退役：boot-diverged 盘上快照导出（exportDivergedContent 的 bootDivergedSnapshot 分支）
-  // 随旧层 boot 读路径退场；内存 doc 分支（in-session diverged）沿用 T6 原行为（T12 四桶批重接）。
 });
 
 // ══════════ Σpending 流控（裁定 23⑷ 吸收——E36 又一道保险） ══════════
@@ -237,86 +95,21 @@ describe('T8 Σpending 流控', () => {
   });
 });
 
-// ══════════ 尺寸闸周期复检（T7 5s interval 复用——零新定时器） ══════════
-describe('T8 尺寸闸周期复检', () => {
-  it('localDocBytes 超闸（Q-I 校准点测量值——零新增 encode）→local-cache-degraded+localCacheReady=false+canvasOversized 置位（停止缓存更新）；回落→恢复', async () => {
-    const p = await driveToSynced();
-    useCanvasStore.setState({ localDocBytes: LOCAL_CACHE_MAX_DOC_BYTES + 1 });
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect(getRecentCollabDiag().some((e) => e.type === 'ws_status' && (e.detail as any)?.reason === 'local-cache-degraded')).toBe(true);
-    expect(useCanvasStore.getState().localCacheReady).toBe(false);
-    expect(useCanvasStore.getState().canvasOversized).toBe(true);
-    // 回落→复检恢复（瘦身/vacuum 路径）——oversized 档自动消
-    useCanvasStore.setState({ localDocBytes: 100 });
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect(useCanvasStore.getState().canvasOversized).toBe(false);
-    void p;
-  });
-});
-
-// ══════════ flush 触发+docBytes 遥测 ══════════
-describe('T8 flush 触发与遥测', () => {
-  it('pagehide 强制一次（best-effort——不等 1s 去抖）', async () => {
-    await driveToSynced();
-    localEdit(runtime.getDoc()!);
-    window.dispatchEvent(new Event('pagehide'));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(flushedRecord()?.unsyncedDirty).toBe(true);
-  });
-
-  it('visibilitychange→hidden 强制（T2 遥测 pagehide flush 同款结构——两者并存互不干扰）', async () => {
-    await driveToSynced();
-    localEdit(runtime.getDoc()!);
-    vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
-    document.dispatchEvent(new Event('visibilitychange'));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(flushedRecord()?.unsyncedDirty).toBe(true);
-  });
-
-  it('yjs_client_doc_bytes：doc 字节随 ws_status 批量上送（E33 指定的 E26 重建触发源——最近快照尺寸，字节面变化才发）', async () => {
-    await driveToSynced();
-    localEdit(runtime.getDoc()!);
-    await vi.advanceTimersByTimeAsync(1_000);   // flush 落盘（T18：3s tick 同步成功删己——断言不读盘上记录）
-    await vi.advanceTimersByTimeAsync(5_000);   // 5s 节律上送
-    const events = getRecentCollabDiag().filter((e) => e.type === 'ws_status' && typeof (e.detail as any)?.docBytes === 'number');
-    expect(events.length).toBeGreaterThanOrEqual(1);
-    expect((events.at(-1)!.detail as any).docBytes).toBe(Y.encodeStateAsUpdate(runtime.getDoc()!).byteLength);   // 编辑后无再写——快照字节=现 doc 编码
-  });
-
-  it('★dirty 守卫遥测（出口㉖多标签——T18 收窄到本键）：本键持有 dirty 记录时干净态 pagehide flush 被 skip 不覆盖（遥测在案+dirty 内容仍在；跨 tab 由键结构性隔离——adapter 测试锚）', async () => {
-    await driveToSynced();   // 本会话干净 boot（无盘上记录——缓存装载体=pagehide 强制档）
-    // 模拟本键持有 dirty 记录（直写底层数据——连接闭包捕获 open 时的 Map 引用，整体替换不可见）
-    const dirtySnapshot = snapshotOf((d) => { d.getMap('nodes').set('foreign', seedNode()); });
-    const onDisk = REC({ snapshot: dirtySnapshot, unsyncedDirty: true });
-    // Y5 T10：新水合序不读旧层——旧适配器的库只在首次写时创建；本用例需要库已在盘上
-    if (!kit.data.has(KEY)) kit.data.set(KEY, new Map());
-    kit.data.get(KEY)!.set(getCollabTabId(), onDisk);
-    // 干净态 pagehide → flushNow 写 clean 快照 → 守卫拦（本键 dirty 不被本 tab 干净态覆盖）
-    window.dispatchEvent(new Event('pagehide'));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(getRecentCollabDiag().some((e) => e.type === 'ws_status' && (e.detail as any)?.reason === 'local-cache-preserved-foreign-dirty')).toBe(true);
-    expect(kit.data.get(KEY)!.get(getCollabTabId())).toEqual(onDisk);   // dirty 内容仍在
-  });
-
-  it('★visibilitychange 可见向不 flush【spec 修复 2】：切回标签页（hidden=false）零 flushNow——防冗余全量 encode+虚假 foreign-dirty 遥测（现状红：双向都 flushNow）', async () => {
-    await driveToSynced();
-    localEdit(runtime.getDoc()!);   // 置脏（1s 去抖挂起——本用例窗内不到期）
-    const hiddenSpy = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
-    document.dispatchEvent(new Event('visibilitychange'));
-    await new Promise<void>((r) => queueMicrotask(() => queueMicrotask(() => queueMicrotask(() => r()))));   // drain flushNow 的 async put（若有——fake IDB promise 链）
-    hiddenSpy.mockRestore();
-    expect(flushedRecord()).toBeUndefined();   // 可见向零 flush——盘上无记录（现状红：双向都 flushNow 即刻落盘）
-  });
-
-  it('★容量监控进本地 ring【spec 修复 3-2】：estimate 占比>0.8→ws_status reason=local-cache-quota-high 一条（used/quota 数值随行——ring-only 本地诊断,不入遥测批）', async () => {
-    (navigator.storage.estimate as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ usage: 850, quota: 1_000 }));
-    await driveToSynced();
-    await vi.advanceTimersByTimeAsync(5_000);   // 5s interval→evictForTotalQuota 首查（60s 节流首查即过）
-    const ev = getRecentCollabDiag().find((e) => (e.detail as any)?.reason === 'local-cache-quota-high');
-    expect(ev).toBeTruthy();
-    expect(ev!.type).toBe('ws_status');
-    expect((ev!.detail as any).used).toBe(850);
-    expect((ev!.detail as any).quota).toBe(1_000);
+// ══════════ IDB 全交互降级（旧层退役后仍成立：新层文档库开不了 ⇒ 纯服务端水合） ══════════
+describe('T8 IDB 全交互降级', () => {
+  it('IDB 全交互降级（Y5 T10 新链：文档库不可开）→initCollab 正常完成+ws_status reason="local-cache-degraded" 遥测+localCacheReady=false（协作主链零影响）', async () => {
+    // 本文件装置无 IDBKeyRange（旧最小 stub）⇒ 新链开文档库能力前置判 open-reject：
+    // names 先写成功、库开不了，本会话改纯服务端水合 + 降级遥测（异常不冒泡=协作初始化成功）。
+    localStorage.setItem('collab:history-id', 'h-t8-degrade');
+    try {
+      const p = await driveToSynced('p1', META);   // 不抛=主链无恙
+      expect(getRecentCollabDiag().some((e) => e.type === 'ws_status' && (e.detail as any)?.reason === 'local-cache-degraded')).toBe(true);
+      expect(useCanvasStore.getState().localCacheReady).toBe(false);
+      expect(useCanvasStore.getState().hydration).toBe('ready');
+      void p;
+    } finally {
+      localStorage.removeItem('collab:history-id');
+    }
   });
 });
 

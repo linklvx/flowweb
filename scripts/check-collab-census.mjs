@@ -587,8 +587,8 @@ export function reconcileWithDocRegistry(counts, registry) {
  *  project.service ×1=项目创建种子快照；
  *  canvas.service ×1=Y1c T7 genesis 双路之二建头种子编码（POST /canvases 同事务补建头集——与
  *   project.service ×1 同族；编码点留 service 侧=建头 helper 收 Buffer 种子单参〔勘误方案 B·裁定 4〕）；
- *  web canvasCollabRuntime ×3=客户端漂移 idle 实测自校准/measureLocalDocNow 同步实测（判据④超大兜底）
- *   /buildCacheRecord 本地缓存快照编码（Y0b-5 T8——去抖/到期/隐藏强制三触发共用单点）；
+ *  web canvasCollabRuntime ×2=客户端漂移 idle 实测自校准/measureLocalDocNow 同步实测（判据④超大兜底）；
+ *   Y5 T14：旧层 buildCacheRecord 本地缓存快照编码随旧 per-tab 快照层整层退役删除（3→2）；
  *  web canvas-local-backup ×1=本地备份双产物导出编码（Y0b-5 T6——.yjs 可回灌产物）；
  *  web local-yjs-store ×2=Y5 T4 策略模块文档库半边（EMPTY_DOC_ENCODE_BYTES 模块级一次测量/
  *   computeDiffBytes 差分字节原始值——判据量法，非装载写回）。 */
@@ -599,7 +599,7 @@ const ENCODE_WHITELIST = {
   'apps/api/src/modules/collab/collab-doc-registry.service.ts': 3,   // T41 W3a：原 collab.gateway ×3 随域迁（装载真值/residue/measureTruth——同计数换宿主）
   'apps/api/src/modules/project/project.service.ts': 1,
   'apps/api/src/modules/canvas/canvas.service.ts': 1,   // Y1c T7：genesis 双路之二建头种子（project.service 同族）
-  'apps/web/src/stores/canvasCollabRuntime.ts': 3,
+  'apps/web/src/stores/canvasCollabRuntime.ts': 2,   // Y5 T14：旧层 buildCacheRecord 编码随旧层退役（3→2）
   'apps/web/src/collab/canvas-local-backup.ts': 1,
   'apps/api/src/modules/collab/collab-recovery-import.service.ts': 4,   // Y4a T5：+1=effectiveDeletions 块预演量法 temp doc 快照编码（measureDeletionFrames——量完即弃；Y1c T25 候选 clone 快照/temp diff/commitDiff 三点不变）
   'apps/api/src/modules/collab/collab-maintenance.service.ts': 1,   // Y1c T27：维护 REBUILDING canonical 新代快照编码（fresh clientID rebuild payload——§6.6）

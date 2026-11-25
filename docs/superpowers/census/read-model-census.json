@@ -359,8 +359,8 @@
     "edges",
     "nodes"
    ],
-   "testAnchor": "apps/web/src/stores/canvasCollabRuntime.cache.spec.ts",
-   "shapeHash": "92d14750cc0925e6ff7780e4036d7922c03be7ef9b370b4b84a359bff24770e7",
+   "testAnchor": "apps/web/src/stores/canvasCollabRuntime.local.spec.ts",
+   "shapeHash": "341bc1f7c4b914211896ad008163d2e58f59ba6f742dbef82581b340b52e8f7e",
    "fixtures": [
     "fixture-27-25"
    ]

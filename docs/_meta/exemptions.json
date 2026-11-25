@@ -665,6 +665,27 @@
    "symbol": "apps/web/src/pages/canvas/__tests__/collab-threads-collab.int.spec.ts",
    "reason": "Y4b 落地实名漂移（施工单引用规划名 web int 路径，落地为 apps/api/src/modules/collab/collab-threads-collab.int.spec.ts——组3 纠偏裁定：apps/web 无 vitest.int.config.ts 且无法 import api test-utils；功能已落地，历史记录）",
    "expires_at": "2027-01-02"
+  },
+  {
+   "file": "docs/superpowers/full-stack-backup.md",
+   "line": 39,
+   "symbol": "apps/web/src/collab/local-cache-key.ts",
+   "reason": "Y5 T14 旧 per-tab 快照层整层退役（spec §0.1.1 撤旧层非迁移）——本行是恢复安全载体设计的历史记录，所引模块已删",
+   "expires_at": "2027-02-20"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-10-12-y0b-5-terminal-and-observability.md",
+   "line": 461,
+   "symbol": "apps/web/src/collab/local-cache-key.ts",
+   "reason": "Y0b-5 施工单历史记录（该模块已被 Y5 T14 整层退役删除）",
+   "expires_at": "2027-02-20"
+  },
+  {
+   "file": "docs/superpowers/plans/2026-10-12-y0b-5-terminal-and-observability.md",
+   "line": 549,
+   "symbol": "apps/web/src/collab/local-collab-cache.ts",
+   "reason": "Y0b-5 施工单历史记录（该模块已被 Y5 T14 整层退役删除）",
+   "expires_at": "2027-02-20"
   }
  ]
 }

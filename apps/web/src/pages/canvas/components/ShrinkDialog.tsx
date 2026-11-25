@@ -7,7 +7,7 @@ import { useMemo, useState } from 'react';
 import { Modal, message } from 'antd';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { getUndoManager } from '@/stores/canvasUndo';
-import { safeReload, getActiveCacheKey } from '@/stores/canvasCollabRuntime';
+import { safeReload } from '@/stores/canvasCollabRuntime';
 import { shrink, vacuum, type ShrinkBody, type ShrinkOutcome } from '@/api/collabApi';
 
 /** 残留超限占比阈值（vacuum 入口亮出判据——spec §4.4：residue>50%×limit 才值得全端重建） */
@@ -90,11 +90,11 @@ export function ShrinkDialog({ open, onClose, projectId }: { open: boolean; onCl
             onClose();
             // Y0b-5 T6 改道 safeReload('generation')——发起端善后统一走导出（标注旧代）→reload
             // 固定次序；未同步编辑在盘时落导出对话框不直接刷新。
-            // T6 质量修复 M1/M2：key+tag 调度时刻快照传入（与 consumeGenerationJump/4410 对称——
-            // 缺 key=purge 跳过；执行窗口内 session/store 可能已换,执行时不读现刻）
-            const generationCacheKey = getActiveCacheKey();
+            // T6 质量修复 M2：tag 调度时刻快照传入（与 consumeGenerationJump/4410 对称——执行窗口
+            // 内 store 可能已换,执行时不读现刻）。Y5 T14：generationCacheKey 参数随旧层退役删除
+            // （新层删除闸不看缓存键）。
             const generationTag = useCanvasStore.getState().pendingGenerationReload;
-            setTimeout(() => safeReload('generation', { generationCacheKey, generationTag }), VACUUM_RELOAD_MS);
+            setTimeout(() => safeReload('generation', { generationTag }), VACUUM_RELOAD_MS);
           } else {
             // skip-low-residue/中止三档/意外——DB 零变更，无需刷新
             message.warning(r.result === 'skip-low-residue' ? '残留不足，无需重建' : '暂不可重建，请稍后重试');

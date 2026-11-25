@@ -193,7 +193,7 @@ describe('Y0b-5 T6：applyLocalBackup——导入核（裁定 25⑷）', () => {
     expect(doc.getMap('nodes').size).toBe(0);
     expect(provider.forceSync).not.toHaveBeenCalled();
   });
-  it('LOCAL_BACKUP_MAX_BYTES 与 QUOTA_DEFAULTS.maxDocBytes 同源（T8 LOCAL_CACHE_MAX_DOC_BYTES 常量落地前以 QUOTA_DEFAULTS 表达）', () => {
+  it('LOCAL_BACKUP_MAX_BYTES 与 QUOTA_DEFAULTS.maxDocBytes 同源（Y5 T14：常量直引 @flowweb/shared）', () => {
     expect(LOCAL_BACKUP_MAX_BYTES).toBe(QUOTA_DEFAULTS.maxDocBytes);
   });
 });

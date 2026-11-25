@@ -3,8 +3,8 @@
 // close 4410 定时器入闸 + SyncBanner local-pending 档。
 // 装置承 canvasCollabRuntime.local.spec.ts 文件头（fake-indexeddb + FakeHocuspocusProvider +
 // 真 immediate 泵 + caseIds/seedSession/seedUpdates/seedCustom/dbExists）——本 spec 不 mock
-// '@/collab/local-yjs-store'（要读真 names 行）；purge 面 mock 挂点调用断言（真实行为归
-// local-cache-key.test）。
+// '@/collab/local-yjs-store' 的读面（要读真 names 行），只对 purgePidDbFamily 挂调用断言
+// （删除闸真实行为归 local-yjs-store.deletegate.spec）。
 import 'fake-indexeddb/auto';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
@@ -16,7 +16,6 @@ import {
 import { useCanvasStore, clearLocalPreviewAll } from './canvasStore';
 import * as runtime from './canvasCollabRuntime';
 import { buildYjsDbName, listNameRows, putSessionRow, type SessionRow } from '@/collab/local-yjs-store';
-import { purgePidCaches, purgeForeignCaches } from '@/collab/local-cache-key';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 import { _resetUnloadGuardForTest } from '@/utils/unloadGuard';
 import { resolveCanvasBanner } from '@/pages/canvas/components/SyncBanner';
@@ -26,12 +25,28 @@ vi.mock('@hocuspocus/provider', async () => {
   return { HocuspocusProvider: FakeHocuspocusProvider };
 });
 
-// 挂点调用断言（§三 镜像腿零 purge / §一 表收窄）——键合成保持真实实现。
-vi.mock('@/collab/local-cache-key', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/collab/local-cache-key')>()),
-  purgePidCaches: vi.fn().mockResolvedValue(undefined),
-  purgeForeignCaches: vi.fn().mockResolvedValue(undefined),
+/** §五 M1 注入缝：指定 custom 键读抛错（serverSV 仍成功）——验「单条 custom 读失败不连带
+ *  跳过投影」。默认空数组=直通（其余用例零扰动）。
+ *  Y5 T14：同处挂 purgePidDbFamily 调用断言（旧层两个 purge 面退役——
+ *  删除闸真实行为归 local-yjs-store.deletegate.spec；本 spec 只验 runtime 挂点）。 */
+const customHarness = vi.hoisted(() => ({
+  failReadKeys: [] as string[],
+  purgeCalls: [] as Array<[string, string, string]>,
 }));
+vi.mock('@/collab/local-yjs-store', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('@/collab/local-yjs-store')>();
+  return {
+    ...orig,
+    readCustom: async (persistence: Parameters<typeof orig.readCustom>[0], key: string) => {
+      if (customHarness.failReadKeys.includes(key)) throw new Error(`readCustom(${key}) failed (injected)`);
+      return orig.readCustom(persistence, key);
+    },
+    purgePidDbFamily: async (uid: string, pid: string, trigger: string) => {
+      customHarness.purgeCalls.push([uid, pid, trigger]);
+      return { deleted: 0, held: 0, blocked: 0 };
+    },
+  };
+});
 
 /** BroadcastChannel 假件注册表（bindReevaluateOnce 模块级一次挂——文件级可达，t25 harness 同款）。 */
 const bcHarness = vi.hoisted(() => ({
@@ -43,20 +58,6 @@ class HarnessBroadcastChannel {
   close() {}
   constructor() { bcHarness.instances.push(this); }
 }
-
-/** §五 M1 注入缝：指定 custom 键读抛错（serverSV 仍成功）——验「单条 custom 读失败不连带
- *  跳过投影」。默认空数组=直通（其余用例零扰动）。 */
-const customHarness = vi.hoisted(() => ({ failReadKeys: [] as string[] }));
-vi.mock('@/collab/local-yjs-store', async (importOriginal) => {
-  const orig = await importOriginal<typeof import('@/collab/local-yjs-store')>();
-  return {
-    ...orig,
-    readCustom: async (persistence: Parameters<typeof orig.readCustom>[0], key: string) => {
-      if (customHarness.failReadKeys.includes(key)) throw new Error(`readCustom(${key}) failed (injected)`);
-      return orig.readCustom(persistence, key);
-    },
-  };
-});
 
 const lastInstance = () => (HocuspocusProvider as any).instances.at(-1) as any;
 const reloadSpy = vi.fn();
@@ -200,8 +201,7 @@ beforeEach(() => {
   clearLocalPreviewAll();
   persistSpy.mockClear();
   reloadSpy.mockClear();
-  vi.mocked(purgePidCaches).mockClear();
-  vi.mocked(purgeForeignCaches).mockClear();
+  customHarness.purgeCalls.length = 0;
   localStorage.clear();
   vi.stubGlobal('navigator', {
     ...navigator,
@@ -226,7 +226,7 @@ afterEach(async () => {
 
 // ══════════ ①授权中断桶（验收 12）：session-expired 留库不置 diverged 不删库 ══════════
 describe('T12 四桶：授权中断桶', () => {
-  it('session-expired → 库在 + names.hold 仍 false + canvasDiverged false + purgePidCaches 零调用', async () => {
+  it('session-expired → 库在 + names.hold 仍 false + canvasDiverged false + purgePidDbFamily 零调用', async () => {
     const ids = caseIds('u-b1', 'p-b1', 'h-b1');
     await enterLocal(ids);
     expect(useCanvasStore.getState().hydration).toBe('local');   // 前置锚
@@ -238,7 +238,7 @@ describe('T12 四桶：授权中断桶', () => {
     expect(await dbExists(ids.dbName)).toBe(true);
     expect((await readNameRow(ids.dbName))?.hold).toBe(false);
     expect(useCanvasStore.getState().canvasDiverged).toBe(false);
-    expect(vi.mocked(purgePidCaches)).not.toHaveBeenCalled();
+    expect(customHarness.purgeCalls).toHaveLength(0);
   });
 });
 
@@ -254,7 +254,7 @@ describe('T12 四桶：版本换代桶（authFailed 面）', () => {
     expect(await dbExists(ids.dbName)).toBe(true);
     expect(useCanvasStore.getState().canvasDiverged).toBe(true);
     expect(diagReasons()).toContain('local-hold');
-    expect(vi.mocked(purgePidCaches)).not.toHaveBeenCalled();
+    expect(customHarness.purgeCalls).toHaveLength(0);
   });
 });
 
@@ -269,7 +269,7 @@ describe('T12 四桶：版本换代桶（close 4406 面）', () => {
     await pumpUntilTrue(async () => (await readNameRow(ids.dbName))?.hold === true, '4406 hold 行未写入');
 
     expect(await dbExists(ids.dbName)).toBe(true);
-    expect(vi.mocked(purgePidCaches)).not.toHaveBeenCalled();
+    expect(customHarness.purgeCalls).toHaveLength(0);
     expect(localStorage.getItem('collab:history-id')).toBeNull();   // ②清 h 仍做（防全项目锁死）
   });
 });
@@ -317,18 +317,18 @@ describe('T12 镜像腿：只拆会话不删库', () => {
     recv.onmessage!({ data: { type: 'collab-recovery', pid: ids.pid, kind: 'history-bump' } });
     await pumpImmediate(8);
     expect(localStorage.getItem('collab:history-id')).toBeNull();
-    expect(vi.mocked(purgePidCaches)).not.toHaveBeenCalled();
+    expect(customHarness.purgeCalls).toHaveLength(0);
 
     recv.onmessage!({ data: { type: 'collab-recovery', pid: ids.pid, kind: 'recovery-accepted' } });
     await pumpImmediate(8);
-    expect(vi.mocked(purgePidCaches)).not.toHaveBeenCalled();
+    expect(customHarness.purgeCalls).toHaveLength(0);
     expect(await dbExists(ids.dbName)).toBe(true);
   });
 });
 
 // ══════════ ⑦acceptServerRestored：导出为 0（构包 null）→ 不 purge、库在 ══════════
 describe('T12 acceptServerRestoredRecovery 导出闸', () => {
-  it('buildDraftEnvelope=null（零节点）⇒ exported=0 ⇒ purgePidCaches 零调用 + 库在', async () => {
+  it('buildDraftEnvelope=null（零节点）⇒ exported=0 ⇒ purgePidDbFamily 零调用 + 库在', async () => {
     const ids = caseIds('u-b7', 'p-b7', 'h-b7');
     localStorage.setItem('collab:history-id', ids.token);
     await seedSession(ids.uid);
@@ -345,14 +345,14 @@ describe('T12 acceptServerRestoredRecovery 导出闸', () => {
     await pumpImmediate(6);
 
     expect(ok).toBe(true);
-    expect(vi.mocked(purgePidCaches)).not.toHaveBeenCalled();   // 导出文件未生成 ⇒ 不删
+    expect(customHarness.purgeCalls).toHaveLength(0);   // 导出文件未生成 ⇒ 不删
     expect(await dbExists(ids.dbName)).toBe(true);
   });
 });
 
 // ══════════ ⑧无差分零动作（T12 不写 hold；删除权归 T13 删除闸）══════════
 describe('T12 四桶：无差分零动作', () => {
-  it('差分空 + schema-outdated → hold 仍 false + purgePidCaches 零调用', async () => {
+  it('差分空 + schema-outdated → hold 仍 false + purgePidDbFamily 零调用', async () => {
     const ids = caseIds('u-b8', 'p-b8', 'h-b8');
     await enterLocal(ids, { withDiff: false });
     expect(runtime.hasUnsyncedCanvasChanges()).toBe(false);   // 前置锚：差分空
@@ -361,7 +361,7 @@ describe('T12 四桶：无差分零动作', () => {
     await pumpImmediate(10);
 
     expect((await readNameRow(ids.dbName))?.hold).toBe(false);   // T12 无差分零动作
-    expect(vi.mocked(purgePidCaches)).not.toHaveBeenCalled();
+    expect(customHarness.purgeCalls).toHaveLength(0);
   });
 });
 
@@ -404,5 +404,80 @@ describe('T12 M1：custom 单键读失败不吞投影', () => {
     expect(useCanvasStore.getState().hydration).toBe('failed');
     expect(useCanvasStore.getState().nodes.map((n: any) => n.id)).toContain('n-m1');
     expect(useCanvasStore.getState().collabReadOnly).toBe(true);
+  });
+});
+
+// ══════════ ⑪无读权终态四成员真删（Y5 T14 自旧 cache.spec 迁入）：purgePidDbFamily 调用面 ══════════
+// 旧层全族 purge 的正向断言（forbidden/not-found/team-disbanded/project-erased ⇒ 真 purge）随
+// 旧层退役迁入本文件——语义不变：四成员=真无读权，terminal 面必须触发整族删除动作（trigger=
+// 'purge-family'；实际删不删归删除闸——有差分/diverged ⇒ hold）。
+describe('T14 无读权终态四成员：purgePidDbFamily 调用（trigger=purge-family）', () => {
+  const expectPurge = (uid: string, pid: string): void => {
+    expect(customHarness.purgeCalls).toContainEqual([uid, pid, 'purge-family']);
+  };
+
+  it('authFailed forbidden（无读权终态）⇒ purgePidDbFamily(viewerUid,pid) 且无导出禁 reload', async () => {
+    const ids = caseIds('u-b9', 'p-b9', 'h-b9');
+    await enterLocal(ids);
+    lastInstance().emit('authenticationFailed', { reason: CollabAuthReason.FORBIDDEN });
+    await pumpImmediate(6);
+    expectPurge(ids.uid, ids.pid);
+    expect(reloadSpy).not.toHaveBeenCalled();
+  });
+
+  it('authFailed not-found ⇒ purgePidDbFamily；session-expired/版本族 ⇒ 零调用（T12 四桶收窄）', async () => {
+    const ids = caseIds('u-b10', 'p-b10', 'h-b10');
+    await enterLocal(ids);
+    const p = lastInstance();
+    p.emit('authenticationFailed', { reason: 'not-found' });
+    await pumpImmediate(6);
+    expectPurge(ids.uid, ids.pid);
+
+    for (const reason of ['session-expired', 'schema-outdated', 'client-version-missing', 'client-version-invalid']) {
+      customHarness.purgeCalls.length = 0;
+      p.emit('authenticationFailed', { reason });
+      await pumpImmediate(6);
+      expect(customHarness.purgeCalls, `reason=${reason}`).toHaveLength(0);
+    }
+  });
+
+  it('close (1000, "team disbanded")（gateway 裸字面量——T6 升常量）⇒ purgePidDbFamily', async () => {
+    const ids = caseIds('u-b11', 'p-b11', 'h-b11');
+    await enterLocal(ids);
+    lastInstance().emit('close', { event: { code: 1000, reason: 'team disbanded' } });
+    await pumpImmediate(6);
+    expectPurge(ids.uid, ids.pid);
+  });
+
+  it('close 4414 project-erased ⇒ purgePidDbFamily + wsAuthNotice terminal（不自动重连）', async () => {
+    const ids = caseIds('u-b12', 'p-b12', 'h-b12');
+    await enterLocal(ids);
+    lastInstance().emit('close', { event: { code: 4414, reason: 'project-erased' } });
+    await pumpImmediate(6);
+    expectPurge(ids.uid, ids.pid);
+    expect(useCanvasStore.getState().wsAuthNotice).toMatchObject({ reason: 'project-erased', terminal: true });
+  });
+
+  it('close 4404 doc-over-quota / 1009 message-too-big ⇒ 零调用（仍有读权/内容终态）', async () => {
+    const ids = caseIds('u-b13', 'p-b13', 'h-b13');
+    await enterLocal(ids);
+    const p = lastInstance();
+    p.emit('close', { event: { code: 4404, reason: 'doc-over-quota' } });
+    await pumpImmediate(6);
+    expect(customHarness.purgeCalls).toHaveLength(0);
+    customHarness.purgeCalls.length = 0;
+    p.emit('close', { event: { code: 1009, reason: '' } });
+    await pumpImmediate(6);
+    expect(customHarness.purgeCalls).toHaveLength(0);
+  });
+
+  it('4406 client-outdated + 无差分 ⇒ purgePidDbFamily(uid,pid,trigger=purge-family)（旧层全族 purge 的现役等价挂点）', async () => {
+    const ids = caseIds('u-b14', 'p-b14', 'h-b14');
+    await enterLocal(ids, { withDiff: false });   // 差分空 ⇒ hold 不命中 ⇒ 走删除动作
+    expect(runtime.hasUnsyncedCanvasChanges()).toBe(false);
+    vi.stubGlobal('fetch', vi.fn(async () => ({ json: async () => ({ collabProtocolVersion: `b14-${Math.random()}`, reason: '' }) })));
+    lastInstance().emit('close', { event: { code: 4406, reason: CLIENT_OUTDATED_REASON } });
+    await pumpImmediate(12);
+    expectPurge(ids.uid, ids.pid);
   });
 });

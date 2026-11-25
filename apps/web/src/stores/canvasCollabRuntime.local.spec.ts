@@ -19,12 +19,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as Y from 'yjs';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import { IndexeddbPersistence } from 'y-indexeddb';
-import { CANVAS_DOC_SCHEMA_VERSION } from '@flowweb/shared';
+import { CANVAS_DOC_SCHEMA_VERSION, QUOTA_DEFAULTS } from '@flowweb/shared';
 import { useCanvasStore, clearLocalPreviewAll } from './canvasStore';
 import { canEdit, canExecute } from './syncStatus';
 import * as runtime from './canvasCollabRuntime';
 import { Origin, getUndoManager } from './canvasUndo';
-import { LOCAL_CACHE_MAX_DOC_BYTES } from '@/collab/local-collab-cache';
 import { buildYjsDbName, isDbNameBannedThisSession, putSessionRow, type SessionRow } from '@/collab/local-yjs-store';
 import { getRecentCollabDiag, _resetCollabDiagForTest } from '@/utils/collabDiagnostics';
 import { _resetUnloadGuardForTest } from '@/utils/unloadGuard';
@@ -92,8 +91,8 @@ const nextImmediate = () => new Promise<void>((resolve) => { realImmediate(() =>
 async function pumpImmediate(turns = 1): Promise<void> {
   for (let i = 0; i < turns; i += 1) await nextImmediate();
 }
-/** 单文档闸（= QUOTA_DEFAULTS.maxDocBytes；local spec 内做超闸语料用，从策略模块同源引）。 */
-const LOCAL_CACHE_MAX_BYTES_FOR_TEST = LOCAL_CACHE_MAX_DOC_BYTES;
+/** 单文档闸（= QUOTA_DEFAULTS.maxDocBytes；local spec 内做超闸语料用，Y5 T14 起直引 shared）。 */
+const LOCAL_CACHE_MAX_BYTES_FOR_TEST = QUOTA_DEFAULTS.maxDocBytes;
 async function until(pred: () => boolean, label: string): Promise<void> {
   const deadline = Date.now() + 4_000;
   while (!pred()) {
@@ -606,7 +605,7 @@ describe('T10 I3：boot 后撤销栈与能力位', () => {
     expect(useCanvasStore.getState().localCacheReady).toBe(true);
   });
 
-  it('I3 尺寸闸：doc 编码 > LOCAL_CACHE_MAX_DOC_BYTES ⇒ localCacheReady=false（超闸=「太大没缓存」，与 diff 无关）', async () => {
+  it('I3 尺寸闸：doc 编码 > QUOTA_DEFAULTS.maxDocBytes ⇒ localCacheReady=false（超闸=「太大没缓存」，与 diff 无关）', async () => {
     const ids = caseIds('u-i3-big', 'p-i3-big', 'h-i3-big');
     localStorage.setItem('collab:history-id', ids.token);
     await seedSession(ids.uid);
@@ -1018,6 +1017,8 @@ describe('T11 ⑥新层字节闸', () => {
     d.transact(() => { d.getMap('m').delete('t11-big'); }, harness.persistence);
     await vi.advanceTimersByTimeAsync(5_100);
     expect(useCanvasStore.getState().canvasOversized).toBe(false);   // 回落恢复
+    // Y5 T14：旧层 onFlushed 删除后本分支是能力位唯一恢复点——漏 localCacheReady 会让降级永久粘住
+    expect(useCanvasStore.getState().localCacheReady).toBe(true);
   }, 60_000);
 
   it('无本地文档库的会话（cacheDisabled）不进闸：大 doc 不置 oversized、不发降级遥测', async () => {
@@ -1041,5 +1042,31 @@ describe('T11 ⑥新层字节闸', () => {
     expect(useCanvasStore.getState().localCacheReady).toBe(false);
     const after = getRecentCollabDiag().filter((e) => e.type === 'ws_status' && (e.detail as any)?.reason === 'local-cache-degraded').length;
     expect(after).toBe(before);   // 零新增降级遥测
+  }, 60_000);
+});
+
+// ══════════ T14（自 t8.spec 迁入）：docBytes 遥测单写点=runDocSizeGate（E33 的 E26 重建触发源） ══════════
+describe('T14 docBytes 遥测（runDocSizeGate）', () => {
+  it('本地编辑后 5s 节律上送 ws_status.docBytes=现 doc 编码字节；无新 update 的后续 tick 不重发（字节面变化才发）', async () => {
+    const ids = caseIds('u-t14-bytes', 'p-t14-bytes', 'h-t14-bytes');
+    localStorage.setItem('collab:history-id', ids.token);
+    await seedSession(ids.uid);
+    const update = snapshotOf((d) => { d.getMap('nodes').set('n-t14b', seedNode('b')); });
+    await seedUpdates(ids.dbName, [update]);
+    await seedCustom(ids.dbName, { writeGrant: 'read-write', serverSV: svBufferOf(update) });
+
+    await runtime.initCollabLocal(ids.pid, { ...ids.meta, name: 'X', teamId: null });
+    expect(useCanvasStore.getState().hydration).toBe('local');
+
+    const d = runtime.getDoc()!;
+    d.transact(() => { d.getMap('m').set('t14-bytes', 'x'.repeat(1024)); }, Origin.LocalUser);
+    await vi.advanceTimersByTimeAsync(5_100);   // 5s syncLagTimer=测量节律
+    const events = () => getRecentCollabDiag()
+      .filter((e) => e.type === 'ws_status' && typeof (e.detail as any)?.docBytes === 'number');
+    expect(events().length).toBe(1);
+    expect((events()[0]!.detail as any).docBytes).toBe(Y.encodeStateAsUpdate(runtime.getDoc()!).byteLength);
+
+    await vi.advanceTimersByTimeAsync(10_200);   // 两个无新 update 的 tick——去重零重发
+    expect(events().length).toBe(1);
   }, 60_000);
 });
